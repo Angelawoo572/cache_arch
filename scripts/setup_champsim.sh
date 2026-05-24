@@ -1,175 +1,170 @@
 #!/usr/bin/env bash
-# setup_champsim.sh -- VERSION 2 (fixes vcpkg bootstrap)
+# setup_champsim.sh
+# Prepare the repo layout used by this project:
+#   external/ChampSim
+#   external/ChampSim-ML
+#   traces/
 #
-# What was wrong before:
-#   - We did 'git submodule update --init --recursive' but never bootstrapped vcpkg
-#     or ran 'vcpkg install'. Modern ChampSim needs fmt, nlohmann-json, CLI11
-#     installed via vcpkg before config.sh / make work. Without them, you get
-#     'fmt/core.h: No such file or directory' and 'core_inst.inc: No such file'.
-#   - The 'cc1plus: error: to generate dependencies you must specify either -M
-#     or -MM' lines are a known harmless make warning during parallel dep tracking;
-#     ignore them. The real errors are the 'No such file' ones at the end.
-#
-# This script does:
-#   1. Install OS packages (g++, cmake, curl, etc.)
-#   2. Clone ChampSim (main fork)
-#   3. Bootstrap vcpkg and install fmt + nlohmann-json + CLI11 + lzma + zlib + catch2
-#   4. ./config.sh + make
-#   5. Also clone Quangmire/ChampSim-ML (for the Colab -> ChampSim prefetch path)
-#   6. Download 5 DPC-3 traces
-#   7. Smoke test
-#
-# Run from any empty working directory. Creates ./ChampSim, ./ChampSim-ML, ./traces.
+# Run from the cache_arch repo root:
+#   bash scripts/setup_champsim.sh
 
 set -euo pipefail
 
 WORKDIR="$(pwd)"
-echo "[setup] working directory: $WORKDIR"
+EXT_DIR="$WORKDIR/external"
+CHAMP="$EXT_DIR/ChampSim"
+ML_DIR="$EXT_DIR/ChampSim-ML"
+TRACE_DIR="$WORKDIR/traces"
 
-# ---------- 1. OS packages ----------
-echo "[setup] installing system packages"
+echo "[setup] working directory: $WORKDIR"
+mkdir -p "$EXT_DIR" "$TRACE_DIR"
+
+# ---------- 1. OS packages, when apt is available ----------
 if command -v apt-get >/dev/null 2>&1; then
+  echo "[setup] apt-get detected; installing build packages if needed"
   if [ "$(id -u)" -eq 0 ]; then SUDO="" ; else SUDO="sudo"; fi
   $SUDO apt-get update -y
   $SUDO apt-get install -y --no-install-recommends \
     build-essential cmake ninja-build pkg-config zip unzip curl wget \
     git python3 python3-pip xz-utils zstd ca-certificates tar
+else
+  echo "[setup] apt-get not available; assuming compiler/cmake/git/wget are already installed"
 fi
 
-# ---------- 2. ChampSim (main, current master) ----------
-if [ ! -d "$WORKDIR/ChampSim" ]; then
-  echo "[setup] cloning ChampSim"
-  git clone https://github.com/ChampSim/ChampSim.git
+# ---------- 2. Initialize external repositories ----------
+# Preferred path: use git submodules recorded in .gitmodules.
+if [ -f "$WORKDIR/.gitmodules" ]; then
+  echo "[setup] initializing git submodules under external/"
+  git submodule update --init --recursive external/ChampSim external/ChampSim-ML || true
 fi
-cd "$WORKDIR/ChampSim"
+
+# Fallback path for machines where submodules were not added yet.
+if [ ! -d "$CHAMP/.git" ]; then
+  echo "[setup] external/ChampSim missing; cloning official ChampSim fallback"
+  rm -rf "$CHAMP"
+  git clone --recursive https://github.com/ChampSim/ChampSim.git "$CHAMP"
+fi
+
+if [ ! -d "$ML_DIR/.git" ]; then
+  echo "[setup] external/ChampSim-ML missing; cloning Quangmire fallback"
+  rm -rf "$ML_DIR"
+  git clone --recursive https://github.com/Quangmire/ChampSim.git "$ML_DIR"
+fi
+
+# Make sure nested submodules such as vcpkg exist.
+cd "$CHAMP"
 git submodule update --init --recursive
 
 # ---------- 3. Bootstrap + install C++ dependencies via vcpkg ----------
-# THIS WAS THE STEP MISSING IN V1.
-echo "[setup] bootstrapping vcpkg (one-time, ~1 minute)"
-if [ ! -x vcpkg/vcpkg ]; then
-  # Primary path: download pre-built binary from GitHub releases.
-  if ! ./vcpkg/bootstrap-vcpkg.sh -disableMetrics 2>&1; then
-    echo "[warn] vcpkg pre-built download blocked. Trying source build..."
-    # If GitHub release CDN is blocked (corporate firewall etc.), build from source.
-    pushd vcpkg
-    rm -f vcpkg vcpkg.part
-    # The bootstrap script also supports building from source by removing pre-built tool.
-    VCPKG_USE_SYSTEM_BINARIES=1 ./bootstrap-vcpkg.sh -disableMetrics || {
-      echo "[error] vcpkg bootstrap failed both ways."
-      echo "[hint] If you're on a restricted network, ask sysadmin to allow:"
-      echo "       github.com/microsoft/vcpkg-tool/releases/"
-      echo "[hint] Or manually install fmt, nlohmann-json, cli11 system-wide and skip vcpkg."
-      exit 4
+if [ -d "$CHAMP/vcpkg" ]; then
+  echo "[setup] bootstrapping vcpkg"
+  if [ ! -x "$CHAMP/vcpkg/vcpkg" ]; then
+    "$CHAMP/vcpkg/bootstrap-vcpkg.sh" -disableMetrics || {
+      echo "[warn] normal vcpkg bootstrap failed; trying source/system-binaries path"
+      (cd "$CHAMP/vcpkg" && VCPKG_USE_SYSTEM_BINARIES=1 ./bootstrap-vcpkg.sh -disableMetrics)
     }
-    popd
   fi
+
+  echo "[setup] installing ChampSim C++ dependencies through vcpkg"
+  "$CHAMP/vcpkg/vcpkg" install --x-manifest-root="$CHAMP" --x-install-root="$CHAMP/vcpkg_installed"
+else
+  echo "[warn] $CHAMP/vcpkg not found; skipping vcpkg bootstrap"
 fi
 
-echo "[setup] installing C++ deps via vcpkg (~5--10 minutes the first time)"
-# ChampSim's vcpkg.json declares: fmt, nlohmann-json, cli11, catch2, liblzma, zlib.
-# `vcpkg install` with no args reads vcpkg.json automatically (manifest mode).
-./vcpkg/vcpkg install --x-manifest-root=. --x-install-root=./vcpkg_installed
-
-# ---------- 4. configure + build ----------
-echo "[setup] configure + make (this takes a few minutes)"
-./config.sh champsim_config.json
-# -j8 because ChampSim's Makefile occasionally races at -j=ncores;
-# the harmless 'cc1plus: error: to generate dependencies' lines are still expected.
-make -j8
-
-if [ ! -x bin/champsim ]; then
-  echo "[ERROR] ChampSim build failed -- bin/champsim missing. See log above."
+# ---------- 4. Configure + build default ChampSim binary ----------
+echo "[setup] configure + make default ChampSim binary"
+cd "$CHAMP"
+python3 ./config.sh champsim_config.json > /tmp/config_champsim_default.log 2>&1 || {
+  echo "[error] config.sh failed. See /tmp/config_champsim_default.log"
+  tail -40 /tmp/config_champsim_default.log
   exit 2
-fi
-echo "[setup] ChampSim built: $WORKDIR/ChampSim/bin/champsim"
+}
 
-# ---------- 5. Also clone Quangmire ML-ChampSim (for the NN prefetcher demo) ----------
-cd "$WORKDIR"
-if [ ! -d "$WORKDIR/ChampSim-ML" ]; then
-  echo "[setup] cloning Quangmire/ChampSim-ML (for the Colab MLP demo path)"
-  git clone https://github.com/Quangmire/ChampSim.git ChampSim-ML
+if ! make -j8 > /tmp/build_champsim_default.log 2>&1; then
+  echo "[error] make failed. Last 80 lines:"
+  tail -80 /tmp/build_champsim_default.log
+  echo "[hint] full log: /tmp/build_champsim_default.log"
+  exit 3
 fi
-# Note: We do NOT build ChampSim-ML now. It has its own (older) build flow.
-# When you want to use it for the MLP demo:
-#   cd ChampSim-ML
-#   ./ml_prefetch_sim.py run path/to/trace.xz --prefetch prefetch_list.txt
-# We test that path at the very end (Section 7).
 
-# ---------- 6. Download DPC-3 traces ----------
-TRACE_DIR="$WORKDIR/traces"
-mkdir -p "$TRACE_DIR"
+if [ ! -x "$CHAMP/bin/champsim" ]; then
+  echo "[error] $CHAMP/bin/champsim missing after build"
+  exit 4
+fi
+
+echo "[setup] default ChampSim built: $CHAMP/bin/champsim"
+
+# ---------- 5. Download DPC-3 traces if missing ----------
 cd "$TRACE_DIR"
-
 DPC3_BASE="https://dpc3.compas.cs.stonybrook.edu/champsim-traces/speccpu"
 declare -a TRACES=(
-  "619.lbm_s-4268B"        # streaming
-  "605.mcf_s-994B"         # pointer chase
-  "620.omnetpp_s-874B"     # indirect
-  "602.gcc_s-734B"         # branch / control
-  "623.xalancbmk_s-700B"   # sparse C++
+  "619.lbm_s-4268B"
+  "605.mcf_s-994B"
+  "620.omnetpp_s-874B"
+  "602.gcc_s-734B"
+  "623.xalancbmk_s-700B"
 )
 declare -A STATUS
 
 for t in "${TRACES[@]}"; do
   if [ -f "$TRACE_DIR/${t}.champsimtrace.xz" ]; then
-    echo "[trace] $t already cached"; STATUS[$t]="cached"; continue
+    echo "[trace] $t already cached"
+    STATUS[$t]="cached"
+    continue
   fi
-  echo "[trace] downloading $t (typical size ~150 MB)"
-  if wget --quiet --show-progress \
-       "${DPC3_BASE}/${t}.champsimtrace.xz" \
-       -O "${t}.champsimtrace.xz"; then
+
+  echo "[trace] downloading $t"
+  if wget --quiet --show-progress "${DPC3_BASE}/${t}.champsimtrace.xz" -O "${t}.champsimtrace.xz"; then
     STATUS[$t]="downloaded"
   else
-    echo "[warn] DPC-3 mirror failed for $t. Manual fallback:"
-    echo "       Zenodo: https://zenodo.org/records/10960004"
+    echo "[warn] failed to download $t from DPC-3 mirror"
+    echo "       Manual fallback: https://zenodo.org/records/10960004"
     STATUS[$t]="MISSING"
     rm -f "${t}.champsimtrace.xz"
   fi
 done
 
-# ---------- 7. Smoke test ----------
-cd "$WORKDIR/ChampSim"
-echo
-echo "[smoke-test] running baseline LRU + no prefetch on the first available trace"
+# ---------- 6. Smoke test first available trace ----------
 FIRST_OK=""
 for t in "${TRACES[@]}"; do
-  if [ -f "$TRACE_DIR/${t}.champsimtrace.xz" ]; then FIRST_OK="$t"; break; fi
+  if [ -f "$TRACE_DIR/${t}.champsimtrace.xz" ]; then
+    FIRST_OK="$t"
+    break
+  fi
 done
 
 if [ -n "$FIRST_OK" ]; then
-  echo "[smoke-test] trace: $FIRST_OK"
-  bin/champsim \
+  echo "[smoke-test] running default ChampSim on $FIRST_OK"
+  "$CHAMP/bin/champsim" \
     --warmup-instructions 1000000 \
     --simulation-instructions 5000000 \
     "$TRACE_DIR/${FIRST_OK}.champsimtrace.xz" \
     > "$WORKDIR/smoke_test.log" 2>&1 || {
-      echo "[smoke-test] FAILED. Last 30 lines of log:"
-      tail -30 "$WORKDIR/smoke_test.log"
-      exit 3
+      echo "[smoke-test] FAILED. Last 40 lines:"
+      tail -40 "$WORKDIR/smoke_test.log"
+      exit 5
     }
-  echo "[smoke-test] PASS. Key lines:"
+  echo "[smoke-test] PASS"
   grep -E "cumulative IPC|LLC TOTAL" "$WORKDIR/smoke_test.log" || tail -10 "$WORKDIR/smoke_test.log"
 else
-  echo "[smoke-test] SKIPPED: no trace was downloaded successfully."
+  echo "[smoke-test] skipped because no trace is available"
 fi
 
-# ---------- 8. report ----------
 echo
 echo "================================================================"
-echo "[setup] DONE."
-echo
-echo "  ChampSim binary  : $WORKDIR/ChampSim/bin/champsim"
-echo "  ChampSim-ML repo : $WORKDIR/ChampSim-ML/  (for the MLP demo path)"
-echo "  Traces dir       : $TRACE_DIR"
+echo "[setup] DONE"
+echo "  ChampSim      : $CHAMP"
+echo "  ChampSim-ML   : $ML_DIR"
+echo "  Traces        : $TRACE_DIR"
 echo
 echo "[setup] trace status:"
 for t in "${TRACES[@]}"; do
   echo "  $t : ${STATUS[$t]:-unknown}"
 done
 echo
-echo "Next steps:"
-echo "  bash run_baseline.sh     # baseline IPC on all 5 traces (~10 min)"
-echo "  bash run_upper_bound.sh  # 4 configs x 5 traces, upper-bound chart data"
-echo "  bash run_mlp_demo.sh     # feed Colab-generated prefetch_list.txt to ChampSim"
+echo "Next commands:"
+echo "  bash scripts/install_and_build.sh"
+echo "  bash scripts/run_baseline.sh"
+echo "  bash scripts/install_bypass.sh"
+echo "  bash scripts/run_bypass.sh"
 echo "================================================================"
