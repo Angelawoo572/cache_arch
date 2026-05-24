@@ -12,7 +12,7 @@
 set -uo pipefail
 
 WORKDIR="$(pwd)"
-CHAMP="$WORKDIR/ChampSim"
+CHAMP="$WORKDIR/external/ChampSim"
 [ -d "$CHAMP" ] || { echo "[error] $CHAMP not found"; exit 1; }
 
 mkdir -p "$CHAMP/replacement/lru_bypass"
@@ -156,10 +156,6 @@ long lru_bypass::find_victim(uint32_t /*triggering_cpu*/,
 
     if (bypass_pcs_.count(pc) > 0) {
       ++bypassed_;
-
-      // Bypass sentinel used by this experimental script.
-      // If your ChampSim tree does not support bypass sentinel,
-      // the build will still pass, but runtime may need cache-fill support.
       return NUM_WAY;
     }
   }
@@ -190,9 +186,6 @@ void lru_bypass::replacement_cache_fill(uint32_t /*triggering_cpu*/,
                                         champsim::address /*victim_addr*/,
                                         access_type /*type*/)
 {
-  // Same policy as official LRU:
-  // Mark filled way as most recently used.
-  // If way == NUM_WAY, this was a bypass sentinel, so touch() ignores it.
   touch(set, way);
 }
 
@@ -205,8 +198,6 @@ void lru_bypass::update_replacement_state(uint32_t /*triggering_cpu*/,
                                           access_type type,
                                           uint8_t hit)
 {
-  // Same policy as official LRU:
-  // update on read hits, skip writeback hits.
   if (hit && access_type{type} != access_type::WRITE) {
     touch(set, way);
   }
