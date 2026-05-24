@@ -15,7 +15,7 @@ WARMUP="${WARMUP:-1000000}"
 SIM="${SIM:-5000000}"
 
 WORKDIR="$(pwd)"
-CHAMP="$WORKDIR/ChampSim/bin/champsim"
+CHAMP="$WORKDIR/external/ChampSim/bin/champsim"
 TRACE_DIR="$WORKDIR/traces"
 OUT_DIR="$WORKDIR/results"
 LOG_DIR="$WORKDIR/results/logs"
@@ -41,19 +41,16 @@ N=${#TRACES[@]}
 i=0
 T0=$(date +%s)
 
-# Heartbeat: while ChampSim runs in background, print "..still alive" every 30 s.
 run_with_heartbeat () {
   local cmd_log="$1"
   local trace_name="$2"
   shift 2
-  # Start ChampSim in background, redirect output to log
   "$@" > "$cmd_log" 2>&1 &
   local pid=$!
   local seconds=0
   while kill -0 "$pid" 2>/dev/null; do
     sleep 30
     seconds=$((seconds + 30))
-    # Read latest simulation-time line from the log to show progress
     local last=$(tail -1 "$cmd_log" 2>/dev/null | head -c 200)
     printf "  ...still running %s (elapsed %ds inside ChampSim)  last: %s\n" \
            "$trace_name" "$seconds" "${last:0:80}"
@@ -85,13 +82,9 @@ for t in "${TRACES[@]}"; do
     continue
   fi
 
-  # Parse robustly
   IPC=$(grep -E "cumulative IPC" "$LOG" | tail -1 | grep -oE "[0-9]+\.[0-9]+" | head -1)
-  # LLC line example: "cpu0->LLC TOTAL  ACCESS: 408882 HIT: 179888 MISS: 228994 MSHR_MERGE: 0"
-  # MPKI in modern ChampSim is on a separate line; if absent, compute it.
   LLC_MPKI=$(grep -E "LLC.*MPKI" "$LOG" | head -1 | grep -oE "[0-9]+\.[0-9]+" | head -1)
   if [ -z "$LLC_MPKI" ]; then
-    # Compute MPKI from MISS count
     MISS=$(grep -E "cpu0->LLC TOTAL" "$LOG" | head -1 | grep -oE "MISS:[ ]+[0-9]+" | grep -oE "[0-9]+")
     INSTR=$(grep "cumulative IPC" "$LOG" | tail -1 | grep -oE "instructions: [0-9]+" | grep -oE "[0-9]+")
     if [ -n "$MISS" ] && [ -n "$INSTR" ] && [ "$INSTR" -gt 0 ]; then
