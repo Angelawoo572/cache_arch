@@ -3,11 +3,6 @@
 #
 # 4 configs x 5 traces = 20 runs. Each ~1-3 min. Total ~40-60 minutes wall clock.
 # Builds 4 binaries first (~3 min total), then runs all configs.
-#
-# v3 changes vs. v2:
-#   - heartbeat output every 30 s during each ChampSim run
-#   - explicit progress counter (run i/20)
-#   - removes `set -e` so a single trace failure doesn't kill all subsequent runs
 
 set -uo pipefail
 
@@ -15,14 +10,14 @@ WARMUP="${WARMUP:-1000000}"
 SIM="${SIM:-5000000}"
 
 WORKDIR="$(pwd)"
-CHAMP_DIR="$WORKDIR/ChampSim"
+CHAMP_DIR="$WORKDIR/external/ChampSim"
 TRACE_DIR="$WORKDIR/traces"
 OUT_DIR="$WORKDIR/results"
 LOG_DIR="$WORKDIR/results/logs"
 mkdir -p "$OUT_DIR" "$LOG_DIR"
 
 if [ ! -d "$CHAMP_DIR" ]; then
-  echo "[error] ChampSim dir not found. Run setup_champsim.sh first."; exit 1
+  echo "[error] ChampSim dir not found at $CHAMP_DIR. Run setup_champsim.sh first."; exit 1
 fi
 
 declare -a TRACES=(
@@ -33,7 +28,6 @@ declare -a TRACES=(
   "623.xalancbmk_s-700B"
 )
 
-# ----- write 4 minimal JSON configs -----
 mkdir -p "$CHAMP_DIR/_cfg"
 
 cat > "$CHAMP_DIR/_cfg/cfg_lru.json" <<'JSON'
@@ -61,7 +55,6 @@ cat > "$CHAMP_DIR/_cfg/cfg_srrip_spp.json" <<'JSON'
 }
 JSON
 
-# ----- build helpers -----
 build_for_cfg () {
   local tag=$1
   local cfg_path=$2
@@ -138,7 +131,6 @@ run_for_cfg () {
   done
 }
 
-# ----- main -----
 T0=$(date +%s)
 
 echo "============================================"
