@@ -1,0 +1,253 @@
+\documentclass[10pt,aspectratio=169]{beamer}
+\usetheme{metropolis}
+\usepackage{booktabs}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,shapes,fit,backgrounds,calc}
+\usepackage{amsmath,amssymb}
+\usepackage{xcolor}
+
+\definecolor{accent}{HTML}{0066CC}
+\definecolor{accent2}{HTML}{CC3300}
+\definecolor{accent3}{HTML}{009933}
+\definecolor{lightgray}{HTML}{F0F0F0}
+
+\title{GRU Prefetcher: Controlled-Variable Feature Sweep}
+\subtitle{Per-NN-family mindset $-$ start with GRU}
+\author{[Your Name]}
+\institute{Advisor: [Boss Name]}
+\date{Update \#2}
+
+\begin{document}
+
+% =========================================================
+\begin{frame}
+  \titlepage
+\end{frame}
+
+% =========================================================
+\begin{frame}{Mindset Change}
+  \textbf{Old (last deck, slides 14--15):}
+  \begin{itemize}
+    \item Run 5 NN models on mcf; pick the best by validation accuracy.
+    \item Single end-to-end IPC number per model.
+  \end{itemize}
+
+  \vspace{0.6em}
+  \textbf{New (this deck):}
+  \begin{itemize}
+    \item For each NN family (GRU first; then CNN / RNN / Transformer / Perceptron / NeuTNN), \emph{change one thing at a time}.
+    \item Record per-variant accuracy / latency / IPC.
+    \item Look for which feature combinations actually help on which workloads.
+    \item Insights come from the sweep itself, not from a pre-decided goal.
+  \end{itemize}
+
+  \vspace{0.6em}
+  \textbf{Why GRU first} (paper-grounded):
+  \begin{itemize}\small
+    \item Liu, Tziantzioulis, Wentzlaff, MEMSYS 2023 (Princeton): LSTM $\to$ GRU saves $\sim$30\% MAC at equal IPC.
+    \item Sequence-capable (unlike Perceptron), simple (unlike Transformer).
+    \item d2l.ai chapter on GRU as reference implementation.
+  \end{itemize}
+\end{frame}
+
+% =========================================================
+\begin{frame}{Three Methodology Fixes vs.\ Prior Deck}
+  \begin{enumerate}
+    \item \textbf{Time-split train/val} (first 70\% / last 30\% of the dumped trace, in order). \\
+          \emph{Prior:} random 80/20 split $\Rightarrow$ training set saw future accesses (leakage).
+    \item \textbf{Cross-trace evaluation.} \\
+          Train on one trace (e.g.\ \texttt{605.mcf\_s}); evaluate IPC on a \emph{different} trace (e.g.\ \texttt{620.omnetpp\_s}). Tests generalization, not memorization.
+    \item \textbf{(page, offset) dual-head output (Voyager-style).} \\
+          \emph{Prior:} only predicted offset within the current page; jumping to a new page guaranteed a wasted prefetch.
+  \end{enumerate}
+
+  \vspace{0.6em}
+  \textbf{Real evaluation regime:}
+  \begin{itemize}\small
+    \item ChampSim \textbf{25M warmup + 25M simulation} per run. (Smoke runs were 1M+5M; DPC-3 maximum is 200M+500M $\approx$ 4.5~h per run, infeasible for a 25-cell sweep.)
+    \item No truncated CSV loads. Full trace dumps.
+  \end{itemize}
+\end{frame}
+
+% =========================================================
+\begin{frame}{The Sweep: 4 GRU Variants}
+  \textbf{Each variant adds exactly one feature vs.\ the previous one.}
+
+  \vspace{0.5em}
+  \begin{center}
+  \footnotesize
+  \begin{tabular}{lll}
+    \toprule
+    \textbf{Variant} & \textbf{Feature added} & \textbf{Question it answers} \\
+    \midrule
+    V1 & GRU over last 4 quantized deltas (base) & Can a pure sequence model predict next access? \\
+    V2 & + per-PC embedding (12-bit hash)         & Does knowing which load helps? \\
+    V3 & + page-hash embedding + page head        & Does Voyager's dual-head help? \\
+    V4 & + per-PC running miss\_rate, log-freq    & Do hardware counters add signal? \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.6em}
+  \textbf{Architecture is fixed across variants:}
+  \begin{itemize}\small
+    \item Embed delta ($257 \to 16$). GRU hidden = 64.
+    \item Concat extras $\to$ two linear heads (offset 64-way, page-hash 4096-way).
+    \item Cross-entropy loss = offset CE + page CE.
+    \item Optimizer: Adam, lr $=2\!\times\!10^{-3}$, 5 epochs, batch 512.
+  \end{itemize}
+\end{frame}
+
+% =========================================================
+\begin{frame}{Pipeline (cross-trace, no leakage)}
+  \begin{center}
+  \begin{tikzpicture}[
+      node distance=0.45cm,
+      box/.style={draw,rounded corners,minimum width=2.4cm,minimum height=0.7cm,font=\scriptsize,align=center},
+      off/.style ={fill=accent3!20},
+      on/.style  ={fill=accent2!20},
+      data/.style={fill=lightgray}]
+
+    % top row = train side
+    \node[box,data] (trA)  at (0,1.6)   {ChampSim trace A\\(\texttt{605.mcf\_s})};
+    \node[box,on]   (dumA) at (3.0,1.6) {dumper};
+    \node[box,data] (csvA) at (6.0,1.6) {access\_trace.A.csv};
+    \node[box,off]  (col)  at (9.0,1.6) {Colab\\GRU train\\(time-split)};
+
+    \draw[->] (trA)  -- (dumA);
+    \draw[->] (dumA) -- (csvA);
+    \draw[->] (csvA) -- (col);
+
+    % bottom row = test side
+    \node[box,data] (trB)  at (0,-0.6)   {ChampSim trace B\\(\texttt{620.omnetpp\_s})};
+    \node[box,on]   (dumB) at (3.0,-0.6) {dumper};
+    \node[box,data] (csvB) at (6.0,-0.6) {access\_trace.B.csv};
+    \node[box,off]  (inf)  at (9.0,-0.6) {Colab\\GRU inference};
+    \node[box,data] (pf)   at (12.0,-0.6){prefetch list B};
+
+    \draw[->] (trB)  -- (dumB);
+    \draw[->] (dumB) -- (csvB);
+    \draw[->] (csvB) -- (inf);
+    \draw[->] (col) to[bend right=12] node[right,font=\tiny]{trained weights} (inf);
+    \draw[->] (inf) -- (pf);
+
+    % replay row
+    \node[box,data] (trB2) at (3.0,-2.5) {ChampSim trace B (again)};
+    \node[box,on]   (rep)  at (6.0,-2.5) {replayer};
+    \node[box,data] (ipc)  at (9.0,-2.5) {IPC, MPKI};
+    \draw[->] (trB2) -- (rep);
+    \draw[->] (pf)   to[bend left=12] (rep);
+    \draw[->] (rep) -- (ipc);
+
+    \node[accent3,font=\scriptsize\bfseries] at (-1.7,1.6)  {TRAIN};
+    \node[accent3,font=\scriptsize\bfseries] at (-1.7,-0.6) {TEST};
+    \node[accent2,font=\scriptsize\bfseries] at (-1.7,-2.5) {REPLAY};
+  \end{tikzpicture}
+  \end{center}
+
+  \vspace{0.4em}
+  \footnotesize
+  \textbf{Key property}: the GRU never sees any sample from trace B during training. IPC measurement on B is a true generalization test.
+\end{frame}
+
+% =========================================================
+\begin{frame}{Results -- Validation Accuracy (TO FILL)}
+  \textbf{Offline accuracy on trace B (held out). Train trace = mcf, test trace = omnetpp.}
+
+  \vspace{0.5em}
+  \begin{center}
+  \footnotesize
+  \begin{tabular}{lrrrrr}
+    \toprule
+    \textbf{Variant} & \textbf{off\_acc} & \textbf{page\_acc} & \textbf{both\_acc} & \textbf{params} & \textbf{CPU inf $\mu$s} \\
+    \midrule
+    V1 (delta only)           & TBD & n/a & TBD & TBD & TBD \\
+    V2 (+ PC)                 & TBD & TBD & TBD & TBD & TBD \\
+    V3 (+ page, Voyager dual) & TBD & TBD & TBD & TBD & TBD \\
+    V4 (+ PC counter stats)   & TBD & TBD & TBD & TBD & TBD \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.5em}
+  \textbf{To be filled after running} \texttt{gru\_sweep\_cross\_trace.ipynb} \textbf{on Colab.}
+\end{frame}
+
+% =========================================================
+\begin{frame}{Results -- Real IPC (TO FILL)}
+  \textbf{ChampSim 25M warmup + 25M sim on test trace (omnetpp).}
+
+  \vspace{0.5em}
+  \begin{center}
+  \footnotesize
+  \begin{tabular}{lrrrr}
+    \toprule
+    \textbf{Variant} & \textbf{Baseline IPC} & \textbf{GRU IPC} & \textbf{Speedup} & \textbf{Prefetch trigger \%} \\
+    \midrule
+    V1 (delta only)           & TBD & TBD & TBD & TBD \\
+    V2 (+ PC)                 & TBD & TBD & TBD & TBD \\
+    V3 (+ page)               & TBD & TBD & TBD & TBD \\
+    V4 (+ PC stats)           & TBD & TBD & TBD & TBD \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.5em}
+  \textbf{What to look for in the delta between rows:}
+  \begin{itemize}\small
+    \item V1 $\to$ V2: does PC identity help?
+    \item V2 $\to$ V3: does the page head matter when next access jumps page?
+    \item V3 $\to$ V4: do running hardware counters add signal?
+    \item Any row that drops $\Rightarrow$ that feature is noise on this workload.
+  \end{itemize}
+\end{frame}
+
+% =========================================================
+\begin{frame}{Next: Same Sweep, Other NN Families}
+  \footnotesize
+  After GRU, repeat the controlled-variable methodology on:
+  \begin{center}
+  \begin{tabular}{p{2.0cm}p{11.5cm}}
+    \toprule
+    \textbf{Family} & \textbf{Why next, and what to vary} \\
+    \midrule
+    Perceptron  & Cheapest hardware. Sweep history depth, hash size, $\mu$arch counter inputs. Reference: Jim\'enez \&\ Lin 2001 hashed perceptron in ChampSim. \\
+    CNN         & 1-D conv over delta history. Sweep kernel width 2/3/5 and channel count. \\
+    Tiny LSTM   & Same as GRU but with extra cell gate -- check whether GRU's MAC saving is genuinely free. Princeton MEMSYS 2023 reports yes. \\
+    Transformer & Sweep $d_{\text{model}}$, number of heads, history window. Reference: Voyager 2021. \\
+    NeuTNN      & Last -- spike-timing-based, needs a different toolchain (Smith 2017, CMU NeuTNN 2025). \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+  \vspace{0.5em}
+  \textbf{Insight protocol} (same each family):
+  \begin{enumerate}\footnotesize
+    \item Define base model.
+    \item Sweep one input feature at a time (PC, page, counter, phase\ldots).
+    \item Record acc / latency / IPC for each variant on cross-trace evaluation.
+    \item Annotate every $\pm$ change in the table with a single-sentence hypothesis.
+    \item Compare across families: do CNN and GRU rank features the same way?
+  \end{enumerate}
+\end{frame}
+
+% =========================================================
+\begin{frame}{Cross-deck Continuity}
+  \textbf{What carries over from the previous deck (\texttt{slides.tex}, slides 14--15):}
+  \begin{itemize}\small
+    \item Bypass result on mcf: top-5 PC list $\Rightarrow$ +1.21\% IPC, $\sim$80\% bypass rate. Still the strongest single-mechanism result so far.
+    \item Slide-8 upper-bound sweep (LRU / +IP-stride / +SPP / SRRIP+SPP on 5 traces) remains the reference ceiling table.
+    \item Pipeline (trace\_dumper + list\_replayer + lru\_bypass C++ modules in modern ChampSim) is unchanged. New GRU work reuses it.
+  \end{itemize}
+
+  \vspace{0.6em}
+  \textbf{What this deck adds:}
+  \begin{itemize}\small
+    \item Proper train/test separation (cross-trace).
+    \item Voyager-style (page, offset) dual head.
+    \item Per-feature attribution table.
+    \item Template for repeating the sweep on the other NN families.
+  \end{itemize}
+\end{frame}
+
+\end{document}
