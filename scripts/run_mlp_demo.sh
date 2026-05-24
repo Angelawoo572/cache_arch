@@ -10,7 +10,7 @@
 set -uo pipefail
 
 WORKDIR="$(pwd)"
-ML_DIR="$WORKDIR/ChampSim-ML"
+ML_DIR="$WORKDIR/external/ChampSim-ML"
 TRACE_DIR="$WORKDIR/traces"
 OUT_DIR="$WORKDIR/results"
 mkdir -p "$OUT_DIR/mlp_demo"
@@ -38,14 +38,11 @@ fi
 
 cd "$ML_DIR"
 
-# ---- FIX: make Quangmire find our trace ----
-# run_champsim.sh expects traces in ./dpc3_traces/
 if [ ! -e "$ML_DIR/dpc3_traces" ]; then
   ln -s "$TRACE_DIR" "$ML_DIR/dpc3_traces"
   echo "[fix] symlinked $TRACE_DIR -> $ML_DIR/dpc3_traces"
 fi
 
-# ---- Build (if not already) ----
 BIN_TAG="bimodal-no-no-no-no-lru-1core"
 if [ ! -x "bin/${BIN_TAG}" ]; then
   echo "[build] one-time build (~3 min)"
@@ -57,19 +54,15 @@ if [ ! -x "bin/${BIN_TAG}" ]; then
   exit 2
 fi
 
-# ---- Run baseline (no prefetcher) ----
 echo
 echo "============================================================"
 echo "[run] baseline (no prefetch)  trace=$TRACE"
 echo "============================================================"
 BASE_LOG="$OUT_DIR/mlp_demo/baseline.${TRACE}.log"
 
-# Quangmire's run_champsim.sh signature: <binary> <n_warm_M> <n_sim_M> <trace>
-# n_warm and n_sim are in MILLIONS.
 echo "[cmd] ./run_champsim.sh $BIN_TAG 1 5 $TRACE"
 ./run_champsim.sh "$BIN_TAG" 1 5 "$TRACE" 2>&1 | tee "$BASE_LOG" | tail -25
 
-# Quangmire writes results to results_${N}M/${trace}-${binary}-${option}.txt
 RESULT_DIR="$ML_DIR/results_5M"
 BASE_RESULT_FILE="$RESULT_DIR/${TRACE}-${BIN_TAG}.txt"
 if [ ! -f "$BASE_RESULT_FILE" ]; then
@@ -77,7 +70,6 @@ if [ ! -f "$BASE_RESULT_FILE" ]; then
   ls "$RESULT_DIR" 2>&1 || true
 fi
 
-# ---- Run with NN prefetch list ----
 echo
 echo "============================================================"
 echo "[run] NN prefetch list ($PFETCH)  trace=$TRACE"
@@ -85,16 +77,13 @@ echo "============================================================"
 NN_LOG="$OUT_DIR/mlp_demo/nn.${TRACE}.log"
 
 if [ -f ./ml_prefetch_sim.py ]; then
-  # ml_prefetch_sim.py expects --prefetch FILE with format: instr_id  hex_addr
   ./ml_prefetch_sim.py run "$TR_FILE" --prefetch "$PFETCH" 2>&1 | tee "$NN_LOG" | tail -25
 else
   echo "[warn] ./ml_prefetch_sim.py not present in $ML_DIR. Skipping NN comparison."
   echo "[hint] cd $ML_DIR && git pull   # to refresh master"
 fi
 
-# ---- Parse and summarize ----
 parse_ipc () {
-  # Quangmire results files contain "CPU 0 cumulative IPC: <number>"
   grep -E "cumulative IPC" "$1" 2>/dev/null | tail -1 | grep -oE "[0-9]+\.[0-9]+" | head -1
 }
 
