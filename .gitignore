@@ -24,7 +24,7 @@ results/tmp/
 results/raw/
 results/generated/
 results/*.txt
-prefetch_list*.txt
+colab_prefetch_result/prefetch_list*.txt
 
 # keep small summary/artifact files that are useful to commit intentionally
 !results/README.md
