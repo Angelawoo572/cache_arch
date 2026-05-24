@@ -9,7 +9,7 @@
 set -uo pipefail
 
 WORKDIR="$(pwd)"
-CHAMP_BIN="$WORKDIR/ChampSim/bin/champsim.dumper"
+CHAMP_BIN="$WORKDIR/external/ChampSim/bin/champsim.dumper"
 TRACE_DIR="$WORKDIR/traces"
 OUT_DIR="$WORKDIR/results"
 mkdir -p "$OUT_DIR"
@@ -34,10 +34,8 @@ echo "[dump] warmup=$WARMUP sim=$SIM"
 echo "[dump] output csv: $DUMP_FILE"
 echo "[dump] run log:    $RUN_LOG"
 
-# The trace_dumper module reads TRACE_DUMP_PATH from the environment.
 export TRACE_DUMP_PATH="$DUMP_FILE"
 
-# Run with heartbeat
 "$CHAMP_BIN" \
   --warmup-instructions "$WARMUP" \
   --simulation-instructions "$SIM" \
