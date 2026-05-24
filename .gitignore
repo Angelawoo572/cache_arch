@@ -1,0 +1,29 @@
+# dependencies
+ChampSim/
+ChampSim-ML/
+
+# traces
+traces/
+*.champsimtrace.xz
+
+# generated
+results/access_trace*.csv
+results/*.log
+results/logs/
+
+# python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# editor
+.vscode/
+.DS_Store
+
+# keep summaries
+!results/baseline.csv
+!results/upper_bound.csv
+!results/mlp_demo_summary.csv
+!results/nn_demo_summary.csv
+!results/slide8_data.tex
+

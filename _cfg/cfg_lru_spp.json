@@ -1,0 +1,4 @@
+{
+  "L2C": { "prefetcher": "spp_dev" },
+  "LLC": { "replacement": "lru" }
+}

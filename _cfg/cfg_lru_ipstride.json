@@ -1,0 +1,4 @@
+{
+  "ooo_cpu": [{ "L1D": { "prefetcher": "ip_stride" } }],
+  "LLC":     { "replacement": "lru" }
+}

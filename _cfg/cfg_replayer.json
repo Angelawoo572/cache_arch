@@ -1,0 +1,4 @@
+{
+  "ooo_cpu": [{ "L1D": { "prefetcher": "list_replayer" } }],
+  "LLC":     { "replacement": "lru" }
+}

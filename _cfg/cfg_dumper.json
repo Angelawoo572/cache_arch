@@ -1,0 +1,4 @@
+{
+  "ooo_cpu": [{ "L1D": { "prefetcher": "trace_dumper" } }],
+  "LLC":     { "replacement": "lru" }
+}
