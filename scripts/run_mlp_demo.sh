@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
-# run_mlp_demo.sh -- v3 (fixed trace path issue)
-#
-# Quangmire/ChampSim-ML's run_champsim.sh looks for traces in a relative
-# directory called dpc3_traces/ inside the ChampSim-ML repo. v2 of this
-# script passed an absolute trace path which the older fork's run_champsim.sh
-# doesn't accept. Fix: create dpc3_traces/ as a symlink to our traces/ dir
-# and call run_champsim.sh with just the trace basename.
+# run_mlp_demo.sh
+# Older ChampSim-ML is fragile. This script only handles its baseline path
+# conservatively and points NN replay users to scripts/run_nn_replay.sh, which
+# uses the main external/ChampSim tree and is more reliable.
 
 set -uo pipefail
 
@@ -22,6 +19,7 @@ fi
 
 TRACE="${TRACE:-605.mcf_s-994B}"
 TR_FILE="$TRACE_DIR/${TRACE}.champsimtrace.xz"
+TR_BASENAME="${TRACE}.champsimtrace.xz"
 if [ ! -f "$TR_FILE" ]; then
   echo "[error] Trace $TR_FILE not found."
   echo "[hint] Available traces:"
@@ -36,9 +34,12 @@ if [ ! -f "$PFETCH" ]; then
   exit 1
 fi
 
-cd "$ML_DIR"
+cd "$ML_DIR" || exit 1
 
-if [ ! -e "$ML_DIR/dpc3_traces" ]; then
+# Quangmire/ChampSim-ML run_champsim.sh searches ./dpc3_traces/<trace-arg>.
+# Therefore the argument must include the .champsimtrace.xz suffix.
+if [ -L "$ML_DIR/dpc3_traces" ] || [ ! -e "$ML_DIR/dpc3_traces" ]; then
+  rm -f "$ML_DIR/dpc3_traces"
   ln -s "$TRACE_DIR" "$ML_DIR/dpc3_traces"
   echo "[fix] symlinked $TRACE_DIR -> $ML_DIR/dpc3_traces"
 fi
@@ -46,7 +47,7 @@ fi
 BIN_TAG="bimodal-no-no-no-no-lru-1core"
 if [ ! -x "bin/${BIN_TAG}" ]; then
   echo "[build] one-time build (~3 min)"
-  ./build_champsim.sh bimodal no no no no lru 1 2>&1 | tail -5
+  ./build_champsim.sh bimodal no no no no lru 1 2>&1 | tail -20
 fi
 if [ ! -x "bin/${BIN_TAG}" ]; then
   echo "[error] ChampSim-ML build failed."
@@ -56,31 +57,18 @@ fi
 
 echo
 echo "============================================================"
-echo "[run] baseline (no prefetch)  trace=$TRACE"
+echo "[run] ChampSim-ML baseline (no prefetch)  trace=$TR_BASENAME"
 echo "============================================================"
 BASE_LOG="$OUT_DIR/mlp_demo/baseline.${TRACE}.log"
 
-echo "[cmd] ./run_champsim.sh $BIN_TAG 1 5 $TRACE"
-./run_champsim.sh "$BIN_TAG" 1 5 "$TRACE" 2>&1 | tee "$BASE_LOG" | tail -25
+echo "[cmd] ./run_champsim.sh $BIN_TAG 1 5 $TR_BASENAME"
+./run_champsim.sh "$BIN_TAG" 1 5 "$TR_BASENAME" 2>&1 | tee "$BASE_LOG" | tail -25
 
 RESULT_DIR="$ML_DIR/results_5M"
-BASE_RESULT_FILE="$RESULT_DIR/${TRACE}-${BIN_TAG}.txt"
+BASE_RESULT_FILE="$RESULT_DIR/${TR_BASENAME}-${BIN_TAG}.txt"
 if [ ! -f "$BASE_RESULT_FILE" ]; then
   echo "[warn] expected result file $BASE_RESULT_FILE not found"
   ls "$RESULT_DIR" 2>&1 || true
-fi
-
-echo
-echo "============================================================"
-echo "[run] NN prefetch list ($PFETCH)  trace=$TRACE"
-echo "============================================================"
-NN_LOG="$OUT_DIR/mlp_demo/nn.${TRACE}.log"
-
-if [ -f ./ml_prefetch_sim.py ]; then
-  ./ml_prefetch_sim.py run "$TR_FILE" --prefetch "$PFETCH" 2>&1 | tee "$NN_LOG" | tail -25
-else
-  echo "[warn] ./ml_prefetch_sim.py not present in $ML_DIR. Skipping NN comparison."
-  echo "[hint] cd $ML_DIR && git pull   # to refresh master"
 fi
 
 parse_ipc () {
@@ -91,24 +79,21 @@ BASE_IPC=$(parse_ipc "$BASE_LOG")
 if [ -z "$BASE_IPC" ] && [ -f "$BASE_RESULT_FILE" ]; then
   BASE_IPC=$(parse_ipc "$BASE_RESULT_FILE")
 fi
-NN_IPC=$(parse_ipc "$NN_LOG")
 BASE_IPC="${BASE_IPC:-NA}"
-NN_IPC="${NN_IPC:-NA}"
 
 echo
 echo "============================================================"
 echo "RESULTS"
 echo "============================================================"
-echo "Trace          : $TRACE"
-echo "Baseline IPC   : $BASE_IPC"
-echo "NN-prefetch IPC: $NN_IPC"
-if [ "$BASE_IPC" != "NA" ] && [ "$NN_IPC" != "NA" ]; then
-  SPEEDUP=$(python3 -c "print(f'{float(\"$NN_IPC\")/float(\"$BASE_IPC\"):.3f}')")
-  echo "Speedup        : ${SPEEDUP}x"
-fi
+echo "Trace                : $TRACE"
+echo "ChampSim-ML baseline : $BASE_IPC"
+echo
+echo "[note] For NN replay, use the main ChampSim path instead:"
+echo "       bash scripts/install_and_build.sh"
+echo "       bash scripts/run_nn_replay.sh"
 echo "============================================================"
 
 SUMMARY="$OUT_DIR/mlp_demo_summary.csv"
 [ -f "$SUMMARY" ] || echo "trace,baseline_IPC,nn_IPC,speedup" > "$SUMMARY"
-echo "$TRACE,$BASE_IPC,$NN_IPC,${SPEEDUP:-NA}" >> "$SUMMARY"
+echo "$TRACE,$BASE_IPC,NA,NA" >> "$SUMMARY"
 echo "[done] saved to $SUMMARY"
