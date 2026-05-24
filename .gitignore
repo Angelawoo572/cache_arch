@@ -1,19 +1,45 @@
 # dependencies
-# ChampSim/
-# ChampSim-ML/
-# allow external submodule pointers
+# Old top-level local clones; new layout uses external/ submodules.
+ChampSim/
+ChampSim-ML/
+
+# external submodules: keep only submodule pointers tracked
 external/*
 !external/ChampSim/
 !external/ChampSim-ML/
 
-# traces
+# traces and huge simulator dumps
 traces/
 *.champsimtrace.xz
-
-# generated
 results/access_trace*.csv
-results/*.log
+results/traces/
+
+# generated logs
+*.log
 results/logs/
+results/mlp_demo/*.log
+
+# generated experiment outputs that are usually local-only
+results/tmp/
+results/raw/
+results/generated/
+results/*.txt
+prefetch_list*.txt
+
+# keep small summary/artifact files that are useful to commit intentionally
+!results/README.md
+!results/baseline.csv
+!results/upper_bound.csv
+!results/bypass_summary.csv
+!results/mlp_demo_summary.csv
+!results/nn_demo_summary.csv
+!results/gru_sweep_summary.csv
+!results/mlp_demo_summary.csv
+!results/slide8_data.tex
+
+# keep configured PC-list inputs at repo root for script compatibility
+!bypass_pc_list.txt
+!bypass_pc_list_*.txt
 
 # python
 __pycache__/
@@ -23,11 +49,4 @@ __pycache__/
 # editor
 .vscode/
 .DS_Store
-
-# keep summaries
-!results/baseline.csv
-!results/upper_bound.csv
-!results/mlp_demo_summary.csv
-!results/nn_demo_summary.csv
-!results/slide8_data.tex
 
