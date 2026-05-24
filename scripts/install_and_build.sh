@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
-# install_and_build.sh -- v2 SELF-CONTAINED
-# Contains the C++ source for trace_dumper + list_replayer inline,
-# so you don't need to download any other files. Just this script.
-#
-# Fixes vs v1:
-#   1. C++ sources are embedded here (no separate files to download)
-#   2. Uses 'bash ./config.sh' instead of './config.sh' (avoids "Permission denied")
+# install_and_build.sh
+# Build three project-specific ChampSim binaries under external/ChampSim:
+#   bin/champsim.baseline
+#   bin/champsim.dumper
+#   bin/champsim.replayer
 
 set -uo pipefail
 
 WORKDIR="$(pwd)"
-CHAMP="$WORKDIR/ChampSim"
+CHAMP="$WORKDIR/external/ChampSim"
 
 if [ ! -d "$CHAMP" ]; then
   echo "[error] $CHAMP not found. Run setup_champsim.sh first."
@@ -146,8 +144,7 @@ void list_replayer::prefetcher_initialize()
 
   FILE* fh = std::fopen(path, "r");
   if (!fh) {
-    std::fprintf(stderr, "[list_replayer] WARNING: could not open %s; "
-                         "no prefetches will be issued.\n", path);
+    std::fprintf(stderr, "[list_replayer] WARNING: could not open %s; no prefetches will be issued.\n", path);
     return;
   }
 
@@ -165,16 +162,14 @@ void list_replayer::prefetcher_initialize()
     }
   }
   std::fclose(fh);
-  std::fprintf(stderr, "[list_replayer] loaded %lu prefetch entries from %s\n",
-               loaded, path);
+  std::fprintf(stderr, "[list_replayer] loaded %lu prefetch entries from %s\n", loaded, path);
   counter_ = 0;
   issued_ = 0;
 }
 
 void list_replayer::prefetcher_final_stats()
 {
-  std::fprintf(stderr, "[list_replayer] issued %lu prefetches over %lu accesses\n",
-               issued_, counter_);
+  std::fprintf(stderr, "[list_replayer] issued %lu prefetches over %lu accesses\n", issued_, counter_);
 }
 
 uint32_t list_replayer::prefetcher_cache_operate(champsim::address addr,
@@ -222,30 +217,33 @@ cat > "$CHAMP/_cfg/cfg_replayer.json" <<'JSON'
 }
 JSON
 
-# ---- 4. Build the 3 binaries ----
-# Use 'bash' explicitly to avoid Permission denied issues with ./config.sh
 build () {
   local tag=$1
   local cfg=$2
   echo
   echo "[build] tag=$tag cfg=$cfg"
-  cd "$CHAMP"
-  # Force a clean rebuild because config.sh + make can leave a stale binary
-  # under bin/champsim that we'd otherwise mistake for "build OK"
+  cd "$CHAMP" || exit 1
   rm -f bin/champsim
-  python3 ./config.sh "$cfg" > /dev/null 2>&1 || {
-    echo "[error] config.sh failed for $tag"; return 1
+
+  python3 ./config.sh "$cfg" > "/tmp/config_${tag}.log" 2>&1 || {
+    echo "[error] config.sh failed for $tag. Last 60 lines:"
+    tail -60 "/tmp/config_${tag}.log"
+    return 1
   }
-  if ! make -j8 > /tmp/build_${tag}.log 2>&1; then
-    echo "[error] make failed for $tag. Last 20 lines:"
-    tail -20 /tmp/build_${tag}.log
+
+  if ! make -j8 > "/tmp/build_${tag}.log" 2>&1; then
+    echo "[error] make failed for $tag. Last 80 lines:"
+    tail -80 "/tmp/build_${tag}.log"
+    echo "[hint] full log: /tmp/build_${tag}.log"
     return 1
   fi
+
   if [ ! -x bin/champsim ]; then
-    echo "[error] bin/champsim was not produced for $tag"
-    tail -20 /tmp/build_${tag}.log
+    echo "[error] bin/champsim was not produced for $tag. Last 80 build lines:"
+    tail -80 "/tmp/build_${tag}.log"
     return 1
   fi
+
   cp bin/champsim "bin/champsim.${tag}"
   echo "[build] OK -> bin/champsim.${tag}"
   return 0
@@ -264,5 +262,6 @@ if [ "$OK_COUNT" -eq 3 ]; then
 else
   echo "[install] PARTIAL: only $OK_COUNT/3 binaries built."
   echo "Build logs at /tmp/build_{baseline,dumper,replayer}.log"
+  exit 6
 fi
 echo "============================================"
