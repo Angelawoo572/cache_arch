@@ -12,7 +12,7 @@
 set -uo pipefail
 
 WORKDIR="$(pwd)"
-CHAMP_DIR="$WORKDIR/ChampSim"
+CHAMP_DIR="$WORKDIR/external/ChampSim"
 TRACE_DIR="$WORKDIR/traces"
 OUT_DIR="$WORKDIR/results"
 mkdir -p "$OUT_DIR"
