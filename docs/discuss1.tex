@@ -401,14 +401,14 @@
   \vspace{0.5em}
   \textbf{Output:}
   \begin{itemize}\small
-    \item 128-class softmax: next cache-line offset within the current page.
+    \item 64-class softmax: next cache-line offset within the current 4~KiB page. ($4096 / 64 = 64$ lines.)
   \end{itemize}
 
   \vspace{0.5em}
   \textbf{Architecture:}
   \begin{itemize}\small
     \item Embed PC ($4096 \to 32$), embed delta ($256 \to 16$).
-    \item Concat history $\to$ MLP $128 \to 128 \to 128$ classes.
+    \item Concat history $\to$ MLP $128 \to 128 \to 64$ classes.
     \item Standard cross-entropy training.
   \end{itemize}
 
