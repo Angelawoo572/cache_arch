@@ -7,7 +7,7 @@
 set -uo pipefail
 
 WORKDIR="$(pwd)"
-CHAMP="$WORKDIR/ChampSim/bin/champsim"
+CHAMP="$WORKDIR/external/ChampSim/bin/champsim"
 TRACE="${TRACE:-619.lbm_s-4268B}"
 TR_FILE="$WORKDIR/traces/${TRACE}.champsimtrace.xz"
 WARMUP="${WARMUP:-1000000}"
