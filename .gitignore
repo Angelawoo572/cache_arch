@@ -1,8 +1,10 @@
 # dependencies
-# Old top-level local clones; new layout uses external/ChampSim and external/ChampSim-ML.
-# Do NOT ignore external/ because it is reserved for git submodules.
-ChampSim/
-ChampSim-ML/
+# ChampSim/
+# ChampSim-ML/
+# allow external submodule pointers
+external/*
+!external/ChampSim/
+!external/ChampSim-ML/
 
 # traces
 traces/
