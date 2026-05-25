@@ -151,55 +151,95 @@
 \end{frame}
 
 % =========================================================
-\begin{frame}{Results -- Validation Accuracy (TO FILL)}
-  \textbf{Offline accuracy on trace B (held out). Train trace = mcf, test trace = omnetpp.}
+\begin{frame}{Results -- Validation \& Test Accuracy (V1--V7)}
+  \textbf{Train = \texttt{605.mcf\_s}, test = \texttt{620.omnetpp\_s}. 25M+25M, 5 epochs, batch 1024.}
 
-  \vspace{0.5em}
+  \vspace{0.3em}
   \begin{center}
-  \footnotesize
-  \begin{tabular}{lrrrrr}
+  \scriptsize
+  \begin{tabular}{lrrrrrr}
     \toprule
-    \textbf{Variant} & \textbf{off\_acc} & \textbf{page\_acc} & \textbf{both\_acc} & \textbf{params} & \textbf{CPU inf $\mu$s} \\
+    \textbf{Variant} & \textbf{params} & \textbf{val\_off} & \textbf{test\_off} & \textbf{val\_page} & \textbf{test\_page} & \textbf{inf $\mu$s} \\
     \midrule
-    V1 (delta only)           & TBD & n/a & TBD & TBD & TBD \\
-    V2 (+ PC)                 & TBD & TBD & TBD & TBD & TBD \\
-    V3 (+ page, Voyager dual) & TBD & TBD & TBD & TBD & TBD \\
-    V4 (+ PC counter stats)   & TBD & TBD & TBD & TBD & TBD \\
+    V1 delta only           & 290K & 0.0124 & 0.0126 & 0.370 & 0.008 & 412 \\
+    V2 + PC                 & 554K & \textbf{0.040} & 0.0127 & 0.369 & 0.004 & 485 \\
+    V3 + page               & 687K & 0.035 & 0.0150 & 0.335 & \textbf{0.057} & 541 \\
+    V4 + PC stats           & 695K & 0.030 & 0.0126 & 0.364 & 0.044 & 736 \\
+    \midrule
+    V5 delta+pc\_stats only & 299K & 0.017 & 0.0139 & 0.370 & 0.008 & 466 \\
+    V6 V4 + conf gate       & 695K & 0.029 & \textbf{0.0151} & 0.348 & 0.041 & 691 \\
+    \midrule
+    V7 \textit{in-distrib.} (mcf only) & 695K & \textit{0.030--0.036} & n/a & \textit{0.35--0.37} & n/a & — \\
+    \midrule
+    chance ($1/64$)         & —    & 0.0156 & 0.0156 & —     & —     & —  \\
     \bottomrule
   \end{tabular}
   \end{center}
 
-  \vspace{0.5em}
-  \textbf{To be filled after running} \texttt{gru\_sweep\_cross\_trace.ipynb} \textbf{on Colab.}
+  \vspace{0.2em}
+  \textbf{What V7 tells us (the key number):}
+  \begin{itemize}\scriptsize
+    \item V7 trains and tests on \emph{the same} workload (mcf, time-split). val\_off = 0.030--0.036 = \textbf{only $2\times$ above chance}. Even with zero cross-binary mismatch, the GRU barely learns.
+    \item \textbf{Conclusion: both bottlenecks are real.} Feature set is too weak for pointer-chase (architecture bottleneck). AND PC/page embeddings are binary-specific (generalization bottleneck).
+    \item V5 removes raw PC, keeps pc\_stats only. val\_off +38\% in-distribution, test\_off +7\% (noise). pc\_stats describe behavior not addresses -- slightly more generalizable, but not enough.
+  \end{itemize}
 \end{frame}
 
 % =========================================================
-\begin{frame}{Results -- Real IPC (TO FILL)}
-  \textbf{ChampSim 25M warmup + 25M sim on test trace (omnetpp).}
+\begin{frame}{Results -- Real IPC on Held-out Trace}
+  \textbf{ChampSim 25M+25M on \texttt{620.omnetpp\_s} (test). Baseline IPC 0.3157.}
 
-  \vspace{0.5em}
+  \vspace{0.3em}
   \begin{center}
   \footnotesize
   \begin{tabular}{lrrrr}
     \toprule
-    \textbf{Variant} & \textbf{Baseline IPC} & \textbf{GRU IPC} & \textbf{Speedup} & \textbf{Prefetch trigger \%} \\
+    \textbf{Variant} & \textbf{NN IPC} & \textbf{Speedup} & \textbf{$\Delta$ vs prev} & \textbf{Trigger \%} \\
     \midrule
-    V1 (delta only)           & TBD & TBD & TBD & TBD \\
-    V2 (+ PC)                 & TBD & TBD & TBD & TBD \\
-    V3 (+ page)               & TBD & TBD & TBD & TBD \\
-    V4 (+ PC stats)           & TBD & TBD & TBD & TBD \\
+    V1 delta only   & 0.3038 & 0.962$\times$ & --3.8\% & 58\% \\
+    V2 + PC         & 0.2783 & 0.881$\times$ & \textbf{--8.1\%} & 59\% \\
+    V3 + page       & 0.2781 & 0.881$\times$ & $\approx0$ & 59\% \\
+    V4 + PC stats   & 0.2807 & 0.889$\times$ & +0.6\%  & 58\% \\
+    \midrule
+    V5 delta+pc\_stats only & \textit{TBD} & \textit{TBD} & \textit{(run next)} & ? \\
+    V6 + conf gate ($\theta=0.10$) & \textit{TBD} & \textit{TBD} & \textit{(run next)} & $<58\%$? \\
     \bottomrule
   \end{tabular}
   \end{center}
 
-  \vspace{0.5em}
-  \textbf{What to look for in the delta between rows:}
-  \begin{itemize}\small
-    \item V1 $\to$ V2: does PC identity help?
-    \item V2 $\to$ V3: does the page head matter when next access jumps page?
-    \item V3 $\to$ V4: do running hardware counters add signal?
-    \item Any row that drops $\Rightarrow$ that feature is noise on this workload.
+  \vspace{0.3em}
+  \textbf{Insights:}
+  \begin{itemize}\scriptsize
+    \item \textbf{V1$\to$V2 drops IPC 8\%:} PC embedding memorizes mcf, fires wrong prefetches on omnetpp. \emph{High val accuracy $\Rightarrow$ worse IPC. Confirmed at system level.}
+    \item \textbf{V2$\to$V3: IPC flat.} Page head adds no IPC benefit. Page hash is workload-specific.
+    \item \textbf{V3$\to$V4: tiny recovery.} pc\_stats as soft regularizer improves slightly, consistent with V5's in-distribution val\_off gain.
+    \item \textbf{Trigger rate frozen at 58\%.} All prefetches are emitted with similar (low) confidence. Root cause: the GRU's softmax is near-uniform -- it is not confident about any prediction.
+    \item \textbf{V7 upper bound (in-distribution) = 3\%:} Even on mcf itself, model is only 2$\times$ above chance. \emph{The feature set cannot represent pointer-chase patterns, not just cross-trace.}
   \end{itemize}
+\end{frame}
+
+% =========================================================
+\begin{frame}{What the Sweep Is Telling Us -- 3 Ideas}
+  \textbf{V7's val\_off = 0.03 (in-distribution, only 2$\times$ chance) is the diagnostic.}
+  \emph{The feature set, not just generalization, is the bottleneck.}
+
+  \vspace{0.3em}
+  \begin{enumerate}
+    \item \textbf{Idea A -- Change the prediction target: predict $\Delta_{n+1}$ (next delta), not offset.}\\
+      Current target: "which offset in the current page will the next access land?" -- near-random for pointer-chase. \\
+      Proposed: predict the signed delta $\Delta_{n+1} = addr_{n+1} - addr_n$, then compute target as $addr_n + \Delta_{n+1}$. \\
+      \emph{Why:} delta is directly conditioned on the delta history by definition. Stride workloads will nail it. And the training signal is not diluted by page-crossing accesses. Hashemi 2018 framed this as the baseline; we can compare GRU vs their LSTM on this exact formulation.
+
+    \vspace{0.2em}
+    \item \textbf{Idea B -- Per-PC-bucket mini-GRUs (Voyager's hierarchical trick for cross-trace).}\\
+      One global GRU shares parameters across all PCs. PC embedding fails cross-binary. \\
+      Proposed: hash PCs to $K = 64$ buckets, train $K$ independent tiny GRUs (hidden=16). Each bucket sees only its own PC's accesses -- no cross-PC noise. Bucket-level generalization relies only on delta patterns, not addresses.
+
+    \vspace{0.2em}
+    \item \textbf{Idea C -- Reuse-distance as a feature (hardware counter analog).}\\
+      Current pc\_stats = running miss\_rate + log\_freq. These are aggregate statistics. \\
+      Proposed: per-access reuse distance = \#accesses since this cache line was last seen. If reuse $> $ LLC size $\approx$ streaming/uncacheable. If reuse $\leq$ 8 $\approx$ hot working set. This feature directly captures \emph{cacheline behavior}, not just PC behavior. Analogous to APT-GET's LBR elapsed-time signal.
+  \end{enumerate}
 \end{frame}
 
 % =========================================================
