@@ -733,3 +733,202 @@ The key mindset is:
 Do not ask only “is GRU good?”
 Ask “which part of the pipeline failed?”
 ```
+
+---
+
+## 15. V9 full-index replay: first valid system signal
+
+After fixing the replay alignment problem, we reran V9 using the same full-index coordinate system as the original dumped CSV:
+
+```text
+WARMUP = 25,000,000
+SIM    = 25,000,000
+```
+
+This matters because both `trace_dumper` and `list_replayer` count L1D LOAD/RFO accesses starting from zero at the beginning of ChampSim's simulation phase. If we shift the warmup to the last 15% but keep the original full-window indices in the prefetch list, the replayer counter and list indices no longer match.
+
+The corrected full-index replay results were:
+
+```text
+trace              baseline IPC   V9 IPC    speedup   list lines   issued   accesses seen
+602.gcc_s-734B     0.5427         0.5463    1.0066x   82,396       61,287   4,154,684
+619.lbm_s-4268B    0.4345         0.4346    1.0002x   180,907      31,944   4,800,801
+605.mcf_s-994B     0.1841         0.1812    0.9842x   345,329      213,950  8,454,906
+```
+
+### What we learned from the corrected run
+
+The first thing we learned is that the previous `issued = 0` result for `mcf` was not a model result. It was a replay-window/index mismatch. After using full-index replay, `mcf` issued 213,950 prefetches, so the list and replayer can match.
+
+The second thing we learned is that V9 is no longer purely an offline notebook result. It now has a real system signal:
+
+```text
+gcc: small positive IPC signal, +0.66%
+lbm: essentially neutral, +0.02%
+mcf: negative, -1.58%
+```
+
+This is much more informative than the broken last-15% replay.
+
+---
+
+## 16. How to interpret each V9 trace
+
+### `602.gcc_s-734B`: first promising sign, but still far from enough
+
+`gcc` improved from `0.5427` to `0.5463`, or `1.0066x`.
+
+This is small, but important because it is the first corrected V9 run where a GRU-generated prefetch list improves IPC. It means the V9 formulation is not completely disconnected from system usefulness.
+
+However, this is not yet a strong result because the upper-bound table showed much larger headroom for `gcc` with SPP. So the careful statement is:
+
+```text
+V9 has a small positive system signal on gcc, but it captures only a tiny fraction of the available prefetch headroom.
+```
+
+Possible explanations:
+
+1. The model learned some useful future deltas.
+2. The decode policy is too conservative or too late.
+3. The prefetch list only covers the V9 test slice inside a full 25M-instruction simulation, so the IPC effect is diluted.
+4. The current prefetches may not be at the right degree/timing to compete with SPP.
+
+So `gcc` is the trace to keep debugging first.
+
+### `619.lbm_s-4268B`: high offline quality but neutral IPC
+
+`lbm` improved from `0.4345` to `0.4346`, or `1.0002x`. This is basically neutral.
+
+This is surprising because the V9 notebook metrics for `lbm` were strong. That means the issue is probably not simply “the model cannot learn lbm.”
+
+A better hypothesis is:
+
+```text
+The offline bitmap task is learnable, but the prefetch action is not yet strong enough in the replay.
+```
+
+Important diagnostic: only 31,944 prefetches were issued from 180,907 list entries. That is about 17.7% of the exported list. Since the list covers a specific test-slice region but the replay ran the full 25M-instruction simulation, the measured IPC is diluted by a large region where no V9 prefetches are issued.
+
+So the correct conclusion is not “V9 failed on lbm.” The correct conclusion is:
+
+```text
+lbm needs a cleaner evaluation window or a full-window prefetch list before we can judge IPC.
+```
+
+### `605.mcf_s-994B`: negative result is consistent with earlier diagnosis
+
+`mcf` dropped from `0.1841` to `0.1812`, or `0.9842x`.
+
+This is now a real warning because 213,950 prefetches were issued. Unlike the broken run, this is not zero-issue alignment failure.
+
+This matches the offline V9 diagnosis:
+
+```text
+mcf had low precision and very high recall.
+```
+
+That pattern usually means the model is issuing many candidates but not selectively enough. For an irregular/pointer-like workload, many speculative prefetches can create cache pollution or bandwidth/MSHR pressure.
+
+The careful conclusion is:
+
+```text
+mcf is probably not a good first showcase for V9 prefetching.
+It may be better treated as a bypass / replacement / utility-gating workload.
+```
+
+This connects to the earlier bypass result: `mcf` improved with PC-list bypass, while prefetching was weak or harmful.
+
+---
+
+## 17. What the V9 result says about the research direction
+
+The corrected V9 result gives a more nuanced answer than simply “GRU works” or “GRU fails.”
+
+What we know now:
+
+```text
+1. The pipeline can now issue prefetches correctly after fixing index alignment.
+2. V9 gives a small positive IPC signal on gcc.
+3. V9 is neutral on lbm under the current full-index/diluted replay.
+4. V9 hurts mcf when it actually issues many prefetches.
+5. Offline accuracy/F1 is still not enough to predict IPC.
+```
+
+The most important research insight is:
+
+```text
+The next bottleneck is not model capacity.
+The next bottleneck is action policy: which predicted candidates to issue, when to issue them, and how many to issue.
+```
+
+This is exactly why the next experiments should be threshold/degree/timeliness style experiments inside the V9 formulation, not a random jump to a bigger model.
+
+---
+
+## 18. Do we need to rewrite the notebook now?
+
+Not the whole notebook.
+
+The V9 training formulation does not need to be thrown away. The model learned meaningful patterns, and the corrected replay gave at least one positive IPC signal on `gcc`.
+
+But the evaluation/export part should eventually be improved. There are two possible next steps:
+
+### Option A: quick controlled decode sweep
+
+Keep the trained V9 model and same traces. Regenerate prefetch lists with different decode policies:
+
+```text
+probability threshold: 0.30, 0.50, 0.70, 0.90
+max degree:            1, 2, 4
+```
+
+This tests whether V9 is failing because it is too aggressive, too conservative, or selecting too many low-utility candidates.
+
+This is the best immediate controlled-variable experiment because the model and features stay fixed, and only the action policy changes.
+
+### Option B: cleaner test-window replay
+
+The current full-index replay is valid for index matching, but it is diluted because the V9 prefetch list only covers the test-slice region while the replay measures the full simulation window.
+
+A cleaner setup would be:
+
+```text
+1. Train V9 using the original full CSV split.
+2. Re-dump or isolate the exact test replay window.
+3. Export a prefetch list with local indices for that test window.
+4. Replay only that same test window.
+```
+
+This is cleaner but more engineering work because instruction-window and access-index-window alignment must be handled carefully.
+
+### Recommended next action
+
+Do not switch model family yet.
+
+First do a small V9 decode sweep on `gcc`, because `gcc` already has a positive signal:
+
+```text
+TRACE = 602.gcc_s-734B
+same trained V9 model
+same features
+vary threshold and max_degree
+measure IPC
+```
+
+Then do the same for `lbm`. Only after that should we decide whether to compare cheaper model families such as Perceptron/CNN/MLP using the same V9 bitmap target.
+
+---
+
+## 19. How to say the current V9 result to someone else
+
+A concise explanation:
+
+```text
+After fixing replay index alignment, V9 no longer looks like a broken simulator run. It issues prefetches correctly. On gcc it gives a small positive IPC improvement, on lbm it is neutral, and on mcf it hurts. This tells us the bitmap target can produce some useful candidates, but candidate selection/degree/timeliness is now the main bottleneck. The next controlled experiment should not be a new model family yet; it should be a decode-policy sweep under the same V9 model.
+```
+
+Even shorter:
+
+```text
+V9 proved that better offline prediction is not enough. The next problem is utility-aware issuing.
+```
