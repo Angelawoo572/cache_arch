@@ -9,14 +9,6 @@ across versions. It tries to extract:
 - prefetch requested/issued/useful/useless/accuracy when present
 
 Compatible with older Python 3 versions used on cluster machines.
-
-Usage:
-  python3 projects/post_prefetch_filter/scripts/parse_champsim_stats.py \
-    --trace 602.gcc_s-734B \
-    --log projects/post_prefetch_filter/results/spp_baseline/logs/602.gcc_s-734B.spp_baseline.log
-
-Append to an existing CSV:
-  python3 .../parse_champsim_stats.py --trace ... --log ... --append-csv summary.csv
 """
 
 import argparse
@@ -77,7 +69,6 @@ def first_int(pattern, text):
 
 def find_cache_line(level, text):
     # type: (str, str) -> Optional[str]
-    # Most useful lines look like "cpu0->L1D TOTAL ... HIT: ... MISS: ...".
     candidates = []
     for line in text.splitlines():
         if level in line and "TOTAL" in line and ("HIT" in line or "MISS" in line):
@@ -99,7 +90,6 @@ def parse_cache_level(level, text, instructions):
         if access is None and hit is not None and miss is not None:
             access = hit + miss
 
-    # Fallback: search larger text for lines containing level and MPKI.
     mpki = None
     for ln in text.splitlines():
         if level in ln and "MPKI" in ln.upper():
@@ -129,13 +119,24 @@ def parse_cache_level(level, text, instructions):
 
 def parse_prefetch_stats(text):
     # type: (str) -> Dict[str, str]
-    # ChampSim versions differ. Try common labels first.
-    requested = first_int(r"prefetch(?:es)? requested[:= ]+([0-9,]+)", text)
-    issued = first_int(r"prefetch(?:es)? issued[:= ]+([0-9,]+)", text)
-    useful = first_int(r"prefetch(?:es)? useful[:= ]+([0-9,]+)", text)
-    useless = first_int(r"prefetch(?:es)? useless[:= ]+([0-9,]+)", text)
+    # First try the explicit line produced by 03_patch_spp_final_stats.sh:
+    #   SPP_FINAL pf_issued=123 pf_useful=45 pf_useless=78 pf_accuracy=0.365854
+    issued = first_int(r"SPP_FINAL\s+.*?pf_issued=([0-9,]+)", text)
+    useful = first_int(r"SPP_FINAL\s+.*?pf_useful=([0-9,]+)", text)
+    useless = first_int(r"SPP_FINAL\s+.*?pf_useless=([0-9,]+)", text)
+    requested = first_int(r"SPP_FINAL\s+.*?pf_requested=([0-9,]+)", text)
 
-    # SPP debug or final lines may contain GHR.pf_issued / GHR.pf_useful.
+    # ChampSim versions differ. Try common labels next.
+    if requested is None:
+        requested = first_int(r"prefetch(?:es)? requested[:= ]+([0-9,]+)", text)
+    if issued is None:
+        issued = first_int(r"prefetch(?:es)? issued[:= ]+([0-9,]+)", text)
+    if useful is None:
+        useful = first_int(r"prefetch(?:es)? useful[:= ]+([0-9,]+)", text)
+    if useless is None:
+        useless = first_int(r"prefetch(?:es)? useless[:= ]+([0-9,]+)", text)
+
+    # SPP debug lines may contain GHR.pf_issued / GHR.pf_useful.
     if issued is None:
         vals = re.findall(r"GHR\.pf_issued:\s*([0-9,]+)", text)
         if vals:
@@ -145,6 +146,8 @@ def parse_prefetch_stats(text):
         if vals:
             useful = int(vals[-1].replace(",", ""))
 
+    if requested is None and issued is not None:
+        requested = issued
     if useless is None and issued is not None and useful is not None:
         useless = max(0, issued - useful)
 
