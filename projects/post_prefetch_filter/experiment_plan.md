@@ -47,6 +47,7 @@ trigger_addr
 candidate_addr
 candidate_delta
 prefetcher_confidence if available
+whether SPP would fill L2 / issue high-confidence request
 cache_hit_state at generation time
 mshr_occupancy
 pq_occupancy
@@ -65,9 +66,40 @@ was_duplicate
 was_evicted_unused
 ```
 
+### Important controlled-variable lesson
+
+The first event logger records many SPP lookahead/candidate attempts, not only the high-confidence candidates counted by `SPP_FINAL`.
+
+This caused the first Colab plot to collapse:
+
+```text
+all SPP candidate attempts
+  -> extremely low useful-label rate
+  -> bandit learns suppress almost everything
+  -> issued_ratio ~ 0 and accuracy ~ 0
+```
+
+That result is a diagnostic, not the real filter experiment.
+
+The controlled first experiment must fix the candidate scope:
+
+```text
+CANDIDATE_SCOPE = spp_l2_issue
+condition       = spp_fill_l2 == 1 or spp_confidence >= 90
+```
+
+This asks the cleaner question:
+
+```text
+Among candidates SPP itself would issue to L2,
+can a tiny filter suppress the bad/resource-risky ones?
+```
+
+Only after this controlled scope works should we expand the action space to all lookahead candidates, LLC-only candidates, fill-level control, or degree control.
+
 ## Phase 2: oracle filter upper bound
 
-Before training any NN/RL, compute an oracle filter from logged outcomes:
+Before training any NN/RL, compute an oracle filter from logged outcomes within the fixed candidate scope:
 
 ```text
 admit only candidates that were useful and timely
