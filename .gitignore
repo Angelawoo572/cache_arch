@@ -3,8 +3,9 @@
 # ============================================================
 # Goal:
 # - Track source code, configs, docs, notebooks, and small summaries.
-# - Ignore local ChampSim clones/builds, traces, generated prefetch lists,
-#   large dumps, logs, caches, and temporary experiment outputs.
+# - Ignore local ChampSim clones/builds, traces, large raw dumps, logs,
+#   caches, and temporary experiment outputs.
+# - Allow one curated post-prefetch candidate table for Colab notebooks.
 # - Work both before and after running tools/reorganize_into_single_project_tree.sh.
 
 # ------------------------------------------------------------
@@ -144,13 +145,21 @@ prefetch_list*.txt
 colab_prefetch_result/prefetch_list*.txt
 
 # Post-prefetch-filter generated data/model artifacts.
+# Raw event logs can be huge and should not be committed.
 projects/post_prefetch_filter/results/
-projects/post_prefetch_filter/data/generated/
 projects/post_prefetch_filter/data/raw/
 projects/post_prefetch_filter/models/
 projects/post_prefetch_filter/checkpoints/
 projects/post_prefetch_filter/runs/
 projects/post_prefetch_filter/wandb/
+projects/post_prefetch_filter/data/generated/*
+
+# But allow the curated notebook input table and small metadata files.
+!projects/post_prefetch_filter/data/
+!projects/post_prefetch_filter/data/generated/
+!projects/post_prefetch_filter/data/generated/.gitkeep
+!projects/post_prefetch_filter/data/generated/spp_candidate_log.csv
+!projects/post_prefetch_filter/data/generated/README.md
 
 # ML training artifacts anywhere in the repo.
 checkpoints/
