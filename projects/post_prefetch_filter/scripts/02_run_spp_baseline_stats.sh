@@ -1,30 +1,31 @@
 #!/usr/bin/env bash
-# Run real ChampSim with the current binary/config and parse cache hit/miss stats.
-# Intended first use: SPP baseline before adding the RL post-prefetch filter.
+# Run real ChampSim with a selected binary/config and parse cache hit/miss stats.
 #
 # Usage from repo root:
-#   TRACE=602.gcc_s-734B bash projects/post_prefetch_filter/scripts/02_run_spp_baseline_stats.sh
+#   TRACE=602.gcc_s-734B TAG=l2_spp CHAMP=external/ChampSim/bin/champsim.l2_spp \
+#     bash projects/post_prefetch_filter/scripts/02_run_spp_baseline_stats.sh
 #
 # Optional:
 #   TRACES="602.gcc_s-734B 605.mcf_s-994B 619.lbm_s-4268B" \
-#   WARMUP=25000000 SIM=25000000 \
+#   WARMUP=25000000 SIM=25000000 TAG=l2_spp \
+#   CHAMP=external/ChampSim/bin/champsim.l2_spp \
 #   bash projects/post_prefetch_filter/scripts/02_run_spp_baseline_stats.sh
 #
 # Notes:
-# - This script does not reconfigure ChampSim. It runs external/ChampSim/bin/champsim.
-# - Before using this as the SPP baseline, make sure the binary was configured with spp_dev
-#   at the cache level you want, usually L2C.
+# - This script does not reconfigure ChampSim. It runs the binary named by CHAMP.
+# - TAG controls output location so no-prefetch and spp runs do not overwrite each other.
 
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
+TAG="${TAG:-spp_baseline}"
 CHAMP="${CHAMP:-$ROOT/external/ChampSim/bin/champsim}"
 TRACE_DIR="${TRACE_DIR:-$ROOT/traces}"
-OUT_DIR="$ROOT/projects/post_prefetch_filter/results/spp_baseline"
+OUT_DIR="$ROOT/projects/post_prefetch_filter/results/$TAG"
 LOG_DIR="$OUT_DIR/logs"
-SUMMARY="$OUT_DIR/spp_baseline_summary.csv"
+SUMMARY="$OUT_DIR/${TAG}_summary.csv"
 PARSER="$ROOT/projects/post_prefetch_filter/scripts/parse_champsim_stats.py"
 
 WARMUP="${WARMUP:-25000000}"
@@ -50,9 +51,10 @@ if [ ! -f "$PARSER" ]; then
 fi
 
 echo "============================================================"
-echo "SPP BASELINE REAL CHAMPSIM RUN"
+echo "REAL CHAMPSIM STATS RUN"
 echo "============================================================"
 echo "repo       : $ROOT"
+echo "tag        : $TAG"
 echo "champsim   : $CHAMP"
 echo "trace dir  : $TRACE_DIR"
 echo "traces     : $TRACES"
@@ -62,7 +64,7 @@ echo "============================================================"
 
 echo
 if [ -f "$ROOT/external/ChampSim/_configuration.mk" ]; then
-  echo "[config hint] modules in current ChampSim build:"
+  echo "[config hint] modules in current ChampSim build directory:"
   grep -E "prefetcherD|Module Names|prefetcher/" "$ROOT/external/ChampSim/_configuration.mk" || true
   echo
 fi
@@ -94,7 +96,7 @@ for t in $TRACES; do
     continue
   fi
 
-  log="$LOG_DIR/${t}.spp_baseline.log"
+  log="$LOG_DIR/${t}.${TAG}.log"
   echo
   echo "[run] $t"
   echo "      log: $log"
