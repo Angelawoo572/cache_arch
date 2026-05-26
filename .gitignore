@@ -16,13 +16,20 @@ results/traces/
 
 # generated logs
 *.log
-results/logs/
+results/logs/*
+!results/logs/.gitkeep
 results/mlp_demo/*.log
 
 # generated experiment outputs that are usually local-only
-results/tmp/
-results/raw/
-results/generated/
+results/tmp/*
+!results/tmp/.gitkeep
+results/raw/*
+!results/raw/.gitkeep
+results/generated/*
+!results/generated/.gitkeep
+!results/generated/prefetch_lists/
+results/generated/prefetch_lists/*
+!results/generated/prefetch_lists/.gitkeep
 results/*.txt
 prefetch_list*.txt
 colab_prefetch_result/prefetch_list*.txt
