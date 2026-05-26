@@ -21,6 +21,9 @@
 # Usage:
 #   TRACE=605.mcf_s-994B bash scripts/run_gru_v9.sh
 #
+# Optional override:
+#   PFETCH=/path/to/prefetch_list.txt TRACE=605.mcf_s-994B bash scripts/run_gru_v9.sh
+#
 # To do the full 3-trace sweep:
 #   bash scripts/run_gru_v9_sweep.sh
 
@@ -47,13 +50,29 @@ SIM=$(python3   -c "print(int($ORIGINAL_SIM * (1.0 - $TRAIN_FRAC)))")
 
 # Extract the trace short tag the notebook used (e.g. 605.mcf_s-994B -> mcf_s-994B)
 SHORT_TAG="${TRACE#*.}"      # e.g. mcf_s-994B
-PFETCH_DEFAULT="$WORKDIR/prefetch_list_GRU_V9_${SHORT_TAG}.txt"
-PFETCH="${PFETCH:-$PFETCH_DEFAULT}"
 MODEL_TAG="${MODEL_TAG:-GRU_V9_${SHORT_TAG}}"
 
+# New notebook output location:
+#   results/generated/prefetch_lists/prefetch_list_GRU_V9_<trace_tag>.txt
+# Keep the old repo-root location as a fallback for older runs.
+PFETCH_GENERATED="$WORKDIR/results/generated/prefetch_lists/prefetch_list_GRU_V9_${SHORT_TAG}.txt"
+PFETCH_ROOT="$WORKDIR/prefetch_list_GRU_V9_${SHORT_TAG}.txt"
+
+if [ -z "${PFETCH:-}" ]; then
+  if [ -f "$PFETCH_GENERATED" ]; then
+    PFETCH="$PFETCH_GENERATED"
+  elif [ -f "$PFETCH_ROOT" ]; then
+    PFETCH="$PFETCH_ROOT"
+  else
+    PFETCH="$PFETCH_GENERATED"
+  fi
+fi
+
 if [ ! -f "$PFETCH" ]; then
-  echo "[error] prefetch list $PFETCH missing -- run gru_sweep_v9.ipynb first"
-  echo "        (look for prefetch_list_GRU_V9_<trace_tag>.txt in Colab output)"
+  echo "[error] prefetch list missing for trace=$TRACE"
+  echo "        tried generated path: $PFETCH_GENERATED"
+  echo "        tried root path     : $PFETCH_ROOT"
+  echo "        or set PFETCH=/full/path/to/prefetch_list.txt"
   exit 1
 fi
 
