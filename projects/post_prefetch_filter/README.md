@@ -4,7 +4,7 @@ This folder is the new project direction, separate from the earlier GRU next-add
 
 ## One-sentence idea
 
-Do **not** replace an existing ChampSim / hardware prefetcher. Instead, let an existing prefetcher generate candidate addresses in a shadow path, then place a small hardware-friendly learned controller **after the candidate generator and before cache admission**.
+Do **not** replace an existing ChampSim / hardware prefetcher. Instead, let an existing prefetcher generate candidate addresses, then place a small hardware-friendly learned controller **after the candidate generator and before cache admission**.
 
 The controller decides:
 
@@ -27,45 +27,148 @@ Given a candidate already proposed by a good prefetcher,
 will admitting this line help performance under current cache/bandwidth/MSHR pressure?
 ```
 
-That is much more hardware-friendly because the action space is tiny:
+That is much more hardware-friendly because the first action space is tiny:
 
 ```text
 0 = suppress candidate
 1 = issue/admit candidate
+```
+
+Later actions can include:
+
+```text
 2 = issue only if resources are free
 3 = issue with lower priority or fill only to lower level
 ```
 
-The first implementation should start with binary admit/suppress.
+## Current controlled experiment
 
-## Baselines to compare
+The first logger records many SPP lookahead attempts. Training on all of them created an extreme imbalance and the learned policy suppressed almost everything.
 
-Use three levels of baseline, in this order:
-
-1. **No prefetch**: sanity baseline.
-2. **Built-in ChampSim baseline**: e.g. `next_line` at L1D plus `spp_dev` at L2 if available in the local ChampSim checkout.
-3. **Stronger research baseline**: Berti at L1D and/or Pythia at L2 if imported from open-source artifacts.
-
-The filter is evaluated as:
+The first controlled experiment therefore fixes the candidate scope:
 
 ```text
-baseline prefetcher alone
-vs.
-baseline prefetcher + post-prefetch utility filter
+CANDIDATE_SCOPE = spp_l2_issue
+condition       = spp_fill_l2 == 1 or spp_confidence >= 90
 ```
 
-## Core metrics
+This asks the cleaner question:
 
-Do not judge only by prediction accuracy. The useful result is improvement in microarchitectural behavior:
+```text
+Among candidates SPP itself would issue to L2,
+can a tiny filter suppress the bad/resource-risky ones?
+```
 
-- IPC / speedup
-- L1D/L2/LLC MPKI
-- prefetch accuracy: useful prefetches / issued prefetches
-- prefetch coverage: demand misses eliminated by useful prefetches
-- timeliness: early enough to hit, not so early that it is evicted unused
-- bandwidth traffic
-- MSHR and prefetch queue pressure
-- pollution: prefetched lines evicted before demand use
+This is different from asking the model to choose among every SPP lookahead attempt. That broader problem can come later after the high-confidence scope is understood.
+
+## Metric-driven workflow
+
+This project should record two metric layers.
+
+### 1. Candidate-level notebook metrics
+
+The Colab notebook reads:
+
+```text
+projects/post_prefetch_filter/data/generated/spp_candidate_log.csv.xz
+```
+
+and compares feature sets:
+
+```text
+F0: candidate identity only       pc, delta, confidence
+F1: + MSHR/PQ pressure
+F2: + recent usefulness feedback
+F3: + bandwidth bucket
+F4: + cache context / pressure
+```
+
+Candidate-level outputs:
+
+```text
+issued_ratio        admitted candidates / candidate rows
+accuracy            useful admitted / admitted
+useful_kept_ratio   useful admitted / useful available
+bad_suppressed      useless candidates suppressed
+estimated_reward    offline utility proxy
+```
+
+These are not final IPC results. They tell us which policy is worth replaying in ChampSim.
+
+### 2. Simulator-level replay metrics
+
+Final evaluation must replay the selected filter in ChampSim and record:
+
+```text
+IPC / speedup
+L1D, L2C, LLC hit rate
+L1D, L2C, LLC miss rate
+L1D, L2C, LLC MPKI
+prefetch issued / useful / useless
+prefetch accuracy
+prefetch coverage
+MSHR/PQ pressure
+timeliness / late / evicted-unused if logged
+```
+
+A filter is useful only if the simulator-level tradeoff is good:
+
+```text
+same or higher IPC
+same or lower miss rate / MPKI
+higher or same useful coverage
+less useless traffic / less pressure
+```
+
+Accuracy alone is not enough: a filter can increase accuracy by suppressing too much and still hurt coverage or IPC.
+
+## Workload-specific interpretation
+
+The feature sweep is also a workload-discovery tool.
+
+Example from the current 602.gcc result:
+
+```text
+SPP-issued-like candidate accuracy is already high.
+MSHR occupancy is almost zero.
+F1 MSHR/PQ features do not change the policy.
+```
+
+Interpretation:
+
+```text
+602.gcc is a TRUST_SPP / sanity workload.
+The filter should avoid over-suppressing good candidates.
+It is not the right trace to prove MSHR-aware filtering.
+```
+
+Expected next workload roles:
+
+```text
+602.gcc : sanity / high SPP confidence / low MSHR pressure
+605.mcf : likely resource-pressure case; MSHR/PQ should matter more
+619.lbm : streaming/coverage-protection case; filter must not kill useful coverage
+```
+
+## Creative design direction
+
+The design should become a behavior-class controller, not a single universal aggressive filter:
+
+```text
+TRUST_SPP
+  SPP accuracy high, resource pressure low -> admit almost all
+
+RESOURCE_GATE
+  MSHR/PQ/bandwidth pressure high -> suppress resource-risky candidates
+
+COVERAGE_PROTECT
+  streaming/high-coverage phases -> avoid killing coverage
+
+DUPLICATE_CLEANUP
+  many repeated candidates -> small duplicate/recent-exact filter
+```
+
+This is the bridge from experiments to architecture: the feature sweep shows which state variables matter on which workload class.
 
 ## Online feedback labels
 
@@ -79,29 +182,29 @@ redundant     = candidate already present / already in MSHR / duplicate
 bandwidth_bad = issued when memory system was congested and did not help IPC
 ```
 
-The first model should use a simple utility label:
+The first model uses:
 
 ```text
-utility = +1 if candidate becomes a timely useful prefetch
-utility = -1 if candidate is unused, late, redundant, or polluting
+utility = +1 if candidate becomes useful
+utility = -1 if candidate is unused, duplicate, late, or resource-risky
 ```
 
-Later versions can use a richer reward.
+Later versions should distinguish timely-useful from merely address-correct.
 
 ## Model choice
 
 Start with a simple online-learning filter, not a GRU:
 
 ```text
-hashed features → perceptron/logistic score → admit if score > threshold
+hashed features → perceptron/logistic/table score → admit if score > threshold
 ```
 
-Then add RL as a second stage:
+Then add RL/control only after the supervised or tabular version has a clear replay benefit:
 
 ```text
 state  = candidate features + hardware pressure counters
 action = suppress / admit / low-priority admit / change degree
-reward = useful and timely benefit - bandwidth/pollution cost
+reward = useful and timely benefit - bandwidth/pollution/resource cost
 ```
 
 GRU is optional and should stay offline unless it clearly beats the tiny filter after accounting for hardware cost.
