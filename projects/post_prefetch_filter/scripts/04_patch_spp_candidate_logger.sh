@@ -9,9 +9,9 @@
 #   CAND  = SPP candidate accepted by SPP's internal filter and sent to prefetch_line()
 #   USE   = later demand access marked useful_prefetch by ChampSim
 #
-# The first RL notebook can post-process this event log into one row per candidate.
-# For now, the most important features are recorded directly at candidate time:
-# confidence, delta, cache_hit, MSHR occupancy/size, PQ occupancy/size.
+# First version logs MSHR exactly. PQ occupancy is written as 0 because this
+# ChampSim version keeps CACHE::internal_PQ private to modules. We will add PQ
+# later by exposing a public getter or logging from cache.cc.
 
 set -euo pipefail
 
@@ -30,7 +30,9 @@ fi
 
 if grep -q "SPP_CAND_LOG" "$SPP_CC"; then
   echo "[ok] candidate logger patch already appears present"
-  grep -n "SPP_CAND_LOG\|SPP_CAND_HEADER\|event,cand_id" "$SPP_CC" || true
+  echo "     If make fails with private internal_PQ, run:"
+  echo "       bash projects/post_prefetch_filter/scripts/04b_fix_spp_candidate_logger_compile.sh"
+  grep -n "SPP_CAND_LOG\|event,cand_id" "$SPP_CC" || true
   exit 0
 fi
 
@@ -65,9 +67,9 @@ if '#include <iomanip>' not in cc:
 
 # ---------- initialize patch ----------
 init_pat = r'(void\s+spp_dev::prefetcher_initialize\s*\(\s*\)\s*\{)'
-init_insert = r'''\1
+init_insert = '''\\1
   const char* cand_path = std::getenv("SPP_CAND_LOG");
-  if (cand_path && cand_path[0] != '\0') {
+  if (cand_path && cand_path[0] != 0) {
     cand_log_.open(cand_path);
     if (cand_log_.is_open()) {
       cand_log_ << "event,cand_id,addr,ip,pf_addr,delta,confidence,fill_l2,cache_hit,mshr_occupancy,mshr_size,pq_occupancy,pq_size,useful_prefetch,depth" << std::endl;
@@ -93,7 +95,7 @@ replace = '''  FILTER.check(addr, spp_dev::L2C_DEMAND);
               << ',' << static_cast<uint32_t>(cache_hit)
               << ',' << (intern_ ? intern_->get_mshr_occupancy() : 0)
               << ',' << (intern_ ? intern_->get_mshr_size() : 0)
-              << ',' << (intern_ ? intern_->internal_PQ.size() : 0)
+              << ',' << 0
               << ',' << (intern_ ? intern_->PQ_SIZE : 0)
               << ',' << static_cast<uint32_t>(useful_prefetch)
               << ',' << 0
@@ -123,7 +125,7 @@ new = '''          const bool fill_l2 = (confidence_q[i] >= FILL_THRESHOLD);
                         << ',' << static_cast<uint32_t>(cache_hit)
                         << ',' << (intern_ ? intern_->get_mshr_occupancy() : 0)
                         << ',' << (intern_ ? intern_->get_mshr_size() : 0)
-                        << ',' << (intern_ ? intern_->internal_PQ.size() : 0)
+                        << ',' << 0
                         << ',' << (intern_ ? intern_->PQ_SIZE : 0)
                         << ',' << static_cast<uint32_t>(useful_prefetch)
                         << ',' << i
@@ -137,7 +139,7 @@ cc = cc.replace(old, new, 1)
 
 # ---------- final stats close patch ----------
 final_pat = r'(void\s+spp_dev::prefetcher_final_stats\s*\(\s*\)\s*\{)'
-final_insert = r'''\1
+final_insert = '''\\1
   if (cand_log_.is_open()) {
     cand_log_.flush();
     cand_log_.close();
