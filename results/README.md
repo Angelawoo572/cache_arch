@@ -1,10 +1,10 @@
 # Results directory layout
 
-This directory is for experiment outputs. Keep the paths used by scripts stable, but keep generated files separated by type.
+This directory is for experiment outputs. Keep generated files separated by type and avoid committing large/raw artifacts.
 
 ## Tracked summary files
 
-These are small CSV/TEX files that are useful for reports and slides and may be committed intentionally:
+These are small CSV/JSON/TEX files that are useful for reports and slides and may be committed intentionally:
 
 - `baseline.csv` — baseline IPC/MPKI summary from `scripts/run_baseline.sh`
 - `upper_bound.csv` — built-in-policy sweep summary from `scripts/run_upper_bound.sh`
@@ -12,6 +12,7 @@ These are small CSV/TEX files that are useful for reports and slides and may be 
 - `nn_demo_summary.csv` — neural replay summary from `scripts/run_nn_replay.sh`
 - `mlp_demo_summary.csv` — old ChampSim-ML demo summary
 - `gru_sweep_summary.csv` — GRU sweep summary, if generated
+- `gru_v8_summary.json` — current GRU V8 offline accuracy/latency summary
 - `slide8_data.tex` — generated LaTeX snippets for slides
 
 ## Local-only generated files
@@ -22,17 +23,29 @@ These should normally not be committed:
 - `raw/` — raw per-run data that is too large or too messy for the repo
 - `tmp/` — scratch files
 - `generated/` — generated helper files that can be recreated
+- `generated/prefetch_lists/` — archived Colab/model-generated prefetch lists
 - `access_trace.<TRACE>.csv` — large trace-dumper CSVs for Colab/model training
 - `*.log` — any run log
 - `*.txt` — ad-hoc generated text outputs
 
-## Root-level text files kept for compatibility
+## Config files moved out of root
 
-The bypass scripts still default to root-level paths such as `bypass_pc_list.txt`. Those files are intentionally left at the repo root so commands like this do not break:
+Tracked bypass PC-list configs now live under:
 
-```bash
-bash scripts/run_bypass.sh
-BYPASS_PC_LIST=bypass_pc_list_10.txt bash scripts/run_bypass.sh
+```text
+configs/bypass/
 ```
 
-Model-generated prefetch lists such as `prefetch_list.txt` and `prefetch_list_MLP.txt` are local-only by default. They can be regenerated from the notebook and are ignored unless explicitly forced with `git add -f`.
+`run_bypass.sh` defaults to:
+
+```text
+configs/bypass/bypass_pc_list.txt
+```
+
+To sweep list sizes:
+
+```bash
+BYPASS_PC_LIST=configs/bypass/bypass_pc_list_25.txt TAG=top25 bash scripts/run_bypass.sh
+```
+
+Model-generated prefetch lists such as `prefetch_list_GRU_V8.txt` are local-only by default. They can be regenerated from the notebook and are ignored unless explicitly forced with `git add -f`.
