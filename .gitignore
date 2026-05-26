@@ -1,40 +1,172 @@
-# dependencies
-# Old top-level local clones; new layout uses external/ submodules.
+# ============================================================
+# cache_arch .gitignore
+# ============================================================
+# Goal:
+# - Track source code, configs, docs, notebooks, and small summaries.
+# - Ignore local ChampSim clones/builds, traces, generated prefetch lists,
+#   large dumps, logs, caches, and temporary experiment outputs.
+# - Work both before and after running tools/reorganize_into_single_project_tree.sh.
+
+# ------------------------------------------------------------
+# OS / editor
+# ------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------
+# Python / notebook local state
+# ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local Python environments
+.venv/
+venv/
+env/
+ENV/
+conda-env/
+
+# ------------------------------------------------------------
+# Local dependency clones / submodule working trees
+# ------------------------------------------------------------
+# Old top-level local clones. Do not commit full simulator trees.
 ChampSim/
 ChampSim-ML/
 
-# external submodules: keep only submodule pointers tracked
+# external submodules: keep only submodule pointers / explicitly tracked files.
 external/*
 !external/ChampSim/
 !external/ChampSim-ML/
+!external/README.md
+!external/.gitkeep
 
-# traces and huge simulator dumps
+# ------------------------------------------------------------
+# ChampSim / simulator build outputs
+# ------------------------------------------------------------
+bin/
+obj/
+build/
+build_*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+
+# Common ChampSim-generated binaries / configs / intermediate outputs.
+*.out
+*.exe
+*.o
+*.a
+*.so
+*.dylib
+*.gcda
+*.gcno
+
+# ------------------------------------------------------------
+# Traces and large simulator dumps
+# ------------------------------------------------------------
 traces/
+**/traces/
+*.champsimtrace
 *.champsimtrace.xz
-results/access_trace*.csv
-results/traces/
+*.trace
+*.trace.xz
+*.trace.gz
+*.xz
 
-# generated logs
+# Large raw dumps from trace/candidate logging.
+access_trace*.csv
+**/access_trace*.csv
+candidate_trace*.csv
+**/candidate_trace*.csv
+shadow_candidate*.csv
+**/shadow_candidate*.csv
+shadow_candidates*.csv
+**/shadow_candidates*.csv
+*.sqlite
+*.sqlite3
+*.db
+
+# ------------------------------------------------------------
+# Logs
+# ------------------------------------------------------------
 *.log
-results/logs/*
-!results/logs/.gitkeep
-results/mlp_demo/*.log
+logs/
+**/logs/
 
-# generated experiment outputs that are usually local-only
+# ------------------------------------------------------------
+# Generated experiment outputs
+# ------------------------------------------------------------
+# Keep source/config/docs tracked, but ignore generated outputs by default.
 results/tmp/*
 !results/tmp/.gitkeep
 results/raw/*
 !results/raw/.gitkeep
+results/logs/*
+!results/logs/.gitkeep
 results/generated/*
 !results/generated/.gitkeep
 !results/generated/prefetch_lists/
 results/generated/prefetch_lists/*
 !results/generated/prefetch_lists/.gitkeep
+
+# Same rules if results are moved into the reorganized legacy project folder.
+projects/legacy_gru_prefetch/results/tmp/*
+!projects/legacy_gru_prefetch/results/tmp/.gitkeep
+projects/legacy_gru_prefetch/results/raw/*
+!projects/legacy_gru_prefetch/results/raw/.gitkeep
+projects/legacy_gru_prefetch/results/logs/*
+!projects/legacy_gru_prefetch/results/logs/.gitkeep
+projects/legacy_gru_prefetch/results/generated/*
+!projects/legacy_gru_prefetch/results/generated/.gitkeep
+!projects/legacy_gru_prefetch/results/generated/prefetch_lists/
+projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
+!projects/legacy_gru_prefetch/results/generated/prefetch_lists/.gitkeep
+
+# Top-level generated text/list artifacts.
 results/*.txt
+projects/legacy_gru_prefetch/results/*.txt
 prefetch_list*.txt
+**/prefetch_list*.txt
 colab_prefetch_result/prefetch_list*.txt
 
-# keep small summary/artifact files that are useful to commit intentionally
+# Post-prefetch-filter generated data/model artifacts.
+projects/post_prefetch_filter/results/
+projects/post_prefetch_filter/data/generated/
+projects/post_prefetch_filter/data/raw/
+projects/post_prefetch_filter/models/
+projects/post_prefetch_filter/checkpoints/
+projects/post_prefetch_filter/runs/
+projects/post_prefetch_filter/wandb/
+
+# ML training artifacts anywhere in the repo.
+checkpoints/
+**/checkpoints/
+runs/
+**/runs/
+wandb/
+**/wandb/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# ------------------------------------------------------------
+# Keep small summaries/artifacts that are useful to commit intentionally
+# ------------------------------------------------------------
 !results/README.md
 !results/baseline.csv
 !results/upper_bound.csv
@@ -42,18 +174,43 @@ colab_prefetch_result/prefetch_list*.txt
 !results/mlp_demo_summary.csv
 !results/nn_demo_summary.csv
 !results/gru_sweep_summary.csv
-!results/slide8_data.tex
+!results/gru_v9_decode_sweep_ipc.csv
+!results/gru_v9_decode_sweep_gcc_s-734B.csv
 !results/gru_v8_summary.json
+!results/gru_v9_summary_*.json
+!results/slide8_data.tex
 
-# tracked experiment configs
+!projects/legacy_gru_prefetch/results/README.md
+!projects/legacy_gru_prefetch/results/baseline.csv
+!projects/legacy_gru_prefetch/results/upper_bound.csv
+!projects/legacy_gru_prefetch/results/bypass_summary.csv
+!projects/legacy_gru_prefetch/results/mlp_demo_summary.csv
+!projects/legacy_gru_prefetch/results/nn_demo_summary.csv
+!projects/legacy_gru_prefetch/results/gru_sweep_summary.csv
+!projects/legacy_gru_prefetch/results/gru_v9_decode_sweep_ipc.csv
+!projects/legacy_gru_prefetch/results/gru_v9_decode_sweep_gcc_s-734B.csv
+!projects/legacy_gru_prefetch/results/gru_v8_summary.json
+!projects/legacy_gru_prefetch/results/gru_v9_summary_*.json
+!projects/legacy_gru_prefetch/results/slide8_data.tex
+
+# ------------------------------------------------------------
+# Make sure source/config/documentation folders stay trackable
+# ------------------------------------------------------------
 !configs/
 !configs/**
-
-# python
-__pycache__/
-*.pyc
-.ipynb_checkpoints/
-
-# editor
-.vscode/
-.DS_Store
+!projects/
+!projects/**/README.md
+!projects/**/scripts/
+!projects/**/scripts/**
+!projects/**/notebooks/
+!projects/**/notebooks/**
+!projects/**/docs/
+!projects/**/docs/**
+!projects/**/configs/
+!projects/**/configs/**
+!projects/**/_cfg/
+!projects/**/_cfg/**
+!projects/**/champsim_modules/
+!projects/**/champsim_modules/**
+!tools/
+!tools/**
