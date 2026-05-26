@@ -1,0 +1,13 @@
+trace_tag,threshold,degree,prefetch_list,n_scored,n_emitted,n_trigger_accesses,trigger_access_frac,avg_degree
+gcc_s-734B,0.3,1,prefetch_list_GRU_V9_gcc_s-734B_th030_deg1.txt,61328,22782,22782,0.371478,0.371478
+gcc_s-734B,0.3,2,prefetch_list_GRU_V9_gcc_s-734B_th030_deg2.txt,61328,82396,61287,0.999331,1.343530
+gcc_s-734B,0.3,4,prefetch_list_GRU_V9_gcc_s-734B_th030_deg4.txt,61328,203309,61287,0.999331,3.315109
+gcc_s-734B,0.5,1,prefetch_list_GRU_V9_gcc_s-734B_th050_deg1.txt,61328,22740,22740,0.370793,0.370793
+gcc_s-734B,0.5,2,prefetch_list_GRU_V9_gcc_s-734B_th050_deg2.txt,61328,82300,61213,0.998125,1.341965
+gcc_s-734B,0.5,4,prefetch_list_GRU_V9_gcc_s-734B_th050_deg4.txt,61328,187158,61213,0.998125,3.051755
+gcc_s-734B,0.7,1,prefetch_list_GRU_V9_gcc_s-734B_th070_deg1.txt,61328,22653,22653,0.369375,0.369375
+gcc_s-734B,0.7,2,prefetch_list_GRU_V9_gcc_s-734B_th070_deg2.txt,61328,82075,61083,0.996005,1.338296
+gcc_s-734B,0.7,4,prefetch_list_GRU_V9_gcc_s-734B_th070_deg4.txt,61328,182967,61083,0.996005,2.983417
+gcc_s-734B,0.9,1,prefetch_list_GRU_V9_gcc_s-734B_th090_deg1.txt,61328,22221,22221,0.362330,0.362330
+gcc_s-734B,0.9,2,prefetch_list_GRU_V9_gcc_s-734B_th090_deg2.txt,61328,80842,60460,0.985847,1.318191
+gcc_s-734B,0.9,4,prefetch_list_GRU_V9_gcc_s-734B_th090_deg4.txt,61328,176597,60460,0.985847,2.879549
