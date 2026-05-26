@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # organize_results.sh
-# Clean up generated experiment outputs without changing the stable paths that
-# the main scripts use. This is safe to run from the repo root.
+# Clean up generated experiment outputs while preserving stable script paths.
+# Safe to run from the repo root.
 #
-# It does NOT move bypass_pc_list*.txt because run_bypass.sh defaults to the
-# repo-root file path.
+# Stable tracked config files live under configs/.
+# Large/generated experiment outputs stay local-only under results/.
 
 set -uo pipefail
 
@@ -13,7 +13,9 @@ RESULTS="$WORKDIR/results"
 LOG_DIR="$RESULTS/logs"
 RAW_DIR="$RESULTS/raw"
 TMP_DIR="$RESULTS/tmp"
-mkdir -p "$RESULTS" "$LOG_DIR" "$RAW_DIR" "$TMP_DIR"
+GEN_DIR="$RESULTS/generated"
+PREFETCH_DIR="$GEN_DIR/prefetch_lists"
+mkdir -p "$RESULTS" "$LOG_DIR" "$RAW_DIR" "$TMP_DIR" "$PREFETCH_DIR"
 
 move_if_exists () {
   local src="$1"
@@ -32,16 +34,21 @@ move_if_exists () {
 }
 
 # Logs belong in results/logs/.
-for f in "$RESULTS"/*.log "$RESULTS"/mlp_demo/*.log; do
+for f in "$WORKDIR"/*.log "$RESULTS"/*.log "$RESULTS"/mlp_demo/*.log; do
   [ -e "$f" ] || continue
   move_if_exists "$f" "$LOG_DIR"
 done
 
-# Keep large trace-dumper CSVs in results/ for compatibility with notebooks,
-# but provide a raw/ location for manual archival if desired. We do not move
-# access_trace.*.csv automatically because notebooks often expect this path.
+# Model-generated prefetch lists are large/local outputs. Keep them out of git.
+for f in "$WORKDIR"/prefetch_list*.txt "$WORKDIR"/colab_prefetch_result/prefetch_list*.txt; do
+  [ -e "$f" ] || continue
+  move_if_exists "$f" "$PREFETCH_DIR"
+done
 
-# Put clearly temporary text outputs under tmp/ unless they are known summaries.
+# Keep large trace-dumper CSVs in results/ for compatibility with notebooks.
+# We do not move access_trace.*.csv automatically because notebooks often expect it.
+
+# Put ad-hoc result text outputs under tmp/ unless they are known tracked summaries.
 for f in "$RESULTS"/*.txt; do
   [ -e "$f" ] || continue
   move_if_exists "$f" "$TMP_DIR"
@@ -49,12 +56,10 @@ done
 
 cat <<EOF
 [organize] done
-  logs -> $LOG_DIR
-  temp txt -> $TMP_DIR
+  logs          -> $LOG_DIR
+  prefetch txt  -> $PREFETCH_DIR
+  temp txt      -> $TMP_DIR
 
 [status hint]
   git status --short
-
-[cleanup hint for generated files inside submodules]
-  git submodule foreach --recursive 'git clean -fd'
 EOF
