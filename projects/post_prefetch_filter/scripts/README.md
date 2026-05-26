@@ -1,8 +1,8 @@
 # Scripts for post-prefetch filter
 
-This directory is intentionally separate from the old top-level `scripts/` directory.
+This directory is intentionally separate from the old top-level `projects/legacy_gru_prefetch/scripts/` directory.
 
-Old GRU/replay scripts stay where they are for compatibility. New scripts for the post-prefetch filter should go here first, then can be promoted into top-level `scripts/` only after the flow is stable.
+Old GRU/replay scripts stay where they are for compatibility. New scripts for the post-prefetch filter should go here first, then can be promoted into top-level `projects/legacy_gru_prefetch/scripts/` only after the flow is stable.
 
 Planned scripts:
 
