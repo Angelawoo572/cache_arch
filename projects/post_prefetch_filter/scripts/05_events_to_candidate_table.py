@@ -23,8 +23,12 @@ Important limitations of this first converter:
 Recommended Colab input:
   Use --scope spp_l2_issue --out .../spp_candidate_log.csv.xz
 
-This keeps the first controlled ML/RL question aligned with SPP_FINAL:
-  Among candidates SPP itself would send to L2, should a tiny filter admit or suppress?
+Controlled-scope label rule:
+  Labels must be assigned *within the selected candidate scope*. If we assign labels
+  over all CAND events first, a USE can be credited to an earlier low-confidence
+  lookahead duplicate, causing the later high-confidence SPP-issued-like candidate
+  to be incorrectly labeled useless. This script therefore scopes CAND events first,
+  then replays the event stream to match USE rows only to scoped CAND rows.
 """
 
 import argparse
@@ -105,27 +109,39 @@ def load_events(path):
     return events
 
 
-def assign_useful_labels(events):
-    """Match each USE address to the oldest earlier unmatched CAND with same pf_addr."""
+def is_in_scope(row, scope, min_confidence):
+    if row.get("event") != "CAND":
+        return False
+    if scope == "all":
+        return True
+    if scope == "spp_l2_issue":
+        return int(row.get("fill_l2", 0)) == 1 or int(row.get("confidence", 0)) >= min_confidence
+    raise ValueError("unknown scope: {}".format(scope))
+
+
+def collect_scoped_candidates(events, scope, min_confidence):
     cands = []
     global_to_local = {}
-
     for row in events:
-        if row.get("event") == "CAND":
+        if is_in_scope(row, scope, min_confidence):
             c = dict(row)
             c["outcome_useful"] = 0
             c["use_event_idx"] = -1
             global_to_local[c["event_idx"]] = len(cands)
             cands.append(c)
+    return cands, global_to_local
 
+
+def assign_useful_labels(events, scope="all", min_confidence=90):
+    """Match each USE address to oldest earlier unmatched scoped CAND with same pf_addr."""
+    cands, global_to_local = collect_scoped_candidates(events, scope, min_confidence)
     seen_waiting = defaultdict(deque)
 
     for row in events:
         ev = row.get("event")
-        if ev == "CAND":
-            local_i = global_to_local.get(row["event_idx"])
-            if local_i is not None:
-                seen_waiting[row["pf_addr"]].append(local_i)
+        if ev == "CAND" and row["event_idx"] in global_to_local:
+            local_i = global_to_local[row["event_idx"]]
+            seen_waiting[row["pf_addr"]].append(local_i)
         elif ev == "USE":
             addr = row["addr"]
             if seen_waiting[addr]:
@@ -135,20 +151,6 @@ def assign_useful_labels(events):
                     cands[local_i]["use_event_idx"] = row["event_idx"]
 
     return cands
-
-
-def filter_scope(cands, scope, min_confidence):
-    if scope == "all":
-        return cands
-    if scope == "spp_l2_issue":
-        # SPP's L2 issue path is controlled by fill_l2, which is equivalent to
-        # confidence >= FILL_THRESHOLD in the patched logger. Keep both checks
-        # for compatibility with older logs.
-        return [
-            c for c in cands
-            if int(c.get("fill_l2", 0)) == 1 or int(c.get("confidence", 0)) >= min_confidence
-        ]
-    raise ValueError("unknown scope: {}".format(scope))
 
 
 def add_online_recent_accuracy(cands):
@@ -181,14 +183,10 @@ def add_online_recent_accuracy(cands):
     return cands
 
 
-def build_candidate_table(events, trace, scope, min_confidence):
-    all_cands = assign_useful_labels(events)
-    scoped_cands = filter_scope(all_cands, scope, min_confidence)
-    scoped_cands = add_online_recent_accuracy(scoped_cands)
-
+def rows_from_candidates(cands, trace, min_confidence):
     seen_pf = set()
     rows = []
-    for c in scoped_cands:
+    for c in cands:
         pf = c["pf_addr"]
         duplicate = 1 if pf in seen_pf else 0
         seen_pf.add(pf)
@@ -221,7 +219,18 @@ def build_candidate_table(events, trace, scope, min_confidence):
             "outcome_evicted_unused": 0,
             "outcome_duplicate": duplicate,
         })
-    return all_cands, rows
+    return rows
+
+
+def build_candidate_table(events, trace, scope, min_confidence):
+    # Diagnostic: all-candidate useful rate explains the previous suppress-everything result.
+    all_cands = assign_useful_labels(events, "all", min_confidence)
+
+    # Actual output: labels assigned within the chosen controlled scope.
+    scoped_cands = assign_useful_labels(events, scope, min_confidence)
+    scoped_cands = add_online_recent_accuracy(scoped_cands)
+    rows = rows_from_candidates(scoped_cands, trace, min_confidence)
+    return all_cands, scoped_cands, rows
 
 
 def open_output(path):
@@ -241,6 +250,15 @@ def write_rows(path, rows):
             writer.writerow(row)
 
 
+def summarize(label, cands):
+    total = len(cands)
+    useful = sum(int(r["outcome_useful"]) for r in cands)
+    acc = useful / float(total) if total else 0.0
+    print("[{} candidates]".format(label), total)
+    print("[{} useful]".format(label), useful)
+    print("[{} candidate accuracy]".format(label), "{:.6f}".format(acc))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--events", required=True, type=Path)
@@ -251,29 +269,19 @@ def main():
     args = ap.parse_args()
 
     events = load_events(args.events)
-    all_cands, rows = build_candidate_table(events, args.trace, args.scope, args.min_confidence)
+    all_cands, scoped_cands, rows = build_candidate_table(events, args.trace, args.scope, args.min_confidence)
     write_rows(args.out, rows)
 
-    total_all = len(all_cands)
-    useful_all = sum(int(r["outcome_useful"]) for r in all_cands)
-    total = len(rows)
-    useful = sum(int(r["outcome_useful"]) for r in rows)
-    acc = useful / float(total) if total else 0.0
-    all_acc = useful_all / float(total_all) if total_all else 0.0
     mshr_vals = [int(r["mshr_occupancy"]) for r in rows]
-    mshr_avg = sum(mshr_vals) / float(total) if total else 0.0
+    mshr_avg = sum(mshr_vals) / float(len(rows)) if rows else 0.0
     mshr_max = max(mshr_vals) if mshr_vals else 0
 
     print("[events]", args.events)
     print("[out]", args.out)
     print("[scope]", args.scope)
     print("[min_confidence]", args.min_confidence)
-    print("[all candidates]", total_all)
-    print("[all useful]", useful_all)
-    print("[all candidate accuracy]", "{:.6f}".format(all_acc))
-    print("[scoped candidates]", total)
-    print("[scoped useful]", useful)
-    print("[scoped candidate accuracy]", "{:.6f}".format(acc))
+    summarize("all", all_cands)
+    summarize("scoped", scoped_cands)
     print("[mshr avg]", "{:.3f}".format(mshr_avg))
     print("[mshr max]", mshr_max)
 
