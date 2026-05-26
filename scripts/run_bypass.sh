@@ -4,7 +4,7 @@
 #
 # Inputs:
 #   TRACE          (default 605.mcf_s-994B)
-#   BYPASS_PC_LIST (default $WORKDIR/bypass_pc_list.txt)
+#   BYPASS_PC_LIST (default $WORKDIR/configs/bypass/bypass_pc_list.txt)
 #   WARMUP / SIM   (default 1M / 5M)
 #
 # Output: appends one row to results/bypass_summary.csv
@@ -20,7 +20,7 @@ mkdir -p "$OUT_DIR"
 TRACE="${TRACE:-605.mcf_s-994B}"
 WARMUP="${WARMUP:-1000000}"
 SIM="${SIM:-5000000}"
-BYPASS_PC_LIST="${BYPASS_PC_LIST:-$WORKDIR/bypass_pc_list.txt}"
+BYPASS_PC_LIST="${BYPASS_PC_LIST:-$WORKDIR/configs/bypass/bypass_pc_list.txt}"
 TAG="${TAG:-default}"
 
 TR_FILE="$TRACE_DIR/${TRACE}.champsimtrace.xz"
