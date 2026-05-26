@@ -32,7 +32,35 @@ make -j
 
 Exact config names depend on the local ChampSim version.
 
-## Phase 1: shadow candidate logging
+## Phase 1: aggregate SPP baseline
+
+Before ML/RL, record simulator-level behavior for each trace.
+
+Required table per workload:
+
+```text
+trace
+IPC
+L1D/L2C/LLC access, hit, miss
+L1D/L2C/LLC hit rate
+L1D/L2C/LLC miss rate
+L1D/L2C/LLC MPKI
+prefetch issued/useful/useless/accuracy
+```
+
+This is the latency/performance layer:
+
+```text
+IPC up/down       = latency/performance effect
+hit rate up/down  = cache effectiveness
+miss rate/MPKI    = pressure on lower levels
+prefetch accuracy = useful / issued
+coverage          = useful / demand misses, when available
+```
+
+Do not use final IPC/hit-rate/miss-rate as online input features. They are evaluation metrics. Online features must come from candidate-time state or previous-window counters.
+
+## Phase 2: shadow candidate logging
 
 Goal: run an existing prefetcher, generate candidates, but log candidate outcomes.
 
@@ -97,9 +125,60 @@ can a tiny filter suppress the bad/resource-risky ones?
 
 Only after this controlled scope works should we expand the action space to all lookahead candidates, LLC-only candidates, fill-level control, or degree control.
 
-## Phase 2: oracle filter upper bound
+## Phase 3: notebook feature sweep
 
-Before training any NN/RL, compute an oracle filter from logged outcomes within the fixed candidate scope:
+The notebook is not final performance evaluation. It is a controlled feature-ablation tool.
+
+Hold fixed:
+
+```text
+workload
+candidate scope
+train/eval split
+reward definition
+model family
+```
+
+Then change exactly one feature group at a time:
+
+```text
+F0: candidate identity only
+F1: + MSHR/PQ pressure
+F2: + recent usefulness feedback
+F3: + bandwidth pressure
+F4: + cache context / set pressure
+```
+
+For every feature set, record:
+
+```text
+issued_ratio
+accuracy
+useful_kept_ratio
+bad_suppressed_ratio
+estimated_reward
+num_states
+```
+
+Interpretation pattern:
+
+```text
+accuracy improves but useful_kept_ratio drops a lot
+  -> filter is over-suppressing; may hurt IPC
+
+issued_ratio drops and accuracy stays high, useful_kept remains high
+  -> promising traffic reduction
+
+F1 changes result only when MSHR pressure exists
+  -> resource-aware filter is workload/phase dependent
+
+F3 changes nothing if bandwidth_bucket is still constant 0
+  -> need real bandwidth logging before making claims
+```
+
+## Phase 4: oracle filter upper bound
+
+Before trusting any NN/RL, compute an oracle filter from logged outcomes within the fixed candidate scope:
 
 ```text
 admit only candidates that were useful and timely
@@ -107,12 +186,12 @@ admit only candidates that were useful and timely
 
 This gives the maximum possible value of filtering on each trace. If oracle filtering barely helps, ML will not help either.
 
-## Phase 3: simple supervised utility filter
+## Phase 5: simple supervised utility filter
 
 First real model:
 
 ```text
-features → logistic regression / perceptron → admit/suppress
+features -> logistic regression / perceptron / small table -> admit/suppress
 ```
 
 Start with hashed features:
@@ -145,9 +224,38 @@ vs.
 baseline prefetcher + filter threshold sweep
 ```
 
-## Phase 4: RL policy
+## Phase 6: replay selected policies in ChampSim
 
-Only after Phase 3 works.
+This is where hit-rate/miss-rate/IPC are answered.
+
+For each workload and selected policy:
+
+```text
+no prefetch
+SPP baseline
+SPP + filter F0
+SPP + filter F1
+SPP + filter best
+```
+
+Record:
+
+```text
+IPC and speedup vs SPP baseline
+L1D/L2C/LLC hit-rate delta
+L1D/L2C/LLC miss-rate delta
+MPKI delta
+prefetch issued/useful/useless delta
+prefetch accuracy delta
+coverage delta
+MSHR/PQ pressure delta
+```
+
+This turns notebook insight into architecture evidence.
+
+## Phase 7: RL policy
+
+Only after Phase 5/6 works.
 
 State:
 
@@ -177,12 +285,12 @@ Reward:
 
 Start with tabular Q-learning over bucketized features or contextual bandit. Avoid deep RL until a simple policy shows promise.
 
-## Phase 5: compare GRU
+## Phase 8: compare GRU
 
 GRU should be tested only as an offline feature extractor or confidence predictor:
 
 ```text
-recent access/candidate sequence → predicted usefulness probability
+recent access/candidate sequence -> predicted usefulness probability
 ```
 
 Do not put GRU in the first hardware path. If GRU improves only slightly over perceptron/logistic but costs much more, it is not the right design.
