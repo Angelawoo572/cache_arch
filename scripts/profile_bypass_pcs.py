@@ -9,21 +9,22 @@ A "good bypass candidate" PC has BOTH:
   (b) high MISS rate (its line is rarely reused before eviction)
 
 Score = freq * miss_rate
-Top-K of these are written to bypass_pc_list.txt, one PC per line in hex.
+Top-K of these are written to configs/bypass/bypass_pc_list.txt by default,
+one PC per line in hex.
 
 Usage:
   python3 scripts/profile_bypass_pcs.py results/access_trace.605.mcf_s-994B.csv \
           --top 10 \
-          --out bypass_pc_list.txt
+          --out configs/bypass/bypass_pc_list.txt
 """
-import argparse, csv, sys
+import argparse, csv, os, sys
 from collections import defaultdict
 
 ap = argparse.ArgumentParser()
 ap.add_argument('csv', help='access_trace.*.csv from trace_dumper')
 ap.add_argument('--top', type=int, default=10, help='how many PCs to bypass (default 10)')
 ap.add_argument('--min-freq', type=int, default=1000, help='min access count for a PC to qualify')
-ap.add_argument('--out', default='bypass_pc_list.txt', help='output file path')
+ap.add_argument('--out', default='configs/bypass/bypass_pc_list.txt', help='output file path')
 args = ap.parse_args()
 
 stats = defaultdict(lambda: {'n': 0, 'hits': 0})
@@ -60,6 +61,10 @@ print(f'Candidates (top {args.top}):')
 print(f'{"PC":>14s}  {"accesses":>10s}  {"miss_rate":>10s}  {"score":>14s}')
 for pc, n, mr, sc in top:
     print(f'0x{pc:>12x}  {n:>10d}  {mr:>10.3f}  {sc:>14.0f}')
+
+out_dir = os.path.dirname(args.out)
+if out_dir:
+    os.makedirs(out_dir, exist_ok=True)
 
 with open(args.out, 'w') as fh:
     fh.write('# Bypass PC list -- one PC per line in hex.\n')
