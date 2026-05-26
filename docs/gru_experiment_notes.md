@@ -1,108 +1,21 @@
-# GRU Experiment Story: How to Explain What We Tried, What Broke, and Why V9 Exists
+# GRU Experiment Notes
 
-This file is written as a **talking note**. The goal is that I can use it to explain the GRU experiment path to someone else, and also make sure I understand it myself.
-
-The main message is:
+This file explains the GRU-related experiments in the current cache-prefetching project. The goal is not to claim that GRU is the final hardware design. The goal is to understand what the experiments teach us about:
 
 ```text
-We are not trying to prove that GRU is the final prefetcher.
-We are using GRU as the first NN family to learn what matters:
-feature choice, target choice, workload choice, replay alignment, and IPC usefulness.
+feature choice -> target choice -> model prediction -> prefetch-list decode policy -> ChampSim IPC
 ```
 
-A neural prefetcher has more than one part:
+The main lesson so far is:
 
 ```text
-trace data -> feature/label design -> model prediction -> prefetch-list decoding -> ChampSim IPC
+Better ML prediction accuracy is necessary but not sufficient.
+A prefetch is only useful if it is issued at the right time, with the right degree, and without creating too much cache pollution or memory-system pressure.
 ```
-
-A notebook accuracy number only checks part of this pipeline. IPC checks the whole pipeline. A model can have good prediction accuracy and still hurt IPC if the prefetches are late, too early, wrong-page, polluting, too aggressive, or not aligned with the simulator's access index.
 
 ---
 
-## 0. The one-sentence story
-
-The GRU experiments started with a simple next-offset prediction task. That task was too weak. Then we did a controlled GRU feature sweep and learned that adding features like PC can improve in-trace validation but still hurt cross-trace IPC. V8 changed the target to next-delta prediction and became much more accurate, but IPC still did not improve because the output space and action policy were still not right. V9 therefore changes the formulation again: same-workload evaluation, delta-bitmap output, and PC+Delta context. Before judging V9, we must make sure the prefetch-list indices align with ChampSim replay.
-
----
-
-## 1. Quick glossary: what each metric actually means
-
-### `val_off_acc`
-
-This is validation accuracy for predicting the next cache-line offset. In the GRU V1--V4 notebooks, validation means:
-
-```text
-train on early part of mcf
-validate on later part of mcf
-```
-
-So `val_off_acc` answers:
-
-```text
-Did the model learn patterns that continue later in the same workload?
-```
-
-It does **not** prove the prefetcher is useful. It only proves the model can fit that label on that validation slice.
-
-### `test_off_acc`
-
-In V1--V4, test means a different trace:
-
-```text
-train on mcf
-test on omnetpp
-```
-
-So `test_off_acc` answers:
-
-```text
-Does what the model learned from mcf transfer to a different binary/workload?
-```
-
-This is a much harder question. If a feature helps `val_off_acc` but not `test_off_acc`, that feature may be memorizing workload-specific behavior.
-
-### `IPC`
-
-IPC is the real system-level metric. It answers:
-
-```text
-Did the simulated CPU execute more instructions per cycle with this prefetch list?
-```
-
-IPC can go down even when accuracy goes up. That is not a contradiction. Accuracy checks whether the model guessed a label. IPC checks whether the issued prefetches helped the cache hierarchy at the right time without hurting bandwidth, MSHRs, or pollution.
-
-### `top1`, `top5`
-
-For V8/V9, `top1` means the correct future delta was the model's best guess. `top5` means the correct future delta was somewhere among the top five guesses.
-
-High `top5` but lower `top1` means:
-
-```text
-The model often knows the right neighborhood, but the decoder still needs a good policy for which candidate(s) to issue.
-```
-
-### `OOV`
-
-OOV means “out of vocabulary.” In V8, the model only had a fixed top-256 delta vocabulary. If the real next delta was not in that vocabulary, the model could not name the exact target.
-
-High OOV means:
-
-```text
-The output space is too small for the long-tail memory-access distribution.
-```
-
-### `trigger rate` / `issued prefetches`
-
-`trigger rate` in the notebook means how many prefetch-list entries were exported relative to the number of scored accesses.
-
-`issued prefetches` in ChampSim means how many of those list entries actually matched the replayer's current access counter and were accepted by ChampSim.
-
-These are not always the same. A prefetch list can be loaded but issue zero prefetches if the list index and the simulator index are not aligned.
-
----
-
-## 2. Early model zoo: what it taught us
+## 1. Early model zoo: what it was and why it was only a smoke test
 
 Relevant notebooks:
 
@@ -112,21 +25,21 @@ notebook/neural_prefetcher_zoo_v2.ipynb
 notebook/neural_prefetcher_zoo_v3.ipynb
 ```
 
-The early model zoo compared multiple model families on the same basic task:
+The early model-zoo notebooks compared multiple model families under the same simple formulation:
 
 ```text
-input  = PC hash + last 4 deltas
-label  = next cache-line offset inside a 4 KiB page
+input  = PC hash + last 4 delta tokens
+label  = next cache-line offset inside the current 4 KiB page
 models = Perceptron / MLP / CNN / LSTM / Transformer
 ```
 
-This was a useful first pass because it tested a simple hypothesis:
+The useful question was:
 
 ```text
-If I just use a more powerful neural network, will the prefetch problem become easy?
+If I only change the NN family, does a more complex model automatically solve prefetching?
 ```
 
-The answer was basically no. The validation accuracies were close:
+The answer was no. The validation accuracies were close:
 
 ```text
 Perceptron   ~= 0.0895
@@ -136,7 +49,7 @@ LSTM         ~= 0.0952
 Transformer  ~= 0.0934
 ```
 
-But inference latency was very different:
+But inference cost was very different:
 
 ```text
 Perceptron   ~=  51 us
@@ -146,35 +59,27 @@ LSTM         ~= 348 us
 Transformer  ~= 535 us
 ```
 
-### How to explain this result
+### What this means
 
-The more complicated models did not clearly dominate. MLP, LSTM, and Transformer were all close in accuracy, but Transformer was much slower. So the early lesson was:
+The early result says the bottleneck is not simply “use a bigger neural network.” A larger model family does not automatically produce a better prefetcher. The target, feature representation, and decode policy are likely more important than raw model family at this stage.
 
-```text
-The main bottleneck is probably not “GRU vs Transformer.”
-The bigger problems are the target, the features, and whether the predictions become useful prefetches.
-```
+### Why it was a smoke test, not a final experiment
 
-### What was wrong with this early setup
-
-This setup was not enough for a serious conclusion because the label was too simple:
+The early formulation had several limitations:
 
 ```text
-next offset inside current page
+1. The label was only the next offset inside the current page.
+2. It did not fully handle page changes.
+3. It asked for one next target, but real prefetchers often need multiple future candidates.
+4. It did not explicitly model no-prefetch / suppress decisions.
+5. Some runs were designed to make the pipeline work, not to be final research-grade evaluation.
 ```
 
-That has several problems:
-
-1. If the next access jumps to a different page, predicting the offset alone is not enough.
-2. Real prefetchers often need to issue more than one candidate, but the label only asks for one next offset.
-3. The notebook exported many predictions as prefetches, which can be too aggressive.
-4. Some early settings were closer to smoke tests than final experiments: capped rows, short runs, and weaker target design.
-
-So the model zoo was useful as exploration, but not enough as a controlled research result.
+So the model zoo was useful for pipeline bring-up and latency comparison, but it was not the final evidence for or against neural prefetching.
 
 ---
 
-## 3. V1--V4: the controlled-variable GRU sweep
+## 2. `gru_sweep_cross_trace.ipynb` / `gru_sweep_v2.ipynb`: controlled feature sweep
 
 Relevant files:
 
@@ -185,18 +90,19 @@ results/gru_sweep_summary.csv
 results/nn_demo_summary.csv
 ```
 
-This is the cleanest controlled-variable part of the GRU work.
+This is the clearest controlled-variable GRU experiment so far.
 
-The setup was:
+The fixed setup was:
 
 ```text
 model family = GRU
 train trace  = 605.mcf_s-994B
+val trace    = later slice of 605.mcf_s-994B
 test trace   = 620.omnetpp_s-874B
 output       = page head + offset head
 ```
 
-The variable we controlled was the input feature set:
+The controlled variable was the input feature set:
 
 ```text
 V1 = delta history only
@@ -205,13 +111,13 @@ V3 = V2 + page hash
 V4 = V3 + PC stats: miss_rate + log_freq
 ```
 
-This is a real controlled-variable sweep because each version changes one main thing at a time.
+This is a controlled experiment because the model family and basic output formulation stayed the same, while one major feature group was added at a time.
 
 ---
 
-## 4. What V1--V4 accuracy tells us
+## 3. What the V1--V4 accuracy metrics mean
 
-The recorded offline results were:
+Recorded offline results:
 
 ```text
 V1 delta only:
@@ -225,58 +131,71 @@ V2 + PC:
     inf_us       ~= 498 us
 
 V3 + page:
-    val_off_acc  = 0.0346
-    test_off_acc = 0.0150
+    val_off_acc   = 0.0346
+    test_off_acc  = 0.0150
     test_page_acc = 0.0572
-    inf_us       ~= 571 us
+    inf_us        ~= 571 us
 
 V4 + PC stats:
-    val_off_acc  = 0.0303
-    test_off_acc = 0.0126
+    val_off_acc   = 0.0303
+    test_off_acc  = 0.0126
     test_page_acc = 0.0441
-    inf_us       ~= 574 us
+    inf_us        ~= 574 us
 ```
 
-### The important comparison: V1 vs V2
+### `val_off_acc`
 
-When we add PC:
+`val_off_acc` means offset-prediction accuracy on the same workload as training, but on a later time slice.
+
+It answers:
 
 ```text
-val_off_acc improves: 0.0124 -> 0.0404
-test_off_acc stays almost the same: 0.0126 -> 0.0127
+Can the model learn a pattern that continues within the same workload?
 ```
 
-This means:
+The biggest change is V1 to V2:
 
 ```text
-PC helped the model fit mcf's validation slice.
-But PC did not help it generalize from mcf to omnetpp.
+V1 val_off_acc = 0.0124
+V2 val_off_acc = 0.0404
 ```
 
-A simple way to say this:
+Adding PC helped the GRU fit `mcf`'s validation slice.
+
+### `test_off_acc`
+
+`test_off_acc` here means accuracy on a different workload, `omnetpp`.
+
+It answers:
 
 ```text
-PC was useful as an in-workload clue, but not as a cross-workload clue.
+Does the learned behavior transfer from mcf to a different binary/workload?
 ```
 
-This is reasonable because PC values are tied to a particular binary. A PC hash in `mcf` does not mean the same thing as a PC hash in `omnetpp`.
-
-### What V3/V4 add
-
-V3 adds page hash. V4 adds simple per-PC statistics. They slightly change page/offset accuracy, but they do not create a strong cross-trace result.
-
-So the lesson is not “page is useless” or “PC stats are useless.” The more careful lesson is:
+The important comparison is again V1 to V2:
 
 ```text
-In this cross-trace setup, adding more context features did not solve the real problem.
-The model still did not produce robust prefetches for the held-out workload.
+V1 test_off_acc = 0.0126
+V2 test_off_acc = 0.0127
 ```
+
+So PC helped in-trace validation, but did not help cross-trace testing.
+
+### Insight
+
+The careful conclusion is:
+
+```text
+PC is useful as an in-workload/local-context feature, but raw PC does not transfer well across binaries.
+```
+
+This does not mean PC is useless. It means PC should be used carefully. For per-application training, PC can help. For cross-binary generalization, PC can become memorization.
 
 ---
 
-## 5. What V1--V4 IPC tells us
+## 4. What the V1--V4 IPC results mean
 
-The ChampSim replay results on `620.omnetpp_s-874B` were:
+ChampSim replay on `620.omnetpp_s-874B`:
 
 ```text
 baseline no prefetch = 0.3157 IPC
@@ -286,43 +205,39 @@ GRU_V3 = 0.2781 IPC = 0.8809x
 GRU_V4 = 0.2807 IPC = 0.8891x
 ```
 
-The most important point is:
+The key result is:
 
 ```text
-V2 improved validation accuracy but made IPC worse.
+V2 improves validation accuracy but hurts IPC more than V1.
 ```
 
-That is not random noise; it is a very important prefetching lesson.
-
-### Why accuracy can improve while IPC gets worse
+This is an important prefetching lesson. Accuracy and IPC are not the same objective.
 
 The validation label asks:
 
 ```text
-Did I predict the next offset correctly in this dataset?
+Did I predict the next label correctly?
 ```
 
-The simulator asks:
+The processor asks:
 
 ```text
-Did my prefetch arrive early enough, not too early, not pollute the cache, not waste bandwidth, and help future demand accesses?
+Did the prefetch arrive early enough, not too early, and without wasting cache/bandwidth/MSHR resources?
 ```
 
-These are different questions.
-
-So V1--V4 taught us:
+So V1--V4 show:
 
 ```text
-A feature can help the model fit labels while making the prefetch action worse.
+A feature can improve label fitting but make prefetching worse.
 ```
 
-That is why later experiments must always report both ML metrics and IPC.
+This is why later experiments must always report both ML metrics and system metrics.
 
 ---
 
-## 6. Why omnetpp was not a good demo trace
+## 5. Why `omnetpp` was not a good first demo trace
 
-The upper-bound sweep showed that `omnetpp` barely responds to common prefetch/replacement changes:
+Upper-bound sweep:
 
 ```text
 620.omnetpp_s-874B:
@@ -332,11 +247,11 @@ The upper-bound sweep showed that `omnetpp` barely responds to common prefetch/r
     SRRIP+SPP  = 0.2786 IPC
 ```
 
-This spread is very small. So if a neural prefetcher fails on this trace, there are two possible interpretations:
+The spread is very small. So if a neural prefetcher does not improve `omnetpp`, there are two possible explanations:
 
 ```text
-1. the neural prefetcher is bad
-2. the trace has very little prefetch headroom in this window
+1. the neural prefetcher is weak
+2. this trace/window has little prefetch headroom
 ```
 
 This is why V9 moved to traces with clearer headroom:
@@ -349,39 +264,45 @@ This is why V9 moved to traces with clearer headroom:
     LRU 0.5564 -> SPP 1.330    (~139% headroom)
 ```
 
-The point is not that `omnetpp` is unimportant. The point is that it is not a good first demo if the goal is to see whether V9 can ever improve IPC.
+---
+
+## 6. V8: why it changed so much from V1--V4
+
+V8 was not a small feature ablation. It was a formulation repair.
+
+V1--V4 showed that the old page/offset formulation had problems:
+
+```text
+1. offset-only prediction is weak when accesses cross pages
+2. one next-offset label does not match multi-line prefetching
+3. PC/page features did not solve cross-trace IPC
+4. higher validation accuracy did not imply higher IPC
+```
+
+So V8 changed the target:
+
+```text
+old target = next page/offset-style prediction
+new target = next delta token from top-256 delta vocabulary + OOV
+```
+
+V8 also changed several settings:
+
+```text
+history length: longer delta history
+input filtering: L1D demand accesses
+output space: top-256 delta vocabulary + OOV
+policy: confidence-gated prefetch-list export
+model size: about 51,953 parameters
+```
+
+This is why the V8 numbers look very different from V1--V4. The model was being asked a different and more learnable question.
 
 ---
 
-## 7. Why V8 changed so much relative to V2/V4
+## 7. V8 metrics explained
 
-V8 was not a tiny controlled ablation. V8 was a formulation repair.
-
-V1--V4 used a page/offset-style prediction target. That target had several issues:
-
-```text
-1. offset alone is not enough when accesses jump pages
-2. single next-offset prediction does not match multi-line prefetching
-3. cross-trace PC/page features did not transfer well
-4. IPC was bad even when validation accuracy improved
-```
-
-So V8 changed the target to a delta-token formulation:
-
-```text
-input  = longer delta history + PC embedding
-label  = next delta token from top-256 delta vocabulary + OOV
-filter = L1D demand accesses
-policy = confidence-gated prefetch list
-```
-
-This is why V8's numbers look very different. It was not just “V4 plus one feature.” It changed what the model was asked to predict.
-
----
-
-## 8. V8 metrics explained in plain English
-
-V8 recorded:
+Recorded V8 summary:
 
 ```text
 best_val_top1 = 0.7458
@@ -395,359 +316,145 @@ trigger rate = 33.4%
 
 ### `best_val_top1 = 0.7458`
 
-This means that on the validation slice, the model's best delta-token guess was correct about 74.6% of the time.
+This means the model's best delta-token guess was correct about 74.6% of the time on the validation slice.
 
-That is much higher than V1--V4 offset accuracy. So V8 proved:
+Compared with V1--V4 offset accuracy, this is much higher. The insight is:
 
 ```text
-Delta prediction is much more learnable than the old offset target.
+Delta-token prediction is much more learnable than the old offset target.
 ```
 
 ### `test_top1 = 0.4791`, `test_top5 = 0.8507`
 
-This was cross-binary testing. The model was less accurate on the different test trace, but top-5 was still high.
+This was cross-binary testing. Top-1 dropped relative to validation, but top-5 stayed high.
 
-A careful interpretation is:
+This means:
 
 ```text
-The model often places the correct delta in a small candidate set,
-but choosing and timing the final prefetch is still a separate problem.
+The model often places the right future delta in a small candidate set,
+but choosing which candidate to issue is still a separate system policy problem.
 ```
 
-### OOV = 66.7% train, 61.2% test
+### `train/test OOV labels = 66.7% / 61.2%`
 
-This is the biggest warning in V8.
+This is the biggest V8 warning.
 
-The model only has a top-256 delta vocabulary. If the correct next delta is outside that vocabulary, the model cannot name it exactly.
+V8 can only exactly name deltas inside the top-256 vocabulary. If the correct delta is outside that vocabulary, it becomes OOV.
 
-So high OOV means:
+High OOV means:
 
 ```text
 The memory-delta distribution has a long tail.
-A small fixed vocabulary is too restrictive.
+A small fixed delta vocabulary cannot express enough targets.
 ```
 
-This is one major reason V9 moves to a bounded local delta bitmap instead of one fixed delta token.
+This motivates V9's bitmap target.
 
-### CPU inference = 734 us
+### `CPU inference = 734 us`
 
-This is far too slow for real hardware. It means the GRU is currently an offline discovery model, not a final online prefetcher.
+This is far too slow for real hardware. So GRU should be treated as a discovery model, not the final online prefetcher.
 
-So the hardware lesson is:
+Hardware implication:
 
 ```text
-If GRU discovers useful features/targets, the final design must be smaller:
-tables, counters, perceptrons, quantized models, or distilled logic.
+If GRU discovers useful signals, the final design should be compressed, tabularized, quantized, or replaced by a smaller scorer.
 ```
 
-### trigger rate = 33.4%
+### `trigger rate = 33.4%`
 
 V8 emitted prefetches for about one third of scored accesses.
 
-But gated and ungated IPC were almost the same:
+But gated and ungated IPC were almost identical:
 
 ```text
 GRU_V8 gated   = 0.9604x
 GRU_V8 ungated = 0.9610x
 ```
 
-So the confidence threshold was not the real fix. V8 already had a kind of natural gate because many labels were OOV. This means:
+So the simple confidence gate did not solve the system problem. V8's issue was not only confidence; it was the output/action formulation.
+
+---
+
+## 8. V8 insight and paper transition
+
+V8 proved two things at the same time:
 
 ```text
-The problem is not solved by simply raising/lowering confidence.
-The output/action formulation needs to change.
+1. The model can learn a better target than page-offset prediction.
+2. Better target accuracy still does not automatically produce better IPC.
+```
+
+This connects directly to several papers:
+
+```text
+Hashemi:
+    memory prediction should be formulated as classification/sequence learning, not raw address regression.
+
+Voyager:
+    address structure matters; page/offset and per-application behavior need to be handled carefully.
+
+TransFetch / bitmap-style formulations:
+    future memory accesses are often better represented as a set/window of possible future lines, not one next token.
+
+DART / Net2Tab:
+    a large NN can be useful for discovery, but the hardware path must eventually be smaller and faster.
+
+APT-GET / timeliness work:
+    a correct predicted address can still be useless if the timing is wrong.
+
+Limoncello:
+    prefetching can hurt under resource pressure.
+```
+
+The direct transition from V8 to V9 is:
+
+```text
+V8 fixed learnability, but not system usefulness.
+V9 changes the output and evaluation setup to better match prefetching.
 ```
 
 ---
 
-## 9. V8's main lesson
+## 9. V9 implementation: why it changed from V8
 
-V8 improved ML prediction but still did not improve IPC:
-
-```text
-baseline = 0.3157 IPC
-GRU_V8  = 0.3032 IPC = 0.9604x
-```
-
-The right conclusion is not “GRU is useless.”
-
-The right conclusion is:
+V9 changes several things because V8 exposed several problems:
 
 ```text
-The model can learn a better target, but the emitted prefetches are not yet system-useful.
+V8 problem 1: fixed top-256 delta vocabulary has high OOV
+V9 change:   use a bounded 129-bit delta bitmap over [-64, +64] cache-line deltas
+
+V8 problem 2: one next-delta token cannot represent multiple useful future lines
+V9 change:   label future deltas that appear in the next 8 accesses
+
+V8 problem 3: cross-binary test mixed two questions: can learn vs can transfer
+V9 change:   use in-distribution train/val/test split for each trace
+
+V8 problem 4: confidence gate did not fix IPC
+V9 change:   make decode policy explicit through probability threshold and max degree
+
+V8 problem 5: omnetpp had little prefetch headroom
+V9 change:   evaluate mcf, lbm, and gcc
 ```
 
-This pushed the project toward V9.
+V9 architecture summary:
+
+```text
+input sequence: delta-token history
+extra context: PC embedding + PC/Delta hash embedding
+sequence model: GRU
+output: 129-bit sigmoid bitmap
+label: which nearby deltas appear in the next 8 accesses
+loss: binary cross entropy over bitmap bits
+prefetch decode: choose top bitmap positions above threshold, limited by max degree
+```
+
+V9 should be read as a redesign checkpoint, not a one-variable ablation.
 
 ---
 
-## 10. Why V9 is allowed to change many things
+## 10. V9 current system results
 
-Usually, we want controlled-variable changes. But sometimes a previous experiment proves the formulation is wrong enough that a redesign is justified.
-
-V8 showed several problems at once:
-
-```text
-1. fixed delta vocabulary has high OOV
-2. single next-delta output does not represent multiple useful future lines
-3. confidence gating did not fix IPC
-4. cross-binary evaluation mixes “can learn” with “can transfer”
-5. omnetpp has very little prefetch headroom
-```
-
-Therefore V9 changes the setup to answer a cleaner question:
-
-```text
-If we evaluate within the same workload, and use a bitmap target that represents multiple nearby future deltas, can GRU produce a useful prefetch list?
-```
-
-V9 changes:
-
-```text
-A. in-distribution split
-   train = first 70%
-   val   = next 15%
-   test  = last 15%
-
-B. delta bitmap output
-   129 possible nearby deltas: [-64, +64] cache lines
-   label bit = 1 if that delta appears in the next 8 accesses
-
-C. PC+Delta hash feature
-   captures local interaction between instruction context and recent delta behavior
-
-D. better trace choice
-   mcf, lbm, gcc instead of only omnetpp
-```
-
-Important: V9 is a redesign checkpoint, not a one-variable ablation.
-
----
-
-## 11. V9 implementation caveat: replay index alignment
-
-Current V9 prefetch lists have idx ranges like:
-
-```text
-mcf first_idx ~= 7,415,896
-lbm first_idx ~= 1,350,082
-gcc first_idx ~= 1,386,722
-```
-
-These indices come from the original dumped CSV's simulation phase.
-
-The `list_replayer` also counts from zero at the beginning of ChampSim's simulation phase. Therefore the replay run must use the same simulation-phase coordinate system as the dump.
-
-If we change warmup/sim to run only the last 15%, the replayer counter restarts at zero, while the prefetch list still contains original full-window indices. The symptom is:
-
-```text
-list loaded successfully
-but issued prefetches = 0 or only a small fraction
-```
-
-So V9 IPC should not be judged until we use the corrected full-index replay or generate a new local-index last-15% prefetch list.
-
----
-
-## 12. Paper connections without forcing the logic
-
-The papers are not being copied directly. They explain why each revision is reasonable.
-
-### Hashemi et al., Learning Memory Access Patterns
-
-Useful idea:
-
-```text
-Treat memory prediction as a classification / sequence problem, not raw 64-bit address regression.
-```
-
-Connection to our work:
-
-```text
-V8 moves from weak offset labels toward delta-token classification.
-```
-
-### Voyager
-
-Useful idea:
-
-```text
-Memory addresses need structure such as page/offset decomposition, and evaluation is often per workload/application.
-```
-
-Connection to our work:
-
-```text
-V1--V4 tried a page/offset-style output.
-V9 uses same-workload train/val/test to first answer whether the model can learn the workload.
-```
-
-### TransFetch / bitmap-style formulations
-
-Useful idea:
-
-```text
-Future memory accesses are better represented as a set/window of possible future lines, not always one next token.
-```
-
-Connection to our work:
-
-```text
-V9 uses a delta bitmap over the next 8 accesses.
-```
-
-### Pythia
-
-Useful idea:
-
-```text
-Prefetching should use program context and feedback/state, not only raw address history.
-```
-
-Connection to our work:
-
-```text
-V9's PC+Delta feature is a small step toward combining instruction context with recent memory behavior.
-```
-
-### DART / Net2Tab / efficient neural prefetcher line
-
-Useful idea:
-
-```text
-A large NN may be useful for discovery, but practical hardware needs a small/fast representation.
-```
-
-Connection to our work:
-
-```text
-GRU latency is too high for direct hardware use, so a successful GRU result would later motivate distillation or a cheaper family such as perceptron/CNN/MLP.
-```
-
-### APT-GET and timeliness work
-
-Useful idea:
-
-```text
-Correct prefetches can still be useless if they arrive too early or too late.
-```
-
-Connection to our work:
-
-```text
-If V9 has high offline F1 but low IPC after replay alignment is fixed, timeliness becomes a leading explanation.
-```
-
-### Limoncello
-
-Useful idea:
-
-```text
-Prefetching can hurt when it creates bandwidth/resource pressure.
-```
-
-Connection to our work:
-
-```text
-If V9 emits many prefetches and IPC drops, the next fix may be throttling, degree control, or utility gating, not a bigger NN.
-```
-
----
-
-## 13. What to say if someone asks “are we controlled-variable?”
-
-The honest answer is:
-
-```text
-Partly yes.
-```
-
-More precise:
-
-```text
-The V1--V4 GRU sweep is controlled-variable:
-    same GRU family, same basic target, add one feature at a time.
-
-V8 is not controlled-variable:
-    it is a target redesign after V1--V4 showed the old target/setup was weak.
-
-V9 is not a one-variable ablation either:
-    it is a cleaner formulation designed after V8 exposed OOV, single-target, confidence-gating, and headroom problems.
-```
-
-This is not a weakness as long as we describe it honestly. The research process is:
-
-```text
-controlled sweep -> identify failure -> redesign formulation -> then do new controlled ablations inside the new formulation
-```
-
-After V9 replay is fixed, the next controlled ablations should be inside the V9 formulation:
-
-```text
-same trace, same trained model, vary threshold / max degree
-same V9 target, compare GRU vs cheaper model families
-same model, remove PC+Delta feature
-same model, vary next-window size
-```
-
----
-
-## 14. What to do next
-
-Do not rewrite the notebook yet unless replay still fails after the script fix.
-
-Immediate next step:
-
-```text
-Run V9 with corrected full-index replay.
-```
-
-Then fill this table:
-
-```text
-trace | baseline IPC | SPP IPC | V9 IPC | speedup | top1 | top5 | F1 | precision | recall | issued | list lines | CPU us
-```
-
-Then decide:
-
-```text
-Case 1: lbm/gcc offline high and IPC improves
-    V9 formulation is promising.
-    Next: compare cheaper model families using the same V9 bitmap target.
-
-Case 2: lbm/gcc offline high but IPC still drops
-    Do not switch family immediately.
-    First test threshold, max degree, timeliness, pollution, and replay details.
-
-Case 3: offline low and IPC low
-    The feature/target/model is not enough for that workload.
-
-Case 4: mcf fails but lbm/gcc work
-    That is not a full failure.
-    mcf may be a bypass/replacement/utility-control workload rather than a prefetch showcase.
-```
-
-The key mindset is:
-
-```text
-Do not ask only “is GRU good?”
-Ask “which part of the pipeline failed?”
-```
-
----
-
-## 15. V9 full-index replay: first valid system signal
-
-After fixing the replay alignment problem, we reran V9 using the same full-index coordinate system as the original dumped CSV:
-
-```text
-WARMUP = 25,000,000
-SIM    = 25,000,000
-```
-
-This matters because both `trace_dumper` and `list_replayer` count L1D LOAD/RFO accesses starting from zero at the beginning of ChampSim's simulation phase. If we shift the warmup to the last 15% but keep the original full-window indices in the prefetch list, the replayer counter and list indices no longer match.
-
-The corrected full-index replay results were:
+Use the full-index V9 rows:
 
 ```text
 trace              baseline IPC   V9 IPC    speedup   list lines   issued   accesses seen
@@ -756,179 +463,147 @@ trace              baseline IPC   V9 IPC    speedup   list lines   issued   acce
 605.mcf_s-994B     0.1841         0.1812    0.9842x   345,329      213,950  8,454,906
 ```
 
-### What we learned from the corrected run
-
-The first thing we learned is that the previous `issued = 0` result for `mcf` was not a model result. It was a replay-window/index mismatch. After using full-index replay, `mcf` issued 213,950 prefetches, so the list and replayer can match.
-
-The second thing we learned is that V9 is no longer purely an offline notebook result. It now has a real system signal:
-
-```text
-gcc: small positive IPC signal, +0.66%
-lbm: essentially neutral, +0.02%
-mcf: negative, -1.58%
-```
-
-This is much more informative than the broken last-15% replay.
-
----
-
-## 16. How to interpret each V9 trace
-
-### `602.gcc_s-734B`: first promising sign, but still far from enough
+### `gcc`: small positive signal
 
 `gcc` improved from `0.5427` to `0.5463`, or `1.0066x`.
 
-This is small, but important because it is the first corrected V9 run where a GRU-generated prefetch list improves IPC. It means the V9 formulation is not completely disconnected from system usefulness.
+This is small, but important. It is the first V9 system result showing that the GRU bitmap prefetch list can improve IPC at all.
 
-However, this is not yet a strong result because the upper-bound table showed much larger headroom for `gcc` with SPP. So the careful statement is:
-
-```text
-V9 has a small positive system signal on gcc, but it captures only a tiny fraction of the available prefetch headroom.
-```
-
-Possible explanations:
-
-1. The model learned some useful future deltas.
-2. The decode policy is too conservative or too late.
-3. The prefetch list only covers the V9 test slice inside a full 25M-instruction simulation, so the IPC effect is diluted.
-4. The current prefetches may not be at the right degree/timing to compete with SPP.
-
-So `gcc` is the trace to keep debugging first.
-
-### `619.lbm_s-4268B`: high offline quality but neutral IPC
-
-`lbm` improved from `0.4345` to `0.4346`, or `1.0002x`. This is basically neutral.
-
-This is surprising because the V9 notebook metrics for `lbm` were strong. That means the issue is probably not simply “the model cannot learn lbm.”
-
-A better hypothesis is:
+The careful interpretation is:
 
 ```text
-The offline bitmap task is learnable, but the prefetch action is not yet strong enough in the replay.
+V9 has a positive system signal on gcc, but it captures only a small part of gcc's available prefetch headroom.
 ```
 
-Important diagnostic: only 31,944 prefetches were issued from 180,907 list entries. That is about 17.7% of the exported list. Since the list covers a specific test-slice region but the replay ran the full 25M-instruction simulation, the measured IPC is diluted by a large region where no V9 prefetches are issued.
+This makes `gcc` the best trace for the next decode-policy sweep.
 
-So the correct conclusion is not “V9 failed on lbm.” The correct conclusion is:
+### `lbm`: offline learnable, system-neutral
+
+`lbm` improved from `0.4345` to `0.4346`, or `1.0002x`, which is essentially neutral.
+
+Because `lbm` has strong offline V9 prediction quality, this suggests the problem is likely not simply “the model cannot learn lbm.” More likely, the current issuing policy is not strong enough or not timed well enough.
+
+Careful interpretation:
 
 ```text
-lbm needs a cleaner evaluation window or a full-window prefetch list before we can judge IPC.
+The bitmap target is learnable on lbm, but the current decode policy does not translate that into meaningful IPC improvement.
 ```
 
-### `605.mcf_s-994B`: negative result is consistent with earlier diagnosis
+### `mcf`: negative prefetch result
 
 `mcf` dropped from `0.1841` to `0.1812`, or `0.9842x`.
 
-This is now a real warning because 213,950 prefetches were issued. Unlike the broken run, this is not zero-issue alignment failure.
+This is consistent with the offline V9 diagnosis that `mcf` had low precision and very high recall. For irregular/pointer-like workloads, many speculative prefetches can hurt by causing pollution or resource pressure.
 
-This matches the offline V9 diagnosis:
-
-```text
-mcf had low precision and very high recall.
-```
-
-That pattern usually means the model is issuing many candidates but not selectively enough. For an irregular/pointer-like workload, many speculative prefetches can create cache pollution or bandwidth/MSHR pressure.
-
-The careful conclusion is:
+Careful interpretation:
 
 ```text
-mcf is probably not a good first showcase for V9 prefetching.
-It may be better treated as a bypass / replacement / utility-gating workload.
+mcf is not a good first showcase for V9 prefetching.
+It may be better suited to bypass, replacement, or utility-gating experiments.
 ```
-
-This connects to the earlier bypass result: `mcf` improved with PC-list bypass, while prefetching was weak or harmful.
 
 ---
 
-## 17. What the V9 result says about the research direction
+## 11. What V9 teaches us
 
-The corrected V9 result gives a more nuanced answer than simply “GRU works” or “GRU fails.”
+V9 gives a more nuanced result than simply “GRU works” or “GRU fails.”
 
 What we know now:
 
 ```text
-1. The pipeline can now issue prefetches correctly after fixing index alignment.
-2. V9 gives a small positive IPC signal on gcc.
-3. V9 is neutral on lbm under the current full-index/diluted replay.
-4. V9 hurts mcf when it actually issues many prefetches.
-5. Offline accuracy/F1 is still not enough to predict IPC.
+1. V9 gives a small positive IPC signal on gcc.
+2. V9 is neutral on lbm.
+3. V9 hurts mcf.
+4. High offline accuracy/F1 still does not guarantee IPC improvement.
+5. The next bottleneck is likely action policy: threshold, degree, timing, and usefulness filtering.
 ```
 
-The most important research insight is:
+This supports the larger research direction:
 
 ```text
-The next bottleneck is not model capacity.
-The next bottleneck is action policy: which predicted candidates to issue, when to issue them, and how many to issue.
+The problem is not only predicting future addresses.
+The problem is deciding which speculative memory actions are worth issuing under hardware constraints.
 ```
-
-This is exactly why the next experiments should be threshold/degree/timeliness style experiments inside the V9 formulation, not a random jump to a bigger model.
 
 ---
 
-## 18. Do we need to rewrite the notebook now?
+## 12. Controlled-variable status
 
-Not the whole notebook.
-
-The V9 training formulation does not need to be thrown away. The model learned meaningful patterns, and the corrected replay gave at least one positive IPC signal on `gcc`.
-
-But the evaluation/export part should eventually be improved. There are two possible next steps:
-
-### Option A: quick controlled decode sweep
-
-Keep the trained V9 model and same traces. Regenerate prefetch lists with different decode policies:
+The honest answer is:
 
 ```text
-probability threshold: 0.30, 0.50, 0.70, 0.90
-max degree:            1, 2, 4
+Partly controlled.
 ```
 
-This tests whether V9 is failing because it is too aggressive, too conservative, or selecting too many low-utility candidates.
-
-This is the best immediate controlled-variable experiment because the model and features stay fixed, and only the action policy changes.
-
-### Option B: cleaner test-window replay
-
-The current full-index replay is valid for index matching, but it is diluted because the V9 prefetch list only covers the test-slice region while the replay measures the full simulation window.
-
-A cleaner setup would be:
+More precise:
 
 ```text
-1. Train V9 using the original full CSV split.
-2. Re-dump or isolate the exact test replay window.
-3. Export a prefetch list with local indices for that test window.
-4. Replay only that same test window.
+V1--V4:
+    controlled feature sweep inside the GRU family.
+
+V8:
+    target redesign after the old page/offset formulation looked weak.
+
+V9:
+    formulation redesign after V8 exposed OOV, single-token output, and action-policy problems.
 ```
 
-This is cleaner but more engineering work because instruction-window and access-index-window alignment must be handled carefully.
-
-### Recommended next action
-
-Do not switch model family yet.
-
-First do a small V9 decode sweep on `gcc`, because `gcc` already has a positive signal:
+The next controlled experiments should happen inside the V9 formulation:
 
 ```text
-TRACE = 602.gcc_s-734B
-same trained V9 model
-same features
-vary threshold and max_degree
-measure IPC
+same trained model, vary threshold / max degree
+same V9 target, compare cheaper model families
+same V9 model, remove PC+Delta feature
+same V9 model, vary next-window size
 ```
-
-Then do the same for `lbm`. Only after that should we decide whether to compare cheaper model families such as Perceptron/CNN/MLP using the same V9 bitmap target.
 
 ---
 
-## 19. How to say the current V9 result to someone else
+## 13. Immediate next step
 
-A concise explanation:
+Do not switch to a new NN family yet.
+
+First run a V9 decode-policy sweep, especially on `gcc`:
 
 ```text
-After fixing replay index alignment, V9 no longer looks like a broken simulator run. It issues prefetches correctly. On gcc it gives a small positive IPC improvement, on lbm it is neutral, and on mcf it hurts. This tells us the bitmap target can produce some useful candidates, but candidate selection/degree/timeliness is now the main bottleneck. The next controlled experiment should not be a new model family yet; it should be a decode-policy sweep under the same V9 model.
+trace: 602.gcc_s-734B
+model: same V9 GRU
+features: same
+change only: probability threshold and max_degree
 ```
 
-Even shorter:
+Suggested sweep:
 
 ```text
-V9 proved that better offline prediction is not enough. The next problem is utility-aware issuing.
+threshold: 0.30, 0.50, 0.70, 0.90
+max_degree: 1, 2, 4
+```
+
+Why this is the correct next step:
+
+```text
+It controls the model and features.
+It changes only the prefetch action policy.
+It directly tests whether V9 is too aggressive, too conservative, or issuing the wrong number of candidates.
+```
+
+After the decode sweep:
+
+```text
+If gcc improves more:
+    keep V9 target and compare cheaper model families.
+
+If gcc stays near 1.00x:
+    investigate timeliness/pollution/usefulness counters.
+
+If mcf stays negative:
+    move mcf toward bypass/replacement/utility gating rather than using it as the prefetch showcase.
+```
+
+---
+
+## 14. One-paragraph explanation for others
+
+```text
+The GRU experiments show a progression from weak offset prediction to a more realistic delta-bitmap formulation. The controlled V1--V4 sweep showed that adding features like PC can improve validation accuracy without improving IPC. V8 made the target much more learnable with delta-token prediction, but high OOV and no IPC gain showed that prediction accuracy alone is not enough. V9 uses in-distribution training and a 129-bit future-delta bitmap. Current V9 system results show a small positive signal on gcc, neutral behavior on lbm, and negative behavior on mcf. The next bottleneck is not model capacity; it is utility-aware issuing: threshold, degree, timing, and resource-aware filtering.
 ```
