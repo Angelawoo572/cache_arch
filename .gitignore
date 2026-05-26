@@ -24,6 +24,7 @@ results/tmp/
 results/raw/
 results/generated/
 results/*.txt
+prefetch_list*.txt
 colab_prefetch_result/prefetch_list*.txt
 
 # keep small summary/artifact files that are useful to commit intentionally
@@ -34,12 +35,12 @@ colab_prefetch_result/prefetch_list*.txt
 !results/mlp_demo_summary.csv
 !results/nn_demo_summary.csv
 !results/gru_sweep_summary.csv
-!results/mlp_demo_summary.csv
 !results/slide8_data.tex
+!results/gru_v8_summary.json
 
-# keep configured PC-list inputs at repo root for script compatibility
-!bypass_pc_list.txt
-!bypass_pc_list_*.txt
+# tracked experiment configs
+!configs/
+!configs/**
 
 # python
 __pycache__/
@@ -49,4 +50,3 @@ __pycache__/
 # editor
 .vscode/
 .DS_Store
-
