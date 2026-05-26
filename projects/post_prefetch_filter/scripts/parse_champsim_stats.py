@@ -8,6 +8,8 @@ across versions. It tries to extract:
 - L1D, L2C, LLC access/hit/miss/hit-rate/miss-rate/MPKI
 - prefetch requested/issued/useful/useless/accuracy when present
 
+Compatible with older Python 3 versions used on cluster machines.
+
 Usage:
   python3 projects/post_prefetch_filter/scripts/parse_champsim_stats.py \
     --trace 602.gcc_s-734B \
@@ -17,11 +19,10 @@ Append to an existing CSV:
   python3 .../parse_champsim_stats.py --trace ... --log ... --append-csv summary.csv
 """
 
-from __future__ import annotations
-
 import argparse
 import csv
 import re
+import sys
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -58,21 +59,24 @@ FIELDS = [
 CACHE_LEVELS = ["L1D", "L2C", "LLC"]
 
 
-def first_float(pattern: str, text: str) -> Optional[float]:
+def first_float(pattern, text):
+    # type: (str, str) -> Optional[float]
     m = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
     if not m:
         return None
     return float(m.group(1))
 
 
-def first_int(pattern: str, text: str) -> Optional[int]:
+def first_int(pattern, text):
+    # type: (str, str) -> Optional[int]
     m = re.search(pattern, text, flags=re.IGNORECASE | re.MULTILINE)
     if not m:
         return None
     return int(m.group(1).replace(",", ""))
 
 
-def find_cache_line(level: str, text: str) -> Optional[str]:
+def find_cache_line(level, text):
+    # type: (str, str) -> Optional[str]
     # Most useful lines look like "cpu0->L1D TOTAL ... HIT: ... MISS: ...".
     candidates = []
     for line in text.splitlines():
@@ -81,8 +85,9 @@ def find_cache_line(level: str, text: str) -> Optional[str]:
     return candidates[-1] if candidates else None
 
 
-def parse_cache_level(level: str, text: str, instructions: Optional[int]) -> Dict[str, str]:
-    row: Dict[str, str] = {}
+def parse_cache_level(level, text, instructions):
+    # type: (str, str, Optional[int]) -> Dict[str, str]
+    row = {}  # type: Dict[str, str]
     line = find_cache_line(level, text)
 
     hit = miss = access = None
@@ -109,20 +114,21 @@ def parse_cache_level(level: str, text: str, instructions: Optional[int]) -> Dic
     hit_rate = None
     miss_rate = None
     if access and access > 0:
-        hit_rate = (hit or 0) / access
-        miss_rate = (miss or 0) / access
+        hit_rate = (hit or 0) / float(access)
+        miss_rate = (miss or 0) / float(access)
 
     prefix = level
-    row[f"{prefix}_access"] = "NA" if access is None else str(access)
-    row[f"{prefix}_hit"] = "NA" if hit is None else str(hit)
-    row[f"{prefix}_miss"] = "NA" if miss is None else str(miss)
-    row[f"{prefix}_hit_rate"] = "NA" if hit_rate is None else f"{hit_rate:.6f}"
-    row[f"{prefix}_miss_rate"] = "NA" if miss_rate is None else f"{miss_rate:.6f}"
-    row[f"{prefix}_MPKI"] = "NA" if mpki is None else f"{mpki:.6f}"
+    row["{}_access".format(prefix)] = "NA" if access is None else str(access)
+    row["{}_hit".format(prefix)] = "NA" if hit is None else str(hit)
+    row["{}_miss".format(prefix)] = "NA" if miss is None else str(miss)
+    row["{}_hit_rate".format(prefix)] = "NA" if hit_rate is None else "{:.6f}".format(hit_rate)
+    row["{}_miss_rate".format(prefix)] = "NA" if miss_rate is None else "{:.6f}".format(miss_rate)
+    row["{}_MPKI".format(prefix)] = "NA" if mpki is None else "{:.6f}".format(mpki)
     return row
 
 
-def parse_prefetch_stats(text: str) -> Dict[str, str]:
+def parse_prefetch_stats(text):
+    # type: (str) -> Dict[str, str]
     # ChampSim versions differ. Try common labels first.
     requested = first_int(r"prefetch(?:es)? requested[:= ]+([0-9,]+)", text)
     issued = first_int(r"prefetch(?:es)? issued[:= ]+([0-9,]+)", text)
@@ -144,18 +150,19 @@ def parse_prefetch_stats(text: str) -> Dict[str, str]:
 
     acc = None
     if issued and issued > 0 and useful is not None:
-        acc = useful / issued
+        acc = useful / float(issued)
 
     return {
         "prefetch_requested": "NA" if requested is None else str(requested),
         "prefetch_issued": "NA" if issued is None else str(issued),
         "prefetch_useful": "NA" if useful is None else str(useful),
         "prefetch_useless": "NA" if useless is None else str(useless),
-        "prefetch_accuracy": "NA" if acc is None else f"{acc:.6f}",
+        "prefetch_accuracy": "NA" if acc is None else "{:.6f}".format(acc),
     }
 
 
-def parse_log(trace: str, log_path: Path) -> Dict[str, str]:
+def parse_log(trace, log_path):
+    # type: (str, Path) -> Dict[str, str]
     text = log_path.read_text(errors="replace")
 
     ipc = first_float(r"cumulative IPC:\s*([0-9]+(?:\.[0-9]+)?)", text)
@@ -165,9 +172,9 @@ def parse_log(trace: str, log_path: Path) -> Dict[str, str]:
     instructions = first_int(r"instructions:\s*([0-9,]+)", text)
     cycles = first_int(r"cycles:\s*([0-9,]+)", text)
 
-    row: Dict[str, str] = {field: "NA" for field in FIELDS}
+    row = {field: "NA" for field in FIELDS}  # type: Dict[str, str]
     row["trace"] = trace
-    row["ipc"] = "NA" if ipc is None else f"{ipc:.6f}"
+    row["ipc"] = "NA" if ipc is None else "{:.6f}".format(ipc)
     row["instructions"] = "NA" if instructions is None else str(instructions)
     row["cycles"] = "NA" if cycles is None else str(cycles)
 
@@ -178,7 +185,7 @@ def parse_log(trace: str, log_path: Path) -> Dict[str, str]:
     return row
 
 
-def main() -> None:
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--trace", required=True)
     ap.add_argument("--log", required=True, type=Path)
@@ -192,7 +199,7 @@ def main() -> None:
             writer = csv.DictWriter(f, fieldnames=FIELDS)
             writer.writerow(row)
     else:
-        writer = csv.DictWriter(__import__("sys").stdout, fieldnames=FIELDS)
+        writer = csv.DictWriter(sys.stdout, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerow(row)
 
