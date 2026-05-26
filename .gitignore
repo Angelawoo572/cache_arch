@@ -158,6 +158,7 @@ projects/post_prefetch_filter/data/generated/*
 !projects/post_prefetch_filter/data/
 !projects/post_prefetch_filter/data/generated/
 !projects/post_prefetch_filter/data/generated/.gitkeep
+!projects/post_prefetch_filter/data/generated/spp_candidate_log.csv.xz
 !projects/post_prefetch_filter/data/generated/spp_candidate_log.csv.gz
 !projects/post_prefetch_filter/data/generated/README.md
 
