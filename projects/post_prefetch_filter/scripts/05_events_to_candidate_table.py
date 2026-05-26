@@ -8,7 +8,7 @@ Input: CSV produced by 04_patch_spp_candidate_logger.sh, with event rows:
   USE,...   later demand access marked useful_prefetch by ChampSim
 
 Output: CSV schema expected by rl_filter_story_starter.ipynb:
-  trace,cycle,ip,addr,pf_addr,delta,spp_confidence,cache_hit,
+  trace,cycle,ip,addr,pf_addr,delta,spp_confidence,spp_fill_l2,cache_hit,
   mshr_occupancy,mshr_size,pq_occupancy,pq_size,
   recent_spp_accuracy,recent_pc_accuracy,recent_delta_accuracy,
   bandwidth_bucket,set_pressure,
@@ -19,10 +19,18 @@ Important limitations of this first converter:
 - outcome_late and outcome_evicted_unused are set to 0 for now.
 - PQ occupancy is whatever the logger wrote; current logger writes 0 because internal_PQ is private.
 - outcome_useful is assigned by matching candidate pf_addr to later USE addr.
+
+Recommended Colab input:
+  Use --scope spp_l2_issue --out .../spp_candidate_log.csv.xz
+
+This keeps the first controlled ML/RL question aligned with SPP_FINAL:
+  Among candidates SPP itself would send to L2, should a tiny filter admit or suppress?
 """
 
 import argparse
 import csv
+import gzip
+import lzma
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -34,6 +42,7 @@ OUT_COLUMNS = [
     "pf_addr",
     "delta",
     "spp_confidence",
+    "spp_fill_l2",
     "cache_hit",
     "mshr_occupancy",
     "mshr_size",
@@ -79,7 +88,13 @@ def safe_int(x, default=0):
 
 def load_events(path):
     events = []
-    with path.open(newline="") as f:
+    opener = open
+    if str(path).endswith(".gz"):
+        opener = gzip.open
+    elif str(path).endswith(".xz"):
+        opener = lzma.open
+
+    with opener(path, "rt", newline="") as f:
         reader = csv.DictReader(f)
         for idx, row in enumerate(reader):
             clean = {k: v for k, v in row.items()}
@@ -122,8 +137,22 @@ def assign_useful_labels(events):
     return cands
 
 
+def filter_scope(cands, scope, min_confidence):
+    if scope == "all":
+        return cands
+    if scope == "spp_l2_issue":
+        # SPP's L2 issue path is controlled by fill_l2, which is equivalent to
+        # confidence >= FILL_THRESHOLD in the patched logger. Keep both checks
+        # for compatibility with older logs.
+        return [
+            c for c in cands
+            if int(c.get("fill_l2", 0)) == 1 or int(c.get("confidence", 0)) >= min_confidence
+        ]
+    raise ValueError("unknown scope: {}".format(scope))
+
+
 def add_online_recent_accuracy(cands):
-    """Add prior-only recent accuracy features in event order."""
+    """Add prior-only recent accuracy features in event order within the selected scope."""
     cands.sort(key=lambda r: r["event_idx"])
 
     global_seen = 0
@@ -152,16 +181,21 @@ def add_online_recent_accuracy(cands):
     return cands
 
 
-def build_candidate_table(events, trace):
-    cands = assign_useful_labels(events)
-    cands = add_online_recent_accuracy(cands)
+def build_candidate_table(events, trace, scope, min_confidence):
+    all_cands = assign_useful_labels(events)
+    scoped_cands = filter_scope(all_cands, scope, min_confidence)
+    scoped_cands = add_online_recent_accuracy(scoped_cands)
 
     seen_pf = set()
     rows = []
-    for c in cands:
+    for c in scoped_cands:
         pf = c["pf_addr"]
         duplicate = 1 if pf in seen_pf else 0
         seen_pf.add(pf)
+
+        fill_l2 = int(c.get("fill_l2", 0))
+        if fill_l2 == 0 and int(c.get("confidence", 0)) >= min_confidence:
+            fill_l2 = 1
 
         rows.append({
             "trace": trace,
@@ -171,6 +205,7 @@ def build_candidate_table(events, trace):
             "pf_addr": c["pf_addr"],
             "delta": c["delta"],
             "spp_confidence": c["confidence"],
+            "spp_fill_l2": fill_l2,
             "cache_hit": c["cache_hit"],
             "mshr_occupancy": c["mshr_occupancy"],
             "mshr_size": c["mshr_size"],
@@ -186,12 +221,20 @@ def build_candidate_table(events, trace):
             "outcome_evicted_unused": 0,
             "outcome_duplicate": duplicate,
         })
-    return rows
+    return all_cands, rows
+
+
+def open_output(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if str(path).endswith(".gz"):
+        return gzip.open(path, "wt", newline="")
+    if str(path).endswith(".xz"):
+        return lzma.open(path, "wt", newline="")
+    return path.open("w", newline="")
 
 
 def write_rows(path, rows):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as f:
+    with open_output(path) as f:
         writer = csv.DictWriter(f, fieldnames=OUT_COLUMNS)
         writer.writeheader()
         for row in rows:
@@ -203,24 +246,34 @@ def main():
     ap.add_argument("--events", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
     ap.add_argument("--trace", default="unknown")
+    ap.add_argument("--scope", choices=["all", "spp_l2_issue"], default="spp_l2_issue")
+    ap.add_argument("--min-confidence", type=int, default=90)
     args = ap.parse_args()
 
     events = load_events(args.events)
-    rows = build_candidate_table(events, args.trace)
+    all_cands, rows = build_candidate_table(events, args.trace, args.scope, args.min_confidence)
     write_rows(args.out, rows)
 
+    total_all = len(all_cands)
+    useful_all = sum(int(r["outcome_useful"]) for r in all_cands)
     total = len(rows)
     useful = sum(int(r["outcome_useful"]) for r in rows)
     acc = useful / float(total) if total else 0.0
+    all_acc = useful_all / float(total_all) if total_all else 0.0
     mshr_vals = [int(r["mshr_occupancy"]) for r in rows]
     mshr_avg = sum(mshr_vals) / float(total) if total else 0.0
     mshr_max = max(mshr_vals) if mshr_vals else 0
 
     print("[events]", args.events)
     print("[out]", args.out)
-    print("[candidates]", total)
-    print("[useful]", useful)
-    print("[candidate accuracy]", "{:.6f}".format(acc))
+    print("[scope]", args.scope)
+    print("[min_confidence]", args.min_confidence)
+    print("[all candidates]", total_all)
+    print("[all useful]", useful_all)
+    print("[all candidate accuracy]", "{:.6f}".format(all_acc))
+    print("[scoped candidates]", total)
+    print("[scoped useful]", useful)
+    print("[scoped candidate accuracy]", "{:.6f}".format(acc))
     print("[mshr avg]", "{:.3f}".format(mshr_avg))
     print("[mshr max]", mshr_max)
 
