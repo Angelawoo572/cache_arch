@@ -1,0 +1,2 @@
+trace,rows,useful_rate,fill_l2_rate,avg_confidence,mshr_avg,mshr_max,mshr_pressure_avg,cache_hit_rate_at_candidate
+605.mcf_s-994B,300000,0.03392,1.0,99.32946666666666,0.66424,11,0.0010378750000000002,0.3311133333333333
