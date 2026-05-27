@@ -19,8 +19,9 @@ Scopes:
   spp_l2_issue     candidates with fill_l2/confidence>=threshold
   spp_actual_issue candidates for which prefetch_line() accepted/issued the request
 
-Use spp_actual_issue for the strict post-prefetch-filter experiment once the logger
-has an `issued` column. Older logs without `issued` fall back to fill_l2 scope.
+The loader also handles one transitional log format where CAND rows already contain
+an extra `issued` field but the CSV header was still the old no-issued header. In
+that case it shifts fields back into the correct positions automatically.
 """
 
 import argparse
@@ -84,6 +85,35 @@ def safe_int(x, default=0):
         return default
 
 
+def recover_shifted_issued_row(row):
+    """Recover rows with old header but new extra issued field.
+
+    Old header:
+      ...,fill_l2,cache_hit,mshr_occupancy,mshr_size,pq_occupancy,pq_size,useful_prefetch,depth
+
+    New row payload:
+      ...,fill_l2,issued,cache_hit,mshr_occupancy,mshr_size,pq_occupancy,pq_size,useful_prefetch,depth
+
+    csv.DictReader stores the last extra value under key None. We shift the
+    affected columns so downstream code can use `issued` normally.
+    """
+    extras = row.get(None)
+    if not extras:
+        return row, False
+
+    fixed = dict(row)
+    fixed.pop(None, None)
+    fixed["issued"] = row.get("cache_hit", 0)
+    fixed["cache_hit"] = row.get("mshr_occupancy", 0)
+    fixed["mshr_occupancy"] = row.get("mshr_size", 0)
+    fixed["mshr_size"] = row.get("pq_occupancy", 0)
+    fixed["pq_occupancy"] = row.get("pq_size", 0)
+    fixed["pq_size"] = row.get("useful_prefetch", 0)
+    fixed["useful_prefetch"] = row.get("depth", 0)
+    fixed["depth"] = extras[0] if extras else 0
+    return fixed, True
+
+
 def load_events(path):
     events = []
     opener = open
@@ -94,14 +124,27 @@ def load_events(path):
 
     with opener(path, "rt", newline="") as f:
         reader = csv.DictReader(f)
-        has_issued_col = reader.fieldnames is not None and "issued" in reader.fieldnames
+        explicit_issued_col = reader.fieldnames is not None and "issued" in reader.fieldnames
+        inferred_issued_col = False
         for idx, row in enumerate(reader):
-            clean = {k: v for k, v in row.items()}
+            if explicit_issued_col:
+                clean = {k: v for k, v in row.items() if k is not None}
+                row_has_issued = True
+            else:
+                clean, recovered = recover_shifted_issued_row(row)
+                row_has_issued = recovered
+                inferred_issued_col = inferred_issued_col or recovered
+
             clean["event_idx"] = idx
-            clean["has_issued_col"] = has_issued_col
+            clean["has_issued_col"] = explicit_issued_col or row_has_issued
             for field in INT_FIELDS:
                 clean[field] = safe_int(clean.get(field, 0))
             events.append(clean)
+
+    if events:
+        has_any_issued = explicit_issued_col or inferred_issued_col
+        for e in events:
+            e["has_issued_col"] = has_any_issued
     return events
 
 
@@ -117,9 +160,6 @@ def is_in_scope(row, scope, min_confidence):
     if scope == "spp_l2_issue":
         return l2_intent(row, min_confidence)
     if scope == "spp_actual_issue":
-        # New logs include actual prefetch_line() acceptance. Old logs do not;
-        # fall back to l2 intent so old data still converts, but printout will
-        # show that the count does not match SPP_FINAL.
         if row.get("has_issued_col", False):
             return int(row.get("issued", 0)) == 1
         return l2_intent(row, min_confidence)
