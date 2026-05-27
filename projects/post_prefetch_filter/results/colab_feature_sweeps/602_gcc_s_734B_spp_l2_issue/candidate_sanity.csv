@@ -1,0 +1,2 @@
+trace,rows,useful_rate,fill_l2_rate,avg_confidence,mshr_avg,mshr_max,mshr_pressure_avg,cache_hit_rate_at_candidate
+602.gcc_s-734B,292282,0.9296740818798284,1.0,91.56649742372093,0.026854202448320458,3,4.195969132550072e-05,0.7629378476950343
