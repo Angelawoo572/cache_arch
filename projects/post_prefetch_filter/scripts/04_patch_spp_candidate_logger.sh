@@ -2,7 +2,6 @@
 # Patch local ChampSim spp_dev to dump per-candidate SPP events for RL-filter training.
 #
 # Recommended when spp_dev.cc has already been partially modified:
-#   cd /scratch/qianruw/cache
 #   RESET_SPP=1 bash projects/post_prefetch_filter/scripts/04_patch_spp_candidate_logger.sh
 #
 # This script is self-contained. It adds:
@@ -10,11 +9,13 @@
 #   2. an `issued` column from prefetch_line(...) return value
 #   3. USE events for later demand uses
 #   4. SPP_FINAL aggregate stats
+#
+# Important: do not replace the original prefetcher_initialize body. SPP uses
+# initialize to set up internal tables/registers; losing that body causes crashes.
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 cd "$ROOT"
 
 CHAMP="$ROOT/external/ChampSim"
@@ -53,7 +54,7 @@ cc = cc.replace("cand_path[0] != '\\0'", "cand_path[0] != 0")
 cc = cc.replace("cand_path[0] != \"\"", "cand_path[0] != 0")
 
 
-def replace_function(src: str, signature_regex: str, new_func: str) -> str:
+def find_function_bounds(src: str, signature_regex: str):
     m = re.search(signature_regex, src, flags=re.S)
     if not m:
         raise SystemExit(f"[error] could not find function matching {signature_regex}")
@@ -73,7 +74,20 @@ def replace_function(src: str, signature_regex: str, new_func: str) -> str:
                 break
     if end is None:
         raise SystemExit("[error] could not find function closing brace")
+    return start, brace, end
+
+
+def replace_function(src: str, signature_regex: str, new_func: str) -> str:
+    start, brace, end = find_function_bounds(src, signature_regex)
     return src[:start] + new_func + src[end:]
+
+
+def insert_after_open_brace_once(src: str, signature_regex: str, marker: str, insert: str) -> str:
+    start, brace, end = find_function_bounds(src, signature_regex)
+    body = src[brace:end]
+    if marker in body:
+        return src
+    return src[:brace + 1] + insert + src[brace + 1:]
 
 
 # ---------- header patch ----------
@@ -99,9 +113,8 @@ if '#include <cstdlib>' not in cc:
 if '#include <iomanip>' not in cc:
     cc = cc.replace('#include <cstdlib>\n', '#include <cstdlib>\n#include <iomanip>\n')
 
-# ---------- initialize: replace full function so old broken cand_path checks disappear ----------
-init_func = '''void spp_dev::prefetcher_initialize()
-{
+# ---------- initialize: INSERT logger open at top; preserve original init body ----------
+init_insert = '''
   const char* cand_path = std::getenv("SPP_CAND_LOG");
   if (cand_path && cand_path[0] != 0) {
     cand_log_.open(cand_path);
@@ -109,9 +122,13 @@ init_func = '''void spp_dev::prefetcher_initialize()
       cand_log_ << "event,cand_id,addr,ip,pf_addr,delta,confidence,fill_l2,issued,cache_hit,mshr_occupancy,mshr_size,pq_occupancy,pq_size,useful_prefetch,depth" << std::endl;
     }
   }
-}
 '''
-cc = replace_function(cc, r'void\s+spp_dev::prefetcher_initialize\s*\(\s*\)', init_func)
+cc = insert_after_open_brace_once(
+    cc,
+    r'void\s+spp_dev::prefetcher_initialize\s*\(\s*\)',
+    'SPP_CAND_LOG',
+    init_insert,
+)
 
 # ---------- demand USE logging ----------
 if 'cand_log_ << "USE"' not in cc:
@@ -236,6 +253,10 @@ cc_path.write_text(cc)
 print('[patched]', h_path)
 print('[patched]', cc_path)
 PY
+
+echo
+echo '[check initialize snippet]'
+grep -a -n "prefetcher_initialize\|SPP_CAND_LOG\|Init SPP" "$SPP_CC" || true
 
 echo
 echo '[check header]'
