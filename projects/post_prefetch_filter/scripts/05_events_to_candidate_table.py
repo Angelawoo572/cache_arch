@@ -11,6 +11,8 @@ Output schema:
   trace,cycle,ip,addr,pf_addr,delta,spp_confidence,spp_fill_l2,spp_issued,cache_hit,
   mshr_occupancy,mshr_size,pq_occupancy,pq_size,
   recent_spp_accuracy,recent_pc_accuracy,recent_delta_accuracy,
+  recent_cache_hit_rate,recent_cache_miss_rate,
+  recent_pc_cache_hit_rate,recent_delta_cache_hit_rate,
   bandwidth_bucket,set_pressure,
   outcome_useful,outcome_late,outcome_evicted_unused,outcome_duplicate
 
@@ -18,6 +20,10 @@ Scopes:
   all              all logged SPP candidates
   spp_l2_issue     candidates with fill_l2/confidence>=threshold
   spp_actual_issue candidates for which prefetch_line() accepted/issued the request
+
+The hit/miss-rate features are online-safe: they are prior-only rolling rates from
+previous candidate-time cache_hit observations. They are not final L1/L2/LLC summary
+metrics from the completed simulation.
 
 The loader also handles one transitional log format where CAND rows already contain
 an extra `issued` field but the CSV header was still the old no-issued header. In
@@ -49,6 +55,10 @@ OUT_COLUMNS = [
     "recent_spp_accuracy",
     "recent_pc_accuracy",
     "recent_delta_accuracy",
+    "recent_cache_hit_rate",
+    "recent_cache_miss_rate",
+    "recent_pc_cache_hit_rate",
+    "recent_delta_cache_hit_rate",
     "bandwidth_bucket",
     "set_pressure",
     "outcome_useful",
@@ -201,15 +211,20 @@ def assign_useful_labels(events, scope="all", min_confidence=90):
 
 
 def add_online_recent_accuracy(cands):
-    """Add prior-only recent accuracy features in event order within the selected scope."""
+    """Add prior-only recent usefulness and hit/miss-rate features in event order."""
     cands.sort(key=lambda r: r["event_idx"])
 
     global_seen = 0
     global_useful = 0
+    global_cache_hits = 0
+
     pc_seen = defaultdict(int)
     pc_useful = defaultdict(int)
+    pc_cache_hits = defaultdict(int)
+
     delta_seen = defaultdict(int)
     delta_useful = defaultdict(int)
+    delta_cache_hits = defaultdict(int)
 
     for row in cands:
         ip = row["ip"]
@@ -219,13 +234,26 @@ def add_online_recent_accuracy(cands):
         row["recent_pc_accuracy"] = pc_useful[ip] / float(pc_seen[ip]) if pc_seen[ip] else 0.5
         row["recent_delta_accuracy"] = delta_useful[delta] / float(delta_seen[delta]) if delta_seen[delta] else 0.5
 
+        global_hit_rate = global_cache_hits / float(global_seen) if global_seen else 0.5
+        row["recent_cache_hit_rate"] = global_hit_rate
+        row["recent_cache_miss_rate"] = 1.0 - global_hit_rate
+        row["recent_pc_cache_hit_rate"] = pc_cache_hits[ip] / float(pc_seen[ip]) if pc_seen[ip] else 0.5
+        row["recent_delta_cache_hit_rate"] = delta_cache_hits[delta] / float(delta_seen[delta]) if delta_seen[delta] else 0.5
+
         y = int(row["outcome_useful"])
+        hit = int(row.get("cache_hit", 0))
+
         global_seen += 1
         global_useful += y
+        global_cache_hits += hit
+
         pc_seen[ip] += 1
         pc_useful[ip] += y
+        pc_cache_hits[ip] += hit
+
         delta_seen[delta] += 1
         delta_useful[delta] += y
+        delta_cache_hits[delta] += hit
 
     return cands
 
@@ -261,6 +289,10 @@ def rows_from_candidates(cands, trace, min_confidence):
             "recent_spp_accuracy": "{:.6f}".format(c["recent_spp_accuracy"]),
             "recent_pc_accuracy": "{:.6f}".format(c["recent_pc_accuracy"]),
             "recent_delta_accuracy": "{:.6f}".format(c["recent_delta_accuracy"]),
+            "recent_cache_hit_rate": "{:.6f}".format(c["recent_cache_hit_rate"]),
+            "recent_cache_miss_rate": "{:.6f}".format(c["recent_cache_miss_rate"]),
+            "recent_pc_cache_hit_rate": "{:.6f}".format(c["recent_pc_cache_hit_rate"]),
+            "recent_delta_cache_hit_rate": "{:.6f}".format(c["recent_delta_cache_hit_rate"]),
             "bandwidth_bucket": 0,
             "set_pressure": 0,
             "outcome_useful": int(c["outcome_useful"]),
@@ -305,6 +337,17 @@ def summarize(label, cands):
     print("[{} candidate accuracy]".format(label), "{:.6f}".format(acc))
 
 
+def summarize_hitmiss(rows):
+    if not rows:
+        print("[recent cache hit avg] 0.000")
+        print("[recent cache miss avg] 0.000")
+        return
+    hit_avg = sum(float(r["recent_cache_hit_rate"]) for r in rows) / float(len(rows))
+    miss_avg = sum(float(r["recent_cache_miss_rate"]) for r in rows) / float(len(rows))
+    print("[recent cache hit avg]", "{:.3f}".format(hit_avg))
+    print("[recent cache miss avg]", "{:.3f}".format(miss_avg))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--events", required=True, type=Path)
@@ -321,7 +364,7 @@ def main():
 
     mshr_vals = [int(r["mshr_occupancy"]) for r in rows]
     mshr_avg = sum(mshr_vals) / float(len(rows)) if rows else 0.0
-    mshr_max = max(mshr_vals) if mshr_vals else 0
+    mshr_max = max(mshr_vals) if rows else 0
 
     print("[events]", args.events)
     print("[out]", args.out)
@@ -332,6 +375,7 @@ def main():
     summarize("scoped", scoped_cands)
     print("[mshr avg]", "{:.3f}".format(mshr_avg))
     print("[mshr max]", mshr_max)
+    summarize_hitmiss(rows)
 
 
 if __name__ == "__main__":
