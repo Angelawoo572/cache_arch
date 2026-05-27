@@ -28,7 +28,7 @@ fi
 
 if [ "${RESET_SPP:-0}" = "1" ]; then
   echo "[reset] restoring spp_dev.h/spp_dev.cc from external/ChampSim git checkout"
-  git -C "$CHAMP" checkout -- prefetcher/spp_dev/spp_dev.h prefetcher/spp_dev/spp_dev.cc
+  git -C "$CHAMP" checkout -- prefetcher/spp_dev/spp_dev.h prefetcher/spp_dev/spp_dev.cc || true
 fi
 
 cp "$SPP_H" "$SPP_H.bak.$(date +%Y%m%d_%H%M%S)"
@@ -45,15 +45,10 @@ cc_path = Path(sys.argv[2])
 h = h_path.read_text(errors="ignore").replace("\x00", "")
 cc = cc_path.read_text(errors="ignore").replace("\x00", "")
 
-
-def find_function_brace(src: str, signature_regex: str) -> int:
-    m = re.search(signature_regex, src, flags=re.S)
-    if not m:
-        raise SystemExit(f"[error] could not find function matching {signature_regex}")
-    brace = src.find("{", m.end() - 1)
-    if brace < 0:
-        raise SystemExit("[error] could not find function opening brace")
-    return brace
+# Clean older broken patch artifacts.
+cc = cc.replace("cand_path[0] != ''", "cand_path[0] != 0")
+cc = cc.replace("cand_path[0] != '\\0'", "cand_path[0] != 0")
+cc = cc.replace("cand_path[0] != \"\"", "cand_path[0] != 0")
 
 
 def replace_function(src: str, signature_regex: str, new_func: str) -> str:
@@ -62,6 +57,8 @@ def replace_function(src: str, signature_regex: str, new_func: str) -> str:
         raise SystemExit(f"[error] could not find function matching {signature_regex}")
     start = m.start()
     brace = src.find("{", m.end() - 1)
+    if brace < 0:
+        raise SystemExit("[error] could not find function opening brace")
     depth = 0
     end = None
     for i in range(brace, len(src)):
@@ -100,10 +97,9 @@ if '#include <cstdlib>' not in cc:
 if '#include <iomanip>' not in cc:
     cc = cc.replace('#include <cstdlib>\n', '#include <cstdlib>\n#include <iomanip>\n')
 
-# ---------- initialize: insert logger open at top; preserve original body ----------
-if 'SPP_CAND_LOG' not in cc:
-    brace = find_function_brace(cc, r'void\s+spp_dev::prefetcher_initialize\s*\(\s*\)')
-    init_insert = '''
+# ---------- initialize: replace full function so old broken cand_path checks disappear ----------
+init_func = '''void spp_dev::prefetcher_initialize()
+{
   const char* cand_path = std::getenv("SPP_CAND_LOG");
   if (cand_path && cand_path[0] != 0) {
     cand_log_.open(cand_path);
@@ -111,8 +107,9 @@ if 'SPP_CAND_LOG' not in cc:
       cand_log_ << "event,cand_id,addr,ip,pf_addr,delta,confidence,fill_l2,issued,cache_hit,mshr_occupancy,mshr_size,pq_occupancy,pq_size,useful_prefetch,depth" << std::endl;
     }
   }
+}
 '''
-    cc = cc[:brace+1] + init_insert + cc[brace+1:]
+cc = replace_function(cc, r'void\s+spp_dev::prefetcher_initialize\s*\(\s*\)', init_func)
 
 # ---------- demand USE logging ----------
 if 'cand_log_ << "USE"' not in cc:
@@ -143,31 +140,35 @@ if 'cand_log_ << "USE"' not in cc:
     cc = cc.replace(needle, use_block, 1)
 
 # ---------- candidate issue logging ----------
-# Robust line-based patch:
-#   find the line with prefetch_line(pf_addr,...)
-#   find the preceding if (FILTER.check(pf_addr,...)) line
-#   replace from that if-line through the prefetch_line line.
-if 'static_cast<uint32_t>(issued)' not in cc:
-    lines = cc.splitlines(keepends=True)
-    pf_idx = None
-    for idx, line in enumerate(lines):
-        if 'prefetch_line(pf_addr' in line:
-            pf_idx = idx
-            break
-    if pf_idx is None:
-        raise SystemExit('[error] could not find prefetch_line(pf_addr...)')
+# Always normalize the candidate issue block. This fixes partial previous patches,
+# duplicate fill_l2 declarations, and old no-issued logs.
+lines = cc.splitlines(keepends=True)
+pf_idx = None
+for idx, line in enumerate(lines):
+    if 'prefetch_line(pf_addr' in line:
+        pf_idx = idx
+        break
+if pf_idx is None:
+    raise SystemExit('[error] could not find prefetch_line(pf_addr...)')
 
-    if_idx = None
-    for idx in range(pf_idx, max(-1, pf_idx - 80), -1):
-        if 'FILTER.check' in lines[idx] and 'pf_addr' in lines[idx]:
-            if_idx = idx
-            break
-    if if_idx is None:
-        context = ''.join(lines[max(0, pf_idx-20):pf_idx+5])
-        raise SystemExit('[error] could not find preceding FILTER.check(pf_addr...) before prefetch_line. Context:\n' + context)
+if_idx = None
+for idx in range(pf_idx, max(-1, pf_idx - 120), -1):
+    if 'FILTER.check' in lines[idx] and 'pf_addr' in lines[idx]:
+        if_idx = idx
+        break
+if if_idx is None:
+    context = ''.join(lines[max(0, pf_idx-30):pf_idx+5])
+    raise SystemExit('[error] could not find preceding FILTER.check(pf_addr...) before prefetch_line. Context:\n' + context)
 
-    indent = lines[if_idx][:len(lines[if_idx]) - len(lines[if_idx].lstrip())]
-    candidate_block = f'''{indent}const bool fill_l2 = (confidence_q[i] >= FILL_THRESHOLD);
+# Include a preceding `const bool fill_l2 = ...` line if it already exists.
+start_idx = if_idx
+for idx in range(if_idx - 1, max(-1, if_idx - 8), -1):
+    if 'const bool fill_l2' in lines[idx] and 'FILL_THRESHOLD' in lines[idx]:
+        start_idx = idx
+        break
+
+indent = lines[start_idx][:len(lines[start_idx]) - len(lines[start_idx].lstrip())]
+candidate_block = f'''{indent}const bool fill_l2 = (confidence_q[i] >= FILL_THRESHOLD);
 {indent}if (FILTER.check(pf_addr, (fill_l2 ? spp_dev::SPP_L2C_PREFETCH : spp_dev::SPP_LLC_PREFETCH))) {{
 {indent}  const auto mshr_occupancy_before = (intern_ ? intern_->get_mshr_occupancy() : 0);
 {indent}  const auto mshr_size_snapshot = (intern_ ? intern_->get_mshr_size() : 0);
@@ -194,8 +195,15 @@ if 'static_cast<uint32_t>(issued)' not in cc:
 {indent}              << std::endl;
 {indent}  }}
 '''
-    lines[if_idx:pf_idx+1] = [candidate_block]
-    cc = ''.join(lines)
+lines[start_idx:pf_idx+1] = [candidate_block]
+cc = ''.join(lines)
+
+# ---------- remove accidental duplicate adjacent fill_l2 lines if any remain ----------
+cc = re.sub(
+    r'(\n\s*const bool fill_l2 = \(confidence_q\[i\] >= FILL_THRESHOLD\);)\s*\n\s*const bool fill_l2 = \(confidence_q\[i\] >= FILL_THRESHOLD\);',
+    r'\1',
+    cc,
+)
 
 # ---------- final stats: replace full function with logger close + SPP_FINAL ----------
 final_func = '''void spp_dev::prefetcher_final_stats()
@@ -233,7 +241,7 @@ grep -a -n "event,cand_id" "$SPP_CC" || true
 
 echo
 echo '[check candidate issue block]'
-grep -a -n "const auto issued\|static_cast<uint32_t>(issued)\|prefetch_line(pf_addr" "$SPP_CC" || true
+grep -a -n "const bool fill_l2\|const auto issued\|static_cast<uint32_t>(issued)\|prefetch_line(pf_addr" "$SPP_CC" || true
 
 echo
 echo '[check final stats]'
