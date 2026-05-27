@@ -146,7 +146,7 @@ colab_prefetch_result/prefetch_list*.txt
 
 # Post-prefetch-filter generated data/model artifacts.
 # Raw event logs can be huge and should not be committed.
-projects/post_prefetch_filter/results/
+projects/post_prefetch_filter/results/*
 projects/post_prefetch_filter/data/raw/
 projects/post_prefetch_filter/models/
 projects/post_prefetch_filter/checkpoints/
@@ -154,7 +154,10 @@ projects/post_prefetch_filter/runs/
 projects/post_prefetch_filter/wandb/
 projects/post_prefetch_filter/data/generated/*
 
-# But allow the compressed curated notebook input table and small metadata files.
+# But allow curated Colab feature-sweep summaries and the compressed active notebook input.
+!projects/post_prefetch_filter/results/
+!projects/post_prefetch_filter/results/colab_feature_sweeps/
+!projects/post_prefetch_filter/results/colab_feature_sweeps/**
 !projects/post_prefetch_filter/data/
 !projects/post_prefetch_filter/data/generated/
 !projects/post_prefetch_filter/data/generated/.gitkeep
@@ -218,9 +221,3 @@ wandb/
 !projects/**/docs/**
 !projects/**/configs/
 !projects/**/configs/**
-!projects/**/_cfg/
-!projects/**/_cfg/**
-!projects/**/champsim_modules/
-!projects/**/champsim_modules/**
-!tools/
-!tools/**
