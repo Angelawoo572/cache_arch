@@ -2,6 +2,7 @@
 # Patch local ChampSim spp_dev to dump per-candidate SPP events for RL-filter training.
 #
 # Recommended when spp_dev.cc has already been partially modified:
+#   cd /scratch/qianruw/cache
 #   RESET_SPP=1 bash projects/post_prefetch_filter/scripts/04_patch_spp_candidate_logger.sh
 #
 # This script is self-contained. It adds:
@@ -12,7 +13,8 @@
 
 set -euo pipefail
 
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 cd "$ROOT"
 
 CHAMP="$ROOT/external/ChampSim"
