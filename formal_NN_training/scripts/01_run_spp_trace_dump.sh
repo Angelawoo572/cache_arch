@@ -7,13 +7,18 @@
 # Usage from repo root:
 #   TRACE=602.gcc_s-734B bash formal_NN_training/scripts/01_run_spp_trace_dump.sh
 #
-# Common overrides:
-#   WARMUP=25000000 SIM=25000000 TRACE=605.mcf_s-994B \
-#   RESET_SPP=1 BUILD=1 bash formal_NN_training/scripts/01_run_spp_trace_dump.sh
+# Clean recommended run, avoids cumulative patch artifacts:
+#   TRACE=602.gcc_s-734B WARMUP=25000000 SIM=25000000 RESET_SPP=1 BUILD=1 PATCH_SPP=1 \
+#     bash formal_NN_training/scripts/01_run_spp_trace_dump.sh
+#
+# If ChampSim already finished and only the final conversion failed:
+#   TRACE=602.gcc_s-734B CONVERT_ONLY=1 \
+#     bash formal_NN_training/scripts/01_run_spp_trace_dump.sh
 #
 # Output:
 #   formal_NN_training/results/spp_trace_dump/logs/<trace>.spp.log
 #   formal_NN_training/results/spp_trace_dump/events/spp_events_<trace>.csv
+#   formal_NN_training/results/spp_trace_dump/candidate_table_<trace>.csv
 #   formal_NN_training/data/generated/lstm_events_<trace>.csv
 
 set -euo pipefail
@@ -32,6 +37,7 @@ SCOPE="${SCOPE:-spp_actual_issue}"
 BUILD="${BUILD:-1}"
 PATCH_SPP="${PATCH_SPP:-1}"
 RESET_SPP="${RESET_SPP:-0}"
+CONVERT_ONLY="${CONVERT_ONLY:-0}"
 
 OUT_ROOT="$ROOT/formal_NN_training/results/spp_trace_dump"
 LOG_DIR="$OUT_ROOT/logs"
@@ -47,24 +53,25 @@ LSTM_CSV="$DATA_DIR/lstm_events_${TRACE}.csv"
 LOG_FILE="$LOG_DIR/${TRACE}.spp.log"
 SPP_BIN="$CHAMP_DIR/bin/champsim.l2_spp_cand"
 
-if [ ! -d "$CHAMP_DIR" ]; then
-  echo "[error] ChampSim directory missing: $CHAMP_DIR"
-  echo "        Run your setup script first, e.g. projects/legacy_gru_prefetch/scripts/setup_champsim.sh"
-  exit 1
-fi
-if [ ! -f "$TR_FILE" ]; then
-  echo "[error] trace missing: $TR_FILE"
-  exit 1
-fi
+if [ "$CONVERT_ONLY" != "1" ]; then
+  if [ ! -d "$CHAMP_DIR" ]; then
+    echo "[error] ChampSim directory missing: $CHAMP_DIR"
+    echo "        Run your setup script first, e.g. projects/legacy_gru_prefetch/scripts/setup_champsim.sh"
+    exit 1
+  fi
+  if [ ! -f "$TR_FILE" ]; then
+    echo "[error] trace missing: $TR_FILE"
+    exit 1
+  fi
 
-if [ "$PATCH_SPP" = "1" ]; then
-  echo "[patch] spp_dev candidate logger"
-  RESET_SPP="$RESET_SPP" bash projects/post_prefetch_filter/scripts/04_patch_spp_candidate_logger.sh
-fi
+  if [ "$PATCH_SPP" = "1" ]; then
+    echo "[patch] spp_dev candidate logger"
+    RESET_SPP="$RESET_SPP" bash projects/post_prefetch_filter/scripts/04_patch_spp_candidate_logger.sh
+  fi
 
-CFG_PATH="${SPP_CONFIG:-$CFG_DIR/cfg_l2_spp.json}"
-if [ ! -f "$CFG_PATH" ]; then
-  cat > "$CFG_PATH" <<'JSON'
+  CFG_PATH="${SPP_CONFIG:-$CFG_DIR/cfg_l2_spp.json}"
+  if [ ! -f "$CFG_PATH" ]; then
+    cat > "$CFG_PATH" <<'JSON'
 {
   "ooo_cpu": [
     {
@@ -74,21 +81,22 @@ if [ ! -f "$CFG_PATH" ]; then
   "LLC": { "replacement": "lru" }
 }
 JSON
-fi
+  fi
 
-if [ "$BUILD" = "1" ] || [ ! -x "$SPP_BIN" ]; then
-  echo "[build] ChampSim L2 spp_dev binary"
-  cd "$CHAMP_DIR"
-  rm -f bin/champsim
-  python3 ./config.sh "$CFG_PATH"
-  make -j"$JOBS"
-  cp bin/champsim "$SPP_BIN"
-  cd "$ROOT"
-fi
+  if [ "$BUILD" = "1" ] || [ ! -x "$SPP_BIN" ]; then
+    echo "[build] ChampSim L2 spp_dev binary"
+    cd "$CHAMP_DIR"
+    rm -f bin/champsim
+    python3 ./config.sh "$CFG_PATH"
+    make -j"$JOBS"
+    cp bin/champsim "$SPP_BIN"
+    cd "$ROOT"
+  fi
 
-if [ ! -x "$SPP_BIN" ]; then
-  echo "[error] SPP binary missing after build: $SPP_BIN"
-  exit 1
+  if [ ! -x "$SPP_BIN" ]; then
+    echo "[error] SPP binary missing after build: $SPP_BIN"
+    exit 1
+  fi
 fi
 
 run_with_heartbeat () {
@@ -106,71 +114,119 @@ run_with_heartbeat () {
   wait "$pid"
 }
 
-echo "============================================================"
-echo "SPP TRACE DUMP"
-echo "repo       : $ROOT"
-echo "trace      : $TRACE"
-echo "warmup/sim : $WARMUP / $SIM"
-echo "binary     : $SPP_BIN"
-echo "event csv  : $EVENT_CSV"
-echo "lstm csv   : $LSTM_CSV"
-echo "============================================================"
+if [ "$CONVERT_ONLY" != "1" ]; then
+  echo "============================================================"
+  echo "SPP TRACE DUMP"
+  echo "repo       : $ROOT"
+  echo "trace      : $TRACE"
+  echo "warmup/sim : $WARMUP / $SIM"
+  echo "binary     : $SPP_BIN"
+  echo "event csv  : $EVENT_CSV"
+  echo "lstm csv   : $LSTM_CSV"
+  echo "============================================================"
 
-SPP_CAND_LOG="$EVENT_CSV" run_with_heartbeat "$LOG_FILE" \
-  "$SPP_BIN" \
-  --warmup-instructions "$WARMUP" \
-  --simulation-instructions "$SIM" \
-  "$TR_FILE"
+  SPP_CAND_LOG="$EVENT_CSV" run_with_heartbeat "$LOG_FILE" \
+    "$SPP_BIN" \
+    --warmup-instructions "$WARMUP" \
+    --simulation-instructions "$SIM" \
+    "$TR_FILE"
+fi
 
 if [ ! -s "$EVENT_CSV" ]; then
-  echo "[error] no SPP event log was produced: $EVENT_CSV"
-  echo "        See log: $LOG_FILE"
+  echo "[error] no SPP event log found: $EVENT_CSV"
+  echo "        If the run already completed, check the trace name or event directory."
   exit 1
 fi
 
-python3 projects/post_prefetch_filter/scripts/05_events_to_candidate_table.py \
-  --trace "$TRACE" \
-  --events "$EVENT_CSV" \
-  --out "$CAND_CSV" \
-  --scope "$SCOPE" \
-  --min-confidence "$MIN_CONFIDENCE"
+if [ "$CONVERT_ONLY" = "1" ] && [ -s "$CAND_CSV" ]; then
+  echo "[reuse] existing candidate table: $CAND_CSV"
+else
+  python3 projects/post_prefetch_filter/scripts/05_events_to_candidate_table.py \
+    --trace "$TRACE" \
+    --events "$EVENT_CSV" \
+    --out "$CAND_CSV" \
+    --scope "$SCOPE" \
+    --min-confidence "$MIN_CONFIDENCE"
+fi
 
 python3 - "$CAND_CSV" "$LSTM_CSV" <<'PY'
+import csv
 import sys
 from pathlib import Path
-import pandas as pd
 
 src = Path(sys.argv[1])
 dst = Path(sys.argv[2])
-df = pd.read_csv(src)
-if df.empty:
-    raise SystemExit(f"[error] candidate table is empty: {src}")
 
-out = pd.DataFrame()
-out["trace"] = df.get("trace", "unknown")
-out["event_id"] = df.get("cycle", range(len(df)))
-out["cycle"] = df.get("cycle", range(len(df)))
-out["pc"] = df["ip"]
-out["addr"] = df["addr"]
-out["hit"] = df.get("cache_hit", 0)
-out["is_store"] = 0
-out["spp_delta"] = df.get("delta", 0)
-out["spp_conf"] = df.get("spp_confidence", 0)
-out["mshr_occupancy"] = df.get("mshr_occupancy", 0)
-out["l2_occupancy"] = 0
-pq_occ = pd.to_numeric(df.get("pq_occupancy", 0), errors="coerce").fillna(0)
-pq_size = pd.to_numeric(df.get("pq_size", 0), errors="coerce").fillna(0).replace(0, 1)
-out["bandwidth_pressure"] = (pq_occ / pq_size).clip(0, 1)
-out["semantic_class"] = "spp_candidate"
+if not src.exists() or src.stat().st_size == 0:
+    raise SystemExit(f"[error] candidate table missing/empty: {src}")
 
-# Keep useful debug columns too. The LSTM notebook ignores unknown columns.
-for col in ["pf_addr", "delta", "spp_confidence", "spp_fill_l2", "spp_issued", "outcome_useful", "outcome_duplicate"]:
-    if col in df.columns:
-        out[col] = df[col]
+out_cols = [
+    "trace", "event_id", "cycle", "pc", "addr", "hit", "is_store",
+    "spp_delta", "spp_conf", "mshr_occupancy", "l2_occupancy",
+    "bandwidth_pressure", "semantic_class",
+    # Debug / optional labels; notebook ignores unknown columns if not needed.
+    "pf_addr", "delta", "spp_confidence", "spp_fill_l2", "spp_issued",
+    "outcome_useful", "outcome_duplicate",
+]
 
+def get(row, key, default="0"):
+    val = row.get(key, default)
+    if val is None or val == "":
+        return str(default)
+    return str(val)
+
+def as_float(row, key, default=0.0):
+    try:
+        val = row.get(key, default)
+        if val is None or val == "":
+            return float(default)
+        return float(val)
+    except Exception:
+        return float(default)
+
+rows_written = 0
 dst.parent.mkdir(parents=True, exist_ok=True)
-out.to_csv(dst, index=False)
-print(f"[write] {dst} rows={len(out)} cols={list(out.columns)}")
+with src.open(newline="") as f_in, dst.open("w", newline="") as f_out:
+    reader = csv.DictReader(f_in)
+    writer = csv.DictWriter(f_out, fieldnames=out_cols)
+    writer.writeheader()
+    for i, row in enumerate(reader):
+        pq_occ = as_float(row, "pq_occupancy", 0.0)
+        pq_size = as_float(row, "pq_size", 0.0)
+        if pq_size <= 0.0:
+            bw = 0.0
+        else:
+            bw = max(0.0, min(1.0, pq_occ / pq_size))
+
+        out = {
+            "trace": get(row, "trace", "unknown"),
+            "event_id": get(row, "cycle", i),
+            "cycle": get(row, "cycle", i),
+            "pc": get(row, "ip", 0),
+            "addr": get(row, "addr", 0),
+            "hit": get(row, "cache_hit", 0),
+            "is_store": "0",
+            "spp_delta": get(row, "delta", 0),
+            "spp_conf": get(row, "spp_confidence", 0),
+            "mshr_occupancy": get(row, "mshr_occupancy", 0),
+            "l2_occupancy": "0",
+            "bandwidth_pressure": f"{bw:.6f}",
+            "semantic_class": "spp_candidate",
+            "pf_addr": get(row, "pf_addr", 0),
+            "delta": get(row, "delta", 0),
+            "spp_confidence": get(row, "spp_confidence", 0),
+            "spp_fill_l2": get(row, "spp_fill_l2", 0),
+            "spp_issued": get(row, "spp_issued", 0),
+            "outcome_useful": get(row, "outcome_useful", 0),
+            "outcome_duplicate": get(row, "outcome_duplicate", 0),
+        }
+        writer.writerow(out)
+        rows_written += 1
+
+if rows_written == 0:
+    raise SystemExit(f"[error] candidate table has zero data rows: {src}")
+
+print(f"[write] {dst} rows={rows_written} cols={out_cols}")
 PY
 
 echo
