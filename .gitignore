@@ -221,3 +221,10 @@ wandb/
 !projects/**/docs/**
 !projects/**/configs/
 !projects/**/configs/**
+
+# Large generated cache-training data/results
+formal_NN_training/data/generated/*.csv
+formal_NN_training/results/spp_trace_dump/events/*.csv
+formal_NN_training/results/spp_trace_dump/candidate_table_*.csv
+formal_NN_training/artifacts/*.pt
+formal_NN_training/artifacts/*_lstm_cache_actions.csv
