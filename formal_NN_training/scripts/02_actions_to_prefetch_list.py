@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Convert LSTM cache-action CSV into a list_replayer prefetch list.
 
-No pandas dependency. This runs on the cluster's plain Python.
+No pandas dependency. Compatible with older cluster Python versions.
 
 Input is produced by LSTM_cache_action_predictor.ipynb:
   formal_NN_training/artifacts/full_lstm_cache_actions.csv
@@ -15,14 +15,12 @@ Where idx is event_id/cycle index in the dumped/replayed simulation window and
 pf_addr is a byte address.
 """
 
-from __future__ import annotations
-
 import argparse
 import csv
 from pathlib import Path
 
 
-def first_existing_column(fieldnames: list[str], names: list[str]) -> str | None:
+def first_existing_column(fieldnames, names):
     available = set(fieldnames or [])
     for name in names:
         if name in available:
@@ -30,7 +28,7 @@ def first_existing_column(fieldnames: list[str], names: list[str]) -> str | None
     return None
 
 
-def to_float(value, default: float = 0.0) -> float:
+def to_float(value, default=0.0):
     try:
         if value is None or value == "":
             return default
@@ -39,7 +37,7 @@ def to_float(value, default: float = 0.0) -> float:
         return default
 
 
-def to_int(value, default: int = -1) -> int:
+def to_int(value, default=-1):
     try:
         if value is None or value == "":
             return default
@@ -48,7 +46,7 @@ def to_int(value, default: int = -1) -> int:
         return default
 
 
-def main() -> None:
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--actions", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
@@ -63,9 +61,9 @@ def main() -> None:
     args = ap.parse_args()
 
     if not args.actions.exists() or args.actions.stat().st_size == 0:
-        raise SystemExit(f"[error] empty/missing action table: {args.actions}")
+        raise SystemExit("[error] empty/missing action table: {}".format(args.actions))
 
-    emitted_pairs: set[tuple[int, int]] = set()
+    emitted_pairs = set()
     input_rows = 0
     skipped_conf = 0
     skipped_bypass = 0
@@ -124,14 +122,14 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as f:
         for idx, pf_addr in pairs:
-            f.write(f"{idx} {pf_addr}\n")
+            f.write("{} {}\n".format(idx, pf_addr))
 
-    print(f"[input]  {args.actions}")
-    print(f"[output] {args.out}")
-    print(f"[rows]   input={input_rows} emitted={len(pairs)} unique_pairs={len(emitted_pairs)}")
-    print(f"[skip]   low_conf={skipped_conf} bypass={skipped_bypass} bad_addr={skipped_addr}")
+    print("[input]  {}".format(args.actions))
+    print("[output] {}".format(args.out))
+    print("[rows]   input={} emitted={} unique_pairs={}".format(input_rows, len(pairs), len(emitted_pairs)))
+    print("[skip]   low_conf={} bypass={} bad_addr={}".format(skipped_conf, skipped_bypass, skipped_addr))
     if pairs:
-        print(f"[range]  idx={pairs[0][0]}..{pairs[-1][0]}")
+        print("[range]  idx={}..{}".format(pairs[0][0], pairs[-1][0]))
 
 
 if __name__ == "__main__":
