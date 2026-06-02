@@ -1,31 +1,51 @@
 #!/usr/bin/env python3
 """Convert LSTM cache-action CSV into a list_replayer prefetch list.
 
+No pandas dependency. This runs on the cluster's plain Python.
+
 Input is produced by LSTM_cache_action_predictor.ipynb:
   formal_NN_training/artifacts/full_lstm_cache_actions.csv
 or
   formal_NN_training/artifacts/val_lstm_cache_actions.csv
 
-Output format is the simple list_replayer format used by the existing GRU flow:
+Output format used by list_replayer:
   idx pf_addr
 
-Where idx is the event index in the dumped/replayed simulation window and pf_addr
-is a byte address. If the notebook only exports line addresses, this script
-multiplies by cache-line bytes.
+Where idx is event_id/cycle index in the dumped/replayed simulation window and
+pf_addr is a byte address.
 """
 
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
-import pandas as pd
 
 
-def first_existing_column(df: pd.DataFrame, names: list[str]) -> str | None:
+def first_existing_column(fieldnames: list[str], names: list[str]) -> str | None:
+    available = set(fieldnames or [])
     for name in names:
-        if name in df.columns:
+        if name in available:
             return name
     return None
+
+
+def to_float(value, default: float = 0.0) -> float:
+    try:
+        if value is None or value == "":
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def to_int(value, default: int = -1) -> int:
+    try:
+        if value is None or value == "":
+            return default
+        return int(float(value))
+    except Exception:
+        return default
 
 
 def main() -> None:
@@ -35,58 +55,83 @@ def main() -> None:
     ap.add_argument("--cache-line-bytes", type=int, default=64)
     ap.add_argument("--prefetch-threshold", type=float, default=0.50)
     ap.add_argument("--bypass-threshold", type=float, default=0.60)
-    ap.add_argument("--allow-bypass-prefetch", action="store_true",
-                    help="By default, BYPASS_OR_LOW_PRIORITY_INSERT rows are not converted into prefetches.")
+    ap.add_argument(
+        "--allow-bypass-prefetch",
+        action="store_true",
+        help="By default, BYPASS_OR_LOW_PRIORITY_INSERT rows are not converted into prefetches.",
+    )
     args = ap.parse_args()
 
-    df = pd.read_csv(args.actions)
-    if df.empty:
-        raise SystemExit(f"[error] empty action table: {args.actions}")
+    if not args.actions.exists() or args.actions.stat().st_size == 0:
+        raise SystemExit(f"[error] empty/missing action table: {args.actions}")
 
-    idx_col = first_existing_column(df, ["event_id", "idx", "cycle", "cycle_num"])
-    if idx_col is None:
-        raise SystemExit("[error] action table needs one of: event_id, idx, cycle, cycle_num")
+    emitted_pairs: set[tuple[int, int]] = set()
+    input_rows = 0
+    skipped_conf = 0
+    skipped_bypass = 0
+    skipped_addr = 0
 
-    conf_col = first_existing_column(df, ["pred_delta_conf", "pred_conf", "delta_conf"])
-    bypass_col = first_existing_column(df, ["pred_bypass_prob", "bypass_prob"])
-    action_col = "nn_action" if "nn_action" in df.columns else None
+    with args.actions.open(newline="") as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames or []
 
-    pf_byte_col = first_existing_column(df, ["prefetch_addr", "pf_addr", "pred_pf_addr"])
-    pf_line_col = first_existing_column(df, ["prefetch_line_addr", "pred_pf_line", "pf_line"])
+        idx_col = first_existing_column(fieldnames, ["event_id", "idx", "cycle", "cycle_num"])
+        if idx_col is None:
+            raise SystemExit("[error] action table needs one of: event_id, idx, cycle, cycle_num")
 
-    if pf_byte_col is None and pf_line_col is None:
-        raise SystemExit("[error] action table needs pf_addr/prefetch_addr or prefetch_line_addr")
+        conf_col = first_existing_column(fieldnames, ["pred_delta_conf", "pred_conf", "delta_conf"])
+        bypass_col = first_existing_column(fieldnames, ["pred_bypass_prob", "bypass_prob"])
+        action_col = "nn_action" if "nn_action" in fieldnames else None
 
-    work = df.copy()
-    if conf_col is not None:
-        work = work[pd.to_numeric(work[conf_col], errors="coerce").fillna(0) >= args.prefetch_threshold]
-    if bypass_col is not None and not args.allow_bypass_prefetch:
-        work = work[pd.to_numeric(work[bypass_col], errors="coerce").fillna(0) < args.bypass_threshold]
-    if action_col is not None and not args.allow_bypass_prefetch:
-        work = work[work[action_col].astype(str) != "BYPASS_OR_LOW_PRIORITY_INSERT"]
+        pf_byte_col = first_existing_column(fieldnames, ["prefetch_addr", "pf_addr", "pred_pf_addr"])
+        pf_line_col = first_existing_column(fieldnames, ["prefetch_line_addr", "pred_pf_line", "pf_line"])
+        if pf_byte_col is None and pf_line_col is None:
+            raise SystemExit("[error] action table needs pf_addr/prefetch_addr or prefetch_line_addr")
 
-    work = work.dropna(subset=[idx_col])
-    work[idx_col] = pd.to_numeric(work[idx_col], errors="coerce").fillna(-1).astype("int64")
-    work = work[work[idx_col] >= 0]
+        for row in reader:
+            input_rows += 1
 
-    if pf_byte_col is not None:
-        work["_pf_addr"] = pd.to_numeric(work[pf_byte_col], errors="coerce").fillna(-1).astype("int64")
-    else:
-        work["_pf_addr"] = (pd.to_numeric(work[pf_line_col], errors="coerce").fillna(-1).astype("int64") * args.cache_line_bytes)
+            if conf_col is not None and to_float(row.get(conf_col), 0.0) < args.prefetch_threshold:
+                skipped_conf += 1
+                continue
 
-    work = work[work["_pf_addr"] > 0]
-    work = work.sort_values([idx_col, "_pf_addr"]).drop_duplicates([idx_col, "_pf_addr"])
+            if not args.allow_bypass_prefetch:
+                if bypass_col is not None and to_float(row.get(bypass_col), 0.0) >= args.bypass_threshold:
+                    skipped_bypass += 1
+                    continue
+                if action_col is not None and str(row.get(action_col, "")) == "BYPASS_OR_LOW_PRIORITY_INSERT":
+                    skipped_bypass += 1
+                    continue
 
+            idx = to_int(row.get(idx_col), -1)
+            if idx < 0:
+                skipped_addr += 1
+                continue
+
+            if pf_byte_col is not None:
+                pf_addr = to_int(row.get(pf_byte_col), -1)
+            else:
+                pf_line = to_int(row.get(pf_line_col), -1)
+                pf_addr = pf_line * args.cache_line_bytes if pf_line >= 0 else -1
+
+            if pf_addr <= 0:
+                skipped_addr += 1
+                continue
+
+            emitted_pairs.add((idx, pf_addr))
+
+    pairs = sorted(emitted_pairs)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as f:
-        for _, row in work.iterrows():
-            f.write(f"{int(row[idx_col])} {int(row['_pf_addr'])}\n")
+        for idx, pf_addr in pairs:
+            f.write(f"{idx} {pf_addr}\n")
 
     print(f"[input]  {args.actions}")
     print(f"[output] {args.out}")
-    print(f"[rows]   input={len(df)} emitted={len(work)}")
-    if len(work):
-        print(f"[range]  idx={int(work[idx_col].min())}..{int(work[idx_col].max())}")
+    print(f"[rows]   input={input_rows} emitted={len(pairs)} unique_pairs={len(emitted_pairs)}")
+    print(f"[skip]   low_conf={skipped_conf} bypass={skipped_bypass} bad_addr={skipped_addr}")
+    if pairs:
+        print(f"[range]  idx={pairs[0][0]}..{pairs[-1][0]}")
 
 
 if __name__ == "__main__":
