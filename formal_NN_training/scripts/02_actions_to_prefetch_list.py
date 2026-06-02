@@ -2,19 +2,14 @@
 """Convert LSTM cache-action CSV into a list_replayer prefetch list.
 
 No pandas dependency. Compatible with older cluster Python versions.
-Also strips accidental NUL bytes from CSV lines, which can appear after
-Colab/download/restore workflows.
-
-Input is produced by LSTM_cache_action_predictor.ipynb:
-  formal_NN_training/artifacts/full_lstm_cache_actions.csv
-or
-  formal_NN_training/artifacts/val_lstm_cache_actions.csv
+Also strips accidental NUL bytes from CSV lines.
 
 Output format used by list_replayer:
   idx pf_addr
 
-Where idx is event_id/cycle index in the dumped/replayed simulation window and
-pf_addr is a byte address.
+Default policy is conservative and only emits rows whose nn_action is
+PREFETCH_DELTA. This avoids turning INSERT_NORMAL_NO_PREFETCH rows with high
+pred_delta_conf into useless self-prefetches.
 """
 
 import argparse
@@ -49,7 +44,6 @@ def to_int(value, default=-1):
 
 
 def clean_text_lines(path):
-    """Yield text lines while removing embedded NUL bytes."""
     with path.open("rb") as f:
         for raw in f:
             if b"\x00" in raw:
@@ -65,6 +59,12 @@ def main():
     ap.add_argument("--prefetch-threshold", type=float, default=0.50)
     ap.add_argument("--bypass-threshold", type=float, default=0.60)
     ap.add_argument(
+        "--policy",
+        choices=["action", "threshold"],
+        default="action",
+        help="action: require nn_action=PREFETCH_DELTA. threshold: use pred_delta_conf/bypass thresholds and pred_delta!=0.",
+    )
+    ap.add_argument(
         "--allow-bypass-prefetch",
         action="store_true",
         help="By default, BYPASS_OR_LOW_PRIORITY_INSERT rows are not converted into prefetches.",
@@ -76,8 +76,10 @@ def main():
 
     emitted_pairs = set()
     input_rows = 0
+    skipped_policy = 0
     skipped_conf = 0
     skipped_bypass = 0
+    skipped_zero_delta = 0
     skipped_addr = 0
 
     reader = csv.DictReader(clean_text_lines(args.actions))
@@ -89,6 +91,7 @@ def main():
 
     conf_col = first_existing_column(fieldnames, ["pred_delta_conf", "pred_conf", "delta_conf"])
     bypass_col = first_existing_column(fieldnames, ["pred_bypass_prob", "bypass_prob"])
+    pred_delta_col = first_existing_column(fieldnames, ["pred_delta", "delta", "spp_delta"])
     action_col = "nn_action" if "nn_action" in fieldnames else None
 
     pf_byte_col = first_existing_column(fieldnames, ["prefetch_addr", "pf_addr", "pred_pf_addr"])
@@ -99,15 +102,29 @@ def main():
     for row in reader:
         input_rows += 1
 
-        if conf_col is not None and to_float(row.get(conf_col), 0.0) < args.prefetch_threshold:
-            skipped_conf += 1
-            continue
+        action = str(row.get(action_col, "")) if action_col else ""
+        pred_delta = to_int(row.get(pred_delta_col), 0) if pred_delta_col else 1
+
+        if args.policy == "action":
+            if action_col is not None and action != "PREFETCH_DELTA":
+                skipped_policy += 1
+                continue
+            if pred_delta == 0:
+                skipped_zero_delta += 1
+                continue
+        else:
+            if pred_delta == 0:
+                skipped_zero_delta += 1
+                continue
+            if conf_col is not None and to_float(row.get(conf_col), 0.0) < args.prefetch_threshold:
+                skipped_conf += 1
+                continue
 
         if not args.allow_bypass_prefetch:
             if bypass_col is not None and to_float(row.get(bypass_col), 0.0) >= args.bypass_threshold:
                 skipped_bypass += 1
                 continue
-            if action_col is not None and str(row.get(action_col, "")) == "BYPASS_OR_LOW_PRIORITY_INSERT":
+            if action_col is not None and action == "BYPASS_OR_LOW_PRIORITY_INSERT":
                 skipped_bypass += 1
                 continue
 
@@ -136,8 +153,9 @@ def main():
 
     print("[input]  {}".format(args.actions))
     print("[output] {}".format(args.out))
+    print("[policy] {}".format(args.policy))
     print("[rows]   input={} emitted={} unique_pairs={}".format(input_rows, len(pairs), len(emitted_pairs)))
-    print("[skip]   low_conf={} bypass={} bad_addr={}".format(skipped_conf, skipped_bypass, skipped_addr))
+    print("[skip]   policy={} low_conf={} bypass={} zero_delta={} bad_addr={}".format(skipped_policy, skipped_conf, skipped_bypass, skipped_zero_delta, skipped_addr))
     if pairs:
         print("[range]  idx={}..{}".format(pairs[0][0], pairs[-1][0]))
 
