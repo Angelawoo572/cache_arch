@@ -3,8 +3,8 @@
 
 Append-only: existing cells are preserved. The added section uses
 formal_NN_training/scripts/train_lstm_cache_action.py as the training entry.
+Compatible with older cluster Python versions.
 """
-from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -13,11 +13,11 @@ MARKER = "OUTCOME_AWARE_LSTM_APPEND_V1"
 NB = Path("formal_NN_training/LSTM_cache_action_predictor.ipynb")
 
 
-def md(text: str, cid: str):
+def md(text, cid):
     return {"cell_type": "markdown", "metadata": {"id": cid}, "source": [line + "\n" for line in text.splitlines()]}
 
 
-def code(text: str, cid: str):
+def code(text, cid):
     return {"cell_type": "code", "execution_count": None, "metadata": {"id": cid}, "outputs": [], "source": [line + "\n" for line in text.splitlines()]}
 
 
@@ -160,7 +160,7 @@ print("git push")
     ]
     nb["cells"].extend(cells)
     NB.write_text(json.dumps(nb, indent=2, ensure_ascii=False) + "\n")
-    print(f"[done] appended {len(cells)} cells to {NB}")
+    print("[done] appended {} cells to {}".format(len(cells), NB))
 
 if __name__ == "__main__":
     main()
