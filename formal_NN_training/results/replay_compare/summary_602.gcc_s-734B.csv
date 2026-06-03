@@ -1,0 +1,4 @@
+trace,warmup,sim,method,ipc,speedup_vs_no_prefetch,prefetches_issued,accesses,log,pfetch
+602.gcc_s-734B,25000000,25000000,no_prefetch,0.5427,1.0000,NA,NA,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.no_prefetch.log,NA
+602.gcc_s-734B,25000000,25000000,spp,1.444,2.6608,NA,NA,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.spp.log,NA
+602.gcc_s-734B,25000000,25000000,LSTM_gcc_s-734B_action_th0.50_bp0.60,0.5425,0.9996,637,4156616,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_action_th0.50_bp0.60.log,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/prefetch_lists/prefetch_list_LSTM_gcc_s-734B_action_th0.50_bp0.60.txt
