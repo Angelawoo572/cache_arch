@@ -1,0 +1,4 @@
+
+# Ignore uncompressed generated artifact CSVs only
+formal_NN_training/artifacts/*.csv
+formal_NN_training/artifacts/**/*.csv
