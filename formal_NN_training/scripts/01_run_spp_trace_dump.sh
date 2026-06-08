@@ -161,7 +161,7 @@ if not src.exists() or src.stat().st_size == 0:
     raise SystemExit(f"[error] candidate table missing/empty: {src}")
 
 out_cols = [
-    "trace", "event_id", "cycle", "pc", "addr", "hit", "is_store",
+    "trace", "event_id", "replay_access_idx", "cycle", "pc", "addr", "hit", "is_store",
     "spp_delta", "spp_conf", "mshr_occupancy", "l2_occupancy",
     "bandwidth_pressure", "semantic_class",
     # Debug / optional labels; notebook ignores unknown columns if not needed.
@@ -201,6 +201,7 @@ with src.open(newline="") as f_in, dst.open("w", newline="") as f_out:
         out = {
             "trace": get(row, "trace", "unknown"),
             "event_id": get(row, "cycle", i),
+            "replay_access_idx": get(row, "replay_access_idx", get(row, "l2_replay_access_idx", get(row, "demand_access_idx", ""))),
             "cycle": get(row, "cycle", i),
             "pc": get(row, "ip", 0),
             "addr": get(row, "addr", 0),

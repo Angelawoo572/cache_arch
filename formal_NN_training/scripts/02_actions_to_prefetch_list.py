@@ -55,9 +55,9 @@ def main():
 
     reader = csv.DictReader(clean(args.actions))
     fields = reader.fieldnames or []
-    idx_col = first(fields, ["event_id", "idx", "cycle", "cycle_num"])
+    idx_col = first(fields, ["replay_access_idx", "l2_replay_access_idx", "demand_access_idx", "event_id", "idx", "cycle", "cycle_num"])
     if idx_col is None:
-        raise SystemExit("[error] action table needs event_id/idx/cycle/cycle_num")
+        raise SystemExit("[error] action table needs replay_access_idx or event_id/idx/cycle/cycle_num")
 
     good_col = first(fields, ["pred_good_prefetch_prob", "pred_useful_prob", "pred_future_hit_prob"])
     conf_col = first(fields, ["pred_delta_conf", "pred_conf", "delta_conf"])
@@ -110,10 +110,11 @@ def main():
     args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w") as f:
         for idx, pf_addr in pairs:
-            f.write(f"{idx} {pf_addr}\n")
+            f.write(f"{idx} 0x{pf_addr:x}\n")
     print(f"[input]  {args.actions}")
     print(f"[output] {args.out}")
     print(f"[policy] {args.policy}")
+    print(f"[idx_col] {idx_col}")
     print(f"[rows]   input={n} emitted={len(pairs)} unique_pairs={len(emitted)}")
     print(f"[skip]   policy={skip_policy} low_conf={skip_conf} bypass={skip_bypass} self={skip_self} bad_addr={skip_addr}")
     if pairs: print(f"[range]  idx={pairs[0][0]}..{pairs[-1][0]}")
