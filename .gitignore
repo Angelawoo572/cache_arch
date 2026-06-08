@@ -241,3 +241,14 @@ formal_NN_training/artifacts/*_lstm_cache_actions.csv
 # Ignore uncompressed generated artifact CSVs only
 formal_NN_training/artifacts/*.csv
 formal_NN_training/artifacts/**/*.csv
+
+# Generated replay comparison outputs
+formal_NN_training/results/replay_compare/
+formal_NN_training/results/spp_trace_dump/
+
+# Generated LSTM data/actions; keep local, do not version
+formal_NN_training/data/generated/
+formal_NN_training/artifacts/*.csv
+formal_NN_training/artifacts/**/*.csv
+formal_NN_training/artifacts/*.csv.gz
+formal_NN_training/artifacts/**/*.csv.gz
