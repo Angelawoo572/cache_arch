@@ -2,6 +2,12 @@
 
 This note explains the current LSTM-based cache-action learning flow as a story. It is meant to be easier to read than the main README and to match the diagrams used when explaining the project.
 
+For exact numbers and the SPP-vs-LSTM metric table, use:
+
+```text
+formal_NN_training/README_LSTM_cache_action_predictor.md
+```
+
 ## 0. One-sentence summary
 
 ```text
@@ -208,7 +214,7 @@ cache pressure changes the value of issuing a candidate
 recent duplicate/useful history changes whether a new candidate should be trusted
 ```
 
-## 5. Training and export
+## 5. Training, export, and replay
 
 ```mermaid
 flowchart TD
@@ -255,13 +261,11 @@ flowchart TD
     O2 --> P
     O3 --> P
 
-    P --> P1[good_precision]
-    P --> P2[good_recall]
-    P --> P3[good_f1]
-    P --> P4[emit count]
-    P --> P5[duplicate_rate]
-    P --> P6[useful / useless]
-    P --> P7[IPC change]
+    P --> P1[offline precision / recall / F1]
+    P --> P2[issued-prefetch precision]
+    P --> P3[coverage: total useful]
+    P --> P4[duplicate_rate]
+    P --> P5[IPC change]
 ```
 
 ## 6. Runtime decision logic
@@ -308,70 +312,31 @@ Current implementation is replay-based, not yet an online hardware deployment. T
 
 ```mermaid
 flowchart TD
-    A[Baseline SPP] --> A1[Many candidates]
-    A1 --> A2[Some useful]
-    A1 --> A3[Many duplicate / useless candidates]
-    A1 --> A4[Possible pollution]
+    A[Baseline SPP] --> A1[Many issued prefetches]
+    A1 --> A2[High coverage and high IPC]
+    A1 --> A3[Lower useful-per-issued precision]
 
-    B[LSTM-gated SPP] --> B1[Fewer but cleaner candidates]
+    B[LSTM-gated SPP] --> B1[Fewer but cleaner selected candidates]
     B1 --> B2[Higher offline good-candidate precision]
-    B1 --> B3[Lower duplicate rate]
-    B1 --> B4[Less pollution if threshold is right]
-    B1 --> B5[Potential IPC improvement]
+    B1 --> B3[Higher useful-per-issued precision]
+    B1 --> B4[Lower coverage than SPP so far]
+    B1 --> B5[Positive IPC gain over no-prefetch]
 
-    C[Metrics expectation] --> C1[Emit count may decrease]
-    C --> C2[Offline good_precision should increase]
-    C --> C3[duplicate_rate should decrease]
-    C --> C4[good_recall may drop if threshold too strict]
-    C --> C5[IPC improves only if useful prefetches are preserved]
-    C --> C6[ChampSim accuracy can still be lower than SPP]
+    C[Current interpretation] --> C1[Precision: LSTM wins]
+    C --> C2[Coverage / total useful / IPC: SPP wins]
+    C --> C3[Latency today: SPP wins]
+    C --> C4[LSTM is valid but not yet SPP-beating]
 ```
 
-Important distinction:
+Current checkpoint:
 
 ```text
-Offline candidate-selection accuracy:
-  LSTM can be much better than raw SPP candidate emission.
-
-True ChampSim prefetch accuracy and IPC:
-  SPP is still stronger on 602.gcc_s-734B.
+Fixed LSTM replay is valid and positive: it improves gcc IPC by about 32% over no-prefetch.
+SPP still wins in total useful coverage, IPC, and online deployability.
+LSTM wins as a cleaner selector under useful/issued precision.
 ```
 
-## 8. Current 602.gcc_s-734B checkpoint
-
-Warmup / simulation:
-
-```text
-25M warmup / 25M simulation
-```
-
-Fixed replay requirements:
-
-```text
-Use replay_access_idx, not event_id/cycle.
-Write prefetch addresses as hex, not decimal.
-Use L2 list_replayer binary.
-```
-
-Observed fixed replay results:
-
-| Method | IPC | Speedup vs no-prefetch | L2 useful | L2 useless | Interpretation |
-|---|---:|---:|---:|---:|---|
-| no-prefetch | 0.5427 | 1.0000x | N/A | N/A | baseline |
-| SPP baseline | 1.4440 | 2.6608x | 140,717 | 652 | strongest current baseline |
-| LSTM fixed replay th0.20 | 0.7175 | 1.3221x | 64,473 | 48,530 | best observed LSTM result so far |
-| LSTM fixed replay th0.25 | 0.7172 | 1.3215x | 64,420 | 48,533 | essentially tied with th0.20 |
-| LSTM fixed replay th0.35 | 0.6371 | 1.1739x | 16,348 | 70,171 | lower recall / less effective |
-| LSTM fixed replay th0.40 | 0.5521 | 1.0173x | 3,933 | 4,142 | too conservative |
-
-Current conclusion:
-
-```text
-The fixed LSTM replay is valid and positive: it improves gcc IPC by about 32% over no-prefetch.
-However, SPP still wins in both IPC and true ChampSim prefetch accuracy.
-```
-
-## 9. Final overview
+## 8. Final overview
 
 ```mermaid
 flowchart LR
@@ -421,17 +386,17 @@ flowchart LR
     subgraph S6[6. Replay + evaluation]
         F1[Replay LSTM actions]
         F2[Compare with SPP / no-prefetch]
-        F3[Metrics: useful, accuracy, precision, recall, duplicate, IPC]
+        F3[Metrics: precision, coverage, duplicate, IPC]
         F1 --> F2 --> F3
     end
 
     S1 --> S2 --> S3 --> S4 --> S5 --> S6
 ```
 
-## 10. What to say in a meeting
+## 9. What to say in a meeting
 
 A concise version:
 
 ```text
-I used SPP as a candidate generator and trained a stateful LSTM to learn which SPP candidates are useful, duplicate, bypass-worthy, or timing-sensitive. The key bug was in replay alignment: the model output originally used event_id/cycle and decimal addresses, but ChampSim list_replayer needs L2 demand-access indices and hexadecimal byte addresses. After fixing that, the LSTM replay became valid: on gcc, it improves IPC from 0.5427 to 0.7175, about 1.32x over no-prefetch. SPP is still much stronger at 1.444 IPC, so the current result is not beating SPP yet, but it proves the learned action policy can produce useful prefetches and real IPC gain once replay is correct.
+I used SPP as a candidate generator and trained a stateful LSTM to learn which SPP candidates are useful, duplicate, bypass-worthy, or timing-sensitive. The key bug was in replay alignment: the model output originally used event_id/cycle and decimal addresses, but ChampSim list_replayer needs L2 demand-access indices and hexadecimal byte addresses. After fixing that, the LSTM replay became valid: on gcc, it improves IPC from 0.5427 to 0.7175, about 1.32x over no-prefetch. It is more selective than SPP under useful/issued precision, but SPP still has higher coverage and IPC. The current result does not beat SPP yet, but it proves the learned action policy can produce useful prefetches and real IPC gain once replay is correct.
 ```
