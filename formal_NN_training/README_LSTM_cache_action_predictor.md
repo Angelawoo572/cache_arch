@@ -12,6 +12,12 @@ trace + ChampSim
   -> offline + system-level metrics
 ```
 
+For the diagram/story version, see:
+
+```text
+formal_NN_training/LSTM_cache_action_pipeline_story.md
+```
+
 ## Current framing
 
 SPP is **not** treated as merely a yes/no filter and the LSTM is **not** a direct next-address predictor in the final interpretation.
@@ -48,25 +54,24 @@ Earlier replay results were invalid because the replay pipeline had two bugs:
 1. the prefetch list used `event_id` / `cycle` instead of the L2 replay demand-access index;
 2. the prefetch address was written in decimal, while `list_replayer` parses the second column as hexadecimal.
 
-After fixing both:
+After fixing both, the replay list format is:
 
 ```text
-prefetch list format:
-  replay_access_idx  0xprefetch_byte_addr
+replay_access_idx  0xprefetch_byte_addr
 ```
 
 The fixed LSTM replay produces real useful L2 prefetches and improves IPC over no-prefetch.
 
-### System-level IPC comparison
+### IPC comparison
 
 | Method | IPC | Speedup vs no-prefetch | Notes |
 |---|---:|---:|---|
 | no-prefetch | 0.5427 | 1.0000x | baseline |
-| SPP baseline | 1.4440 | 2.6608x | strong hardware baseline |
+| SPP baseline | 1.4440 | 2.6608x | strongest current baseline |
 | LSTM fixed replay, threshold 0.20 | 0.7175 | 1.3221x | best observed LSTM point so far |
 | LSTM fixed replay, threshold 0.25 | 0.7172 | 1.3215x | essentially tied with 0.20 |
-| LSTM fixed replay, threshold 0.35 | 0.6371 | 1.1739x | fewer useful prefetches |
-| LSTM fixed replay, threshold 0.40 | 0.5521 | 1.0173x | high threshold, too conservative |
+| LSTM fixed replay, threshold 0.35 | 0.6371 | 1.1739x | less effective |
+| LSTM fixed replay, threshold 0.40 | 0.5521 | 1.0173x | too conservative |
 
 Current conclusion:
 
@@ -75,11 +80,11 @@ On 602.gcc_s-734B, fixed LSTM replay reaches about +32% IPC over no-prefetch.
 SPP is still much stronger in total IPC, but the LSTM result is now valid and positive.
 ```
 
-### Accuracy comparison: SPP vs LSTM
+## Accuracy / precision comparison: SPP vs LSTM
 
-Accuracy must be reported carefully because there are two different meanings.
+Do **not** collapse everything into one word, `accuracy`. There are three different questions.
 
-#### 1. Offline candidate-selection accuracy
+### 1. Offline candidate-selection accuracy
 
 This asks:
 
@@ -94,55 +99,122 @@ Observed on `602.gcc_s-734B`:
 
 | Policy / view | Good precision | Good recall | Duplicate behavior | Interpretation |
 |---|---:|---:|---|---|
-| Raw SPP candidate stream | about 1.96% good-candidate precision | 100% candidate coverage | very high duplicate rate, about 97% | SPP exposes many candidates, most are not good under this label |
+| Raw SPP candidate stream | about 1.96% good-candidate precision | 100% candidate coverage | very high duplicate rate, about 97% | SPP exposes many candidates, most are not good under this offline label |
 | LSTM action selection | about 54.5% good precision | about 61.0% recall | duplicate rate reduced to about 39.6% | LSTM is much better as an offline candidate selector |
-| LSTM threshold 0.20 | about 51.9% good precision | about 88.9% recall | high-recall setting | good for system-level replay on gcc |
+| LSTM threshold 0.20 | about 51.9% good precision | about 88.9% recall | high-recall setting | best current system-level replay region |
 | LSTM threshold 0.40 | about 70.9% good precision | about 16.9% recall | high-precision / low-recall setting | too conservative for IPC |
 
-So under **offline candidate-selection accuracy**, the LSTM is better.
+So under **offline candidate-selection accuracy**:
 
-#### 2. ChampSim prefetch accuracy
+```text
+LSTM > raw SPP candidate stream
+```
+
+### 2. Issued-prefetch precision in ChampSim
 
 This asks:
 
 ```text
 Among prefetches actually issued into ChampSim,
-how many become useful before they become useless?
+how many become useful?
 ```
 
-Using ChampSim's printed L2C counters and the common useful ratio
+Use:
 
 ```text
-prefetch_accuracy = USEFUL / (USEFUL + USELESS)
+issued_prefetch_precision = USEFUL / ISSUED
 ```
 
-we get:
+Observed on `602.gcc_s-734B`:
 
-| Method | L2C requested | L2C useful | L2C useless | Approx. ChampSim prefetch accuracy | IPC |
-|---|---:|---:|---:|---:|---:|
-| SPP baseline | 3,006,672 | 140,717 | 652 | about 99.5% | 1.4440 |
-| LSTM fixed replay, threshold 0.20 | 112,446 | 64,473 | 48,530 | about 57.0% | 0.7175 |
-| LSTM fixed replay, threshold 0.25 | 112,388 | 64,420 | 48,533 | about 57.0% | 0.7172 |
-| LSTM fixed replay, threshold 0.35 | 84,776 | 16,348 | 70,171 | about 18.9% | 0.6371 |
-| LSTM fixed replay, threshold 0.40 | 7,545 | 3,933 | 4,142 | about 48.7% | 0.5521 |
+| Method | L2C requested | L2C issued | L2C useful | L2C useless | Useful / issued | IPC |
+|---|---:|---:|---:|---:|---:|---:|
+| SPP baseline | 3,006,672 | 2,739,031 | 140,717 | 652 | about 5.14% | 1.4440 |
+| LSTM fixed replay, threshold 0.20 | 112,446 | 112,446 | 64,473 | 48,530 | about 57.34% | 0.7175 |
+| LSTM fixed replay, threshold 0.25 | 112,388 | 112,388 | 64,420 | 48,533 | about 57.32% | 0.7172 |
+| LSTM fixed replay, threshold 0.35 | 84,776 | 84,776 | 16,348 | 70,171 | about 19.28% | 0.6371 |
+| LSTM fixed replay, threshold 0.40 | 7,545 | 7,545 | 3,933 | 4,142 | about 52.13% | 0.5521 |
 
-So under **true ChampSim prefetch accuracy**, SPP is better than the current LSTM replay on `602.gcc_s-734B`.
-
-The important nuance is:
+So under **issued-prefetch precision**:
 
 ```text
-Offline candidate-selection accuracy:
-  LSTM > raw SPP candidate stream
-
-ChampSim prefetch accuracy + IPC:
-  SPP > current LSTM replay
-
-LSTM current value:
-  proves the learned action model can improve over no-prefetch once replay is fixed,
-  but it has not yet beaten SPP.
+LSTM > SPP
 ```
 
-### Latency / practicality comparison
+The important result is not that LSTM has higher IPC than SPP. It does not. The important result is that LSTM is much more selective: it issues far fewer prefetches, but a much larger fraction of its issued prefetches become useful.
+
+### 3. Coverage / total useful / IPC
+
+This asks:
+
+```text
+How many useful opportunities did the policy capture overall,
+and how much did that help performance?
+```
+
+Here SPP is still much stronger:
+
+```text
+SPP:
+  useful L2 prefetches = 140,717
+  IPC = 1.4440
+
+LSTM th0.20:
+  useful L2 prefetches = 64,473
+  IPC = 0.7175
+```
+
+So under **coverage and final performance**:
+
+```text
+SPP > current LSTM replay
+```
+
+### About USEFUL / (USEFUL + USELESS)
+
+This ratio should be reported separately and carefully:
+
+```text
+useful_over_useful_plus_useless = USEFUL / (USEFUL + USELESS)
+```
+
+It is **not** the same as `USEFUL / ISSUED`, because in ChampSim:
+
+```text
+USEFUL + USELESS != ISSUED
+```
+
+`USELESS` counts prefetched blocks that are later evicted/replaced while still marked as prefetches. It does not count every issued prefetch that failed to become useful. Therefore this ratio can make SPP look near-perfect because SPP has very low explicit useless eviction count, even though it issued millions of prefetches.
+
+For the current data:
+
+```text
+SPP USEFUL / (USEFUL + USELESS):
+  140,717 / (140,717 + 652) ≈ 99.54%
+
+LSTM th0.20 USEFUL / (USEFUL + USELESS):
+  64,473 / (64,473 + 48,530) ≈ 57.05%
+```
+
+This does **not** mean SPP issued prefetches are 99.54% precise. For issued-prefetch precision, use `USEFUL / ISSUED`.
+
+### Final wording to use
+
+```text
+Precision: LSTM wins.
+Coverage and IPC: SPP wins.
+Latency / deployability today: SPP wins.
+```
+
+More detailed:
+
+```text
+The LSTM replay is a cleaner selector: on gcc, useful/issued is about 57% for LSTM th0.20 versus about 5% for SPP.
+However, SPP captures many more useful prefetches in total and still has much higher IPC.
+Therefore LSTM improves precision and beats no-prefetch, but it does not yet beat SPP in performance.
+```
+
+## Latency / practicality comparison
 
 | Method | Critical-path practicality | Runtime / latency interpretation |
 |---|---|---|
@@ -153,14 +225,8 @@ LSTM current value:
 Therefore:
 
 ```text
-Accuracy-only view:
-  depends on the definition.
-  LSTM wins offline candidate-selection precision.
-  SPP wins real ChampSim prefetch accuracy.
-
-Latency view:
-  SPP is clearly better today.
-  Current LSTM replay is an offline upper-bound / validation path, not yet a deployable online hardware design.
+SPP is clearly better for latency today.
+Current LSTM replay is an offline validation path, not yet a deployable online hardware design.
 ```
 
 ## Main files
@@ -174,6 +240,7 @@ formal_NN_training/scripts/02_actions_to_prefetch_list.py
 formal_NN_training/scripts/03_run_lstm_replay.sh
 formal_NN_training/scripts/04_eval_lstm_accuracy.py
 formal_NN_training/scripts/05_eval_current_label_lstm_vs_spp.py
+formal_NN_training/LSTM_cache_action_pipeline_story.md
 ```
 
 ## Default first trace
@@ -384,12 +451,14 @@ split -b 90m packed/602/full_lstm_cache_actions.csv.gz packed/602/full_lstm_cach
 Do not only report `delta_top1`. Report in this order:
 
 1. offline `good_prefetch` precision / recall / F1,
-2. duplicate reduction / duplicate rate,
-3. ChampSim useful / useless / prefetch accuracy,
-4. cache hit rate / MPKI,
-5. bandwidth / PQ / MSHR pressure,
-6. IPC as the final system-level check,
-7. latency / deployability separately from offline replay IPC.
+2. issued-prefetch precision: `USEFUL / ISSUED`,
+3. coverage: total `USEFUL`,
+4. `USEFUL / (USEFUL + USELESS)` only as a separate cache-residency/useful-vs-evicted ratio,
+5. duplicate reduction / duplicate rate,
+6. cache hit rate / MPKI,
+7. bandwidth / PQ / MSHR pressure,
+8. IPC as the final system-level check,
+9. latency / deployability separately from offline replay IPC.
 
 ## Important distinction
 
