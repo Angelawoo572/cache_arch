@@ -8,7 +8,7 @@ Input: CSV produced by 04_patch_spp_candidate_logger.sh, with event rows:
   USE,...   later demand access marked useful_prefetch by ChampSim
 
 Output schema:
-  trace,cycle,ip,addr,pf_addr,delta,spp_confidence,spp_fill_l2,spp_issued,cache_hit,
+  trace,cycle,replay_access_idx,ip,addr,pf_addr,delta,spp_confidence,spp_fill_l2,spp_issued,cache_hit,
   mshr_occupancy,mshr_size,pq_occupancy,pq_size,
   recent_spp_accuracy,recent_pc_accuracy,recent_delta_accuracy,
   recent_cache_hit_rate,recent_cache_miss_rate,
@@ -40,6 +40,7 @@ from pathlib import Path
 OUT_COLUMNS = [
     "trace",
     "cycle",
+    "replay_access_idx",
     "ip",
     "addr",
     "pf_addr",
@@ -69,6 +70,7 @@ OUT_COLUMNS = [
 
 INT_FIELDS = [
     "cand_id",
+    "replay_access_idx",
     "addr",
     "ip",
     "pf_addr",
@@ -274,6 +276,7 @@ def rows_from_candidates(cands, trace, min_confidence):
         rows.append({
             "trace": trace,
             "cycle": c["event_idx"],
+            "replay_access_idx": c.get("replay_access_idx", 0),
             "ip": c["ip"],
             "addr": c["addr"],
             "pf_addr": c["pf_addr"],
