@@ -11,7 +11,7 @@ formal_NN_training/README_LSTM_cache_action_predictor.md
 ## 0. One-sentence summary
 
 ```text
-SPP proposes candidate prefetches; the LSTM reads each candidate plus cache context over time and learns whether to keep, suppress, bypass, or deprioritize that candidate.
+SPP proposes candidate prefetches; the LSTM reads each candidate plus cache context over time and learns whether to keep, suppress, mark bypass-worthy, or deprioritize that candidate.
 ```
 
 This is **not** direct next-address prediction as the final story. The useful framing is:
@@ -43,8 +43,8 @@ flowchart LR
 
     E --> G[Labels / targets]
     G --> G1[Good: useful prefetch?]
-    G --> G2[Duplicate: already useless or redundant?]
-    G --> G3[Bypass: should avoid cache pollution?]
+    G --> G2[Duplicate: redundant / already covered?]
+    G --> G3[Suppress / bypass-worthy: avoid pollution?]
     G --> G4[Timing: early / on-time / late bucket]
 
     F --> H[LSTM cache-action model]
@@ -53,7 +53,7 @@ flowchart LR
     H --> I[Multi-task outputs]
     I --> I1[Good probability]
     I --> I2[Duplicate probability]
-    I --> I3[Bypass probability]
+    I --> I3[Suppress / bypass-worthy probability]
     I --> I4[Timing prediction]
 
     I --> J[Training loop]
@@ -112,7 +112,7 @@ flowchart TD
     E --> F[Target at same event]
     F --> F1[good label = useful and non-duplicate candidate]
     F --> F2[duplicate label = repeated / already covered]
-    F --> F3[bypass label = avoid inserting / avoid pollution]
+    F --> F3[suppress / bypass-worthy label = avoid pollution]
     F --> F4[timing label = when this prefetch would be useful]
 
     F --> G[Batch for training]
@@ -168,12 +168,12 @@ flowchart LR
 
     G --> H1[Good head]
     G --> H2[Duplicate head]
-    G --> H3[Bypass head]
+    G --> H3[Suppress / bypass-worthy head]
     G --> H4[Timing head]
 
     H1 --> I1[p_good = should keep / issue candidate]
     H2 --> I2[p_duplicate = likely redundant]
-    H3 --> I3[p_bypass = should avoid pollution]
+    H3 --> I3[p_bypass = suppress / bypass-worthy score]
     H4 --> I4[timing bucket / usefulness timing]
 ```
 
@@ -197,7 +197,7 @@ flowchart TD
 
     B --> F[Output gate]
     F --> F1[How much memory should affect current decision?]
-    F1 --> F2[Example: use hidden state to judge good / duplicate / bypass]
+    F1 --> F2[Example: use hidden state to judge good / duplicate / suppress]
 
     C --> G[c_t long-term memory]
     D --> G
@@ -247,7 +247,7 @@ flowchart TD
 
     K --> L[Export table]
     L --> L1[full_lstm_cache_actions.csv]
-    L1 --> L2[For each candidate: keep / suppress / bypass / timing action]
+    L1 --> L2[For each candidate: keep / suppress / bypass-worthy / timing signal]
 
     L2 --> M[Convert to list_replayer list]
     M --> N[Replay]
@@ -286,16 +286,16 @@ flowchart LR
     E -- Yes --> F[Drop or deprioritize]
     F --> F1[Goal: avoid repeated same-line prefetch]
 
-    E -- No --> G{Bypass predicted?}
+    E -- No --> G{Suppress / bypass-worthy?}
 
-    G -- Yes --> H[Bypass / avoid cache insertion]
+    G -- Yes --> H[Suppress or mark bypass-worthy]
     H --> H1[Goal: reduce cache pollution]
 
     G -- No --> I[Issue / keep SPP candidate]
 
     I --> J{Timing prediction}
     J -- Useful soon --> K[Normal prefetch]
-    J -- Too late / too early --> L[Adjust priority or suppress if policy supports it]
+    J -- Too late / too early --> L[Future policy: adjust priority or suppress]
 
     K --> M[Replay outcome]
     L --> M
@@ -306,7 +306,7 @@ flowchart LR
     M --> N[Measure: useful, duplicate, hit rate, IPC]
 ```
 
-Current implementation is replay-based, not yet an online hardware deployment. That means the IPC result validates the learned policy, but it does not include online neural inference latency.
+Current implementation is replay-based, not yet an online hardware deployment. Current replay mainly validates keep/drop prefetch decisions; bypass and timing are auxiliary signals for later online policies.
 
 ## 7. Baseline SPP vs LSTM-gated SPP
 
@@ -351,7 +351,7 @@ flowchart LR
         B1[Read chronological events]
         B2[Encode PC/IP, delta, confidence]
         B3[Add cache pressure context]
-        B4[Create labels: good, duplicate, bypass, timing]
+        B4[Create labels: good, duplicate, suppress/bypass, timing]
         B1 --> B2 --> B3 --> B4
     end
 
