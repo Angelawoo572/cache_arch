@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Compare SPP and LSTM replay accuracy from ChampSim logs.
 
-This script is a focused version of 08_parse_replay_metrics.py for the final
-SPP-vs-LSTM table. It parses:
+This script is the final SPP-vs-LSTM replay table helper. It parses:
   - CPU IPC
   - L2C PREFETCH REQUESTED / ISSUED / USEFUL / USELESS
   - useful_per_issued = USEFUL / ISSUED
@@ -21,13 +20,15 @@ Example 619 valid replay-index logs only:
     --exclude-lstm aligned_hex
 """
 
+from __future__ import print_function
+
 import argparse
 import csv
 import re
 from pathlib import Path
 
 
-def parse_log(path: Path):
+def parse_log(path):
     text = path.read_text(errors="replace")
     ipc_m = re.search(r"CPU 0 cumulative IPC:\s*([0-9.]+)", text)
     ipc = float(ipc_m.group(1)) if ipc_m else None
@@ -46,21 +47,21 @@ def parse_log(path: Path):
         "issued": issued,
         "useful": useful,
         "useless": useless,
-        "useful_per_issued": useful / issued if issued else 0.0,
-        "useful_per_requested": useful / requested if requested else 0.0,
-        "useful_over_useful_plus_useless": useful / (useful + useless) if (useful + useless) else 0.0,
+        "useful_per_issued": useful / float(issued) if issued else 0.0,
+        "useful_per_requested": useful / float(requested) if requested else 0.0,
+        "useful_over_useful_plus_useless": useful / float(useful + useless) if (useful + useless) else 0.0,
     }
 
 
-def parse_ipc_only(path: Path):
+def parse_ipc_only(path):
     text = path.read_text(errors="replace")
     ipc_m = re.search(r"CPU 0 cumulative IPC:\s*([0-9.]+)", text)
     return float(ipc_m.group(1)) if ipc_m else None
 
 
-def method_name(trace: str, path: Path):
+def method_name(trace, path):
     name = path.name
-    prefix = f"{trace}."
+    prefix = "%s." % trace
     if name.startswith(prefix):
         name = name[len(prefix):]
     if name.endswith(".log"):
@@ -68,7 +69,7 @@ def method_name(trace: str, path: Path):
     return name
 
 
-def keep_lstm(name: str, include: list[str], exclude: list[str]):
+def keep_lstm(name, include, exclude):
     if not name.startswith("LSTM"):
         return False
     if include and not all(s in name for s in include):
@@ -79,7 +80,7 @@ def keep_lstm(name: str, include: list[str], exclude: list[str]):
 
 
 def pct(x):
-    return f"{100.0 * x:.4f}%"
+    return "{:.4f}%".format(100.0 * x)
 
 
 def main():
@@ -91,9 +92,9 @@ def main():
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
 
-    logs = sorted(args.log_dir.glob(f"{args.trace}*.log"))
+    logs = sorted(args.log_dir.glob("{}*.log".format(args.trace)))
     if not logs:
-        raise SystemExit(f"[error] no logs found for trace {args.trace} under {args.log_dir}")
+        raise SystemExit("[error] no logs found for trace {} under {}".format(args.trace, args.log_dir))
 
     rows = []
     no_ipc = None
@@ -105,25 +106,38 @@ def main():
 
     for p in logs:
         name = method_name(args.trace, p)
-        if name not in {"spp"} and not keep_lstm(name, args.include_lstm, args.exclude_lstm):
+        if name != "spp" and not keep_lstm(name, args.include_lstm, args.exclude_lstm):
             continue
         metrics = parse_log(p)
         if metrics is None:
-            print(f"[skip] missing L2C prefetch counters: {p}")
+            print("[skip] missing L2C prefetch counters: {}".format(p))
             continue
         speedup = metrics["ipc"] / no_ipc if (metrics["ipc"] is not None and no_ipc) else None
-        rows.append({"method": name, "speedup_vs_no_prefetch": speedup, "log": str(p), **metrics})
+        row = {"method": name, "speedup_vs_no_prefetch": speedup, "log": str(p)}
+        row.update(metrics)
+        rows.append(row)
 
-    print(f"trace={args.trace}")
+    print("trace={}".format(args.trace))
     if no_ipc is not None:
-        print(f"no_prefetch_ipc={no_ipc:.4f}")
+        print("no_prefetch_ipc={:.4f}".format(no_ipc))
     print("method,ipc,speedup_vs_no_prefetch,requested,issued,useful,useless,useful_per_issued,useful_per_requested,useful_over_useful_plus_useless")
 
     for r in rows:
+        speedup_str = "NA" if r["speedup_vs_no_prefetch"] is None else "{:.4f}".format(r["speedup_vs_no_prefetch"])
+        ipc_str = "NA" if r["ipc"] is None else "{:.4f}".format(r["ipc"])
         print(
-            f"{r['method']},{r['ipc']:.4f},{r['speedup_vs_no_prefetch']:.4f},"
-            f"{r['requested']},{r['issued']},{r['useful']},{r['useless']},"
-            f"{pct(r['useful_per_issued'])},{pct(r['useful_per_requested'])},{pct(r['useful_over_useful_plus_useless'])}"
+            "{method},{ipc},{speedup},{requested},{issued},{useful},{useless},{upi},{upr},{uou}".format(
+                method=r["method"],
+                ipc=ipc_str,
+                speedup=speedup_str,
+                requested=r["requested"],
+                issued=r["issued"],
+                useful=r["useful"],
+                useless=r["useless"],
+                upi=pct(r["useful_per_issued"]),
+                upr=pct(r["useful_per_requested"]),
+                uou=pct(r["useful_over_useful_plus_useless"]),
+            )
         )
 
     if args.out:
@@ -138,9 +152,9 @@ def main():
             for r in rows:
                 rr = dict(r)
                 for k in ["useful_per_issued", "useful_per_requested", "useful_over_useful_plus_useless", "speedup_vs_no_prefetch"]:
-                    rr[k] = f"{rr[k]:.8f}" if rr[k] is not None else "NA"
+                    rr[k] = "{:.8f}".format(rr[k]) if rr[k] is not None else "NA"
                 w.writerow({k: rr.get(k, "") for k in fields})
-        print(f"[write] {args.out}")
+        print("[write] {}".format(args.out))
 
 
 if __name__ == "__main__":
