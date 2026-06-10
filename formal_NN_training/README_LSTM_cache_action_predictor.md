@@ -1,82 +1,70 @@
 # Outcome-aware SPP-assisted LSTM Cache Action Predictor
 
-This folder contains the current SPP-assisted LSTM cache-action experiment:
+Current flow:
 
 ```text
 ChampSim + SPP candidate logging
   -> lstm_events_<TRACE>.csv
-  -> outcome-aware LSTM training in Colab/notebook
+  -> outcome-aware LSTM training
   -> full_lstm_cache_actions.csv
   -> list_replayer prefetch list
   -> ChampSim replay
   -> SPP / LSTM / no-prefetch comparison
 ```
 
-For the diagram/story version, see:
+Related docs:
 
 ```text
-formal_NN_training/LSTM_cache_action_pipeline_story.md
+formal_NN_training/LSTM_cache_action_pipeline_story.md   # story / diagrams
+formal_NN_training/scripts/README.md                     # script usage
 ```
 
-For script usage, see:
+## Framing
 
-```text
-formal_NN_training/scripts/README.md
-```
+SPP is used as a **candidate generator + context provider + supervision source**. The LSTM is a sequential cache-action learner that decides whether an SPP candidate is likely useful, duplicate, suppress-worthy, bypass-worthy, or timing-sensitive.
 
-## Current framing
-
-SPP is used as a **candidate generator + feature/context provider + supervision source**. The LSTM is not mainly a direct next-address predictor. It is a sequential cache-action learner that decides whether an SPP candidate is likely useful, duplicate, suppress-worthy, bypass-worthy, or timing-sensitive.
-
-The key outcome-aware label is:
+The main label is:
 
 ```text
 good_prefetch = outcome_useful == 1 AND outcome_duplicate == 0
 ```
 
-The older next-demand-line / next-delta formulation remains useful as a diagnostic, but it should not be reported as useful-prefetch precision.
+This is not reported as direct next-address prediction.
 
 ## Replay correctness rule
 
-Earlier replay results were invalid when the prefetch list used `event_id` / `cycle` instead of the L2 replay demand-access index, or when prefetch addresses were written in decimal. The valid list format is:
+Valid list-replayer format:
 
 ```text
 replay_access_idx  0xprefetch_byte_addr
 ```
 
-During conversion, this line must appear:
+During conversion, this must appear:
 
 ```text
 [idx_col] replay_access_idx
 ```
 
-If the converter prints `[idx_col] event_id`, that replay is invalid.
+If the converter prints `[idx_col] event_id`, the replay is invalid.
 
-## Current result summary
+## Current results
 
-All results below use 25M warmup / 25M simulation.
+All results use 25M warmup / 25M simulation.
 
-### System-level IPC
+### IPC
 
 | Trace | Method | IPC | Speedup vs no-prefetch | Interpretation |
 |---|---|---:|---:|---|
 | 602.gcc_s-734B | no-prefetch | 0.5427 | 1.0000x | baseline |
-| 602.gcc_s-734B | SPP | 1.4440 | 2.6608x | highest IPC on 602 |
-| 602.gcc_s-734B | LSTM th0.20 | 0.7175 | 1.3221x | valid positive replay, but below SPP |
+| 602.gcc_s-734B | SPP | 1.4440 | 2.6608x | best IPC on 602 |
+| 602.gcc_s-734B | LSTM th0.20 | 0.7175 | 1.3221x | positive replay, below SPP |
 | 619.lbm_s-4268B | no-prefetch | 0.4345 | 1.0000x | baseline |
-| 619.lbm_s-4268B | SPP | 0.5077 | 1.1685x | highest IPC on 619 |
-| 619.lbm_s-4268B | LSTM replayidx th0.10-th0.35 | 0.4568 | 1.0513x | valid positive replay, but below SPP |
+| 619.lbm_s-4268B | SPP | 0.5077 | 1.1685x | best IPC on 619 |
+| 619.lbm_s-4268B | LSTM replayidx th0.10-th0.35 | 0.4568 | 1.0513x | positive replay, below SPP |
 
-Current IPC conclusion:
+### Replay precision / coverage
 
-```text
-LSTM beats no-prefetch on both 602 and 619.
-SPP still beats LSTM in final IPC on both traces.
-```
-
-## Accuracy / precision comparison: SPP vs LSTM
-
-Do not collapse everything into one word, `accuracy`. Report these separately:
+Use these definitions consistently:
 
 ```text
 issued-prefetch precision = USEFUL / ISSUED
@@ -85,9 +73,9 @@ performance               = IPC
 useful-vs-evicted ratio   = USEFUL / (USEFUL + USELESS)
 ```
 
-`USEFUL / (USEFUL + USELESS)` is **not** the same as `USEFUL / ISSUED`, because ChampSim's `USELESS` counter is not all non-useful issued prefetches.
+`USEFUL / (USEFUL + USELESS)` is not the same as `USEFUL / ISSUED`, because ChampSim's `USELESS` counter is not all non-useful issued prefetches.
 
-### 602.gcc_s-734B replay metrics
+#### 602.gcc_s-734B
 
 | Method | IPC | Requested | Issued | Useful | Useless | Useful / Issued | Useful / Requested | Useful / (Useful + Useless) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -97,11 +85,11 @@ useful-vs-evicted ratio   = USEFUL / (USEFUL + USELESS)
 602 conclusion:
 
 ```text
-LSTM is much more precise per issued prefetch: 57.34% vs SPP 5.14%.
-SPP still wins coverage and IPC: 140,717 useful prefetches and 1.4440 IPC.
+LSTM is much more precise per issued prefetch.
+SPP has more total useful prefetches and much higher IPC.
 ```
 
-### 619.lbm_s-4268B replay metrics
+#### 619.lbm_s-4268B
 
 For 619, LSTM thresholds 0.10, 0.15, 0.20, 0.25, 0.30, and 0.35 selected the same prefetch set and produced the same replay metrics.
 
@@ -113,42 +101,35 @@ For 619, LSTM thresholds 0.10, 0.15, 0.20, 0.25, 0.30, and 0.35 selected the sam
 619 conclusion:
 
 ```text
-LSTM has extremely high issued-prefetch precision: 94.79% vs SPP 3.42%.
-SPP still wins IPC: 0.5077 vs LSTM 0.4568.
+LSTM has much higher issued-prefetch precision and more total L2 useful prefetches.
+SPP still has higher IPC, so useful count alone is not enough; timeliness, cache interaction, and resource behavior matter.
 ```
 
 ## Overall conclusion
 
 ```text
-Across both 602.gcc and 619.lbm, the LSTM replay consistently improves issued-prefetch precision over SPP.
-
+Across both 602.gcc and 619.lbm, LSTM wins issued-prefetch precision.
 602: LSTM useful/issued = 57.34%, SPP useful/issued = 5.14%.
 619: LSTM useful/issued = 94.79%, SPP useful/issued = 3.42%.
 
-However, SPP still achieves higher IPC because it has higher coverage and captures more total useful prefetch opportunities in the current replay setup.
+SPP still wins final IPC on both traces.
+Coverage is trace-dependent: SPP has more total useful on 602, while LSTM has more total L2 useful on 619.
 ```
 
-Short version for meetings:
+Meeting wording:
 
 ```text
-LSTM is a cleaner selector. SPP is still the stronger performance baseline.
-The next research question is how to keep LSTM-level precision while increasing coverage and eventually distilling the policy into a low-latency hardware-feasible gate.
+LSTM is a cleaner selector. SPP is still the stronger IPC baseline.
+The next question is how to convert LSTM's high precision into higher IPC through better timeliness, cache interaction, and hardware-feasible deployment.
 ```
 
-## Latency / practicality comparison
+## Latency / practicality
 
-| Method | Critical-path practicality | Runtime / latency interpretation |
+| Method | Practicality | Runtime interpretation |
 |---|---|---|
-| SPP | Hardware table-based prefetcher; practical as a baseline | Low-latency online decision logic; already integrated in ChampSim |
-| LSTM replay | Offline precomputed replay list | Current IPC result does **not** include neural inference latency |
-| Real online LSTM | Would require model inference on or near the memory pipeline | Too expensive unless distilled into a tiny gate/table/fixed-point model |
-
-Therefore:
-
-```text
-SPP is clearly better for latency today.
-Current LSTM replay is an offline validation path, not yet a deployable online hardware design.
-```
+| SPP | Hardware table-based prefetcher | Low-latency online decision logic |
+| LSTM replay | Offline precomputed replay list | IPC does not include neural inference latency |
+| Real online LSTM | Requires inference near memory pipeline | Needs distillation into a tiny gate/table/fixed-point policy |
 
 ## Main files
 
@@ -181,7 +162,7 @@ PATCH_SPP=0 \
 bash formal_NN_training/scripts/01_run_spp_trace_dump.sh
 ```
 
-Convert-only after fixing conversion logic or reusing an existing SPP event log:
+Convert-only:
 
 ```bash
 TRACE=619.lbm_s-4268B \
@@ -201,12 +182,6 @@ python3 formal_NN_training/scripts/07_prepare_actions_for_replay.py \
   --copy-default
 ```
 
-This restores packed Colab output if needed, validates the trace, merges missing `replay_access_idx`, and copies the prepared actions into:
-
-```text
-formal_NN_training/artifacts/full_lstm_cache_actions.csv
-```
-
 ### Replay
 
 ```bash
@@ -221,7 +196,7 @@ MODEL_TAG=LSTM_lbm_s-4268B_L2_replayidx_hex_th0.20_bp1.00 \
 bash formal_NN_training/scripts/03_run_lstm_replay.sh
 ```
 
-### Compare SPP vs LSTM replay accuracy
+### Compare SPP vs LSTM replay metrics
 
 ```bash
 python3 formal_NN_training/scripts/09_compare_spp_lstm_accuracy.py \
@@ -244,5 +219,5 @@ python3 formal_NN_training/scripts/09_compare_spp_lstm_accuracy.py \
 
 1. Do not continue low-threshold sweep on 619; 0.10-0.35 produced the same selected set.
 2. If sweeping 619 further, try higher thresholds such as 0.50, 0.70, 0.90, and 0.95.
-3. For research direction, focus on increasing LSTM coverage while preserving precision, or distilling the learned selector into a low-latency hardware-feasible gate.
-4. Repeat the same fixed replay-index flow on `605.mcf_s-994B` or `620.omnetpp_s-874B` for irregular / indirect behavior.
+3. Focus on turning LSTM precision into IPC: timeliness, queue/resource interaction, and cache pollution behavior.
+4. Repeat the fixed replay-index flow on `605.mcf_s-994B` or `620.omnetpp_s-874B` for irregular / indirect behavior.
