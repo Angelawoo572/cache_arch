@@ -178,18 +178,19 @@ Current implementation is replay-based, not yet an online hardware deployment. C
 ```mermaid
 flowchart TD
     A[Baseline SPP] --> A1[Many issued prefetches]
-    A1 --> A2[Higher coverage]
-    A1 --> A3[Higher IPC so far]
-    A1 --> A4[Low USEFUL / ISSUED precision]
+    A1 --> A2[Highest IPC so far]
+    A1 --> A3[Low USEFUL / ISSUED precision]
+    A1 --> A4[Coverage advantage on 602]
 
-    B[LSTM-gated SPP] --> B1[Fewer selected candidates]
+    B[LSTM-gated SPP] --> B1[Fewer / cleaner selected candidates]
     B1 --> B2[Much higher USEFUL / ISSUED precision]
     B1 --> B3[Positive IPC gain over no-prefetch]
-    B1 --> B4[Lower coverage than SPP so far]
+    B1 --> B4[Coverage is trace-dependent; LSTM has more L2 useful on 619]
 
     C[Current interpretation] --> C1[Precision: LSTM wins]
-    C --> C2[Coverage / IPC: SPP wins]
-    C --> C3[Latency today: SPP wins]
+    C --> C2[Final IPC: SPP wins]
+    C --> C3[Coverage: trace-dependent]
+    C --> C4[Latency today: SPP wins]
 ```
 
 ## 7. Current results: 602 and 619
@@ -198,17 +199,18 @@ All results use 25M warmup / 25M simulation.
 
 | Trace | Method | IPC | Useful / Issued | Total Useful | Conclusion |
 |---|---|---:|---:|---:|---|
-| 602.gcc_s-734B | SPP | 1.4440 | 5.14% | 140,717 | best IPC / coverage |
+| 602.gcc_s-734B | SPP | 1.4440 | 5.14% | 140,717 | best IPC and more total useful on 602 |
 | 602.gcc_s-734B | LSTM th0.20 | 0.7175 | 57.34% | 64,473 | much cleaner selector |
-| 619.lbm_s-4268B | SPP | 0.5077 | 3.42% | 88,474 | best IPC |
-| 619.lbm_s-4268B | LSTM th0.10-th0.35 | 0.4568 | 94.79% | 157,564 | extremely high precision, positive IPC over no-prefetch |
+| 619.lbm_s-4268B | SPP | 0.5077 | 3.42% | 88,474 | best IPC on 619 |
+| 619.lbm_s-4268B | LSTM th0.10-th0.35 | 0.4568 | 94.79% | 157,564 | extremely high precision and more L2 useful than SPP on 619, but lower IPC |
 
 Current checkpoint:
 
 ```text
 Across both traces, LSTM wins issued-prefetch precision.
 SPP still wins final IPC.
-The research opportunity is to keep LSTM precision while increasing coverage, or distill the policy into a low-latency hardware-feasible gate.
+Coverage is trace-dependent: SPP has more total useful on 602, while LSTM has more total L2 useful on 619.
+The research opportunity is to convert LSTM precision into higher IPC by improving timeliness, cache interaction, and hardware-feasible deployment.
 ```
 
 ## 8. Final overview
@@ -249,5 +251,5 @@ flowchart LR
 ## 9. What to say in a meeting
 
 ```text
-I used SPP as a candidate generator and trained a stateful LSTM to learn which SPP candidates are useful, duplicate, bypass-worthy, or timing-sensitive. The key replay bug was alignment: ChampSim list_replayer needs L2 demand-access indices and hexadecimal byte addresses. After fixing that, LSTM replay is valid on both gcc and lbm. On 602, LSTM improves IPC from 0.5427 to 0.7175 and raises useful/issued precision from SPP's 5.14% to 57.34%. On 619, LSTM reaches 94.79% useful/issued precision and improves over no-prefetch, but SPP still has higher final IPC. So the current story is: LSTM is a much cleaner selector, while SPP still wins coverage and performance.
+I used SPP as a candidate generator and trained a stateful LSTM to learn which SPP candidates are useful, duplicate, bypass-worthy, or timing-sensitive. The key replay bug was alignment: ChampSim list_replayer needs L2 demand-access indices and hexadecimal byte addresses. After fixing that, LSTM replay is valid on both gcc and lbm. On 602, LSTM improves IPC from 0.5427 to 0.7175 and raises useful/issued precision from SPP's 5.14% to 57.34%. On 619, LSTM reaches 94.79% useful/issued precision and improves over no-prefetch, but SPP still has higher final IPC. So the current story is: LSTM is a much cleaner selector, while SPP is still the stronger IPC baseline. Coverage is trace-dependent, so the next step is to turn LSTM's high precision into higher IPC through better timeliness, cache interaction, and hardware-feasible deployment.
 ```
