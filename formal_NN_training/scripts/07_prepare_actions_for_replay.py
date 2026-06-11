@@ -29,13 +29,6 @@ def trace_tag(trace: str) -> str:
     return trace.split(".", 1)[0]
 
 
-def open_clean_csv(path: Path):
-    """Read CSV text while removing accidental NUL bytes."""
-    with path.open("rb") as f:
-        for raw in f:
-            yield raw.replace(b"\x00", b"").decode("utf-8", errors="replace")
-
-
 def restore_from_packed(packed_dir: Path, out_csv: Path) -> bool:
     """Restore full_lstm_cache_actions.csv from packed .gz or .gz.part_* files."""
     gz = packed_dir / "full_lstm_cache_actions.csv.gz"
@@ -149,7 +142,6 @@ def merge_replay_idx(events: Path, actions: Path, out: Path, trace: str, force: 
             if a.get("trace") != trace:
                 trace_bad += 1
 
-            # Current Colab export uses event_id as row id, so it should align with lstm_events event_id.
             if a.get("event_id") != e.get("event_id"):
                 mismatch += 1
                 if mismatch <= 5:
@@ -180,6 +172,7 @@ def main():
     ap.add_argument("--events", type=Path, default=None)
     ap.add_argument("--actions", type=Path, default=None)
     ap.add_argument("--packed-dir", type=Path, default=None)
+    ap.add_argument("--restore-packed", action="store_true", help="Always restore actions from packed output before validating/merging")
     ap.add_argument("--copy-default", action="store_true", help="Copy prepared by_trace action CSV to artifacts/full_lstm_cache_actions.csv")
     ap.add_argument("--force-merge", action="store_true", help="Merge replay_access_idx even if the action CSV already has the column")
     ap.add_argument("--sample-limit", type=int, default=100000)
@@ -203,7 +196,15 @@ def main():
     print("default   :", default_actions)
     print("============================================================")
 
-    if not actions.exists():
+    if args.restore_packed:
+        if actions.exists():
+            backup = actions.with_suffix(".before_restore.csv")
+            shutil.copy2(actions, backup)
+            print(f"[backup-before-restore] {backup}")
+        restored = restore_from_packed(packed_dir, actions)
+        if not restored:
+            raise SystemExit(f"[error] --restore-packed set but no packed file found under: {packed_dir}")
+    elif not actions.exists():
         restored = restore_from_packed(packed_dir, actions)
         if not restored:
             raise SystemExit(f"[error] actions missing and no packed file found: {actions}")
