@@ -7,9 +7,10 @@
 #   and lstm_events_<TRACE>.csv already exists on the cluster.
 #
 # This script:
-#   1. prepares trace-specific actions with replay_access_idx,
-#   2. runs no-prefetch / SPP / LSTM replay,
-#   3. parses SPP-vs-LSTM replay metrics.
+#   1. restores the latest packed Colab output,
+#   2. prepares trace-specific actions with replay_access_idx,
+#   3. runs no-prefetch / SPP / LSTM replay,
+#   4. parses SPP-vs-LSTM replay metrics.
 
 set -euo pipefail
 
@@ -41,6 +42,7 @@ printf '%s\n' '============================================================'
 
 python3 formal_NN_training/scripts/07_prepare_actions_for_replay.py \
   --trace "$TRACE" \
+  --restore-packed \
   --copy-default
 
 TRACE="$TRACE" \
