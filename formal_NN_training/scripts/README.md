@@ -1,12 +1,24 @@
 # formal_NN_training/scripts
 
-This directory contains the supported scripts for the current SPP-assisted LSTM cache-action pipeline.
+Supported scripts for the current SPP-assisted LSTM cache-action pipeline.
 
-## Standard order
+## End-to-end order per trace
+
+```text
+01_run_spp_trace_dump.sh
+  -> 05_pack_lstm_events_for_colab.sh
+  -> Colab / notebook training
+  -> copy packed Colab output back to artifacts/packed/<tag>/
+  -> 06_run_lstm_trace_replay.sh
+```
+
+Use `09_compare_spp_lstm_accuracy.py` separately when you only want to re-parse existing logs.
+
+## Scripts
 
 ### 00_restore_colab_uploaded_data.sh
 
-Use in Colab after uploading split `.csv.gz.part_*` files.
+Use in Colab after uploading split `.csv.gz.part_*` input files.
 
 ```bash
 TRACE=619.lbm_s-4268B UPLOAD_TAG=619 \
@@ -15,7 +27,7 @@ TRACE=619.lbm_s-4268B UPLOAD_TAG=619 \
 
 ### 01_run_spp_trace_dump.sh
 
-Run ChampSim with `spp_dev` candidate logging and create the LSTM event CSV.
+Run ChampSim with `spp_dev` candidate logging and create `lstm_events_<TRACE>.csv`.
 
 Full run:
 
@@ -79,6 +91,41 @@ MODEL_TAG=LSTM_lbm_s-4268B_L2_replayidx_hex_th0.20_bp1.00 \
 ### 04_eval_lstm_accuracy.py
 
 Offline candidate/action evaluation against `lstm_events_<TRACE>.csv`. Use this for offline good-prefetch precision/recall/F1, not for final ChampSim IPC.
+
+### 05_pack_lstm_events_for_colab.sh
+
+Pack `lstm_events_<TRACE>.csv` into gzip split parts for Colab upload. This script first verifies that `replay_access_idx` is nonblank.
+
+```bash
+TRACE=619.lbm_s-4268B UPLOAD_TAG=619 \
+  bash formal_NN_training/scripts/05_pack_lstm_events_for_colab.sh
+```
+
+Upload the generated files from:
+
+```text
+formal_NN_training/data/upload/<tag>/
+```
+
+### 06_run_lstm_trace_replay.sh
+
+Post-Colab one-command replay helper. Use this after copying the Colab output parts back to:
+
+```text
+formal_NN_training/artifacts/packed/<tag>/full_lstm_cache_actions.csv.gz.part_*
+```
+
+It runs `07_prepare_actions_for_replay.py`, `03_run_lstm_replay.sh`, and `09_compare_spp_lstm_accuracy.py`.
+
+```bash
+TRACE=619.lbm_s-4268B \
+WARMUP=25000000 \
+SIM=25000000 \
+PREFETCH_THRESHOLD=0.20 \
+BYPASS_THRESHOLD=1.00 \
+REPL_BIN=/scratch/qianruw/cache/external/ChampSim/bin/champsim.l2_replayer \
+  bash formal_NN_training/scripts/06_run_lstm_trace_replay.sh
+```
 
 ### 07_prepare_actions_for_replay.py
 
