@@ -51,8 +51,6 @@ run_if_needed () {
 
 make_pfetch () {
   local trace="$1"
-  local short
-  short="$(short_tag "$trace")"
   local actions="$ROOT/formal_NN_training/artifacts/by_trace/${trace}/full_lstm_cache_actions.csv"
   local pfetch="$PFETCH_DIR/prefetch_list_${trace}_th${PREFETCH_THRESHOLD}_bp${BYPASS_THRESHOLD}.txt"
 
@@ -107,9 +105,10 @@ run_one () {
   run_if_needed "$LOG_DIR/${trace}.L2_${cap}.spp.log" \
     "$spp_bin" --warmup-instructions "$WARMUP" --simulation-instructions "$SIM" "$trfile"
 
-  PFETCH_LIST_PATH="$pfetch" \
-    run_if_needed "$LOG_DIR/${trace}.L2_${cap}.LSTM_th${PREFETCH_THRESHOLD}_bp${BYPASS_THRESHOLD}.log" \
+  export PFETCH_LIST_PATH="$pfetch"
+  run_if_needed "$LOG_DIR/${trace}.L2_${cap}.LSTM_th${PREFETCH_THRESHOLD}_bp${BYPASS_THRESHOLD}.log" \
     "$repl_bin" --warmup-instructions "$WARMUP" --simulation-instructions "$SIM" "$trfile"
+  unset PFETCH_LIST_PATH
 }
 
 for trace in $TRACES_STR; do
