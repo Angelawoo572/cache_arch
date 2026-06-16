@@ -156,9 +156,10 @@ run_one_trace () {
       continue
     fi
 
-    PFETCH_LIST_PATH="$pfetch" \
-      run_champsim_if_needed "$log" \
+    export PFETCH_LIST_PATH="$pfetch"
+    run_champsim_if_needed "$log" \
       "$REPL_BIN" --warmup-instructions "$WARMUP" --simulation-instructions "$SIM" "$trfile"
+    unset PFETCH_LIST_PATH
   done
 
   python3 formal_NN_training/scripts/09_compare_spp_lstm_accuracy.py \
