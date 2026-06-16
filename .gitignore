@@ -3,9 +3,9 @@
 # ============================================================
 # Goal:
 # - Track source code, configs, docs, notebooks, and small summaries.
-# - Ignore local ChampSim clones/builds, traces, large raw dumps, logs,
+# - Ignore local ChampSim clones/builds, large raw dumps, logs,
 #   caches, and temporary experiment outputs.
-# - Allow one compressed curated post-prefetch candidate table for Colab notebooks.
+# - Allow trace files to be tracked when intentionally added.
 # - Work both before and after running tools/reorganize_into_single_project_tree.sh.
 
 # ------------------------------------------------------------
@@ -77,18 +77,15 @@ compile_commands.json
 *.gcno
 
 # ------------------------------------------------------------
-# Traces and large simulator dumps
+# Trace files
 # ------------------------------------------------------------
-traces/
-**/traces/
-*.champsimtrace
-*.champsimtrace.xz
-*.trace
-*.trace.xz
-*.trace.gz
-*.xz
+# Trace files under traces/ are allowed to be tracked when intentionally added.
+# GitHub rejects files larger than 100 MB, so use git-lfs or external storage
+# if a trace is too large.
 
+# ------------------------------------------------------------
 # Large raw dumps from trace/candidate logging.
+# ------------------------------------------------------------
 access_trace*.csv
 **/access_trace*.csv
 candidate_trace*.csv
