@@ -5,7 +5,7 @@
 # - Track source code, configs, docs, notebooks, and small summaries.
 # - Ignore local ChampSim clones/builds, large raw dumps, logs,
 #   caches, and temporary experiment outputs.
-# - Allow trace files to be tracked when intentionally added.
+# - Allow trace files and Colab upload split files to be tracked when intentionally added.
 # - Work both before and after running tools/reorganize_into_single_project_tree.sh.
 
 # ------------------------------------------------------------
@@ -137,9 +137,18 @@ projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
 # ------------------------------------------------------------
 # Formal LSTM/SPP local/generated outputs
 # ------------------------------------------------------------
-# Raw/generated event tables and Colab upload/restore data.
+# Raw generated event CSVs stay local.
 formal_NN_training/data/generated/
-formal_NN_training/data/upload/
+
+# Colab upload splits are allowed when intentionally added, because Colab can pull
+# these directly from GitHub. This keeps raw generated CSVs ignored while allowing
+# small/medium compressed split inputs such as upload/623/*.part_000.
+formal_NN_training/data/upload/*
+!formal_NN_training/data/upload/*/
+!formal_NN_training/data/upload/*/lstm_events_*.csv.gz.part_*
+!formal_NN_training/data/upload/*/candidate_table_*.csv.gz.part_*
+!formal_NN_training/data/upload/*/spp_events_*.csv.gz.part_*
+!formal_NN_training/data/upload/*.csv.gz
 
 # Generated action/model/evaluation artifacts. Keep these local; they can be huge
 # and are usually recreated from Colab/cluster runs.
