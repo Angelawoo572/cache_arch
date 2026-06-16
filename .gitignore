@@ -137,6 +137,16 @@ projects/legacy_gru_prefetch/results/generated/*
 projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
 !projects/legacy_gru_prefetch/results/generated/prefetch_lists/.gitkeep
 
+# Formal LSTM/SPP generated outputs. These are local experiment artifacts.
+formal_NN_training/data/generated/*.csv
+formal_NN_training/data/upload/
+formal_NN_training/artifacts/full_lstm_cache_actions.csv
+formal_NN_training/artifacts/by_trace/
+formal_NN_training/artifacts/packed/
+formal_NN_training/results/
+formal_NN_training/_cfg/
+!formal_NN_training/results/.gitkeep
+
 # Top-level generated text/list artifacts.
 results/*.txt
 projects/legacy_gru_prefetch/results/*.txt
@@ -198,59 +208,3 @@ wandb/
 !projects/legacy_gru_prefetch/results/upper_bound.csv
 !projects/legacy_gru_prefetch/results/bypass_summary.csv
 !projects/legacy_gru_prefetch/results/mlp_demo_summary.csv
-!projects/legacy_gru_prefetch/results/nn_demo_summary.csv
-!projects/legacy_gru_prefetch/results/gru_sweep_summary.csv
-!projects/legacy_gru_prefetch/results/gru_v9_decode_sweep_ipc.csv
-!projects/legacy_gru_prefetch/results/gru_v9_decode_sweep_gcc_s-734B.csv
-!projects/legacy_gru_prefetch/results/gru_v8_summary.json
-!projects/legacy_gru_prefetch/results/gru_v9_summary_*.json
-!projects/legacy_gru_prefetch/results/slide8_data.tex
-
-# ------------------------------------------------------------
-# Make sure source/config/documentation folders stay trackable
-# ------------------------------------------------------------
-!configs/
-!configs/**
-!projects/
-!projects/**/README.md
-!projects/**/scripts/
-!projects/**/scripts/**
-!projects/**/notebooks/
-!projects/**/notebooks/**
-!projects/**/docs/
-!projects/**/docs/**
-!projects/**/configs/
-!projects/**/configs/**
-
-# Large generated cache-training data/results
-formal_NN_training/data/generated/*.csv
-formal_NN_training/results/spp_trace_dump/events/*.csv
-formal_NN_training/results/spp_trace_dump/candidate_table_*.csv
-formal_NN_training/artifacts/*.pt
-formal_NN_training/artifacts/*_lstm_cache_actions.csv
-formal_NN_training/artifacts/lstm_training_history.csv
-formal_NN_training/results/trace_scout/trace_scout_summary.csv
-formal_NN_training/artifacts/by_trace/
-formal_NN_training/results/
-
-# Large generated cache-training data/results
-formal_NN_training/data/generated/*.csv
-formal_NN_training/results/spp_trace_dump/events/*.csv
-formal_NN_training/results/spp_trace_dump/candidate_table_*.csv
-formal_NN_training/artifacts/*.pt
-formal_NN_training/artifacts/*_lstm_cache_actions.csv
-
-# Ignore uncompressed generated artifact CSVs only
-formal_NN_training/artifacts/*.csv
-formal_NN_training/artifacts/**/*.csv
-
-# Generated replay comparison outputs
-formal_NN_training/results/replay_compare/
-formal_NN_training/results/spp_trace_dump/
-
-# Generated LSTM data/actions; keep local, do not version
-formal_NN_training/data/generated/
-formal_NN_training/artifacts/*.csv
-formal_NN_training/artifacts/**/*.csv
-formal_NN_training/artifacts/*.csv.gz
-formal_NN_training/artifacts/**/*.csv.gz
