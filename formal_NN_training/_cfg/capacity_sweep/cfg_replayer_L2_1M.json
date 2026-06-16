@@ -1,0 +1,12 @@
+{
+  "ooo_cpu": [
+    {
+      "L2C": {
+        "sets": 2048,
+        "ways": 8,
+        "prefetcher": "list_replayer"
+      }
+    }
+  ],
+  "LLC": { "replacement": "lru" }
+}

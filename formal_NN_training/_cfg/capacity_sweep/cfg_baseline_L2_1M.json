@@ -1,0 +1,11 @@
+{
+  "ooo_cpu": [
+    {
+      "L2C": {
+        "sets": 2048,
+        "ways": 8
+      }
+    }
+  ],
+  "LLC": { "replacement": "lru" }
+}
