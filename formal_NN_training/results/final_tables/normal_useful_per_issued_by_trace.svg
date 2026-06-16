@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="700">
+<rect width="100%" height="100%" fill="white"/>
+<text x="640.0" y="32" text-anchor="middle" font-size="24" font-family="Arial">Useful / Issued Prefetches</text>
+<text x="20" y="317.5" transform="rotate(-90 20,317.5)" text-anchor="middle" font-size="14" font-family="Arial">Useful per issued</text>
+<line x1="95" y1="70" x2="95" y2="565" stroke="black"/>
+<line x1="95" y1="565" x2="1240" y2="565" stroke="black"/>
+<line x1="90" y1="565.0" x2="95" y2="565.0" stroke="black"/>
+<text x="85" y="569.0" text-anchor="end" font-size="12" font-family="Arial">0.00</text>
+<line x1="95" y1="565.0" x2="1240" y2="565.0" stroke="#eeeeee"/>
+<line x1="90" y1="466.0" x2="95" y2="466.0" stroke="black"/>
+<text x="85" y="470.0" text-anchor="end" font-size="12" font-family="Arial">0.19</text>
+<line x1="95" y1="466.0" x2="1240" y2="466.0" stroke="#eeeeee"/>
+<line x1="90" y1="367.0" x2="95" y2="367.0" stroke="black"/>
+<text x="85" y="371.0" text-anchor="end" font-size="12" font-family="Arial">0.38</text>
+<line x1="95" y1="367.0" x2="1240" y2="367.0" stroke="#eeeeee"/>
+<line x1="90" y1="268.0" x2="95" y2="268.0" stroke="black"/>
+<text x="85" y="272.0" text-anchor="end" font-size="12" font-family="Arial">0.57</text>
+<line x1="95" y1="268.0" x2="1240" y2="268.0" stroke="#eeeeee"/>
+<line x1="90" y1="169.0" x2="95" y2="169.0" stroke="black"/>
+<text x="85" y="173.0" text-anchor="end" font-size="12" font-family="Arial">0.76</text>
+<line x1="95" y1="169.0" x2="1240" y2="169.0" stroke="#eeeeee"/>
+<line x1="90" y1="70.0" x2="95" y2="70.0" stroke="black"/>
+<text x="85" y="74.0" text-anchor="end" font-size="12" font-family="Arial">0.95</text>
+<line x1="95" y1="70.0" x2="1240" y2="70.0" stroke="#eeeeee"/>
+<rect x="131.6" y="565.0" width="38.9" height="0.0" fill="#888888"/>
+<text x="150.9" y="560.0" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="177.4" y="538.2" width="38.9" height="26.8" fill="#4C78A8"/>
+<text x="196.7" y="533.2" text-anchor="middle" font-size="10" font-family="Arial">0.05</text>
+<rect x="223.2" y="265.6" width="38.9" height="299.4" fill="#F58518"/>
+<text x="242.5" y="260.6" text-anchor="middle" font-size="10" font-family="Arial">0.57</text>
+<text x="209.5" y="600" text-anchor="middle" font-size="12" font-family="Arial">602.gcc_s-734B</text>
+<rect x="360.6" y="565.0" width="38.9" height="0.0" fill="#888888"/>
+<text x="379.9" y="560.0" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="406.4" y="547.1" width="38.9" height="17.9" fill="#4C78A8"/>
+<text x="425.7" y="542.1" text-anchor="middle" font-size="10" font-family="Arial">0.03</text>
+<rect x="452.2" y="70.0" width="38.9" height="495.0" fill="#F58518"/>
+<text x="471.5" y="65.0" text-anchor="middle" font-size="10" font-family="Arial">0.95</text>
+<text x="438.5" y="600" text-anchor="middle" font-size="12" font-family="Arial">619.lbm_s-4268B</text>
+<rect x="589.6" y="565.0" width="38.9" height="0.0" fill="#888888"/>
+<text x="608.9" y="560.0" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="635.4" y="549.8" width="38.9" height="15.2" fill="#4C78A8"/>
+<text x="654.7" y="544.8" text-anchor="middle" font-size="10" font-family="Arial">0.03</text>
+<rect x="681.2" y="561.0" width="38.9" height="4.0" fill="#F58518"/>
+<text x="700.5" y="556.0" text-anchor="middle" font-size="10" font-family="Arial">0.01</text>
+<text x="667.5" y="600" text-anchor="middle" font-size="12" font-family="Arial">605.mcf_s-994B</text>
+<rect x="818.6" y="565.0" width="38.9" height="0.0" fill="#888888"/>
+<text x="837.9" y="560.0" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="864.4" y="564.5" width="38.9" height="0.5" fill="#4C78A8"/>
+<text x="883.7" y="559.5" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="910.2" y="552.0" width="38.9" height="13.0" fill="#F58518"/>
+<text x="929.5" y="547.0" text-anchor="middle" font-size="10" font-family="Arial">0.02</text>
+<text x="896.5" y="600" text-anchor="middle" font-size="12" font-family="Arial">620.omnetpp_s-874B</text>
+<rect x="1047.6" y="565.0" width="38.9" height="0.0" fill="#888888"/>
+<text x="1066.9" y="560.0" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="1093.4" y="564.4" width="38.9" height="0.6" fill="#4C78A8"/>
+<text x="1112.7" y="559.4" text-anchor="middle" font-size="10" font-family="Arial">0.00</text>
+<rect x="1139.2" y="561.2" width="38.9" height="3.8" fill="#F58518"/>
+<text x="1158.5" y="556.2" text-anchor="middle" font-size="10" font-family="Arial">0.01</text>
+<text x="1125.5" y="600" text-anchor="middle" font-size="12" font-family="Arial">623.xalancbmk_s-700B</text>
+<rect x="920" y="70" width="16" height="16" fill="#888888"/>
+<text x="944" y="83" font-size="13" font-family="Arial">No prefetch</text>
+<rect x="920" y="94" width="16" height="16" fill="#4C78A8"/>
+<text x="944" y="107" font-size="13" font-family="Arial">SPP</text>
+<rect x="920" y="118" width="16" height="16" fill="#F58518"/>
+<text x="944" y="131" font-size="13" font-family="Arial">Best LSTM</text>
+</svg>

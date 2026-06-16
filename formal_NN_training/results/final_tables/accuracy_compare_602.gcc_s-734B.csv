@@ -1,0 +1,9 @@
+method,ipc,speedup_vs_no_prefetch,requested,issued,useful,useless,useful_per_issued,useful_per_requested,useful_over_useful_plus_useless,log
+LSTM_gcc_s-734B_L2_aligned_th0.20_bp1.00,0.5029,0.92666298,112514,112514,0,113555,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_L2_aligned_th0.20_bp1.00.log
+LSTM_gcc_s-734B_L2_aligned_th0.40_bp1.00,0.5396,0.99428782,7562,7562,0,8130,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_L2_aligned_th0.40_bp1.00.log
+LSTM_gcc_s-734B_L2_threshold_th0.20_bp1.00,0.5403,0.99557767,5695,5695,0,5577,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_L2_threshold_th0.20_bp1.00.log
+LSTM_gcc_s-734B_L2_threshold_th0.40_bp1.00,0.5413,0.99742031,2505,2505,0,2419,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_L2_threshold_th0.40_bp1.00.log
+LSTM_gcc_s-734B_action_th0.50_bp0.60,0.5425,0.99963147,0,0,0,0,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_action_th0.50_bp0.60.log
+LSTM_gcc_s-734B_threshold_th0.20_bp1.00,0.5069,0.93403354,0,0,0,0,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_threshold_th0.20_bp1.00.log
+LSTM_gcc_s-734B_threshold_th0.40_bp1.00,0.5278,0.97254468,0,0,0,0,0.00000000,0.00000000,0.00000000,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_threshold_th0.40_bp1.00.log
+spp,1.444,2.66077022,3006672,2739031,140717,652,0.05137474,0.04680158,0.99538796,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.spp.log

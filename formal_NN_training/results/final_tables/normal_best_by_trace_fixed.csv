@@ -1,0 +1,13 @@
+trace,method_group,method,ipc,speedup_vs_no_prefetch,requested,issued,useful,useless,useful_per_issued,useful_over_useful_plus_useless,log
+602.gcc_s-734B,no_prefetch,no_prefetch,0.54270000,1.00000000,0,0,0,0,0.00000000,0.00000000,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.no_prefetch.log
+602.gcc_s-734B,spp,spp,1.44400000,2.66077022,3006672,2739031,140717,652,0.05137474,0.99538796,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.spp.log
+602.gcc_s-734B,best_lstm,LSTM_gcc_s-734B_L2_aligned_hex_th0.20_bp1.00,0.71750000,1.32209324,112446,112446,64473,48530,0.57336855,0.57054237,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_L2_aligned_hex_th0.20_bp1.00.log
+605.mcf_s-994B,no_prefetch,no_prefetch,0.18410000,1.00000000,0,0,0,0,0.00000000,0.00000000,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/605.mcf_s-994B.no_prefetch.log
+605.mcf_s-994B,spp,spp,0.18720000,1.01683867,820943,820943,23861,2790,0.02906536,0.89531350,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/605.mcf_s-994B.spp.log
+605.mcf_s-994B,best_lstm,LSTM_mcf_s-994B_L2_replayidx_hex_th0p001_allow_bypass,0.18380000,0.99837045,7365,7365,57,6942,0.00773931,0.00814402,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/605.mcf_s-994B.LSTM_mcf_s-994B_L2_replayidx_hex_th0p001_allow_bypass.log
+619.lbm_s-4268B,no_prefetch,no_prefetch,0.43450000,1.00000000,0,0,0,0,0.00000000,0.00000000,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/619.lbm_s-4268B.no_prefetch.log
+619.lbm_s-4268B,spp,spp,0.50770000,1.16846951,4534355,2587585,88474,0,0.03419173,1.00000000,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/619.lbm_s-4268B.spp.log
+619.lbm_s-4268B,best_lstm,LSTM_lbm_s-4268B_L2_replayidx_hex_th0.10_bp1.00,0.45680000,1.05132336,166217,166217,157564,5946,0.94794155,0.96363525,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/619.lbm_s-4268B.LSTM_lbm_s-4268B_L2_replayidx_hex_th0.10_bp1.00.log
+620.omnetpp_s-874B,no_prefetch,no_prefetch,0.31570000,1.00000000,0,0,0,0,0.00000000,0.00000000,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/620.omnetpp_s-874B.no_prefetch.log
+620.omnetpp_s-874B,spp,spp,0.31840000,1.00855242,383364,383364,388,127,0.00101209,0.75339806,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/620.omnetpp_s-874B.spp.log
+620.omnetpp_s-874B,best_lstm,LSTM_omnetpp_s-874B_L2_replayidx_hex_th0.20_bp1.00,0.31580000,1.00031676,402,402,10,385,0.02487562,0.02531646,/home/qianruw/cache/formal_NN_training/results/replay_compare/logs/620.omnetpp_s-874B.LSTM_omnetpp_s-874B_L2_replayidx_hex_th0.20_bp1.00.log
