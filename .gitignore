@@ -137,14 +137,31 @@ projects/legacy_gru_prefetch/results/generated/*
 projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
 !projects/legacy_gru_prefetch/results/generated/prefetch_lists/.gitkeep
 
-# Formal LSTM/SPP generated outputs. These are local experiment artifacts.
-formal_NN_training/data/generated/*.csv
+# ------------------------------------------------------------
+# Formal LSTM/SPP local/generated outputs
+# ------------------------------------------------------------
+# Raw/generated event tables and Colab upload/restore data.
+formal_NN_training/data/generated/
 formal_NN_training/data/upload/
-formal_NN_training/artifacts/full_lstm_cache_actions.csv
+
+# Generated action/model/evaluation artifacts. Keep these local; they can be huge
+# and are usually recreated from Colab/cluster runs.
+formal_NN_training/artifacts/*.csv
+formal_NN_training/artifacts/*.json
+formal_NN_training/artifacts/*.pt
+formal_NN_training/artifacts/*.pth
+formal_NN_training/artifacts/*.gz
+formal_NN_training/artifacts/full_lstm_cache_actions*
+formal_NN_training/artifacts/recall_lstm_*.csv
+formal_NN_training/artifacts/recall_lstm_*.json
 formal_NN_training/artifacts/by_trace/
 formal_NN_training/artifacts/packed/
+
+# Generated result tables, logs, figures, capacity configs, and local helper scripts.
 formal_NN_training/results/
 formal_NN_training/_cfg/
+formal_NN_training/scripts/local_*.py
+formal_NN_training/scripts/local_*.sh
 !formal_NN_training/results/.gitkeep
 
 # Top-level generated text/list artifacts.
