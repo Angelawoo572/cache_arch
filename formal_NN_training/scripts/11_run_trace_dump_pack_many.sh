@@ -31,10 +31,11 @@ mkdir -p "$LOG_ROOT" "$ROOT/formal_NN_training/data/upload"
 verify_events () {
   local trace="$1"
   local events="$ROOT/formal_NN_training/data/generated/lstm_events_${trace}.csv"
-  python3 - <<PY
+  EVENTS_PATH="$events" python3 - <<'PY'
 import csv
+import os
 from pathlib import Path
-p = Path(${events@Q})
+p = Path(os.environ["EVENTS_PATH"])
 if not p.exists() or p.stat().st_size == 0:
     raise SystemExit(f"[error] missing events: {p}")
 with p.open(newline="") as f:
