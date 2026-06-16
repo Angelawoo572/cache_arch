@@ -230,6 +230,8 @@ formal_NN_training/artifacts/*.pt
 formal_NN_training/artifacts/*_lstm_cache_actions.csv
 formal_NN_training/artifacts/lstm_training_history.csv
 formal_NN_training/results/trace_scout/trace_scout_summary.csv
+formal_NN_training/artifacts/by_trace/
+formal_NN_training/results/
 
 # Large generated cache-training data/results
 formal_NN_training/data/generated/*.csv
