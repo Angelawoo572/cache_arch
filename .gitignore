@@ -167,17 +167,41 @@ formal_NN_training/artifacts/recall_lstm_*.json
 formal_NN_training/artifacts/by_trace/
 formal_NN_training/artifacts/packed/
 
-# Ignore most generated result content, but allow curated final tables/figures.
+# Ignore most generated result content, but allow curated final tables/figures
+# and small replay summary CSVs. Do not commit raw logs or prefetch lists.
 formal_NN_training/results/*
 !formal_NN_training/results/.gitkeep
+
+# Final paper/report-ready tables and figures.
 !formal_NN_training/results/final_tables/
 formal_NN_training/results/final_tables/*
 !formal_NN_training/results/final_tables/*.csv
 !formal_NN_training/results/final_tables/*.svg
+!formal_NN_training/results/final_tables/*.md
+
+# Per-trace replay result summaries. Keep CSV/SVG only; logs/prefetch lists stay ignored.
+!formal_NN_training/results/replay_compare/
+formal_NN_training/results/replay_compare/*
+!formal_NN_training/results/replay_compare/accuracy_compare_*.csv
+!formal_NN_training/results/replay_compare/summary_*.csv
+!formal_NN_training/results/replay_compare/*.svg
+formal_NN_training/results/replay_compare/logs/
+formal_NN_training/results/replay_compare/prefetch_lists/
+
+# Capacity-sweep result summaries and figures. Keep CSV/SVG only.
 !formal_NN_training/results/capacity_sweep/
 formal_NN_training/results/capacity_sweep/*
 !formal_NN_training/results/capacity_sweep/*.csv
 !formal_NN_training/results/capacity_sweep/*.svg
+formal_NN_training/results/capacity_sweep/logs/
+formal_NN_training/results/capacity_sweep/prefetch_lists/
+
+# New-trace pipeline scratch area is local except future explicit curated CSV/SVG.
+!formal_NN_training/results/new_trace_pipeline/
+formal_NN_training/results/new_trace_pipeline/*
+!formal_NN_training/results/new_trace_pipeline/*.csv
+!formal_NN_training/results/new_trace_pipeline/*.svg
+formal_NN_training/results/new_trace_pipeline/logs/
 
 # Local helper scripts created during debugging. Canonical reusable scripts should
 # be named with a numeric prefix instead of local_*.
