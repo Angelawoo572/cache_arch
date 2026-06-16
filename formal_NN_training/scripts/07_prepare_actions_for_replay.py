@@ -10,6 +10,10 @@ It can:
 4. copy the prepared file to formal_NN_training/artifacts/full_lstm_cache_actions.csv,
    which is the default path used by 03_run_lstm_replay.sh.
 
+Important: Colab outputs may be a subset of the event CSV. For example, a trace can
+start its exported action rows at event_id=31 rather than event_id=0. Therefore this
+script merges replay_access_idx by event_id, not by row number.
+
 Example:
   python3 formal_NN_training/scripts/07_prepare_actions_for_replay.py \
     --trace 619.lbm_s-4268B \
@@ -21,12 +25,20 @@ import csv
 import gzip
 import shutil
 from collections import Counter
-from itertools import zip_longest
 from pathlib import Path
 
 
 def trace_tag(trace: str) -> str:
     return trace.split(".", 1)[0]
+
+
+def to_int(x, default=None):
+    try:
+        if x is None or x == "":
+            return default
+        return int(float(x))
+    except Exception:
+        return default
 
 
 def restore_from_packed(packed_dir: Path, out_csv: Path) -> bool:
@@ -83,7 +95,7 @@ def sample_validate_actions(actions: Path, trace: str, limit: int):
                 break
 
     print(f"[validate] {actions}")
-    print(f"[fields] {fields[:25]}")
+    print(f"[fields] {fields[:30]}")
     print(f"[checked] {n}")
     print(f"[traces] {dict(traces)}")
     print(f"[blank replay_access_idx] {blank}")
@@ -102,12 +114,117 @@ def sample_validate_actions(actions: Path, trace: str, limit: int):
     }
 
 
-def merge_replay_idx(events: Path, actions: Path, out: Path, trace: str, force: bool = False):
+def event_addr(row):
+    return row.get("addr_int", row.get("addr", ""))
+
+
+def action_addr(row):
+    return row.get("addr_int", row.get("addr", ""))
+
+
+def merge_replay_idx_by_event_id(events: Path, actions: Path, out: Path, trace: str):
+    """Merge replay_access_idx from events into actions by event_id.
+
+    This intentionally allows actions to be a strict subset of events. Both files are
+    expected to be ordered by event_id, which keeps memory use low even for large traces.
+    """
     if not events.exists():
         raise SystemExit(f"[error] missing events CSV: {events}")
     if not actions.exists():
         raise SystemExit(f"[error] missing actions CSV: {actions}")
 
+    tmp = out.with_suffix(out.suffix + ".tmp")
+    rows = 0
+    blank = 0
+    missing = 0
+    trace_bad = 0
+    addr_mismatch = 0
+    examples = []
+
+    with actions.open(newline="") as fa, events.open(newline="") as fe, tmp.open("w", newline="") as fo:
+        ra = csv.DictReader(fa)
+        re = csv.DictReader(fe)
+
+        action_fields = list(ra.fieldnames or [])
+        event_fields = list(re.fieldnames or [])
+
+        if "event_id" not in action_fields:
+            raise SystemExit("[error] action CSV missing event_id")
+        if "event_id" not in event_fields:
+            raise SystemExit("[error] events CSV missing event_id")
+        if "replay_access_idx" not in event_fields:
+            raise SystemExit("[error] events CSV missing replay_access_idx")
+
+        fields = list(action_fields)
+        if "replay_access_idx" not in fields:
+            pos = fields.index("event_id") + 1
+            fields = fields[:pos] + ["replay_access_idx"] + fields[pos:]
+
+        writer = csv.DictWriter(fo, fieldnames=fields)
+        writer.writeheader()
+
+        event_row = next(re, None)
+        event_eid = to_int(event_row.get("event_id")) if event_row else None
+
+        for a in ra:
+            rows += 1
+            if a.get("trace") != trace:
+                trace_bad += 1
+
+            a_eid = to_int(a.get("event_id"))
+            if a_eid is None:
+                missing += 1
+                if len(examples) < 5:
+                    examples.append(("bad_action_event_id", a.get("event_id")))
+                continue
+
+            while event_row is not None and event_eid is not None and event_eid < a_eid:
+                event_row = next(re, None)
+                event_eid = to_int(event_row.get("event_id")) if event_row else None
+
+            if event_row is None or event_eid != a_eid:
+                missing += 1
+                if len(examples) < 5:
+                    examples.append(("missing_event_id", a.get("event_id"), "current_event", event_eid))
+                continue
+
+            ridx = event_row.get("replay_access_idx", "")
+            if ridx == "":
+                blank += 1
+            a["replay_access_idx"] = ridx
+
+            aa = action_addr(a)
+            ea = event_addr(event_row)
+            if aa and ea and aa != ea:
+                addr_mismatch += 1
+                if len(examples) < 5:
+                    examples.append(("addr_mismatch", a.get("event_id"), aa, ea))
+
+            writer.writerow({k: a.get(k, "") for k in fields})
+
+    print(
+        f"[merge-by-event-id] rows={rows} blank_replay_access_idx={blank} "
+        f"missing_event_id={missing} bad_trace_rows={trace_bad} addr_mismatch={addr_mismatch}"
+    )
+    if examples:
+        print("[merge examples]")
+        for e in examples:
+            print("  ", e)
+
+    if missing:
+        raise SystemExit("[error] some action event_id values were not found in events")
+    if blank:
+        raise SystemExit("[error] replay_access_idx still blank after merge")
+    if trace_bad:
+        raise SystemExit("[error] wrong trace rows in action file")
+    if addr_mismatch:
+        raise SystemExit("[error] addr mismatch after event_id merge")
+
+    tmp.replace(out)
+    return True
+
+
+def merge_replay_idx(events: Path, actions: Path, out: Path, trace: str, force: bool = False):
     before = sample_validate_actions(actions, trace, limit=100000)
     if before["wrong_trace"]:
         raise SystemExit(f"[error] action file contains rows from a different trace, expected {trace}")
@@ -116,53 +233,7 @@ def merge_replay_idx(events: Path, actions: Path, out: Path, trace: str, force: 
         print("[merge] action CSV already has replay_access_idx; no merge needed")
         return False
 
-    tmp = out.with_suffix(out.suffix + ".tmp")
-    n = 0
-    blank = 0
-    mismatch = 0
-    trace_bad = 0
-
-    with actions.open(newline="") as fa, events.open(newline="") as fe, tmp.open("w", newline="") as fo:
-        ra = csv.DictReader(fa)
-        re = csv.DictReader(fe)
-
-        fields = list(ra.fieldnames or [])
-        if "replay_access_idx" not in fields:
-            pos = fields.index("event_id") + 1 if "event_id" in fields else 1
-            fields = fields[:pos] + ["replay_access_idx"] + fields[pos:]
-
-        writer = csv.DictWriter(fo, fieldnames=fields)
-        writer.writeheader()
-
-        for a, e in zip_longest(ra, re):
-            if a is None or e is None:
-                raise SystemExit(f"[error] row count mismatch at row {n}: action={a is not None}, event={e is not None}")
-
-            n += 1
-            if a.get("trace") != trace:
-                trace_bad += 1
-
-            if a.get("event_id") != e.get("event_id"):
-                mismatch += 1
-                if mismatch <= 5:
-                    print("[mismatch example]", n, a.get("event_id"), e.get("event_id"))
-
-            ridx = e.get("replay_access_idx", "")
-            if ridx == "":
-                blank += 1
-            a["replay_access_idx"] = ridx
-            writer.writerow(a)
-
-    print(f"[merge] rows={n} blank_replay_access_idx={blank} event_id_mismatch={mismatch} bad_trace_rows={trace_bad}")
-    if blank:
-        raise SystemExit("[error] replay_access_idx still blank after merge")
-    if mismatch:
-        raise SystemExit("[error] event_id mismatch; action rows do not align with lstm_events rows")
-    if trace_bad:
-        raise SystemExit("[error] wrong trace rows in action file")
-
-    tmp.replace(out)
-    return True
+    return merge_replay_idx_by_event_id(events, actions, out, trace)
 
 
 def main():
