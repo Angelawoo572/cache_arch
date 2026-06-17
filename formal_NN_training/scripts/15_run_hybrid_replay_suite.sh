@@ -27,7 +27,9 @@ RUN_CAPACITY="${RUN_CAPACITY:-1}"
 RUN_FIGURES="${RUN_FIGURES:-1}"
 SKIP_MISSING="${SKIP_MISSING:-1}"
 ALLOW_BYPASS_PREFETCH="${ALLOW_BYPASS_PREFETCH:-1}"
-STRICT_EMPTY_LIST="${STRICT_EMPTY_LIST:-1}"
+# Empty hybrid lists are valid: they mean the learned policy chose no prefetches for that trace/filter.
+# Keep this default at 0 so a single zero-emit trace (for example mcf) does not kill an overnight suite.
+STRICT_EMPTY_LIST="${STRICT_EMPTY_LIST:-0}"
 MAX_PREFETCH_FRAC="${MAX_PREFETCH_FRAC:-0.10}"
 
 TRACE_DIR="${TRACE_DIR:-$ROOT/traces}"
@@ -125,9 +127,12 @@ make_prefetch_list () {
     rows=$((rows - 1))
   fi
   echo "[prefetch list] $out lines=$lines action_rows=$rows max_frac=$MAX_PREFETCH_FRAC"
-  if [ "$STRICT_EMPTY_LIST" = "1" ] && [ "$lines" -eq 0 ]; then
-    echo "[error] empty prefetch list: $out"
-    exit 1
+  if [ "$lines" -eq 0 ]; then
+    if [ "$STRICT_EMPTY_LIST" = "1" ]; then
+      echo "[error] empty prefetch list: $out"
+      exit 1
+    fi
+    echo "[warn] empty prefetch list; replay will be equivalent to no learned prefetches for this method"
   fi
   frac_ok=$(python3 - <<PY_FRAC
 lines = float("$lines")
