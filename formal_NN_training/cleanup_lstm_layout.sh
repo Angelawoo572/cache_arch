@@ -1,21 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Reorganize formal_NN_training so future NN families can live side-by-side.
+# Final formal_NN_training layout cleanup.
 # Run from repo root:
 #   bash formal_NN_training/cleanup_lstm_layout.sh
-# Then inspect:
+# Then inspect and commit:
 #   git status --short
+#
+# Desired layout:
+#   formal_NN_training/LSTM/notebooks/      # LSTM notebooks only
+#   formal_NN_training/scripts/             # shared/common workflow scripts
+#   formal_NN_training/*.md                 # LSTM notes stay visible at top level
+#   formal_NN_training/results/LSTM/draft/  # old LSTM outputs kept as draft history
 
 ROOT="formal_NN_training"
 LSTM_DIR="$ROOT/LSTM"
 RESULT_DIR="$ROOT/results/LSTM/draft"
+SCRIPT_DIR="$ROOT/scripts"
 
-mkdir -p \
-  "$LSTM_DIR/notebooks" \
-  "$LSTM_DIR/docs" \
-  "$LSTM_DIR/scripts" \
-  "$RESULT_DIR"
+mkdir -p "$LSTM_DIR/notebooks" "$SCRIPT_DIR" "$RESULT_DIR"
 
 move_if_exists() {
   local src="$1"
@@ -36,77 +39,83 @@ remove_if_exists() {
 }
 
 # -------------------------------------------------------------------
-# LSTM notebooks / docs
+# 1. Keep only notebooks inside LSTM/. No LSTM/docs and no LSTM/scripts.
 # -------------------------------------------------------------------
 move_if_exists "$ROOT/LSTM_cache_action_predictor.ipynb" \
                "$LSTM_DIR/notebooks/LSTM_cache_action_predictor.ipynb"
 move_if_exists "$ROOT/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb" \
                "$LSTM_DIR/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb"
-move_if_exists "$ROOT/LSTM_cache_action_pipeline_story.md" \
-               "$LSTM_DIR/docs/LSTM_cache_action_pipeline_story.md"
-move_if_exists "$ROOT/README_LSTM_cache_action_predictor.md" \
-               "$LSTM_DIR/README_LSTM_cache_action_predictor.md"
 
-# -------------------------------------------------------------------
-# LSTM scripts kept for rerun / replay. Old duplicate helpers are removed.
-# Preferred rerun path after cleanup:
-#   01_run_spp_trace_dump.sh -> 05_pack_lstm_events_for_colab.sh -> notebook
-#   -> 07_prepare_actions_for_replay.py -> 12_replay_trace_sweep.sh
-# -------------------------------------------------------------------
-for f in \
-  00_restore_colab_uploaded_data.sh \
-  01_run_spp_trace_dump.sh \
-  02_actions_to_prefetch_list.py \
-  04_eval_lstm_accuracy.py \
-  05_pack_lstm_events_for_colab.sh \
-  07_prepare_actions_for_replay.py \
-  08_scout_candidate_traces.sh \
-  09_compare_spp_lstm_accuracy.py \
-  10_audit_all_outputs_no_pandas.py \
-  11_run_trace_dump_pack_many.sh \
-  12_replay_trace_sweep.sh \
-  13_make_final_figures.py \
-  14_run_capacity_sweep.sh \
-  15_run_hybrid_replay_suite.sh \
-  16_make_hybrid_replay_figures.py \
-  local_build_capacity_bins.sh \
-  local_parse_capacity_sweep.py \
-  local_parse_capacity_sweep_no_pandas.py; do
-  move_if_exists "$ROOT/scripts/$f" "$LSTM_DIR/scripts/$f"
+# User preference: keep these two .md files at formal_NN_training/ top level.
+move_if_exists "$LSTM_DIR/docs/LSTM_cache_action_pipeline_story.md" \
+               "$ROOT/LSTM_cache_action_pipeline_story.md"
+move_if_exists "$LSTM_DIR/README_LSTM_cache_action_predictor.md" \
+               "$ROOT/README_LSTM_cache_action_predictor.md"
+move_if_exists "$ROOT/LSTM_cache_action_pipeline_story.md" \
+               "$ROOT/LSTM_cache_action_pipeline_story.md"
+move_if_exists "$ROOT/README_LSTM_cache_action_predictor.md" \
+               "$ROOT/README_LSTM_cache_action_predictor.md"
+
+# User preference: scripts are shared/common, so keep the whole scripts folder at root.
+if [ -d "$LSTM_DIR/scripts" ]; then
+  mkdir -p "$SCRIPT_DIR"
+  shopt -s nullglob dotglob
+  for p in "$LSTM_DIR/scripts"/*; do
+    move_if_exists "$p" "$SCRIPT_DIR/$(basename "$p")"
+  done
+  shopt -u nullglob dotglob
+fi
+
+# Delete superseded duplicate helpers if they still exist.
+remove_if_exists "$SCRIPT_DIR/03_run_lstm_replay.sh"
+remove_if_exists "$SCRIPT_DIR/06_run_lstm_trace_replay.sh"
+remove_if_exists "$SCRIPT_DIR/06_pack_split_for_colab.sh"
+
+# profile_lstm_events_no_pandas.py is not needed as a separate file after the scout script is self-contained.
+find "$ROOT" -type f -name 'profile_lstm_events_no_pandas.py' -print0 | while IFS= read -r -d '' f; do
+  git rm "$f"
+  echo "[remove] $f"
 done
 
-# Delete superseded / duplicate LSTM helpers.
-remove_if_exists "$ROOT/scripts/03_run_lstm_replay.sh"
-remove_if_exists "$ROOT/scripts/06_run_lstm_trace_replay.sh"
-remove_if_exists "$ROOT/scripts/06_pack_split_for_colab.sh"
-remove_if_exists "$ROOT/scripts/README.md"
-
 # -------------------------------------------------------------------
-# Draft LSTM outputs. These are old experiment outputs; keep them under
-# results/LSTM/draft so new LSTM reruns start cleanly.
+# 2. Old LSTM outputs stay under results/LSTM/draft.
 # -------------------------------------------------------------------
 move_if_exists "$ROOT/results/final_tables" "$RESULT_DIR/final_tables"
 move_if_exists "$ROOT/results/replay_compare" "$RESULT_DIR/replay_compare"
 move_if_exists "$ROOT/results/capacity_sweep" "$RESULT_DIR/capacity_sweep"
 move_if_exists "$ROOT/artifacts" "$RESULT_DIR/artifacts"
 
+# Delete explicitly unwanted stale bulky outputs.
+remove_if_exists "$ROOT/backup_scout_623"
+remove_if_exists "$ROOT/data/backup_scout_623"
+remove_if_exists "$ROOT/data/generated/backup_scout_623"
+remove_if_exists "$ROOT/data/upload/backup_scout_623"
+find "$ROOT" -type d -name 'backup_scout_623' -print0 | while IFS= read -r -d '' d; do
+  git rm -r "$d"
+  echo "[remove] $d"
+done
+find "$ROOT" -type f \( -name 'lstm_events_602.gcc_s-734B.csv.gz' -o -name 'upload_605_620_for_colab.tar.gz' \) -print0 | while IFS= read -r -d '' f; do
+  git rm "$f"
+  echo "[remove] $f"
+done
+
 # -------------------------------------------------------------------
-# Update path references after moving files.
+# 3. Rewrite path references to the final layout.
 # -------------------------------------------------------------------
 python3 - <<'PY'
 from pathlib import Path
 
 root = Path('formal_NN_training')
 repls = {
-    'formal_NN_training/LSTM/scripts/': 'formal_NN_training/LSTM/scripts/',
-    'formal_NN_training/results/LSTM/draft/replay_compare/': 'formal_NN_training/results/LSTM/draft/replay_compare/',
-    'formal_NN_training/results/LSTM/draft/final_tables/': 'formal_NN_training/results/LSTM/draft/final_tables/',
-    'formal_NN_training/results/LSTM/draft/capacity_sweep/': 'formal_NN_training/results/LSTM/draft/capacity_sweep/',
-    'formal_NN_training/results/LSTM/draft/artifacts/': 'formal_NN_training/results/LSTM/draft/artifacts/',
-    'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb',
-    'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb',
-    'formal_NN_training/LSTM/docs/LSTM_cache_action_pipeline_story.md': 'formal_NN_training/LSTM/docs/LSTM_cache_action_pipeline_story.md',
-    'formal_NN_training/LSTM/README_LSTM_cache_action_predictor.md': 'formal_NN_training/LSTM/README_LSTM_cache_action_predictor.md',
+    'formal_NN_training/LSTM/scripts/': 'formal_NN_training/scripts/',
+    'formal_NN_training/LSTM/docs/LSTM_cache_action_pipeline_story.md': 'formal_NN_training/LSTM_cache_action_pipeline_story.md',
+    'formal_NN_training/LSTM/README_LSTM_cache_action_predictor.md': 'formal_NN_training/README_LSTM_cache_action_predictor.md',
+    'formal_NN_training/results/replay_compare/': 'formal_NN_training/results/LSTM/draft/replay_compare/',
+    'formal_NN_training/results/final_tables/': 'formal_NN_training/results/LSTM/draft/final_tables/',
+    'formal_NN_training/results/capacity_sweep/': 'formal_NN_training/results/LSTM/draft/capacity_sweep/',
+    'formal_NN_training/artifacts/': 'formal_NN_training/results/LSTM/draft/artifacts/',
+    'formal_NN_training/LSTM_cache_action_predictor.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb',
+    'formal_NN_training/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb',
 }
 
 suffixes = {'.md', '.py', '.sh', '.ipynb', '.txt', '.json', '.csv'}
@@ -125,64 +134,116 @@ for p in root.rglob('*'):
         print('[rewrite]', p)
 PY
 
-# Add a compact index for the new LSTM area if it does not already exist.
-if [ ! -f "$LSTM_DIR/README.md" ]; then
-  cat > "$LSTM_DIR/README.md" <<'EOF'
-# LSTM cache-action predictor
+# -------------------------------------------------------------------
+# 4. Make 08_scout_candidate_traces.sh self-contained so it no longer needs
+#    profile_lstm_events_no_pandas.py.
+# -------------------------------------------------------------------
+python3 - <<'PY'
+from pathlib import Path
+p = Path('formal_NN_training/scripts/08_scout_candidate_traces.sh')
+if p.exists():
+    s = p.read_text()
+    old = '''  python3 formal_NN_training/scripts/profile_lstm_events_no_pandas.py \\
+    --csv "$OUT" \\
+    --trace "$T" \\
+    --out "$SUMMARY" \\
+    --append'''
+    new = '''  python3 - "$OUT" "$T" "$SUMMARY" <<'PYSCOUT'
+import csv
+import sys
+from pathlib import Path
 
-This folder contains the LSTM/SPP cache-action experiment family.
+csv_path = Path(sys.argv[1])
+trace = sys.argv[2]
+summary = Path(sys.argv[3])
 
-Layout:
+fields = [
+    "trace", "rows", "useful", "duplicate", "issued",
+    "useful_rate", "duplicate_rate", "issued_rate",
+]
+rows = useful = duplicate = issued = 0
 
-```text
-formal_NN_training/LSTM/
-  notebooks/   # Colab training notebooks
-  scripts/     # trace dump, pack, replay, parse, figure scripts
-  docs/        # explanation / story notes
+with csv_path.open(newline="") as f:
+    r = csv.DictReader(f)
+    for row in r:
+        rows += 1
+        useful += int(row.get("outcome_useful", "0") or 0)
+        duplicate += int(row.get("outcome_duplicate", "0") or 0)
+        issued += int(row.get("spp_issued", "0") or 0)
 
-formal_NN_training/results/LSTM/draft/
-  artifacts/        # old Colab/model/action outputs
-  replay_compare/   # old replay summaries/log-derived CSVs
-  capacity_sweep/   # old capacity-sweep outputs
-  final_tables/     # old final comparison tables
-```
+def rate(x):
+    return "0.000000" if rows == 0 else f"{x / rows:.6f}"
 
-The old result files are intentionally kept as `draft` outputs because the next LSTM run should regenerate fresh artifacts/results.
-EOF
-  git add "$LSTM_DIR/README.md"
-fi
+summary.parent.mkdir(parents=True, exist_ok=True)
+write_header = not summary.exists() or summary.stat().st_size == 0
+with summary.open("a", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=fields)
+    if write_header:
+        w.writeheader()
+    w.writerow({
+        "trace": trace,
+        "rows": rows,
+        "useful": useful,
+        "duplicate": duplicate,
+        "issued": issued,
+        "useful_rate": rate(useful),
+        "duplicate_rate": rate(duplicate),
+        "issued_rate": rate(issued),
+    })
+PYSCOUT'''
+    if old in s:
+        s = s.replace(old, new)
+        p.write_text(s)
+        print('[rewrite scout self-contained]', p)
+PY
 
-# Add a top-level index for multiple NN families.
+# -------------------------------------------------------------------
+# 5. Write compact indexes for the final layout.
+# -------------------------------------------------------------------
 cat > "$ROOT/README.md" <<'EOF'
 # formal_NN_training
 
-This directory is organized by neural-network family so multiple model ideas can coexist cleanly.
-
-Current active family:
+Organized by model family, with shared scripts at the top level.
 
 ```text
-LSTM/                    # LSTM + SPP cache-action predictor code/docs/notebooks
-results/LSTM/draft/      # old LSTM results/artifacts kept only as draft history
+formal_NN_training/
+  README_LSTM_cache_action_predictor.md
+  LSTM_cache_action_pipeline_story.md
+  scripts/                  # shared/common dump, pack, replay, parse scripts
+  LSTM/
+    notebooks/              # LSTM Colab notebooks only
+  results/
+    LSTM/
+      draft/                # old LSTM artifacts/results; regenerate for new runs
 ```
 
-Future model families should use the same pattern:
-
-```text
-formal_NN_training/<MODEL_NAME>/
-  notebooks/
-  scripts/
-  docs/
-
-formal_NN_training/results/<MODEL_NAME>/draft/
-formal_NN_training/results/<MODEL_NAME>/final/
-```
+Future NN families should add their own notebook/model folder, but reuse or extend `formal_NN_training/scripts/` when the workflow is shared.
 EOF
 git add "$ROOT/README.md"
 
-# Remove empty old directories if possible.
+cat > "$LSTM_DIR/README.md" <<'EOF'
+# LSTM notebooks
+
+This folder only keeps LSTM-specific notebooks.
+
+Top-level LSTM notes stay in:
+
+```text
+formal_NN_training/README_LSTM_cache_action_predictor.md
+formal_NN_training/LSTM_cache_action_pipeline_story.md
+```
+
+Shared scripts stay in:
+
+```text
+formal_NN_training/scripts/
+```
+EOF
+git add "$LSTM_DIR/README.md"
+
 find "$ROOT" -type d -empty -delete || true
 
 echo
-echo "[done] LSTM files/results reorganized. Inspect with:"
+echo "[done] final formal_NN_training layout prepared. Inspect with:"
 echo "  git status --short"
 echo "  find formal_NN_training -maxdepth 4 -type f | sort"
