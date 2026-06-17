@@ -1,0 +1,120 @@
+{
+  "trace": "619.lbm_s-4268B",
+  "events": "formal_NN_training/data/generated/lstm_events_619.lbm_s-4268B.csv",
+  "config": {
+    "max_rows": 0,
+    "cache_line_bytes": 64,
+    "page_bytes": 4096,
+    "chunk_len": 2048,
+    "train_fraction": 0.8,
+    "pc_hash_buckets": 8192,
+    "semantic_hash_buckets": 128,
+    "top_delta_vocab": 256,
+    "emb_dim": 48,
+    "cont_dim": 16,
+    "hidden_dim": 192,
+    "num_layers": 2,
+    "dropout": 0.15,
+    "epochs": 30,
+    "snapshot_epochs": [
+      40,
+      50,
+      60
+    ],
+    "batch_size": 1,
+    "lr": 0.002,
+    "weight_decay": 1e-05,
+    "grad_clip": 1.0,
+    "num_workers": 0,
+    "seed": 7,
+    "early_stop_patience": 999,
+    "max_pos_weight": 50.0,
+    "focal_gamma": 2.0,
+    "loss_good": 1.0,
+    "loss_duplicate": 0.6,
+    "loss_bypass": 0.4,
+    "loss_timing": 0.2,
+    "loss_delta": 0.1,
+    "default_good_threshold": 0.5,
+    "duplicate_threshold": 0.6,
+    "bypass_threshold": 0.6,
+    "target_min_precision": 0.04,
+    "target_min_recall": 0.05,
+    "future_distance_cap": 1000000,
+    "timing_edges": [
+      4,
+      16,
+      64,
+      256,
+      1024,
+      4096,
+      16384
+    ],
+    "use_pred_delta_address": false
+  },
+  "label_meta": {
+    "trace": "619.lbm_s-4268B",
+    "rows": 9640350,
+    "good_prefetch": 186999,
+    "good_prefetch_rate": 0.01939753224727318,
+    "useful_rate": 0.01939753224727318,
+    "duplicate_rate": 0.9400040454962735,
+    "candidate_self_rate": 0.022081563428713688,
+    "bypass_rate": 0.9806024677527269,
+    "continuous_features": [
+      "spp_conf_float",
+      "spp_confidence_float",
+      "mshr_occupancy_float",
+      "l2_occupancy_float",
+      "bandwidth_pressure_float",
+      "candidate_delta_float",
+      "recent_hit_rate"
+    ]
+  },
+  "best_epoch": 17,
+  "best_score": 0.5294294253323558,
+  "best_validation_policy": {
+    "name": "g0.700_d0.40_b0.70",
+    "emit": 28301,
+    "good_precision": 0.330023674075121,
+    "good_recall": 0.590615909953206,
+    "good_f1": 0.4234387396577128,
+    "emit_duplicate_rate": 0.0044874739408501466,
+    "good_total": 15814,
+    "threshold_good": 0.7,
+    "threshold_duplicate": 0.4,
+    "threshold_bypass": 0.7
+  },
+  "spp_validation_baseline": {
+    "name": "SPP_all_candidates",
+    "emit": 1879006,
+    "good_precision": 0.008416151944166225,
+    "good_recall": 1.0,
+    "good_f1": 0.016691822969991877,
+    "emit_duplicate_rate": 0.943069367527299,
+    "good_total": 15814
+  },
+  "full_export_metrics": {
+    "rows": 9640350,
+    "emit": 137341,
+    "emit_rate": 0.01424647445372834,
+    "emit_good": 71022,
+    "emit_good_precision": 0.5171216169971093,
+    "emit_duplicate_rate": 0.0014052613567689183,
+    "good_recall": 0.37979882245359603,
+    "spp_all_good_precision": 0.01939753224727318,
+    "spp_all_duplicate_rate": 0.9400040454962735,
+    "selected_policy": {
+      "good_threshold": 0.7,
+      "duplicate_threshold": 0.4,
+      "bypass_threshold": 0.7
+    },
+    "implementation": "stateful_chunked_lstm_truncated_bptt"
+  },
+  "artifacts": {
+    "checkpoint": "formal_NN_training/results/LSTM/draft/artifacts/recall_lstm_cache_action_predictor.best.pt",
+    "actions": "formal_NN_training/results/LSTM/draft/artifacts/full_lstm_cache_actions.csv",
+    "history": "formal_NN_training/results/LSTM/draft/artifacts/recall_lstm_training_history.csv",
+    "pr_curve": "formal_NN_training/results/LSTM/draft/artifacts/recall_lstm_val_pr_curve.csv"
+  }
+}

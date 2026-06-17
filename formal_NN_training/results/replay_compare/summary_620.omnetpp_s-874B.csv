@@ -1,4 +1,0 @@
-trace,warmup,sim,method,ipc,speedup_vs_no_prefetch,prefetches_issued,accesses,log,pfetch
-620.omnetpp_s-874B,25000000,25000000,no_prefetch,0.3157,1.0000,NA,NA,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/logs/620.omnetpp_s-874B.no_prefetch.log,NA
-620.omnetpp_s-874B,25000000,25000000,spp,0.3184,1.0086,NA,NA,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/logs/620.omnetpp_s-874B.spp.log,NA
-620.omnetpp_s-874B,25000000,25000000,LSTM_omnetpp_s-874B_L2_replayidx_hex_th0.20_bp1.00,0.3158,1.0003,762,760162,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/logs/620.omnetpp_s-874B.LSTM_omnetpp_s-874B_L2_replayidx_hex_th0.20_bp1.00.log,/scratch/qianruw/cache/formal_NN_training/results/replay_compare/prefetch_lists/prefetch_list_LSTM_omnetpp_s-874B_L2_replayidx_hex_th0.20_bp1.00.txt

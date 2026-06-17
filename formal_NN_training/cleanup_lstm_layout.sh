@@ -98,15 +98,15 @@ from pathlib import Path
 
 root = Path('formal_NN_training')
 repls = {
-    'formal_NN_training/scripts/': 'formal_NN_training/LSTM/scripts/',
-    'formal_NN_training/results/replay_compare/': 'formal_NN_training/results/LSTM/draft/replay_compare/',
-    'formal_NN_training/results/final_tables/': 'formal_NN_training/results/LSTM/draft/final_tables/',
-    'formal_NN_training/results/capacity_sweep/': 'formal_NN_training/results/LSTM/draft/capacity_sweep/',
-    'formal_NN_training/artifacts/': 'formal_NN_training/results/LSTM/draft/artifacts/',
-    'formal_NN_training/LSTM_cache_action_predictor.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb',
-    'formal_NN_training/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb',
-    'formal_NN_training/LSTM_cache_action_pipeline_story.md': 'formal_NN_training/LSTM/docs/LSTM_cache_action_pipeline_story.md',
-    'formal_NN_training/README_LSTM_cache_action_predictor.md': 'formal_NN_training/LSTM/README_LSTM_cache_action_predictor.md',
+    'formal_NN_training/LSTM/scripts/': 'formal_NN_training/LSTM/scripts/',
+    'formal_NN_training/results/LSTM/draft/replay_compare/': 'formal_NN_training/results/LSTM/draft/replay_compare/',
+    'formal_NN_training/results/LSTM/draft/final_tables/': 'formal_NN_training/results/LSTM/draft/final_tables/',
+    'formal_NN_training/results/LSTM/draft/capacity_sweep/': 'formal_NN_training/results/LSTM/draft/capacity_sweep/',
+    'formal_NN_training/results/LSTM/draft/artifacts/': 'formal_NN_training/results/LSTM/draft/artifacts/',
+    'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb',
+    'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb': 'formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb',
+    'formal_NN_training/LSTM/docs/LSTM_cache_action_pipeline_story.md': 'formal_NN_training/LSTM/docs/LSTM_cache_action_pipeline_story.md',
+    'formal_NN_training/LSTM/README_LSTM_cache_action_predictor.md': 'formal_NN_training/LSTM/README_LSTM_cache_action_predictor.md',
 }
 
 suffixes = {'.md', '.py', '.sh', '.ipynb', '.txt', '.json', '.csv'}

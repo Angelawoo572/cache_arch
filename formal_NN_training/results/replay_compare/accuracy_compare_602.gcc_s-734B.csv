@@ -1,3 +1,0 @@
-method,ipc,speedup_vs_no_prefetch,requested,issued,useful,useless,useful_per_issued,useful_per_requested,useful_over_useful_plus_useless,log
-LSTM_gcc_s-734B_L2_aligned_hex_th0.20_bp1.00,0.7175,1.32209324,112446,112446,64473,48530,0.57336855,0.57336855,0.57054237,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.LSTM_gcc_s-734B_L2_aligned_hex_th0.20_bp1.00.log
-spp,1.444,2.66077022,3006672,2739031,140717,652,0.05137474,0.04680158,0.99538796,formal_NN_training/results/replay_compare/logs/602.gcc_s-734B.spp.log

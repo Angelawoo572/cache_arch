@@ -1,2 +1,0 @@
-method,ipc,speedup_vs_no_prefetch,requested,issued,useful,useless,useful_per_issued,useful_per_requested,useful_over_useful_plus_useless,log
-spp,0.1872,1.01683867,820943,820943,23861,2790,0.02906536,0.02906536,0.89531350,formal_NN_training/results/replay_compare/logs/605.mcf_s-994B.spp.log

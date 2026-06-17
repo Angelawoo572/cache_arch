@@ -1,0 +1,120 @@
+{
+  "trace": "620.omnetpp_s-874B",
+  "events": "formal_NN_training/data/generated/lstm_events_620.omnetpp_s-874B.csv",
+  "config": {
+    "max_rows": 0,
+    "cache_line_bytes": 64,
+    "page_bytes": 4096,
+    "chunk_len": 2048,
+    "train_fraction": 0.8,
+    "pc_hash_buckets": 8192,
+    "semantic_hash_buckets": 128,
+    "top_delta_vocab": 256,
+    "emb_dim": 48,
+    "cont_dim": 16,
+    "hidden_dim": 192,
+    "num_layers": 2,
+    "dropout": 0.15,
+    "epochs": 30,
+    "snapshot_epochs": [
+      40,
+      50,
+      60
+    ],
+    "batch_size": 1,
+    "lr": 0.002,
+    "weight_decay": 1e-05,
+    "grad_clip": 1.0,
+    "num_workers": 0,
+    "seed": 7,
+    "early_stop_patience": 999,
+    "max_pos_weight": 50.0,
+    "focal_gamma": 2.0,
+    "loss_good": 1.0,
+    "loss_duplicate": 0.6,
+    "loss_bypass": 0.4,
+    "loss_timing": 0.2,
+    "loss_delta": 0.1,
+    "default_good_threshold": 0.5,
+    "duplicate_threshold": 0.6,
+    "bypass_threshold": 0.6,
+    "target_min_precision": 0.04,
+    "target_min_recall": 0.05,
+    "future_distance_cap": 1000000,
+    "timing_edges": [
+      4,
+      16,
+      64,
+      256,
+      1024,
+      4096,
+      16384
+    ],
+    "use_pred_delta_address": false
+  },
+  "label_meta": {
+    "trace": "620.omnetpp_s-874B",
+    "rows": 1510384,
+    "good_prefetch": 392,
+    "good_prefetch_rate": 0.00025953664763397915,
+    "useful_rate": 0.000268805813620907,
+    "duplicate_rate": 0.7642725293700146,
+    "candidate_self_rate": 0.5177239695335756,
+    "bypass_rate": 0.999740463352366,
+    "continuous_features": [
+      "spp_conf_float",
+      "spp_confidence_float",
+      "mshr_occupancy_float",
+      "l2_occupancy_float",
+      "bandwidth_pressure_float",
+      "candidate_delta_float",
+      "recent_hit_rate"
+    ]
+  },
+  "best_epoch": 20,
+  "best_score": 0.2279031654415034,
+  "best_validation_policy": {
+    "name": "g0.400_d0.50_b0.80",
+    "emit": 36,
+    "good_precision": 0.05555555555555555,
+    "good_recall": 1.0,
+    "good_f1": 0.10526315789473684,
+    "emit_duplicate_rate": 0.2777777777777778,
+    "good_total": 2,
+    "threshold_good": 0.4,
+    "threshold_duplicate": 0.5,
+    "threshold_bypass": 0.8
+  },
+  "spp_validation_baseline": {
+    "name": "SPP_all_candidates",
+    "emit": 133096,
+    "good_precision": 1.502674761074713e-05,
+    "good_recall": 1.0,
+    "good_f1": 3.005304362199282e-05,
+    "emit_duplicate_rate": 0.7305779287131093,
+    "good_total": 2
+  },
+  "full_export_metrics": {
+    "rows": 1510384,
+    "emit": 757,
+    "emit_rate": 0.0005011970465788832,
+    "emit_good": 384,
+    "emit_good_precision": 0.5072655217965654,
+    "emit_duplicate_rate": 0.0607661822985469,
+    "good_recall": 0.9795918367346939,
+    "spp_all_good_precision": 0.00025953664763397915,
+    "spp_all_duplicate_rate": 0.7642725293700146,
+    "selected_policy": {
+      "good_threshold": 0.4,
+      "duplicate_threshold": 0.5,
+      "bypass_threshold": 0.8
+    },
+    "implementation": "stateful_chunked_lstm_truncated_bptt"
+  },
+  "artifacts": {
+    "checkpoint": "formal_NN_training/results/LSTM/draft/artifacts/recall_lstm_cache_action_predictor.best.pt",
+    "actions": "formal_NN_training/results/LSTM/draft/artifacts/full_lstm_cache_actions.csv",
+    "history": "formal_NN_training/results/LSTM/draft/artifacts/recall_lstm_training_history.csv",
+    "pr_curve": "formal_NN_training/results/LSTM/draft/artifacts/recall_lstm_val_pr_curve.csv"
+  }
+}
