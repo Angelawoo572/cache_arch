@@ -5,10 +5,10 @@
 #   cd ~/cache
 #   TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
 #   WARMUP=25000000 SIM=25000000 MAX_JOBS=3 NODUP=1 FORCE_REPLAY=1 \
-#     bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+#     bash formal_NN_training/scripts/run_prefetch_behavior_audit.sh
 #
 # Optional IPCP / combo audit:
-#   PREFETCHERS="no_pref spp ipcp spp_ipcp" FORCE_REPLAY=1 bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+#   PREFETCHERS="no_pref spp ipcp spp_ipcp" FORCE_REPLAY=1 bash formal_NN_training/scripts/run_prefetch_behavior_audit.sh
 #
 # Output:
 #   formal_NN_training/results/LSTM/behavior_audit/logs/*.log
