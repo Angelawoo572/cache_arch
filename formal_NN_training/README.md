@@ -20,7 +20,9 @@ formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 
 ## Step 1: SPP behavior audit
 
-Run from the repo root on the cluster:
+Run from the repo root on the cluster.
+
+Important: after the 2026-06-17 config fix, rerun with `FORCE_REPLAY=1` once. The earlier logs used both `--config` and `--l2c_prefetcher_types`, which duplicated single prefetchers and made `spp_ipcp` appear as one unsupported string. The fixed script uses config files only.
 
 ```bash
 cd ~/cache
@@ -31,6 +33,7 @@ WARMUP=25000000 \
 SIM=25000000 \
 MAX_JOBS=3 \
 NODUP=1 \
+FORCE_REPLAY=1 \
 bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 ```
 
@@ -61,10 +64,11 @@ FORCE_REPLAY=1 \
 bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 ```
 
-Optional IPCP / combined audit, after SPP-only audit is understood:
+Optional IPCP / combined audit:
 
 ```bash
 cd ~/cache
+git pull
 
 TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
 PREFETCHERS="no_pref spp ipcp spp_ipcp" \
@@ -73,7 +77,23 @@ SIM=25000000 \
 MAX_JOBS=3 \
 NODUP=1 \
 BUILD=0 \
+FORCE_REPLAY=1 \
 bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+```
+
+Sanity check that each log selected the intended prefetcher only once:
+
+```bash
+grep -R "adding L2C_PREFETCHER" formal_NN_training/results/LSTM/behavior_audit/logs/*.log
+```
+
+Expected patterns:
+
+```text
+no_pref: no IPCP/SPP line
+spp:     one SPP_dev2 line
+ipcp:    one IPCP line
+spp_ipcp: one SPP_dev2 line + one IPCP line
 ```
 
 If the IPCP run exits before writing a new summary, inspect the logs:
@@ -99,20 +119,21 @@ timeliness               # pf_useful / (pf_useful + pf_late)
 
 Important: `coverage_vs_no_pref_l2_miss` is only a rough useful-prefetch proxy from ChampSim counters. Use `miss_reduction_vs_no_pref` plus IPC as the safer first-pass coverage signal. True residual labels need a later demand-centric table.
 
-## Current interpretation from first 3-trace SPP audit
+## Current interpretation from the first 3-trace SPP audit
+
+The first audit was useful for debugging, but rerun after the config fix before treating the numbers as final. The qualitative direction is still the working hypothesis:
 
 ```text
 602.gcc_s-734B:
-  SPP helps clearly. IPC speedup ~1.18x and L2 miss reduction is large.
-  But issued prefetch count is very high and duplicate proxy is high.
+  SPP likely helps, but duplicate/resource pressure needs checking with the fixed single-SPP run.
   First NN target: nodup/resource gating and maybe residual misses, not replacing SPP.
 
 619.lbm_s-4268B:
-  SPP helps, but less than 602. It has many duplicate/merged prefetches and noticeable late prefetches.
+  SPP likely helps, but timeliness and duplicate/resource pressure need checking with the fixed run.
   First NN target: timeliness + duplicate/resource gating.
 
 605.mcf_s-994B:
-  SPP gives almost no IPC gain and almost no miss reduction.
+  SPP likely gives little IPC gain.
   First NN target: residual demand misses. This is the best trace to test whether NN can catch what SPP misses.
 ```
 
