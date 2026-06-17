@@ -198,39 +198,23 @@ formal_NN_training/results/capacity_sweep/prefetch_lists/
 
 # New-trace pipeline scratch area is local except future explicit curated CSV/SVG.
 !formal_NN_training/results/new_trace_pipeline/
-formal_NN_training/results/new_trace_pipeline/*
-!formal_NN_training/results/new_trace_pipeline/*.csv
-!formal_NN_training/results/new_trace_pipeline/*.svg
-formal_NN_training/results/new_trace_pipeline/logs/
 
-# Hybrid replay suites: keep only compact metadata, tables, and figures from each run.
-# Raw ChampSim logs and prefetch lists remain local/ignored.
-!formal_NN_training/results/hybrid_replay_suites/
-formal_NN_training/results/hybrid_replay_suites/*
-!formal_NN_training/results/hybrid_replay_suites/*/
-formal_NN_training/results/hybrid_replay_suites/*/*
-!formal_NN_training/results/hybrid_replay_suites/*/RUN_INFO.txt
-!formal_NN_training/results/hybrid_replay_suites/*/prepared_traces.txt
-!formal_NN_training/results/hybrid_replay_suites/*/tables/
-formal_NN_training/results/hybrid_replay_suites/*/tables/*
-!formal_NN_training/results/hybrid_replay_suites/*/tables/*.csv
-!formal_NN_training/results/hybrid_replay_suites/*/figures/
-formal_NN_training/results/hybrid_replay_suites/*/figures/*
-!formal_NN_training/results/hybrid_replay_suites/*/figures/*.svg
-formal_NN_training/results/hybrid_replay_suites/*/replay_compare/
-formal_NN_training/results/hybrid_replay_suites/*/capacity_sweep/
+# ------------------------------------------------------------
+# Curated LSTM audit summaries
+# ------------------------------------------------------------
+# Keep small summary CSVs/RUN_INFO for reproducibility; keep raw logs/events local.
+!formal_NN_training/results/LSTM/
+formal_NN_training/results/LSTM/*
 
-# Local helper scripts created during debugging. Canonical reusable scripts should
-# be named with a numeric prefix instead of local_*.
-formal_NN_training/scripts/local_*.py
-formal_NN_training/scripts/local_*.sh
+!formal_NN_training/results/LSTM/behavior_audit/
+formal_NN_training/results/LSTM/behavior_audit/*
+!formal_NN_training/results/LSTM/behavior_audit/summary*.csv
+!formal_NN_training/results/LSTM/behavior_audit/RUN_INFO.txt
+formal_NN_training/results/LSTM/behavior_audit/logs/
 
-# Capacity temp configs.
-formal_NN_training/_cfg/
-
-# Top-level generated text/list artifacts.
-results/*.txt
-projects/legacy_gru_prefetch/results/*.txt
-prefetch_list*.txt
-**/prefetch_list*.txt
-colab_prefetch_result/prefetch_list*.txt
+!formal_NN_training/results/LSTM/residual_audit/
+formal_NN_training/results/LSTM/residual_audit/*
+!formal_NN_training/results/LSTM/residual_audit/summary*.csv
+!formal_NN_training/results/LSTM/residual_audit/RUN_INFO.txt
+formal_NN_training/results/LSTM/residual_audit/logs/
+formal_NN_training/results/LSTM/residual_audit/events/
