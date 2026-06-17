@@ -203,6 +203,23 @@ formal_NN_training/results/new_trace_pipeline/*
 !formal_NN_training/results/new_trace_pipeline/*.svg
 formal_NN_training/results/new_trace_pipeline/logs/
 
+# Hybrid replay suites: keep only compact metadata, tables, and figures from each run.
+# Raw ChampSim logs and prefetch lists remain local/ignored.
+!formal_NN_training/results/hybrid_replay_suites/
+formal_NN_training/results/hybrid_replay_suites/*
+!formal_NN_training/results/hybrid_replay_suites/*/
+formal_NN_training/results/hybrid_replay_suites/*/*
+!formal_NN_training/results/hybrid_replay_suites/*/RUN_INFO.txt
+!formal_NN_training/results/hybrid_replay_suites/*/prepared_traces.txt
+!formal_NN_training/results/hybrid_replay_suites/*/tables/
+formal_NN_training/results/hybrid_replay_suites/*/tables/*
+!formal_NN_training/results/hybrid_replay_suites/*/tables/*.csv
+!formal_NN_training/results/hybrid_replay_suites/*/figures/
+formal_NN_training/results/hybrid_replay_suites/*/figures/*
+!formal_NN_training/results/hybrid_replay_suites/*/figures/*.svg
+formal_NN_training/results/hybrid_replay_suites/*/replay_compare/
+formal_NN_training/results/hybrid_replay_suites/*/capacity_sweep/
+
 # Local helper scripts created during debugging. Canonical reusable scripts should
 # be named with a numeric prefix instead of local_*.
 formal_NN_training/scripts/local_*.py
@@ -217,57 +234,3 @@ projects/legacy_gru_prefetch/results/*.txt
 prefetch_list*.txt
 **/prefetch_list*.txt
 colab_prefetch_result/prefetch_list*.txt
-
-# Post-prefetch-filter generated data/model artifacts.
-projects/post_prefetch_filter/results/*
-projects/post_prefetch_filter/data/raw/
-projects/post_prefetch_filter/models/
-projects/post_prefetch_filter/checkpoints/
-projects/post_prefetch_filter/runs/
-projects/post_prefetch_filter/wandb/
-projects/post_prefetch_filter/data/generated/*
-
-# But allow curated Colab feature-sweep summaries and compressed active notebook input.
-!projects/post_prefetch_filter/results/
-!projects/post_prefetch_filter/results/colab_feature_sweeps/
-!projects/post_prefetch_filter/results/colab_feature_sweeps/**
-!projects/post_prefetch_filter/data/
-!projects/post_prefetch_filter/data/generated/
-!projects/post_prefetch_filter/data/generated/.gitkeep
-!projects/post_prefetch_filter/data/generated/spp_candidate_log.csv.xz
-!projects/post_prefetch_filter/data/generated/spp_candidate_log.csv.gz
-!projects/post_prefetch_filter/data/generated/README.md
-
-# ML training artifacts anywhere in the repo.
-checkpoints/
-**/checkpoints/
-runs/
-**/runs/
-wandb/
-**/wandb/
-*.pt
-*.pth
-*.ckpt
-*.onnx
-
-# ------------------------------------------------------------
-# Keep small summaries/artifacts that are useful to commit intentionally
-# ------------------------------------------------------------
-!results/README.md
-!results/baseline.csv
-!results/upper_bound.csv
-!results/bypass_summary.csv
-!results/mlp_demo_summary.csv
-!results/nn_demo_summary.csv
-!results/gru_sweep_summary.csv
-!results/gru_v9_decode_sweep_ipc.csv
-!results/gru_v9_decode_sweep_gcc_s-734B.csv
-!results/gru_v8_summary.json
-!results/gru_v9_summary_*.json
-!results/slide8_data.tex
-
-!projects/legacy_gru_prefetch/results/README.md
-!projects/legacy_gru_prefetch/results/baseline.csv
-!projects/legacy_gru_prefetch/results/upper_bound.csv
-!projects/legacy_gru_prefetch/results/bypass_summary.csv
-!projects/legacy_gru_prefetch/results/mlp_demo_summary.csv
