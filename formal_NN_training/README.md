@@ -1,12 +1,21 @@
 # formal_NN_training
 
-This directory is organized by neural-network family so multiple model ideas can coexist cleanly.
+This directory is organized by neural-network family while shared simulator scripts stay in the top-level `scripts/` folder.
 
-Current active family:
+Current active flow:
 
 ```text
-LSTM/                    # LSTM + SPP cache-action predictor code/docs/notebooks
-results/LSTM/draft/      # old LSTM results/artifacts kept only as draft history
+scripts/                  # common Pythia-based audit / run scripts
+LSTM/                     # old/reference LSTM notebooks
+results/LSTM/behavior_audit/
+results/LSTM/draft/       # old LSTM artifacts/results kept only as draft history
+```
+
+Active scripts:
+
+```text
+formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py
+formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 ```
 
 Future model families should use the same pattern:
