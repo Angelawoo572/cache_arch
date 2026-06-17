@@ -12,7 +12,6 @@ Outputs:
   <suite>/tables/capacity_replay_metrics.csv
   <suite>/figures/*.svg
 """
-from __future__ import annotations
 
 import argparse
 import csv
@@ -37,7 +36,7 @@ COLORS = {
 }
 
 
-def parse_log(path: Path):
+def parse_log(path):
     if not path.exists() or path.stat().st_size == 0:
         return None
     text = path.read_text(errors="replace")
@@ -63,7 +62,7 @@ def parse_log(path: Path):
     }
 
 
-def add_row(rows, *, suite_tag, kind, trace, method, timing_range="", l2_capacity="", log_path: Path, metrics):
+def add_row(rows, suite_tag, kind, trace, method, log_path, metrics, timing_range="", l2_capacity=""):
     if metrics is None or metrics.get("ipc") is None:
         return
     row = {
@@ -79,38 +78,26 @@ def add_row(rows, *, suite_tag, kind, trace, method, timing_range="", l2_capacit
     rows.append(row)
 
 
-def collect_rows(suite_root: Path, suite_tag: str, traces, caps):
+def collect_rows(suite_root, suite_tag, traces, caps):
     normal_log_dir = suite_root / "replay_compare" / "logs"
     cap_log_dir = suite_root / "capacity_sweep" / "logs"
     rows = []
 
     for trace in traces:
         add_row(
-            rows,
-            suite_tag=suite_tag,
-            kind="normal",
-            trace=trace,
-            method="no_prefetch",
-            log_path=normal_log_dir / f"{trace}.no_prefetch.log",
-            metrics=parse_log(normal_log_dir / f"{trace}.no_prefetch.log"),
+            rows, suite_tag, "normal", trace, "no_prefetch",
+            normal_log_dir / f"{trace}.no_prefetch.log",
+            parse_log(normal_log_dir / f"{trace}.no_prefetch.log"),
         )
         add_row(
-            rows,
-            suite_tag=suite_tag,
-            kind="normal",
-            trace=trace,
-            method="spp",
-            log_path=normal_log_dir / f"{trace}.spp.log",
-            metrics=parse_log(normal_log_dir / f"{trace}.spp.log"),
+            rows, suite_tag, "normal", trace, "spp",
+            normal_log_dir / f"{trace}.spp.log",
+            parse_log(normal_log_dir / f"{trace}.spp.log"),
         )
         add_row(
-            rows,
-            suite_tag=suite_tag,
-            kind="normal",
-            trace=trace,
-            method="hybrid_action",
-            log_path=normal_log_dir / f"{trace}.LSTM_hybrid_action.log",
-            metrics=parse_log(normal_log_dir / f"{trace}.LSTM_hybrid_action.log"),
+            rows, suite_tag, "normal", trace, "hybrid_action",
+            normal_log_dir / f"{trace}.LSTM_hybrid_action.log",
+            parse_log(normal_log_dir / f"{trace}.LSTM_hybrid_action.log"),
         )
 
         for p in sorted(normal_log_dir.glob(f"{trace}.LSTM_hybrid_action_t*.log")):
@@ -118,28 +105,16 @@ def collect_rows(suite_root: Path, suite_tag: str, traces, caps):
             prefix = f"{trace}.LSTM_hybrid_action_"
             timing = stem[len(prefix):] if stem.startswith(prefix) else stem
             add_row(
-                rows,
-                suite_tag=suite_tag,
-                kind="timing",
-                trace=trace,
-                method="hybrid_action_timing",
-                timing_range=timing,
-                log_path=p,
-                metrics=parse_log(p),
+                rows, suite_tag, "timing", trace, "hybrid_action_timing",
+                p, parse_log(p), timing_range=timing,
             )
 
         for cap in caps:
             for method in ["no_prefetch", "spp", "hybrid_action"]:
                 log = cap_log_dir / f"{trace}.L2_{cap}.{method}.log"
                 add_row(
-                    rows,
-                    suite_tag=suite_tag,
-                    kind="capacity",
-                    trace=trace,
-                    method=method,
-                    l2_capacity=cap,
-                    log_path=log,
-                    metrics=parse_log(log),
+                    rows, suite_tag, "capacity", trace, method,
+                    log, parse_log(log), l2_capacity=cap,
                 )
 
     compute_relative_metrics(rows)
@@ -175,7 +150,7 @@ def fmt(v):
     return v
 
 
-def write_csv(path: Path, rows, fields):
+def write_csv(path, rows, fields):
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields)
@@ -189,7 +164,7 @@ def html_escape(s):
     return str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def grouped_bar_svg(rows, out_path: Path, *, title, metric, ylabel, x_key, method_order, method_labels=None, value_fmt="{:.2f}"):
+def grouped_bar_svg(rows, out_path, title, metric, ylabel, x_key, method_order, method_labels=None, value_fmt="{:.2f}"):
     rows = [r for r in rows if r.get(metric) is not None]
     if not rows:
         print("[skip figure] no rows for", out_path)
