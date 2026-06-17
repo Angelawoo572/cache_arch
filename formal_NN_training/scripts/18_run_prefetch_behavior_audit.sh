@@ -49,6 +49,39 @@ if [ ! -d "$CHAMP_DIR" ]; then
   exit 1
 fi
 
+ensure_libbf () {
+  # Pythia's Makefile always compiles multi.l2c_pref, which includes sandbox.h.
+  # sandbox.h includes bf/all.hpp, so libbf must exist even when the selected
+  # runtime prefetcher is only spp_dev2/ipcp.
+  if [ -f "$CHAMP_DIR/libbf/bf/all.hpp" ] && [ -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]; then
+    echo "[libbf] found"
+    return 0
+  fi
+
+  echo "[libbf] missing bf/all.hpp or build/lib/libbf.a"
+  echo "[libbf] setting up under $CHAMP_DIR/libbf"
+
+  if [ ! -d "$CHAMP_DIR/libbf/.git" ]; then
+    rm -rf "$CHAMP_DIR/libbf"
+    git clone https://github.com/mavam/libbf.git "$CHAMP_DIR/libbf"
+  fi
+
+  mkdir -p "$CHAMP_DIR/libbf/build"
+  (
+    cd "$CHAMP_DIR/libbf/build"
+    cmake ..
+    make clean
+    make -j"${JOBS:-8}"
+  )
+
+  if [ ! -f "$CHAMP_DIR/libbf/bf/all.hpp" ] || [ ! -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]; then
+    echo "[error] libbf setup failed"
+    echo "        expected: $CHAMP_DIR/libbf/bf/all.hpp"
+    echo "        expected: $CHAMP_DIR/libbf/build/lib/libbf.a"
+    exit 1
+  fi
+}
+
 write_cfgs () {
   cat > "$CFG_DIR/no_pref.ini" <<'EOF'
 l2c_prefetcher_types = none
@@ -79,6 +112,7 @@ build_if_needed () {
     echo "[build skip] existing binary: $BIN"
     return 0
   fi
+  ensure_libbf
   echo "[build] Pythia multi-L2 binary"
   echo "        $CHAMP_DIR/build_champsim.sh no multi no 1"
   (
