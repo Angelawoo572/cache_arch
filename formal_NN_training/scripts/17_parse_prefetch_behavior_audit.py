@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Parse Pythia/ChampSim logs into a prefetch behavior audit table.
 
-This is intentionally no-pandas so it runs on the cluster.
+This is intentionally no-pandas so it runs on older cluster Python.
 
 It supports the Pythia-style stats printed as key/value lines, for example:
   Core_0_IPC 0.42
@@ -19,13 +19,10 @@ Main derived metrics:
   speedup_vs_no_pref     = IPC / no_pref_IPC for the same trace
 """
 
-from __future__ import annotations
-
 import argparse
 import csv
 import re
 from pathlib import Path
-from typing import Dict, Iterable, List
 
 KEY_VAL_RE = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED_RE = re.compile(r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+cumulative IPC:\s+([-+0-9.eE]+)")
@@ -46,8 +43,8 @@ def div(a, b):
     return a / b if b else 0.0
 
 
-def parse_log(path: Path) -> Dict[str, float]:
-    stats: Dict[str, float] = {}
+def parse_log(path):
+    stats = {}
     if not path.exists() or path.stat().st_size == 0:
         stats["log_missing"] = 1.0
         return stats
@@ -67,11 +64,11 @@ def parse_log(path: Path) -> Dict[str, float]:
     return stats
 
 
-def get(stats: Dict[str, float], key: str) -> float:
+def get(stats, key):
     return stats.get(key, 0.0)
 
 
-def summarize_one(trace: str, prefetcher: str, log: Path, nodup: bool) -> Dict[str, object]:
+def summarize_one(trace, prefetcher, log, nodup):
     s = parse_log(log)
 
     ipc = get(s, "Core_0_IPC") or get(s, "finished_ipc")
@@ -127,7 +124,7 @@ def summarize_one(trace: str, prefetcher: str, log: Path, nodup: bool) -> Dict[s
     }
 
 
-def add_baseline_metrics(rows: List[Dict[str, object]]) -> None:
+def add_baseline_metrics(rows):
     by_trace = {}
     for r in rows:
         if r["prefetcher"] in {"no_pref", "none", "nopref"}:
@@ -149,7 +146,7 @@ def add_baseline_metrics(rows: List[Dict[str, object]]) -> None:
         r["miss_reduction_vs_no_pref"] = div(base_miss - miss, base_miss)
 
 
-def write_csv(path: Path, rows: List[Dict[str, object]]) -> None:
+def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     if not rows:
         path.write_text("")
@@ -171,7 +168,7 @@ def write_csv(path: Path, rows: List[Dict[str, object]]) -> None:
             w.writerow(r)
 
 
-def main() -> None:
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--log-root", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
@@ -180,25 +177,28 @@ def main() -> None:
     ap.add_argument("--nodup", action="store_true", help="use issued - pq_merged as selected accuracy denominator")
     args = ap.parse_args()
 
-    rows: List[Dict[str, object]] = []
+    rows = []
     for trace in args.traces.split():
         for pf in args.prefetchers.split():
-            log = args.log_root / f"{trace}.{pf}.log"
+            log = args.log_root / (trace + "." + pf + ".log")
             rows.append(summarize_one(trace, pf, log, args.nodup))
 
     add_baseline_metrics(rows)
     write_csv(args.out, rows)
 
-    print(f"[write] {args.out}")
+    print("[write] {}".format(args.out))
     for r in rows:
         print(
-            f"[audit] {r['trace']} {r['prefetcher']} "
-            f"IPC={to_float(r['ipc']):.6f} "
-            f"speedup={to_float(r.get('speedup_vs_no_pref')):.4f} "
-            f"acc={to_float(r['accuracy']):.4f} "
-            f"nodup_acc={to_float(r['nodup_accuracy']):.4f} "
-            f"coverage={to_float(r.get('coverage_vs_no_pref_l2_miss')):.4f} "
-            f"timeliness={to_float(r['timeliness']):.4f}"
+            "[audit] {} {} IPC={:.6f} speedup={:.4f} acc={:.4f} nodup_acc={:.4f} coverage={:.4f} timeliness={:.4f}".format(
+                r["trace"],
+                r["prefetcher"],
+                to_float(r["ipc"]),
+                to_float(r.get("speedup_vs_no_pref")),
+                to_float(r["accuracy"]),
+                to_float(r["nodup_accuracy"]),
+                to_float(r.get("coverage_vs_no_pref_l2_miss")),
+                to_float(r["timeliness"]),
+            )
         )
 
 
