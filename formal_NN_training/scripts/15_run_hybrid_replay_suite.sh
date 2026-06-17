@@ -28,6 +28,7 @@ RUN_FIGURES="${RUN_FIGURES:-1}"
 SKIP_MISSING="${SKIP_MISSING:-1}"
 ALLOW_BYPASS_PREFETCH="${ALLOW_BYPASS_PREFETCH:-1}"
 STRICT_EMPTY_LIST="${STRICT_EMPTY_LIST:-1}"
+MAX_PREFETCH_FRAC="${MAX_PREFETCH_FRAC:-0.10}"
 
 TRACE_DIR="${TRACE_DIR:-$ROOT/traces}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
@@ -117,11 +118,27 @@ make_prefetch_list () {
     cmd+=(--timing-min-bin "$tmin" --timing-max-bin "$tmax")
   fi
   "${cmd[@]}"
-  local lines
+  local lines rows frac_ok
   lines=$(wc -l < "$out" || echo 0)
-  echo "[prefetch list] $out lines=$lines"
+  rows=$(wc -l < "$actions" || echo 0)
+  if [ "$rows" -gt 0 ]; then
+    rows=$((rows - 1))
+  fi
+  echo "[prefetch list] $out lines=$lines action_rows=$rows max_frac=$MAX_PREFETCH_FRAC"
   if [ "$STRICT_EMPTY_LIST" = "1" ] && [ "$lines" -eq 0 ]; then
     echo "[error] empty prefetch list: $out"
+    exit 1
+  fi
+  frac_ok=$(python3 - <<PY_FRAC
+lines = float("$lines")
+rows = max(float("$rows"), 1.0)
+max_frac = float("$MAX_PREFETCH_FRAC")
+print(1 if (lines / rows) <= max_frac else 0)
+PY_FRAC
+)
+  if [ "$frac_ok" != "1" ]; then
+    echo "[error] prefetch list is too large: lines=$lines rows=$rows max_frac=$MAX_PREFETCH_FRAC"
+    echo "[hint] This usually means the Colab export was unbudgeted. Rerun guarded R10/R13 or the budget hotfix before replay."
     exit 1
   fi
 }
