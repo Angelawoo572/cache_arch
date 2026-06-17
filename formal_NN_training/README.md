@@ -8,14 +8,18 @@ Current active flow:
 scripts/                  # common Pythia-based audit / run scripts
 LSTM/                     # old/reference LSTM notebooks
 results/LSTM/behavior_audit/
+results/LSTM/residual_audit/
 results/LSTM/draft/       # old LSTM artifacts/results kept only as draft history
 ```
 
-Active behavior-audit scripts:
+Active audit scripts:
 
 ```text
 formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py
 formal_NN_training/scripts/run_prefetch_behavior_audit.sh
+formal_NN_training/scripts/19_parse_residual_demand_audit.py
+formal_NN_training/scripts/20_patch_pythia_residual_logger.sh
+formal_NN_training/scripts/run_residual_demand_audit.sh
 ```
 
 ## Step 1: prefetcher behavior audit
@@ -94,7 +98,7 @@ nodup_accuracy            # pf_useful / (pf_issued - pq_merged_duplicate_proxy)
 timeliness                # pf_useful / (pf_useful + pf_late)
 ```
 
-Important: `coverage_vs_no_pref_l2_miss` is only a rough useful-prefetch proxy from ChampSim counters and can be misleading. Use `miss_reduction_vs_no_pref` plus IPC as the safer first-pass coverage signal. True residual labels need a later demand-centric table.
+Important: `coverage_vs_no_pref_l2_miss` is only a rough useful-prefetch proxy from ChampSim counters and can be misleading. Use `miss_reduction_vs_no_pref` plus IPC as the safer first-pass coverage signal. True residual labels need the Step 2 demand-centric table.
 
 ## Current interpretation from the 3-trace audit
 
@@ -119,24 +123,71 @@ Latest FORCE_REPLAY audit with `PREFETCHERS="no_pref spp ipcp spp_ipcp"`, 25M/25
 
 ## Step 2: demand-centric residual audit
 
-The prefetcher counter audit above is not enough to build the final NN labels. The next script/notebook should create a demand-centric table:
+The counter audit above is not enough to build final NN labels. Step 2 patches local Pythia to log one row per L2C demand LOAD access plus every L2C prefetch request, then summarizes where each base prefetcher failed.
 
-```text
-one row per demand access:
-  trace
-  demand_idx
-  cycle
-  pc
-  demand_addr / demand_line
-  hit/miss
-  base_prefetcher = SPP first
-  was demand line covered by base prefetcher before demand?
-  was it late?
-  was it duplicate / already in queue?
-  residual_label = demand miss AND not covered in time by SPP
+### Full SPP/IPCP/combined residual audit
+
+```bash
+cd ~/cache
+git pull
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+PREFETCHERS="no_pref spp ipcp spp_ipcp" \
+WARMUP=25000000 \
+SIM=25000000 \
+MAX_JOBS=3 \
+FORCE_REPLAY=1 \
+RESET_PATCH=1 \
+bash formal_NN_training/scripts/run_residual_demand_audit.sh
 ```
 
-This table answers the real research question: where does SPP fail, and what should LSTM learn to add?
+Smoke test before the full run:
+
+```bash
+cd ~/cache
+git pull
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+PREFETCHERS="no_pref spp ipcp spp_ipcp" \
+WARMUP=1000000 \
+SIM=1000000 \
+MAX_JOBS=3 \
+FORCE_REPLAY=1 \
+RESET_PATCH=1 \
+bash formal_NN_training/scripts/run_residual_demand_audit.sh
+```
+
+Output:
+
+```text
+formal_NN_training/results/LSTM/residual_audit/events/*.events.csv.gz  # large, ignored
+formal_NN_training/results/LSTM/residual_audit/logs/*.log              # ignored
+formal_NN_training/results/LSTM/residual_audit/summary.csv             # small, tracked
+formal_NN_training/results/LSTM/residual_audit/RUN_INFO.txt            # small, tracked
+```
+
+View the summary:
+
+```bash
+column -t -s, formal_NN_training/results/LSTM/residual_audit/summary.csv
+```
+
+Main residual-audit metrics:
+
+```text
+covered_on_time_rate       # demand hit on a prefetched cache line
+late_rate_among_misses     # demand miss merged with in-flight prefetch
+residual_share_of_misses   # demand miss not covered and not late; residual NN target pool
+pf_duplicate_rate          # prefetch requests merged/duplicated in PQ
+```
+
+The first LSTM residual label should be:
+
+```text
+residual_label = demand miss AND not covered in time by SPP
+```
+
+In the residual audit summary, this is approximated by `residual_miss` for the SPP run.
 
 ## Planned matrix, after the audit is stable
 
