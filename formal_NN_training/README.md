@@ -14,8 +14,6 @@ Future model families should use the same pattern:
 ```text
 formal_NN_training/<MODEL_NAME>/
   notebooks/
-  scripts/
-  docs/
 
 formal_NN_training/results/<MODEL_NAME>/draft/
 formal_NN_training/results/<MODEL_NAME>/final/
