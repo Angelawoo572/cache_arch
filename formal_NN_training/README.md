@@ -18,6 +18,116 @@ formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py
 formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 ```
 
+## Step 1: SPP behavior audit
+
+Run from the repo root on the cluster:
+
+```bash
+cd ~/cache
+git pull
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+WARMUP=25000000 \
+SIM=25000000 \
+MAX_JOBS=3 \
+NODUP=1 \
+bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+```
+
+Output:
+
+```text
+formal_NN_training/results/LSTM/behavior_audit/logs/
+formal_NN_training/results/LSTM/behavior_audit/summary_nodup.csv
+```
+
+View the summary:
+
+```bash
+column -t -s, formal_NN_training/results/LSTM/behavior_audit/summary_nodup.csv
+```
+
+For debugging or quick smoke tests:
+
+```bash
+cd ~/cache
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+WARMUP=1000000 \
+SIM=1000000 \
+MAX_JOBS=3 \
+NODUP=1 \
+FORCE_REPLAY=1 \
+bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+```
+
+Optional IPCP / combined audit, after SPP-only audit is understood:
+
+```bash
+cd ~/cache
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+PREFETCHERS="no_pref spp ipcp spp_ipcp" \
+WARMUP=25000000 \
+SIM=25000000 \
+MAX_JOBS=3 \
+NODUP=1 \
+BUILD=0 \
+bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+```
+
+If the IPCP run exits before writing a new summary, inspect the logs:
+
+```bash
+ls -lh formal_NN_training/results/LSTM/behavior_audit/logs/*ipcp*.log
+
+grep -RniE "error|unsupported|assert|segmentation|abort|cannot|missing|adding L2C_PREFETCHER" \
+  formal_NN_training/results/LSTM/behavior_audit/logs/*ipcp*.log | head -80
+
+tail -80 formal_NN_training/results/LSTM/behavior_audit/logs/602.gcc_s-734B.ipcp.log
+```
+
+Main audit metrics:
+
+```text
+speedup_vs_no_pref       # IPC ratio vs no-prefetch
+miss_reduction_vs_no_pref# L2 demand-load miss reduction vs no-prefetch
+accuracy                 # pf_useful / pf_issued
+nodup_accuracy           # pf_useful / (pf_issued - pq_merged_duplicate_proxy)
+timeliness               # pf_useful / (pf_useful + pf_late)
+```
+
+Important: `coverage_vs_no_pref_l2_miss` is only a rough useful-prefetch proxy from ChampSim counters. Use `miss_reduction_vs_no_pref` plus IPC as the safer first-pass coverage signal. True residual labels need a later demand-centric table.
+
+## Current interpretation from first 3-trace SPP audit
+
+```text
+602.gcc_s-734B:
+  SPP helps clearly. IPC speedup ~1.18x and L2 miss reduction is large.
+  But issued prefetch count is very high and duplicate proxy is high.
+  First NN target: nodup/resource gating and maybe residual misses, not replacing SPP.
+
+619.lbm_s-4268B:
+  SPP helps, but less than 602. It has many duplicate/merged prefetches and noticeable late prefetches.
+  First NN target: timeliness + duplicate/resource gating.
+
+605.mcf_s-994B:
+  SPP gives almost no IPC gain and almost no miss reduction.
+  First NN target: residual demand misses. This is the best trace to test whether NN can catch what SPP misses.
+```
+
+## Planned matrix, after the audit is stable
+
+```text
+normal prefetcher: SPP first, IPCP later
+NN:                LSTM first, tiny Transformer later
+size/#params:      small / medium / large
+seq_len:           64 / 128 / 256, not 2048 by default
+metrics:           accuracy, nodup accuracy, timeliness, coverage/miss reduction, IPC speedup
+```
+
+Old LSTM notebooks are kept as reference. New residual-booster notebooks should be added separately instead of overwriting the old ones.
+
 Future model families should use the same pattern:
 
 ```text
