@@ -13,21 +13,18 @@ Core categories for DEMAND rows:
 For residual-booster training, the high-level target is:
   residual_label = residual_miss
 
-No pandas required.
+No pandas required. Compatible with Python 3.6+.
 """
-
-from __future__ import annotations
 
 import argparse
 import csv
 import gzip
 from pathlib import Path
-from typing import Dict, List
 
 
-def open_maybe_gzip(path: Path, mode: str):
+def open_maybe_gzip(path, mode):
     if str(path).endswith(".gz"):
-        return gzip.open(path, mode, newline="")
+        return gzip.open(str(path), mode, newline="")
     return path.open(mode, newline="")
 
 
@@ -44,7 +41,7 @@ def div(a, b):
     return float(a) / float(b) if b else 0.0
 
 
-def summarize_event_file(trace: str, prefetcher: str, path: Path) -> Dict[str, object]:
+def summarize_event_file(trace, prefetcher, path):
     demand = 0
     demand_hit = 0
     demand_miss = 0
@@ -58,9 +55,9 @@ def summarize_event_file(trace: str, prefetcher: str, path: Path) -> Dict[str, o
     pf_duplicate = 0
     pf_dropped = 0
 
-    top_residual_pc: Dict[str, int] = {}
-    top_residual_delta: Dict[int, int] = {}
-    prev_line_by_pc: Dict[str, int] = {}
+    top_residual_pc = {}
+    top_residual_delta = {}
+    prev_line_by_pc = {}
 
     missing = (not path.exists()) or path.stat().st_size == 0
     if not missing:
@@ -134,7 +131,7 @@ def summarize_event_file(trace: str, prefetcher: str, path: Path) -> Dict[str, o
     }
 
 
-def write_csv(path: Path, rows: List[Dict[str, object]]) -> None:
+def write_csv(path, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "trace", "prefetcher", "demand", "demand_hit", "demand_miss", "demand_miss_rate",
@@ -151,7 +148,7 @@ def write_csv(path: Path, rows: List[Dict[str, object]]) -> None:
             w.writerow(row)
 
 
-def main() -> None:
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--event-root", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
@@ -164,19 +161,22 @@ def main() -> None:
     rows = []
     for trace in args.traces.split():
         for pf in args.prefetchers.split():
-            p = args.event_root / f"{trace}.{pf}{suffix}"
+            p = args.event_root / "{}{}".format(trace + "." + pf, suffix)
             rows.append(summarize_event_file(trace, pf, p))
 
     write_csv(args.out, rows)
-    print(f"[write] {args.out}")
+    print("[write] {}".format(args.out))
     for r in rows:
         print(
-            f"[residual] {r['trace']} {r['prefetcher']} "
-            f"miss_rate={float(r['demand_miss_rate']):.4f} "
-            f"covered={float(r['covered_on_time_rate']):.4f} "
-            f"late={float(r['late_rate_among_misses']):.4f} "
-            f"residual_share={float(r['residual_share_of_misses']):.4f} "
-            f"pf_dup={float(r['pf_duplicate_rate']):.4f}"
+            "[residual] {} {} miss_rate={:.4f} covered={:.4f} late={:.4f} residual_share={:.4f} pf_dup={:.4f}".format(
+                r["trace"],
+                r["prefetcher"],
+                float(r["demand_miss_rate"]),
+                float(r["covered_on_time_rate"]),
+                float(r["late_rate_among_misses"]),
+                float(r["residual_share_of_misses"]),
+                float(r["pf_duplicate_rate"]),
+            )
         )
 
 
