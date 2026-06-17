@@ -4,11 +4,11 @@
 # Default first formal audit:
 #   cd ~/cache
 #   TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
-#   WARMUP=25000000 SIM=25000000 MAX_JOBS=3 NODUP=1 \
+#   WARMUP=25000000 SIM=25000000 MAX_JOBS=3 NODUP=1 FORCE_REPLAY=1 \
 #     bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 #
-# Optional IPCP / combo audit, once configs are confirmed locally:
-#   PREFETCHERS="no_pref spp ipcp spp_ipcp" bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
+# Optional IPCP / combo audit:
+#   PREFETCHERS="no_pref spp ipcp spp_ipcp" FORCE_REPLAY=1 bash formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
 #
 # Output:
 #   formal_NN_training/results/LSTM/behavior_audit/logs/*.log
@@ -97,8 +97,13 @@ EOF
 l2c_prefetcher_types = ipcp
 EOF
 
+  # Important: Pythia's ini parser does NOT split comma-separated vectors.
+  # It pushes one l2c_prefetcher_types entry per line, so the combo must use
+  # two repeated keys. Do not pass --l2c_prefetcher_types on the CLI too, or
+  # it will duplicate the selected prefetcher.
   cat > "$CFG_DIR/spp_ipcp.ini" <<'EOF'
-l2c_prefetcher_types = spp_dev2,ipcp
+l2c_prefetcher_types = spp_dev2
+l2c_prefetcher_types = ipcp
 spp_dev2_fill_threshold = 90
 spp_dev2_pf_threshold = 40
 EOF
@@ -126,12 +131,12 @@ build_if_needed () {
   fi
 }
 
-pref_types () {
+pref_types_label () {
   case "$1" in
     no_pref|none|nopref) echo "none" ;;
     spp|spp_dev2) echo "spp_dev2" ;;
     ipcp) echo "ipcp" ;;
-    spp_ipcp|spp+ipcp) echo "spp_dev2,ipcp" ;;
+    spp_ipcp|spp+ipcp) echo "spp_dev2 + ipcp" ;;
     *) echo "$1" ;;
   esac
 }
@@ -152,7 +157,7 @@ run_one () {
   local trfile="$TRACE_DIR/${trace}.champsimtrace.xz"
   local log="$LOG_DIR/${trace}.${pf}.log"
   local types cfg
-  types="$(pref_types "$pf")"
+  types="$(pref_types_label "$pf")"
   cfg="$(pref_cfg "$pf")"
 
   if [ ! -s "$trfile" ]; then
@@ -167,6 +172,7 @@ run_one () {
 
   echo "============================================================"
   echo "[run audit] trace=$trace prefetcher=$pf types=$types"
+  echo "config     : $cfg"
   echo "log        : $log"
   echo "warmup/sim : $WARMUP / $SIM"
   echo "============================================================"
@@ -175,7 +181,6 @@ run_one () {
     --warmup_instructions="$WARMUP" \
     --simulation_instructions="$SIM" \
     --config="$cfg" \
-    --l2c_prefetcher_types="$types" \
     -traces "$trfile" \
     > "$log" 2>&1
 }
