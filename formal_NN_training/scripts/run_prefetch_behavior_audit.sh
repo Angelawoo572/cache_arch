@@ -24,7 +24,6 @@ fi
 cd "$ROOT"
 
 TRACES_STR="${TRACES:-602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B}"
-# Keep the default focused on SPP behavior. IPCP support is built in but opt-in.
 PREFETCHERS_STR="${PREFETCHERS:-no_pref spp}"
 
 WARMUP="${WARMUP:-25000000}"
@@ -50,9 +49,6 @@ if [ ! -d "$CHAMP_DIR" ]; then
 fi
 
 ensure_libbf () {
-  # Pythia's Makefile always compiles multi.l2c_pref, which includes sandbox.h.
-  # sandbox.h includes bf/all.hpp, so libbf must exist even when the selected
-  # runtime prefetcher is only spp_dev2/ipcp.
   if [ -f "$CHAMP_DIR/libbf/bf/all.hpp" ] && [ -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]; then
     echo "[libbf] found"
     return 0
@@ -76,8 +72,6 @@ ensure_libbf () {
 
   if [ ! -f "$CHAMP_DIR/libbf/bf/all.hpp" ] || [ ! -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]; then
     echo "[error] libbf setup failed"
-    echo "        expected: $CHAMP_DIR/libbf/bf/all.hpp"
-    echo "        expected: $CHAMP_DIR/libbf/build/lib/libbf.a"
     exit 1
   fi
 }
@@ -97,10 +91,6 @@ EOF
 l2c_prefetcher_types = ipcp
 EOF
 
-  # Important: Pythia's ini parser does NOT split comma-separated vectors.
-  # It pushes one l2c_prefetcher_types entry per line, so the combo must use
-  # two repeated keys. Do not pass --l2c_prefetcher_types on the CLI too, or
-  # it will duplicate the selected prefetcher.
   cat > "$CFG_DIR/spp_ipcp.ini" <<'EOF'
 l2c_prefetcher_types = spp_dev2
 l2c_prefetcher_types = ipcp
@@ -126,7 +116,6 @@ build_if_needed () {
   )
   if [ ! -x "$BIN" ]; then
     echo "[error] expected binary missing after build: $BIN"
-    echo "        Check bin/ under $CHAMP_DIR"
     exit 1
   fi
 }
@@ -231,7 +220,7 @@ else
   NODUP_FLAG=""
 fi
 
-python3 formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py \
+python3 formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py \
   --log-root "$LOG_DIR" \
   --out "$SUMMARY" \
   --traces "$TRACES_STR" \
