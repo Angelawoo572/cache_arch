@@ -16,9 +16,10 @@ Active audit scripts:
 
 ```text
 formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py
-formal_NN_training/scripts/run_prefetch_behavior_audit.sh
+formal_NN_training/scripts/02_run_prefetch_behavior_audit.sh
+formal_NN_training/scripts/03_patch_pythia_residual_logger.sh
 formal_NN_training/scripts/04_parse_residual_demand_audit.py
-formal_NN_training/scripts/run_residual_demand_audit.sh
+formal_NN_training/scripts/05_run_residual_demand_audit.sh
 ```
 
 Note: old numbered scripts that depended on the previous ChampSim `config.sh`, `spp_dev` patching, `champsim.l2_replayer`, or `PFETCH_LIST_PATH` replay flow are no longer the current Pythia workflow.
@@ -41,7 +42,7 @@ SIM=25000000 \
 MAX_JOBS=3 \
 NODUP=1 \
 FORCE_REPLAY=1 \
-bash formal_NN_training/scripts/run_prefetch_behavior_audit.sh
+bash formal_NN_training/scripts/02_run_prefetch_behavior_audit.sh
 ```
 
 ### SPP + IPCP + combined audit
@@ -58,7 +59,7 @@ MAX_JOBS=3 \
 NODUP=1 \
 BUILD=0 \
 FORCE_REPLAY=1 \
-bash formal_NN_training/scripts/run_prefetch_behavior_audit.sh
+bash formal_NN_training/scripts/02_run_prefetch_behavior_audit.sh
 ```
 
 Output:
@@ -122,7 +123,7 @@ MAX_JOBS=4 \
 FORCE_REPLAY=0 \
 BUILD=0 \
 COMPRESS=1 \
-bash formal_NN_training/scripts/run_residual_demand_audit.sh
+bash formal_NN_training/scripts/05_run_residual_demand_audit.sh
 ```
 
 If the event files already exist and only the summary needs to be regenerated:
