@@ -4,9 +4,10 @@ Active scripts here are for the current Pythia-based workflow.
 
 ```text
 01_parse_prefetch_behavior_audit.py   # parse Pythia/ChampSim counter logs
-04_parse_residual_demand_audit.py     # parse demand-centric residual event CSVs, fixed on-time coverage accounting
-run_prefetch_behavior_audit.sh        # behavior-audit runner
-run_residual_demand_audit.sh          # residual demand-audit runner
+02_run_prefetch_behavior_audit.sh     # behavior-audit runner
+03_patch_pythia_residual_logger.sh    # patch local Pythia for demand-centric event logging
+04_parse_residual_demand_audit.py     # parse residual event CSVs, fixed on-time coverage accounting
+05_run_residual_demand_audit.sh       # residual demand-audit runner
 ```
 
 Legacy scripts that depended on the old ChampSim `config.sh`, `spp_dev` patching, `champsim.l2_replayer`, or `PFETCH_LIST_PATH` replay flow were removed after switching `external/ChampSim` to the Pythia fork.
@@ -24,7 +25,7 @@ MAX_JOBS=4 \
 FORCE_REPLAY=0 \
 BUILD=0 \
 COMPRESS=1 \
-bash formal_NN_training/scripts/run_residual_demand_audit.sh
+bash formal_NN_training/scripts/05_run_residual_demand_audit.sh
 ```
 
 Regenerate an existing residual summary without rerunning ChampSim:
@@ -46,4 +47,4 @@ formal_NN_training/results/LSTM/residual_audit/logs/
 formal_NN_training/results/LSTM/residual_audit/summary.csv
 ```
 
-Note: `run_residual_demand_audit.sh` can reuse an already patched Pythia binary with `BUILD=0`. A fresh rebuild still requires the local residual logger patch script to be present.
+Note: `05_run_residual_demand_audit.sh` can reuse an already patched Pythia binary with `BUILD=0`. A fresh rebuild uses `03_patch_pythia_residual_logger.sh`.
