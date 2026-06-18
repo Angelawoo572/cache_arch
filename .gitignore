@@ -231,3 +231,25 @@ formal_NN_training/results/LSTM/residual_audit/*
 !formal_NN_training/results/LSTM/residual_audit/RUN_INFO.txt
 formal_NN_training/results/LSTM/residual_audit/logs/
 formal_NN_training/results/LSTM/residual_audit/events/
+
+# ------------------------------------------------------------
+# Curated normal-prefetcher zoo summaries for LSTM planning
+# ------------------------------------------------------------
+# Keep small joined/summary tables. Keep raw logs and event CSVs local.
+!formal_NN_training/results/base_prefetcher_zoo/
+formal_NN_training/results/base_prefetcher_zoo/*
+!formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
+!formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_all_metrics.csv
+
+!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/
+formal_NN_training/results/base_prefetcher_zoo/behavior_audit/*
+!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary*.csv
+!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/RUN_INFO.txt
+formal_NN_training/results/base_prefetcher_zoo/behavior_audit/logs/
+
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary*.csv
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/logs/
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/events/
