@@ -1,22 +1,20 @@
 # formal_NN_training
 
-This directory is organized by model family, while shared Pythia/ChampSim scripts stay in the top-level `scripts/` folder.
+This directory is organized by neural-network family while shared simulator scripts stay in the top-level `scripts/` folder.
 
 Current active flow:
 
 ```text
 scripts/                                      # common Pythia-based audit / run scripts
-results/base_prefetcher_zoo/                  # all normal-prefetcher behavior + residual metrics
-results/base_prefetcher_zoo/residual_audit/   # demand-centric coverage/residual data for working bases
-LSTM/                                         # old/reference LSTM notebooks and new booster notebooks
-results/LSTM/                                 # old/reference LSTM artifacts/results
+LSTM/                                         # old/reference LSTM notebooks and new LSTM notebooks
+results/LSTM/                                 # old SPP/LSTM-specific outputs
+results/base_prefetcher_zoo/                  # normal-prefetcher audit outputs for NN planning
 ```
 
 Active scripts:
 
 ```text
 formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py
-formal_NN_training/scripts/02_run_prefetch_behavior_audit.sh
 formal_NN_training/scripts/03_patch_pythia_residual_logger.sh
 formal_NN_training/scripts/04_parse_residual_demand_audit.py
 formal_NN_training/scripts/05_run_residual_demand_audit.sh
@@ -24,41 +22,43 @@ formal_NN_training/scripts/06_run_base_prefetcher_zoo_audit.sh
 formal_NN_training/scripts/07_join_normal_prefetcher_metrics.py
 ```
 
-Legacy scripts that depended on the previous ChampSim `config.sh`, `spp_dev` patching, `champsim.l2_replayer`, or `PFETCH_LIST_PATH` replay flow were removed after switching `external/ChampSim` to the Pythia fork.
-
-## Goal now
-
-Before changing the LSTM notebook again, collect the same information for every working normal prefetcher:
+Removed / merged:
 
 ```text
-behavior-side:
-  IPC, speedup_vs_no_pref, miss_reduction_vs_no_pref,
-  accuracy, nodup_accuracy, timeliness,
-  late_per_issued, useless_per_issued, duplicate proxy, failure flag
-
-residual-side:
-  demand_miss_rate, covered_on_time, coverage_among_misses,
-  late_rate_among_misses, residual_share_of_misses,
-  pf_duplicate_rate, event file
+02_run_prefetch_behavior_audit.sh     # removed; 06 is the unified behavior runner
+17_parse_prefetch_behavior_audit.py   # removed; duplicate parser replaced by 01
 ```
 
-Final joined table:
+## Current normal-prefetcher goal
+
+Before changing the LSTM input features or labels, collect the same kind of information for every working normal prefetcher:
 
 ```text
-formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_all_metrics.csv
+counter behavior: IPC, speedup, L2 miss rate, miss reduction, accuracy, nodup accuracy, timeliness, late rate, duplicate proxy
+residual behavior: demand miss rate, covered-on-time count, coverage among original misses, late rate, residual miss/share, duplicate event rate
+joined planning table: one row per trace/prefetcher with behavior_* and residual_* fields
 ```
 
-This table should drive the next LSTM changes. The notebook should become base-aware instead of hard-coded to SPP.
+Default stable normal prefetchers:
 
-## Step 1: counter-level base-prefetcher zoo audit
+```text
+no_pref stride streamer ampm spp ipcp sms sandbox power7
+```
 
-Run from the repo root on the cluster.
+These are the prefetchers that completed useful 25M/25M runs in the current Pythia fork. Other names from the Pythia multi-L2 prefetcher file can still be tested manually by overriding `PREFETCHERS`, but they are not default because they produced failed/no-final-stat logs in this setup.
+
+## Full metric collection commands
+
+Run these from the repo root on the cluster.
+
+### 1. Counter-level behavior audit
 
 ```bash
 cd ~/cache
 git pull
 
 TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B" \
+PREFETCHERS="no_pref stride streamer ampm spp ipcp sms sandbox power7" \
 WARMUP=25000000 \
 SIM=25000000 \
 MAX_JOBS=6 \
@@ -68,64 +68,21 @@ NODUP=1 \
 bash formal_NN_training/scripts/06_run_base_prefetcher_zoo_audit.sh
 ```
 
-Default zoo:
-
-```text
-no_pref next_line stride streamer ampm bop spp ipcp sms bingo mlop sandbox scooby dspatch power7
-```
-
 Output:
 
 ```text
-formal_NN_training/results/base_prefetcher_zoo/logs/
-formal_NN_training/results/base_prefetcher_zoo/summary_nodup.csv
-formal_NN_training/results/base_prefetcher_zoo/RUN_INFO.txt
+formal_NN_training/results/base_prefetcher_zoo/behavior_audit/logs/
+formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary_nodup.csv
+formal_NN_training/results/base_prefetcher_zoo/behavior_audit/RUN_INFO.txt
 ```
 
-View top prefetchers per trace:
-
-```bash
-python3 - <<'PY'
-import csv
-from collections import defaultdict
-p="formal_NN_training/results/base_prefetcher_zoo/summary_nodup.csv"
-rows=list(csv.DictReader(open(p)))
-by=defaultdict(list)
-for r in rows:
-    if r.get("run_failed") == "1":
-        continue
-    by[r["trace"]].append(r)
-for tr, rs in by.items():
-    rs=sorted(rs, key=lambda r: float(r.get("speedup_vs_no_pref") or 0), reverse=True)
-    print("\n==", tr, "==")
-    for r in rs[:8]:
-        print(f'{r["prefetcher"]:12s} speedup={float(r["speedup_vs_no_pref"]):.4f} '
-              f'miss_red={float(r["miss_reduction_vs_no_pref"]):.4f} '
-              f'nodup_acc={float(r["nodup_accuracy"]):.4f} '
-              f'time={float(r["timeliness"]):.4f}')
-PY
-```
-
-Important: some Pythia prefetchers may fail in the current build/config. `01_parse_prefetch_behavior_audit.py` now marks those rows with `run_failed=1`, so do not treat IPC=0 rows as real results.
-
-## Step 2: demand-centric residual audit for working normal prefetchers
-
-Run residual audit only for prefetchers that produced valid counter-level logs. Current working set from the first zoo run:
-
-```text
-no_pref stride streamer ampm spp ipcp sms sandbox power7
-```
-
-Run:
+### 2. Demand-centric residual audit
 
 ```bash
 cd ~/cache
-git pull
-
-WORKING_PREFS="no_pref stride streamer ampm spp ipcp sms sandbox power7"
 
 TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B" \
-PREFETCHERS="$WORKING_PREFS" \
+PREFETCHERS="no_pref stride streamer ampm spp ipcp sms sandbox power7" \
 OUT_ROOT=formal_NN_training/results/base_prefetcher_zoo/residual_audit \
 WARMUP=25000000 \
 SIM=25000000 \
@@ -139,86 +96,123 @@ bash formal_NN_training/scripts/05_run_residual_demand_audit.sh
 Output:
 
 ```text
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/events/*.events.csv.gz
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/logs/*.log
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/events/*.events.csv.gz  # large, ignored
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/logs/*.log              # ignored
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv             # small, tracked
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt            # small, tracked
 ```
 
-Main residual-audit metrics:
-
-```text
-demand_miss_rate          # direct L2 demand-load miss rate under this prefetcher
-covered_on_time           # original miss-pool accesses converted to prefetched hits
-coverage_among_misses     # covered_on_time / original_miss_pool
-late_rate_among_misses    # demand miss merged with in-flight prefetch
-pf_duplicate_rate         # duplicate/merged prefetch-request proxy
-residual_share_of_misses  # current residual miss pool / original miss pool
-```
-
-## Step 3: join all normal-prefetcher information
+### 3. Join behavior + residual summaries
 
 ```bash
 python3 formal_NN_training/scripts/07_join_normal_prefetcher_metrics.py \
-  --behavior formal_NN_training/results/base_prefetcher_zoo/summary_nodup.csv \
+  --behavior formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary_nodup.csv \
   --residual formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv \
-  --out formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_all_metrics.csv
+  --out formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
 ```
 
-View final table:
+Final output for LSTM planning:
+
+```text
+formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
+```
+
+Quick view by best speedup:
 
 ```bash
-column -t -s, formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_all_metrics.csv | less -S
+python3 - <<'PY'
+import csv
+from collections import defaultdict
+path="formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv"
+rows=list(csv.DictReader(open(path)))
+by=defaultdict(list)
+for r in rows:
+    if r.get("behavior_run_failed") == "1":
+        continue
+    by[r["trace"]].append(r)
+for tr, rs in by.items():
+    rs=sorted(rs, key=lambda r: float(r.get("behavior_speedup_vs_no_pref") or 0), reverse=True)
+    print("\n==", tr, "==")
+    for r in rs[:8]:
+        print(f'{r["prefetcher"]:10s} speedup={float(r.get("behavior_speedup_vs_no_pref") or 0):.4f} '
+              f'miss_red={float(r.get("behavior_miss_reduction_vs_no_pref") or 0):.4f} '
+              f'nodup_acc={float(r.get("behavior_nodup_accuracy") or 0):.4f} '
+              f'time={float(r.get("behavior_timeliness") or 0):.4f} '
+              f'cov={float(r.get("residual_coverage_among_misses") or 0):.4f} '
+              f'residual_share={float(r.get("residual_residual_share_of_misses") or 0):.4f}')
+PY
 ```
 
-## Current interpretation from the first zoo run
+## Current interpretation from the first behavior zoo audit
+
+The first 25M/25M counter-level sweep showed that SPP is not uniformly the best classical base prefetcher.
 
 ```text
 602.gcc_s-734B:
   best observed base: sandbox
-  also strong: streamer, power7, ampm, spp
-  interpretation: SPP is not the strongest base here; protect strong classical baselines.
+  sandbox speedup ≈ 1.1855, SPP speedup ≈ 1.1640
+  Interpretation: SPP is strong, but sandbox/streamer/ampm/power7 are stronger classical baselines. A booster should be compared against the best base, not only against SPP.
 
 619.lbm_s-4268B:
   best observed base: sms
-  SPP remains close and has clear timing/duplicate weakness.
-  interpretation: still useful for LSTM+SPP timing/gating story, but SMS is the stronger classical baseline.
+  sms speedup ≈ 1.1834, SPP speedup ≈ 1.1780
+  Interpretation: SPP+LSTM is still useful as a timing/duplicate case, but SMS is the strongest classical base from the current sweep.
 
 605.mcf_s-994B:
-  best observed bases: ampm / spp by IPC, sms by miss reduction
-  interpretation: SPP is weak by coverage; try AMPM/SMS residual data before changing model architecture.
+  best observed bases: ampm and spp around 1.0304 speedup
+  AMPM has much better miss reduction than SPP, while IPC gain is similar.
+  Interpretation: SPP-only residual failure is not purely an LSTM failure; the base prefetcher matters.
 
 620.omnetpp_s-874B:
   best observed base: sms
-  also useful: sandbox, power7, streamer
-  interpretation: SPP is a poor base; switch base before blaming LSTM.
+  sms speedup ≈ 1.0398, SPP speedup ≈ 1.0050
+  Interpretation: SPP is the wrong base for this trace if the goal is best classical prefetcher + NN.
 
 623.xalancbmk_s-700B:
-  best observed base: spp, but gain is tiny
-  many aggressive prefetchers hurt IPC
-  interpretation: combination-sensitive / pollution-sensitive; use conservative gating or no-prefetch detector.
+  best observed base: spp, but only about 1.0020 speedup
+  aggressive prefetchers often hurt IPC.
+  Interpretation: this is a conservative/gating trace; naive combination is risky.
 ```
 
 High-level conclusion:
 
 ```text
-SPP-only story is no longer enough.
-The next notebook should be base-aware:
-  BASE_PREFETCHER in {spp, sms, ampm, sandbox, streamer, power7, stride}
+Use the normal-prefetcher metrics table to choose trace-specific base prefetchers.
+Do not hard-code the new LSTM notebook to SPP only.
+However, keep 619 SPP+LSTM as the first replay candidate because the offline booster signal was strongest there.
+```
 
-First keep 619 SPP+LSTM as the demonstrable neural signal.
-For 605/620, first switch the base prefetcher, then train the residual booster.
-For 623, be conservative; aggressive prefetchers mostly hurt.
+## First LSTM residual-booster target
+
+Old LSTM notebooks are kept as reference. New residual-booster notebooks should be added separately.
+
+Recommended first notebook:
+
+```text
+formal_NN_training/LSTM/notebooks/LSTM_residual_booster_spp.ipynb
+```
+
+Next notebook change:
+
+```text
+BASE_PREFETCHER = "spp" / "sms" / "ampm" / "sandbox" / ...
+```
+
+First model scope:
+
+```text
+input:  recent demand stream + selected base prefetcher request/output context
+output: residual useful prefetch / residual delta / timing bin
+seq_len: 64 / 128 / 256, not 2048 by default
+metrics: demand miss reduction, duplicate rate, late rate, nodup accuracy, IPC speedup
 ```
 
 ## Planned matrix
 
 ```text
-normal prefetcher: trace-selected base first; SPP kept as comparison
+normal prefetcher: trace-specific best base first; SPP retained for comparison
 NN:                LSTM first, tiny Transformer later
 size/#params:      small / medium / large
-seq_len:           64 / 128 / 256, not 2048 by default
-metrics:           accuracy, nodup accuracy, timeliness, coverage/residual share, miss reduction, IPC speedup
+seq_len:           64 / 128 / 256
+metrics:           accuracy, nodup accuracy, timeliness, demand coverage, residual share, IPC speedup
 ```
-
-Old LSTM notebooks are kept as reference. New residual-booster notebooks should be added separately instead of overwriting the old ones.
