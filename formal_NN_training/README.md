@@ -22,7 +22,7 @@ formal_NN_training/scripts/04_parse_residual_demand_audit.py
 formal_NN_training/scripts/05_run_residual_demand_audit.sh
 ```
 
-Note: old numbered scripts that depended on the previous ChampSim `config.sh`, `spp_dev` patching, `champsim.l2_replayer`, or `PFETCH_LIST_PATH` replay flow are no longer the current Pythia workflow.
+Note: old scripts that depended on the previous ChampSim `config.sh`, `spp_dev` patching, `champsim.l2_replayer`, or `PFETCH_LIST_PATH` replay flow are no longer the current Pythia workflow.
 
 ## Step 1: prefetcher behavior audit
 
@@ -100,7 +100,7 @@ nodup_accuracy            # pf_useful / (pf_issued - pq_merged_duplicate_proxy)
 timeliness                # pf_useful / (pf_useful + pf_late)
 ```
 
-Important: `coverage_vs_no_pref_l2_miss` is only a rough useful-prefetch proxy from ChampSim counters and can be misleading. Use `miss_reduction_vs_no_pref` plus IPC as the safer first-pass coverage signal. True residual labels need the Step 2 demand-centric table.
+Important: `coverage_vs_no_pref_l2_miss` in the counter-level audit is only a rough useful-prefetch proxy. The demand-centric residual audit below is the better source for residual labels.
 
 ## Step 2: demand-centric residual audit
 
@@ -156,13 +156,14 @@ Main residual-audit metrics:
 
 ```text
 demand_miss_rate          # direct L2 demand-load miss rate under this prefetcher
-coverage_among_misses     # covered_on_time / (covered_on_time + demand_miss), valid only if event rows contain prefetch-use flags
+covered_on_time           # original miss-pool accesses converted to prefetched hits
+coverage_among_misses     # covered_on_time / original_miss_pool
 late_rate_among_misses    # demand miss merged with in-flight prefetch
 pf_duplicate_rate         # duplicate/merged prefetch-request proxy
-residual_share_of_misses  # demand_miss / (covered_on_time + demand_miss), currently not final because covered_on_time is still zero
+residual_share_of_misses  # current residual miss pool / original miss pool
 ```
 
-Parser note: use `04_parse_residual_demand_audit.py`. The parser now looks for prefetch-use flags on demand-hit rows, but the latest event logs still show `covered_on_time = 0` for every prefetcher. Since SPP clearly reduces demand miss rate on some traces, this means the current event logger is not exposing a reliable on-time-prefetch-use flag yet. Until that logger field is fixed, do not use `covered_on_time`, `coverage_among_misses`, or `residual_share_of_misses` as final labels. Use `demand_miss_rate`, miss-rate reduction versus no-prefetch, `late_rate_among_misses`, `pf_duplicate_rate`, and IPC counters for interpretation.
+Parser note: use `04_parse_residual_demand_audit.py`. The coverage attribution is now nonzero and consistent with the miss-rate reductions for SPP-strong traces. Small differences between `original_miss_pool` and the exact no-prefetch miss count are expected because each prefetcher run can slightly perturb timing/path behavior.
 
 ## Current interpretation from 5-trace residual audit
 
@@ -170,38 +171,50 @@ Latest 25M/25M residual audit with `PREFETCHERS="no_pref spp ipcp spp_ipcp"`:
 
 ```text
 602.gcc_s-734B:
-  no_pref miss_rate ≈ 0.5025
-  SPP miss_rate     ≈ 0.1753
-  SPP late_rate     ≈ 0.0054
-  SPP duplicate     ≈ 0.0008
+  no_pref miss_rate      ≈ 0.5025
+  SPP miss_rate          ≈ 0.1753
+  SPP coverage           ≈ 65.1% of original miss pool
+  SPP residual share     ≈ 34.9%
+  SPP late_rate          ≈ 0.54%
+  SPP duplicate          ≈ 0.08%
   Interpretation: SPP is very strong on this trace. NN should be conservative: avoid hurting SPP, maybe learn low-risk residual/gating only.
 
 619.lbm_s-4268B:
-  no_pref miss_rate ≈ 0.9987
-  SPP miss_rate     ≈ 0.7655
-  SPP late_rate     ≈ 0.2804
-  SPP duplicate     ≈ 0.3317
+  no_pref miss_rate      ≈ 0.9987
+  SPP miss_rate          ≈ 0.7655
+  SPP coverage           ≈ 23.3%
+  SPP residual share     ≈ 76.7%
+  SPP late_rate          ≈ 28.0%
+  SPP duplicate          ≈ 33.2%
   Interpretation: SPP helps but has serious timeliness and duplicate problems. This is the best trace for timing-aware NN/gating.
 
 605.mcf_s-994B:
-  no_pref miss_rate ≈ 0.7513
-  SPP miss_rate     ≈ 0.7464
-  SPP late_rate     ≈ 0.0015
-  SPP duplicate     ≈ 0.0095
-  Interpretation: SPP barely helps. This is the best trace for residual NN to learn blind spots, but it may also be intrinsically hard/pointer-chase-like.
+  no_pref miss_rate      ≈ 0.7513
+  SPP miss_rate          ≈ 0.7464
+  SPP coverage           ≈ 0.7%
+  SPP residual share     ≈ 99.3%
+  SPP late_rate          ≈ 0.15%
+  SPP duplicate          ≈ 0.95%
+  Interpretation: SPP barely helps. This is a residual/blind-spot trace, but it may also be intrinsically hard/pointer-chase-like.
 
 620.omnetpp_s-874B:
-  no_pref miss_rate ≈ 0.7013
-  SPP miss_rate     ≈ 0.7008
-  IPCP miss_rate    ≈ 0.6981
-  SPP+IPCP miss_rate≈ 0.6978
+  no_pref miss_rate      ≈ 0.7013
+  SPP miss_rate          ≈ 0.7008
+  IPCP miss_rate         ≈ 0.6981
+  SPP+IPCP miss_rate     ≈ 0.6978
+  SPP coverage           ≈ 0.02%
+  IPCP coverage          ≈ 0.68%
+  SPP+IPCP coverage      ≈ 0.69%
   Interpretation: SPP is almost useless; IPCP is slightly better but still weak. This is another residual/blind-spot trace.
 
 623.xalancbmk_s-700B:
-  no_pref miss_rate ≈ 0.3696
-  SPP miss_rate     ≈ 0.3608
-  IPCP miss_rate    ≈ 0.3785
-  SPP+IPCP miss_rate≈ 0.3697
+  no_pref miss_rate      ≈ 0.3696
+  SPP miss_rate          ≈ 0.3608
+  IPCP miss_rate         ≈ 0.3785
+  SPP+IPCP miss_rate     ≈ 0.3697
+  SPP coverage           ≈ 0.26%
+  IPCP coverage          ≈ 0.62% but worse miss rate
+  SPP+IPCP coverage      ≈ 0.92% but no net benefit over no_pref
   Interpretation: SPP gives a small improvement; IPCP hurts; SPP+IPCP loses SPP's benefit. Treat as medium/weak SPP case and avoid naive prefetcher combining.
 ```
 
@@ -215,7 +228,10 @@ SPP-timing/duplicate problem trace:
   619
 
 SPP-weak / residual-blind-spot traces:
-  605, 620, 623
+  605, 620
+
+SPP-small-gain / combination-sensitive trace:
+  623
 
 IPCP status:
   IPCP is not a strong baseline in the current configuration. Keep it in the matrix as a comparison/ablation, but the first NN notebook should focus on LSTM + SPP.
@@ -238,10 +254,10 @@ base = SPP
 residual_label = demand miss under SPP run
 ```
 
-Better final label after validating on-time attribution:
+Better label when using the no-prefetch original miss pool:
 
 ```text
-residual_label = demand miss AND not covered in time by SPP
+residual_label = original no-prefetch miss that SPP did not cover in time
 ```
 
 First model scope:
