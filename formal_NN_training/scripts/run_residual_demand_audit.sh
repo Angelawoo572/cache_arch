@@ -2,9 +2,8 @@
 # Run demand-centric residual audit for SPP/IPCP on Pythia.
 #
 # This is Step 2 after counter-level behavior audit.
-# It patches external/ChampSim/src/cache.cc to emit event CSVs when
-# RESIDUAL_AUDIT_LOG is set, rebuilds the Pythia multi-prefetcher binary, and
-# runs traces/prefetchers in parallel.
+# It emits one demand-centric event CSV per trace/prefetcher using a Pythia
+# binary that has already been patched for RESIDUAL_AUDIT_LOG.
 #
 # Default formal run:
 #   cd ~/cache
@@ -12,6 +11,10 @@
 #   TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
 #   PREFETCHERS="no_pref spp ipcp spp_ipcp" \
 #   WARMUP=25000000 SIM=25000000 MAX_JOBS=3 FORCE_REPLAY=1 \
+#     bash formal_NN_training/scripts/run_residual_demand_audit.sh
+#
+# Add more traces without rebuilding if the patched binary already exists:
+#   TRACES="620.omnetpp_s-874B 623..." BUILD=0 FORCE_REPLAY=0 \
 #     bash formal_NN_training/scripts/run_residual_demand_audit.sh
 #
 # Output:
@@ -122,13 +125,21 @@ pref_cfg () {
 }
 
 patch_and_build () {
-  RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" \
-    bash formal_NN_training/scripts/20_patch_pythia_residual_logger.sh
-
   if [ "$BUILD" != "1" ] && [ -x "$BIN" ]; then
-    echo "[build skip] BUILD=$BUILD existing binary: $BIN"
+    echo "[patch/build skip] BUILD=$BUILD existing binary: $BIN"
+    echo "                   assuming this binary already supports RESIDUAL_AUDIT_LOG"
     return 0
   fi
+
+  local patch_script="formal_NN_training/scripts/20_patch_pythia_residual_logger.sh"
+  if [ ! -f "$patch_script" ]; then
+    echo "[error] missing $patch_script"
+    echo "        Your current repo can reuse an already-patched binary with BUILD=0."
+    echo "        For a fresh rebuild, restore/add the residual logger patch script first."
+    exit 1
+  fi
+
+  RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" bash "$patch_script"
 
   ensure_libbf
   echo "[build] rebuilding patched Pythia multi-L2 binary"
@@ -220,6 +231,7 @@ MAX_JOBS=$MAX_JOBS
 FORCE_REPLAY=$FORCE_REPLAY
 COMPRESS=$COMPRESS
 RESET_PATCH=$RESET_PATCH
+BUILD=$BUILD
 EOF
 
 running=0
