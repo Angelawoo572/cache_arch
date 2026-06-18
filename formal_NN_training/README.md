@@ -15,9 +15,9 @@ results/LSTM/draft/       # old LSTM artifacts/results kept only as draft histor
 Active audit scripts:
 
 ```text
-formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py
+formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py
 formal_NN_training/scripts/run_prefetch_behavior_audit.sh
-formal_NN_training/scripts/19_parse_residual_demand_audit.py
+formal_NN_training/scripts/04_parse_residual_demand_audit.py
 formal_NN_training/scripts/run_residual_demand_audit.sh
 ```
 
@@ -128,7 +128,7 @@ bash formal_NN_training/scripts/run_residual_demand_audit.sh
 If the event files already exist and only the summary needs to be regenerated:
 
 ```bash
-python3 formal_NN_training/scripts/19_parse_residual_demand_audit.py \
+python3 formal_NN_training/scripts/04_parse_residual_demand_audit.py \
   --event-root formal_NN_training/results/LSTM/residual_audit/events \
   --out formal_NN_training/results/LSTM/residual_audit/summary.csv \
   --traces "602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B $T620 $T623" \
@@ -155,12 +155,13 @@ Main residual-audit metrics:
 
 ```text
 demand_miss_rate          # direct L2 demand-load miss rate under this prefetcher
+coverage_among_misses     # covered_on_time / (covered_on_time + demand_miss)
 late_rate_among_misses    # demand miss merged with in-flight prefetch
 pf_duplicate_rate         # duplicate/merged prefetch-request proxy
-residual_miss             # current demand misses left after base prefetcher
+residual_share_of_misses  # demand_miss / (covered_on_time + demand_miss)
 ```
 
-Current caveat: in the latest 5-trace residual summary, `covered_on_time_rate` is zero for every prefetcher even when SPP clearly reduces demand miss rate. Therefore `covered_on_time_rate` / `coverage_among_misses` should not be used yet. Treat this as a logger/parser attribution issue. For now, use demand miss-rate reduction, late rate, duplicate rate, and IPC/log counters to classify traces. Before training final residual labels, fix or replace the on-time coverage attribution.
+Parser fix note: use `04_parse_residual_demand_audit.py`. The older 19 parser counted `covered_on_time` only inside miss rows, which made coverage look like zero. The fixed parser counts on-time coverage on demand hit rows with prefetch-use flags.
 
 ## Current interpretation from 5-trace residual audit
 
@@ -206,7 +207,7 @@ Latest 25M/25M residual audit with `PREFETCHERS="no_pref spp ipcp spp_ipcp"`:
 High-level conclusion:
 
 ```text
-SPP-strong / protect-Spp trace:
+SPP-strong / protect-SPP trace:
   602
 
 SPP-timing/duplicate problem trace:
@@ -236,7 +237,7 @@ base = SPP
 residual_label = demand miss under SPP run
 ```
 
-Better final label after fixing on-time attribution:
+Better final label after validating on-time attribution:
 
 ```text
 residual_label = demand miss AND not covered in time by SPP
