@@ -145,6 +145,14 @@ projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
 # Raw generated event CSVs stay local.
 formal_NN_training/data/generated/
 
+# Local generated Pythia config snippets. Scripts recreate these.
+formal_NN_training/_cfg/
+
+# Local scratch scripts copied from cluster experiments. Promote/rename only the
+# stable versions that should become part of the shared workflow.
+formal_NN_training/scripts/local_*.py
+formal_NN_training/scripts/local_*.sh
+
 # Colab upload splits are allowed when intentionally added, because Colab can pull
 # these directly from GitHub. Raw generated CSVs stay ignored.
 formal_NN_training/data/upload/*
