@@ -131,7 +131,7 @@ patch_and_build () {
     return 0
   fi
 
-  local patch_script="formal_NN_training/scripts/20_patch_pythia_residual_logger.sh"
+  local patch_script="formal_NN_training/scripts/03_patch_pythia_residual_logger.sh"
   if [ ! -f "$patch_script" ]; then
     echo "[error] missing $patch_script"
     echo "        Your current repo can reuse an already-patched binary with BUILD=0."
