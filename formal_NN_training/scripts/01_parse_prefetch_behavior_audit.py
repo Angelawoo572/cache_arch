@@ -11,6 +11,18 @@ from pathlib import Path
 
 KEY_VAL_RE = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED_RE = re.compile(r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+cumulative IPC:\s+([-+0-9.eE]+)")
+FAIL_PATTERNS = [
+    "ZOO_RUN_FAILED",
+    "unsupported prefetcher type",
+    "Segmentation fault",
+    "Assertion",
+    "assert",
+    "terminate called",
+    "runtime error",
+    "ERROR:",
+    "Error:",
+    "error:",
+]
 
 
 def to_float(x, default=0.0):
@@ -29,14 +41,23 @@ def div(a, b):
 
 
 def parse_log(path):
-    stats = {}
+    stats = {"run_failed": 0.0, "fail_reason": ""}
     if not path.exists() or path.stat().st_size == 0:
         stats["log_missing"] = 1.0
+        stats["run_failed"] = 1.0
+        stats["fail_reason"] = "missing_or_empty_log"
         return stats
 
     with path.open(errors="ignore") as f:
         for line in f:
-            line = line.strip()
+            raw = line.rstrip("\n")
+            line = raw.strip()
+            if stats["run_failed"] == 0.0:
+                for pat in FAIL_PATTERNS:
+                    if pat in raw:
+                        stats["run_failed"] = 1.0
+                        stats["fail_reason"] = raw[:180]
+                        break
             m = KEY_VAL_RE.match(line)
             if m:
                 stats[m.group(1)] = to_float(m.group(2))
@@ -46,6 +67,7 @@ def parse_log(path):
                 stats["finished_instructions"] = to_float(m.group(1))
                 stats["finished_cycles"] = to_float(m.group(2))
                 stats["finished_ipc"] = to_float(m.group(3))
+    stats["log_missing"] = 0.0
     return stats
 
 
@@ -59,6 +81,12 @@ def summarize_one(trace, prefetcher, log, nodup):
     ipc = get(s, "Core_0_IPC") or get(s, "finished_ipc")
     cycles = get(s, "Core_0_cycles") or get(s, "finished_cycles")
     inst = get(s, "Core_0_instructions") or get(s, "finished_instructions")
+
+    # If the log exists but has no final IPC/instruction stats, treat it as failed.
+    if not get(s, "log_missing") and not ipc and not inst:
+        s["run_failed"] = 1.0
+        if not s.get("fail_reason"):
+            s["fail_reason"] = "no_final_stats"
 
     l2_loads = get(s, "Core_0_L2C_loads")
     l2_load_miss = get(s, "Core_0_L2C_load_miss")
@@ -81,6 +109,8 @@ def summarize_one(trace, prefetcher, log, nodup):
         "prefetcher": prefetcher,
         "log": str(log),
         "log_missing": int(get(s, "log_missing")),
+        "run_failed": int(get(s, "run_failed")),
+        "fail_reason": s.get("fail_reason", ""),
         "ipc": ipc,
         "instructions": int(inst),
         "cycles": int(cycles),
@@ -144,7 +174,7 @@ def write_csv(path, rows):
         "accuracy", "nodup_accuracy", "selected_accuracy",
         "coverage_vs_no_pref_l2_miss", "useful_per_l2_miss_self",
         "timeliness", "late_per_issued", "drop_rate", "useless_per_issued",
-        "nodup_mode", "log_missing", "log",
+        "nodup_mode", "run_failed", "fail_reason", "log_missing", "log",
     ]
     with path.open("w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
@@ -173,12 +203,14 @@ def main():
 
     print("[write] {}".format(args.out))
     for r in rows:
+        status = " FAILED" if int(r.get("run_failed", 0)) else ""
         print(
-            "[audit] {trace} {prefetcher} IPC={ipc:.6f} speedup={speedup:.4f} "
+            "[audit] {trace} {prefetcher}{status} IPC={ipc:.6f} speedup={speedup:.4f} "
             "acc={acc:.4f} nodup_acc={nodup_acc:.4f} coverage={coverage:.4f} "
             "timeliness={timeliness:.4f}".format(
                 trace=r["trace"],
                 prefetcher=r["prefetcher"],
+                status=status,
                 ipc=to_float(r["ipc"]),
                 speedup=to_float(r.get("speedup_vs_no_pref")),
                 acc=to_float(r["accuracy"]),
