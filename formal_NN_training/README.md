@@ -156,13 +156,13 @@ Main residual-audit metrics:
 
 ```text
 demand_miss_rate          # direct L2 demand-load miss rate under this prefetcher
-coverage_among_misses     # covered_on_time / (covered_on_time + demand_miss)
+coverage_among_misses     # covered_on_time / (covered_on_time + demand_miss), valid only if event rows contain prefetch-use flags
 late_rate_among_misses    # demand miss merged with in-flight prefetch
 pf_duplicate_rate         # duplicate/merged prefetch-request proxy
-residual_share_of_misses  # demand_miss / (covered_on_time + demand_miss)
+residual_share_of_misses  # demand_miss / (covered_on_time + demand_miss), currently not final because covered_on_time is still zero
 ```
 
-Parser fix note: use `04_parse_residual_demand_audit.py`. The older 19 parser counted `covered_on_time` only inside miss rows, which made coverage look like zero. The fixed parser counts on-time coverage on demand hit rows with prefetch-use flags.
+Parser note: use `04_parse_residual_demand_audit.py`. The parser now looks for prefetch-use flags on demand-hit rows, but the latest event logs still show `covered_on_time = 0` for every prefetcher. Since SPP clearly reduces demand miss rate on some traces, this means the current event logger is not exposing a reliable on-time-prefetch-use flag yet. Until that logger field is fixed, do not use `covered_on_time`, `coverage_among_misses`, or `residual_share_of_misses` as final labels. Use `demand_miss_rate`, miss-rate reduction versus no-prefetch, `late_rate_among_misses`, `pf_duplicate_rate`, and IPC counters for interpretation.
 
 ## Current interpretation from 5-trace residual audit
 
