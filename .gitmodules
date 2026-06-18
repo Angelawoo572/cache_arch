@@ -1,7 +1,7 @@
 [submodule "external/ChampSim"]
 	path = external/ChampSim
 	url = git@github.com:Angelawoo572/ChampSim.git
-	ignore = untracked
+	ignore = dirty
 [submodule "external/ChampSim-ML"]
 	path = external/ChampSim-ML
 	url = git@github.com:Quangmire/ChampSim.git
