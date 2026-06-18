@@ -18,9 +18,10 @@ Active audit scripts:
 formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py
 formal_NN_training/scripts/run_prefetch_behavior_audit.sh
 formal_NN_training/scripts/19_parse_residual_demand_audit.py
-formal_NN_training/scripts/20_patch_pythia_residual_logger.sh
 formal_NN_training/scripts/run_residual_demand_audit.sh
 ```
+
+Note: old numbered scripts that depended on the previous ChampSim `config.sh`, `spp_dev` patching, `champsim.l2_replayer`, or `PFETCH_LIST_PATH` replay flow are no longer the current Pythia workflow.
 
 ## Step 1: prefetcher behavior audit
 
@@ -100,61 +101,39 @@ timeliness                # pf_useful / (pf_useful + pf_late)
 
 Important: `coverage_vs_no_pref_l2_miss` is only a rough useful-prefetch proxy from ChampSim counters and can be misleading. Use `miss_reduction_vs_no_pref` plus IPC as the safer first-pass coverage signal. True residual labels need the Step 2 demand-centric table.
 
-## Current interpretation from the 3-trace audit
-
-Latest FORCE_REPLAY audit with `PREFETCHERS="no_pref spp ipcp spp_ipcp"`, 25M/25M, `NODUP=1`:
-
-```text
-602.gcc_s-734B:
-  SPP speedup ≈ 1.16x, timeliness ≈ 0.998, nodup accuracy ≈ 0.059.
-  IPCP alone ≈ no-prefetch; SPP+IPCP ≈ SPP.
-  Interpretation: SPP is doing useful work, but precision is low. First NN target should be nodup/resource gating and maybe residual misses, not replacing SPP.
-
-619.lbm_s-4268B:
-  SPP speedup ≈ 1.18x, timeliness ≈ 0.745, nodup accuracy ≈ 0.082.
-  IPCP alone ≈ no-prefetch; SPP+IPCP ≈ SPP.
-  Interpretation: SPP helps, but timeliness is the obvious weakness. First NN target should be timing-aware gating / residual timing, not aggressive extra prefetching.
-
-605.mcf_s-994B:
-  SPP speedup ≈ 1.03x, low useful-prefetch proxy coverage, nodup accuracy ≈ 0.020.
-  IPCP alone ≈ no-prefetch; SPP+IPCP ≈ SPP.
-  Interpretation: SPP barely helps. This is the best first trace for residual NN: learn demand misses SPP did not cover.
-```
-
 ## Step 2: demand-centric residual audit
 
-The counter audit above is not enough to build final NN labels. Step 2 patches local Pythia to log one row per L2C demand LOAD access plus every L2C prefetch request, then summarizes where each base prefetcher failed.
+The counter audit is not enough to build final NN labels. Step 2 logs one row per L2C demand LOAD access plus every L2C prefetch request, then summarizes where each base prefetcher failed.
 
-### Full SPP/IPCP/combined residual audit
+### Full 5-trace SPP/IPCP/combined residual audit
 
 ```bash
 cd ~/cache
 git pull
 
-TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+T620=$(basename "$(ls traces/620*.champsimtrace.xz | head -1)" .champsimtrace.xz)
+T623=$(basename "$(ls traces/623*.champsimtrace.xz | head -1)" .champsimtrace.xz)
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B $T620 $T623" \
 PREFETCHERS="no_pref spp ipcp spp_ipcp" \
 WARMUP=25000000 \
 SIM=25000000 \
-MAX_JOBS=3 \
-FORCE_REPLAY=1 \
-RESET_PATCH=1 \
+MAX_JOBS=4 \
+FORCE_REPLAY=0 \
+BUILD=0 \
+COMPRESS=1 \
 bash formal_NN_training/scripts/run_residual_demand_audit.sh
 ```
 
-Smoke test before the full run:
+If the event files already exist and only the summary needs to be regenerated:
 
 ```bash
-cd ~/cache
-git pull
-
-TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
-PREFETCHERS="no_pref spp ipcp spp_ipcp" \
-WARMUP=1000000 \
-SIM=1000000 \
-MAX_JOBS=3 \
-FORCE_REPLAY=1 \
-RESET_PATCH=1 \
-bash formal_NN_training/scripts/run_residual_demand_audit.sh
+python3 formal_NN_training/scripts/19_parse_residual_demand_audit.py \
+  --event-root formal_NN_training/results/LSTM/residual_audit/events \
+  --out formal_NN_training/results/LSTM/residual_audit/summary.csv \
+  --traces "602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B $T620 $T623" \
+  --prefetchers "no_pref spp ipcp spp_ipcp" \
+  --compressed
 ```
 
 Output:
@@ -175,19 +154,102 @@ column -t -s, formal_NN_training/results/LSTM/residual_audit/summary.csv
 Main residual-audit metrics:
 
 ```text
-covered_on_time_rate       # demand hit on a prefetched cache line
-late_rate_among_misses     # demand miss merged with in-flight prefetch
-residual_share_of_misses   # demand miss not covered and not late; residual NN target pool
-pf_duplicate_rate          # prefetch requests merged/duplicated in PQ
+demand_miss_rate          # direct L2 demand-load miss rate under this prefetcher
+late_rate_among_misses    # demand miss merged with in-flight prefetch
+pf_duplicate_rate         # duplicate/merged prefetch-request proxy
+residual_miss             # current demand misses left after base prefetcher
 ```
 
-The first LSTM residual label should be:
+Current caveat: in the latest 5-trace residual summary, `covered_on_time_rate` is zero for every prefetcher even when SPP clearly reduces demand miss rate. Therefore `covered_on_time_rate` / `coverage_among_misses` should not be used yet. Treat this as a logger/parser attribution issue. For now, use demand miss-rate reduction, late rate, duplicate rate, and IPC/log counters to classify traces. Before training final residual labels, fix or replace the on-time coverage attribution.
+
+## Current interpretation from 5-trace residual audit
+
+Latest 25M/25M residual audit with `PREFETCHERS="no_pref spp ipcp spp_ipcp"`:
+
+```text
+602.gcc_s-734B:
+  no_pref miss_rate ≈ 0.5025
+  SPP miss_rate     ≈ 0.1753
+  SPP late_rate     ≈ 0.0054
+  SPP duplicate     ≈ 0.0008
+  Interpretation: SPP is very strong on this trace. NN should be conservative: avoid hurting SPP, maybe learn low-risk residual/gating only.
+
+619.lbm_s-4268B:
+  no_pref miss_rate ≈ 0.9987
+  SPP miss_rate     ≈ 0.7655
+  SPP late_rate     ≈ 0.2804
+  SPP duplicate     ≈ 0.3317
+  Interpretation: SPP helps but has serious timeliness and duplicate problems. This is the best trace for timing-aware NN/gating.
+
+605.mcf_s-994B:
+  no_pref miss_rate ≈ 0.7513
+  SPP miss_rate     ≈ 0.7464
+  SPP late_rate     ≈ 0.0015
+  SPP duplicate     ≈ 0.0095
+  Interpretation: SPP barely helps. This is the best trace for residual NN to learn blind spots, but it may also be intrinsically hard/pointer-chase-like.
+
+620.omnetpp_s-874B:
+  no_pref miss_rate ≈ 0.7013
+  SPP miss_rate     ≈ 0.7008
+  IPCP miss_rate    ≈ 0.6981
+  SPP+IPCP miss_rate≈ 0.6978
+  Interpretation: SPP is almost useless; IPCP is slightly better but still weak. This is another residual/blind-spot trace.
+
+623.xalancbmk_s-700B:
+  no_pref miss_rate ≈ 0.3696
+  SPP miss_rate     ≈ 0.3608
+  IPCP miss_rate    ≈ 0.3785
+  SPP+IPCP miss_rate≈ 0.3697
+  Interpretation: SPP gives a small improvement; IPCP hurts; SPP+IPCP loses SPP's benefit. Treat as medium/weak SPP case and avoid naive prefetcher combining.
+```
+
+High-level conclusion:
+
+```text
+SPP-strong / protect-Spp trace:
+  602
+
+SPP-timing/duplicate problem trace:
+  619
+
+SPP-weak / residual-blind-spot traces:
+  605, 620, 623
+
+IPCP status:
+  IPCP is not a strong baseline in the current configuration. Keep it in the matrix as a comparison/ablation, but the first NN notebook should focus on LSTM + SPP.
+```
+
+## First LSTM residual-booster target
+
+Do not overwrite the old LSTM notebooks. Keep them as reference and create a new clean notebook for the residual-booster flow.
+
+Recommended first notebook:
+
+```text
+formal_NN_training/LSTM/notebooks/LSTM_residual_booster_spp.ipynb
+```
+
+First label concept:
+
+```text
+base = SPP
+residual_label = demand miss under SPP run
+```
+
+Better final label after fixing on-time attribution:
 
 ```text
 residual_label = demand miss AND not covered in time by SPP
 ```
 
-In the residual audit summary, this is approximated by `residual_miss` for the SPP run.
+First model scope:
+
+```text
+input:  recent demand stream + SPP request/output context
+output: residual useful prefetch / residual delta / timing bin
+seq_len: 64 / 128 / 256, not 2048 by default
+metrics: demand miss reduction, duplicate rate, late rate, nodup accuracy, IPC speedup
+```
 
 ## Planned matrix, after the audit is stable
 
