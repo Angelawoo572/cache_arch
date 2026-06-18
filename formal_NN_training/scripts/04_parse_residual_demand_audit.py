@@ -75,20 +75,23 @@ def demand_is_covered_on_time(row, hit):
     """Return True when this demand access hit because of a prior prefetch.
 
     Pythia/ChampSim variants use different names. In normal ChampSim stats,
-    a useful prefetch is usually recognized on the later demand hit, not on a
-    demand miss. Therefore we count covered_on_time on hit rows.
+    a useful prefetch is recognized on the later demand hit, not on the demand
+    miss. Our residual logger writes this signal as `was_prefetch`, so that
+    alias must be checked here.
     """
     explicit = is_truthy(row, [
-        "covered_on_time", "prefetch_hit", "hit_prefetch", "pf_hit",
-        "useful_prefetch", "prefetch_useful", "was_prefetched", "hit_on_prefetch",
-        "line_prefetched", "prefetch_bit", "prefetched",
+        "covered_on_time",
+        "was_prefetch", "was_prefetched", "prefetched",
+        "prefetch_hit", "hit_prefetch", "pf_hit",
+        "useful_prefetch", "prefetch_useful", "was_useful_prefetch",
+        "hit_on_prefetch", "line_prefetched", "prefetch_bit",
     ])
     if explicit and hit:
         return True
 
     # Some loggers put the access type/source instead of a boolean.
     source = str(pick(row, ["hit_source", "source", "fill_source", "line_source"], "")).lower()
-    if hit and ("pref" in source or "pf" == source):
+    if hit and ("pref" in source or source == "pf"):
         return True
 
     return False
@@ -258,34 +261,29 @@ def main():
         for pf in args.prefetchers.split():
             rows.append(summarize(trace, pf, args.event_root, args.compressed))
 
+    args.out.parent.mkdir(parents=True, exist_ok=True)
     fields = [
         "trace", "prefetcher", "demand", "demand_hit", "demand_miss", "demand_miss_rate",
         "covered_on_time", "covered_on_time_rate", "coverage_among_misses",
-        "late_prefetch", "late_rate_among_misses", "residual_miss", "residual_miss_rate",
-        "residual_share_of_misses", "original_miss_pool", "pf_requested_events", "pf_accepted_events",
-        "pf_duplicate_events", "pf_duplicate_rate", "pf_dropped_events", "pf_dropped_rate",
+        "late_prefetch", "late_rate_among_misses",
+        "residual_miss", "residual_miss_rate", "residual_share_of_misses",
+        "original_miss_pool",
+        "pf_requested_events", "pf_accepted_events", "pf_duplicate_events", "pf_duplicate_rate",
+        "pf_dropped_events", "pf_dropped_rate",
         "top_residual_pcs", "top_residual_deltas", "parse_error", "event_file",
     ]
-    args.out.parent.mkdir(parents=True, exist_ok=True)
     with args.out.open("w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        w.writeheader()
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
         for row in rows:
-            w.writerow(row)
+            writer.writerow(row)
 
-    print("[write] {}".format(args.out))
-    for r in rows:
+    print(f"[write] {args.out}")
+    for row in rows:
         print(
-            "[residual] {trace} {prefetcher} miss_rate={miss:.4f} covered={cov:.4f} "
-            "late={late:.4f} residual_share={res:.4f} pf_dup={dup:.4f}".format(
-                trace=r["trace"],
-                prefetcher=r["prefetcher"],
-                miss=float(r["demand_miss_rate"]),
-                cov=float(r["coverage_among_misses"]),
-                late=float(r["late_rate_among_misses"]),
-                res=float(r["residual_share_of_misses"]),
-                dup=float(r["pf_duplicate_rate"]),
-            )
+            "[residual] {trace} {prefetcher} miss_rate={demand_miss_rate:.4f} "
+            "covered={coverage_among_misses:.4f} late={late_rate_among_misses:.4f} "
+            "residual_share={residual_share_of_misses:.4f} pf_dup={pf_duplicate_rate:.4f}".format(**row)
         )
 
 
