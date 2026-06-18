@@ -1,26 +1,22 @@
 #!/usr/bin/env bash
-# Run demand-centric residual audit for SPP/IPCP on Pythia.
+# Run demand-centric residual audit for Pythia L2 prefetchers.
 #
-# This is Step 2 after counter-level behavior audit.
-# It emits one demand-centric event CSV per trace/prefetcher using a Pythia
+# This emits one demand-centric event CSV per trace/prefetcher using a Pythia
 # binary that has already been patched for RESIDUAL_AUDIT_LOG.
 #
 # Default formal run:
 #   cd ~/cache
 #   git pull
-#   TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
-#   PREFETCHERS="no_pref spp ipcp spp_ipcp" \
-#   WARMUP=25000000 SIM=25000000 MAX_JOBS=3 FORCE_REPLAY=1 \
-#     bash formal_NN_training/scripts/05_run_residual_demand_audit.sh
-#
-# Add more traces without rebuilding if the patched binary already exists:
-#   TRACES="620.omnetpp_s-874B 623..." BUILD=0 FORCE_REPLAY=0 \
+#   TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B" \
+#   PREFETCHERS="no_pref spp ipcp sms ampm sandbox streamer stride power7" \
+#   OUT_ROOT=formal_NN_training/results/base_prefetcher_zoo/residual_audit \
+#   WARMUP=25000000 SIM=25000000 MAX_JOBS=4 BUILD=0 COMPRESS=1 FORCE_REPLAY=0 \
 #     bash formal_NN_training/scripts/05_run_residual_demand_audit.sh
 #
 # Output:
-#   formal_NN_training/results/LSTM/residual_audit/events/*.events.csv.gz
-#   formal_NN_training/results/LSTM/residual_audit/logs/*.log
-#   formal_NN_training/results/LSTM/residual_audit/summary.csv
+#   $OUT_ROOT/events/*.events.csv.gz
+#   $OUT_ROOT/logs/*.log
+#   $OUT_ROOT/summary.csv
 
 set -euo pipefail
 
@@ -31,8 +27,11 @@ else
 fi
 cd "$ROOT"
 
-TRACES_STR="${TRACES:-602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B}"
-PREFETCHERS_STR="${PREFETCHERS:-no_pref spp ipcp spp_ipcp}"
+DEFAULT_TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B"
+DEFAULT_PREFETCHERS="no_pref spp ipcp sms ampm sandbox streamer stride power7"
+
+TRACES_STR="${TRACES:-$DEFAULT_TRACES}"
+PREFETCHERS_STR="${PREFETCHERS:-$DEFAULT_PREFETCHERS}"
 
 WARMUP="${WARMUP:-25000000}"
 SIM="${SIM:-25000000}"
@@ -81,47 +80,35 @@ ensure_libbf () {
   )
 }
 
-write_cfgs () {
-  cat > "$CFG_DIR/no_pref.ini" <<'EOF'
-l2c_prefetcher_types = none
-EOF
-
-  cat > "$CFG_DIR/spp.ini" <<'EOF'
-l2c_prefetcher_types = spp_dev2
-spp_dev2_fill_threshold = 90
-spp_dev2_pf_threshold = 40
-EOF
-
-  cat > "$CFG_DIR/ipcp.ini" <<'EOF'
-l2c_prefetcher_types = ipcp
-EOF
-
-  cat > "$CFG_DIR/spp_ipcp.ini" <<'EOF'
-l2c_prefetcher_types = spp_dev2
-l2c_prefetcher_types = ipcp
-spp_dev2_fill_threshold = 90
-spp_dev2_pf_threshold = 40
-EOF
-}
-
-pref_types_label () {
+pref_type () {
   case "$1" in
     no_pref|none|nopref) echo "none" ;;
     spp|spp_dev2) echo "spp_dev2" ;;
-    ipcp) echo "ipcp" ;;
-    spp_ipcp|spp+ipcp) echo "spp_dev2 + ipcp" ;;
+    spp_ppf|spp_ppf_dev) echo "spp_ppf_dev" ;;
+    spp_ipcp|spp+ipcp) echo "spp_dev2 ipcp" ;;
     *) echo "$1" ;;
   esac
 }
 
 pref_cfg () {
-  case "$1" in
-    no_pref|none|nopref) echo "$CFG_DIR/no_pref.ini" ;;
-    spp|spp_dev2) echo "$CFG_DIR/spp.ini" ;;
-    ipcp) echo "$CFG_DIR/ipcp.ini" ;;
-    spp_ipcp|spp+ipcp) echo "$CFG_DIR/spp_ipcp.ini" ;;
-    *) echo "$CFG_DIR/no_pref.ini" ;;
-  esac
+  local pf="$1"
+  local cfg="$CFG_DIR/${pf}.ini"
+  local type types
+  types="$(pref_type "$pf")"
+
+  if [ ! -s "$cfg" ] || [ "$FORCE_REPLAY" = "1" ]; then
+    : > "$cfg"
+    for type in $types; do
+      echo "l2c_prefetcher_types = $type" >> "$cfg"
+    done
+    if echo "$types" | grep -qw "spp_dev2" || echo "$types" | grep -qw "spp_ppf_dev"; then
+      {
+        echo "spp_dev2_fill_threshold = 90"
+        echo "spp_dev2_pf_threshold = 40"
+      } >> "$cfg"
+    fi
+  fi
+  echo "$cfg"
 }
 
 patch_and_build () {
@@ -160,7 +147,7 @@ run_one () {
   local trfile="$TRACE_DIR/${trace}.champsimtrace.xz"
   local cfg types log event_raw event_gz
   cfg="$(pref_cfg "$pf")"
-  types="$(pref_types_label "$pf")"
+  types="$(pref_type "$pf")"
   log="$LOG_DIR/${trace}.${pf}.log"
   event_raw="$EVENT_DIR/${trace}.${pf}.events.csv"
   event_gz="$event_raw.gz"
@@ -191,30 +178,39 @@ run_one () {
   echo "warmup/sim : $WARMUP / $SIM"
   echo "============================================================"
 
-  RESIDUAL_AUDIT_LOG="$event_raw" \
-  "$BIN" \
-    --warmup_instructions="$WARMUP" \
-    --simulation_instructions="$SIM" \
-    --config="$cfg" \
-    -traces "$trfile" \
-    > "$log" 2>&1
-
-  if [ "$COMPRESS" = "1" ]; then
-    gzip -f "$event_raw"
+  if RESIDUAL_AUDIT_LOG="$event_raw" \
+    "$BIN" \
+      --warmup_instructions="$WARMUP" \
+      --simulation_instructions="$SIM" \
+      --config="$cfg" \
+      -traces "$trfile" \
+      > "$log" 2>&1; then
+    if [ "$COMPRESS" = "1" ] && [ -s "$event_raw" ]; then
+      gzip -f "$event_raw"
+    fi
+    return 0
   fi
+
+  local rc=$?
+  {
+    echo
+    echo "RESIDUAL_RUN_FAILED $rc"
+  } >> "$log"
+  echo "[warn] failed residual trace=$trace prefetcher=$pf rc=$rc; continuing"
+  rm -f "$event_raw" "$event_gz"
+  return 0
 }
 
 wait_slot () {
   local running_ref="$1"
   local running="${!running_ref}"
   if [ "$running" -ge "$MAX_JOBS" ]; then
-    wait -n
+    wait -n || true
     running=$((running - 1))
     printf -v "$running_ref" '%s' "$running"
   fi
 }
 
-write_cfgs
 patch_and_build
 
 cat > "$OUT_ROOT/RUN_INFO.txt" <<EOF
@@ -242,7 +238,7 @@ for trace in $TRACES_STR; do
     wait_slot running
   done
 done
-wait
+wait || true
 
 SUMMARY="$OUT_ROOT/summary.csv"
 COMPRESSED_FLAG=""
