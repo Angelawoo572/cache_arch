@@ -28,38 +28,37 @@ Note: old scripts that depended on the previous ChampSim `config.sh`, `spp_dev` 
 
 Run from the repo root on the cluster.
 
-Important: use `FORCE_REPLAY=1` when changing configs/prefetcher sets, otherwise old logs will be reused.
+Important: use `FORCE_REPLAY=1` when changing configs/prefetcher sets, otherwise old logs will be reused. If only adding traces whose logs do not exist yet, `FORCE_REPLAY=0` is fine.
 
-### SPP-only first pass
-
-```bash
-cd ~/cache
-git pull
-
-TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
-WARMUP=25000000 \
-SIM=25000000 \
-MAX_JOBS=3 \
-NODUP=1 \
-FORCE_REPLAY=1 \
-bash formal_NN_training/scripts/02_run_prefetch_behavior_audit.sh
-```
-
-### SPP + IPCP + combined audit
+### Full 5-trace SPP + IPCP + combined audit
 
 ```bash
 cd ~/cache
 git pull
 
-TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B" \
+T620=$(basename "$(ls traces/620*.champsimtrace.xz | head -1)" .champsimtrace.xz)
+T623=$(basename "$(ls traces/623*.champsimtrace.xz | head -1)" .champsimtrace.xz)
+
+TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B $T620 $T623" \
 PREFETCHERS="no_pref spp ipcp spp_ipcp" \
 WARMUP=25000000 \
 SIM=25000000 \
-MAX_JOBS=3 \
+MAX_JOBS=4 \
 NODUP=1 \
 BUILD=0 \
-FORCE_REPLAY=1 \
+FORCE_REPLAY=0 \
 bash formal_NN_training/scripts/02_run_prefetch_behavior_audit.sh
+```
+
+If logs already exist and only the summary needs to be regenerated:
+
+```bash
+python3 formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py \
+  --log-root formal_NN_training/results/LSTM/behavior_audit/logs \
+  --out formal_NN_training/results/LSTM/behavior_audit/summary_nodup.csv \
+  --traces "602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B $T620 $T623" \
+  --prefetchers "no_pref spp ipcp spp_ipcp" \
+  --nodup
 ```
 
 Output:
@@ -67,6 +66,7 @@ Output:
 ```text
 formal_NN_training/results/LSTM/behavior_audit/logs/
 formal_NN_training/results/LSTM/behavior_audit/summary_nodup.csv
+formal_NN_training/results/LSTM/behavior_audit/RUN_INFO.txt
 ```
 
 View the summary:
@@ -100,7 +100,70 @@ nodup_accuracy            # pf_useful / (pf_issued - pq_merged_duplicate_proxy)
 timeliness                # pf_useful / (pf_useful + pf_late)
 ```
 
-Important: `coverage_vs_no_pref_l2_miss` in the counter-level audit is only a rough useful-prefetch proxy. The demand-centric residual audit below is the better source for residual labels.
+Important: `coverage_vs_no_pref_l2_miss` in the counter-level audit is only a useful-prefetch counter proxy and can exceed 1.0 when many useful prefetches are counted against the baseline miss count. Do not use it as demand coverage. Use `miss_reduction_vs_no_pref`, IPC speedup, and the demand-centric residual audit for coverage/residual labels.
+
+## Current interpretation from 5-trace behavior audit
+
+Latest 25M/25M behavior audit with `PREFETCHERS="no_pref spp ipcp spp_ipcp"`:
+
+```text
+602.gcc_s-734B:
+  SPP IPC speedup       ≈ 1.164x
+  SPP miss reduction    ≈ 65.1%
+  SPP nodup accuracy    ≈ 5.91%
+  SPP timeliness        ≈ 99.85%
+  IPCP speedup          ≈ 1.000x
+  Interpretation: SPP is very strong and timely but low-precision. NN must be conservative: protect SPP, add low-risk gating/residual only.
+
+619.lbm_s-4268B:
+  SPP IPC speedup       ≈ 1.178x
+  SPP miss reduction    ≈ 23.35%
+  SPP nodup accuracy    ≈ 8.24%
+  SPP timeliness        ≈ 74.5%
+  SPP duplicate proxy   ≈ 1.49M PQ merges
+  Interpretation: SPP helps, but timing and duplication are the main bottlenecks. This is the best trace for timing-aware / duplicate-aware LSTM gating.
+
+605.mcf_s-994B:
+  SPP IPC speedup       ≈ 1.030x
+  SPP miss reduction    ≈ 0.65%
+  SPP nodup accuracy    ≈ 2.04%
+  SPP timeliness        ≈ 91.96%
+  IPCP speedup          ≈ 1.000x
+  Interpretation: SPP barely helps. This is a residual/blind-spot trace, but it may be intrinsically hard/pointer-chase-like.
+
+620.omnetpp_s-874B:
+  SPP IPC speedup       ≈ 1.005x
+  SPP miss reduction    ≈ 0.065%
+  IPCP IPC speedup      ≈ 1.001x
+  SPP+IPCP speedup      ≈ 1.006x
+  Interpretation: SPP is almost useless; IPCP is slightly better in counters but still very weak. This is another residual/blind-spot trace.
+
+623.xalancbmk_s-700B:
+  SPP IPC speedup       ≈ 1.002x
+  SPP miss reduction    ≈ 2.38%
+  IPCP speedup          ≈ 0.998x
+  SPP+IPCP speedup      ≈ 1.000x
+  Interpretation: SPP gives a tiny benefit; IPCP hurts; SPP+IPCP cancels SPP's benefit. Avoid naive SPP+IPCP combining.
+```
+
+Behavior-audit conclusion:
+
+```text
+SPP-strong / protect-SPP trace:
+  602
+
+SPP-timing/duplicate problem trace:
+  619
+
+SPP-weak / residual-blind-spot traces:
+  605, 620
+
+SPP-small-gain / combination-sensitive trace:
+  623
+
+IPCP status:
+  IPCP is not a strong baseline in the current configuration. Keep it as an ablation in the matrix, but the first NN notebook should focus on LSTM + SPP.
+```
 
 ## Step 2: demand-centric residual audit
 
