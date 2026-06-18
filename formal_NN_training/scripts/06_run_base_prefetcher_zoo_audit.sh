@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
-# Run a broad single-base-prefetcher behavior sweep on Pythia.
+# Run a single-base-prefetcher behavior sweep on Pythia.
 #
 # Purpose:
-#   Pick a better "normal prefetcher" baseline before changing the LSTM labels/features.
-#   This is counter-level only: IPC, miss reduction, accuracy, timeliness, duplicate proxy.
+#   Collect counter-level metrics for normal prefetchers before changing the NN.
+#   This is the main behavior-audit runner now; the older selected-only runner was removed.
 #
-# Default safe zoo:
-#   no_pref next_line stride streamer ampm bop spp ipcp sms bingo mlop sandbox scooby dspatch power7
+# Default stable prefetchers:
+#   no_pref stride streamer ampm spp ipcp sms sandbox power7
+#
+# Optional known-failing/unstable names from this Pythia fork can still be tested by
+# overriding PREFETCHERS, but they are not in the default stable set:
+#   next_line bop bingo mlop scooby dspatch spp_ppf
 #
 # Example:
 #   cd ~/cache
@@ -16,9 +20,9 @@
 #     bash formal_NN_training/scripts/06_run_base_prefetcher_zoo_audit.sh
 #
 # Output:
-#   formal_NN_training/results/base_prefetcher_zoo/logs/*.log
-#   formal_NN_training/results/base_prefetcher_zoo/summary_nodup.csv
-#   formal_NN_training/results/base_prefetcher_zoo/RUN_INFO.txt
+#   formal_NN_training/results/base_prefetcher_zoo/behavior_audit/logs/*.log
+#   formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary_nodup.csv
+#   formal_NN_training/results/base_prefetcher_zoo/behavior_audit/RUN_INFO.txt
 
 set -euo pipefail
 
@@ -30,7 +34,7 @@ fi
 cd "$ROOT"
 
 DEFAULT_TRACES="602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B"
-DEFAULT_PREFETCHERS="no_pref next_line stride streamer ampm bop spp ipcp sms bingo mlop sandbox scooby dspatch power7"
+DEFAULT_PREFETCHERS="no_pref stride streamer ampm spp ipcp sms sandbox power7"
 
 TRACES_STR="${TRACES:-$DEFAULT_TRACES}"
 PREFETCHERS_STR="${PREFETCHERS:-$DEFAULT_PREFETCHERS}"
@@ -44,7 +48,7 @@ NODUP="${NODUP:-1}"
 
 TRACE_DIR="${TRACE_DIR:-$ROOT/traces}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
-OUT_ROOT="${OUT_ROOT:-$ROOT/formal_NN_training/results/base_prefetcher_zoo}"
+OUT_ROOT="${OUT_ROOT:-$ROOT/formal_NN_training/results/base_prefetcher_zoo/behavior_audit}"
 LOG_DIR="$OUT_ROOT/logs"
 CFG_DIR="$ROOT/formal_NN_training/_cfg/pythia_prefetcher_zoo"
 BIN="${BIN:-$CHAMP_DIR/bin/perceptron-no-multi-no-ship-1core}"
@@ -154,7 +158,7 @@ run_one () {
   fi
 
   echo "============================================================"
-  echo "[run zoo] trace=$trace prefetcher=$pf type=$type"
+  echo "[run behavior] trace=$trace prefetcher=$pf type=$type"
   echo "config     : $cfg"
   echo "log        : $log"
   echo "warmup/sim : $WARMUP / $SIM"
@@ -172,7 +176,7 @@ run_one () {
   local rc=$?
   {
     echo
-    echo "ZOO_RUN_FAILED $rc"
+    echo "PREFETCHER_RUN_FAILED $rc"
   } >> "$log"
   echo "[warn] failed trace=$trace prefetcher=$pf rc=$rc; continuing"
   return 0
@@ -191,7 +195,7 @@ wait_slot () {
 build_if_needed
 
 cat > "$OUT_ROOT/RUN_INFO.txt" <<EOF
-RUN_KIND=base_prefetcher_zoo_audit
+RUN_KIND=base_prefetcher_behavior_audit
 ROOT=$ROOT
 CHAMP_DIR=$CHAMP_DIR
 BIN=$BIN
@@ -232,6 +236,6 @@ python3 formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py \
   $NODUP_FLAG
 
 echo
-echo "[done] base prefetcher zoo audit"
+echo "[done] base prefetcher behavior audit"
 echo "  logs   : $LOG_DIR"
 echo "  summary: $SUMMARY"
