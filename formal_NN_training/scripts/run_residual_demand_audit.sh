@@ -250,7 +250,7 @@ if [ "$COMPRESS" = "1" ]; then
   COMPRESSED_FLAG="--compressed"
 fi
 
-python3 formal_NN_training/scripts/parse_residual_demand_audit.py \
+python3 formal_NN_training/scripts/04_parse_residual_demand_audit.py \
   --event-root "$EVENT_DIR" \
   --out "$SUMMARY" \
   --traces "$TRACES_STR" \
