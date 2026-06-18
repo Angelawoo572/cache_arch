@@ -6,7 +6,7 @@ Active scripts here are for the current Pythia-based workflow.
 17_parse_prefetch_behavior_audit.py   # parse Pythia/ChampSim counter logs into behavior metrics
 18_run_prefetch_behavior_audit.sh     # older numbered behavior-audit runner
 run_prefetch_behavior_audit.sh        # current behavior-audit runner wrapper
-19_parse_residual_demand_audit.py     # parse demand-centric residual event CSVs
+parse_residual_demand_audit.py        # parse demand-centric residual event CSVs
 run_residual_demand_audit.sh          # current demand-centric residual audit runner
 ```
 
