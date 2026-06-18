@@ -12,6 +12,7 @@ from pathlib import Path
 KEY_VAL_RE = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED_RE = re.compile(r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+cumulative IPC:\s+([-+0-9.eE]+)")
 FAIL_PATTERNS = [
+    "PREFETCHER_RUN_FAILED",
     "ZOO_RUN_FAILED",
     "unsupported prefetcher type",
     "Segmentation fault",
