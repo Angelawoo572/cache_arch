@@ -153,14 +153,19 @@ formal_NN_training/_cfg/
 formal_NN_training/scripts/local_*.py
 formal_NN_training/scripts/local_*.sh
 
-# Colab upload splits are allowed when intentionally added, because Colab can pull
-# these directly from GitHub. Raw generated CSVs stay ignored.
+# Colab upload files are allowed when intentionally added, because Colab can pull
+# these directly from GitHub. Raw generated CSVs outside upload/ stay ignored.
 formal_NN_training/data/upload/*
 !formal_NN_training/data/upload/*/
+!formal_NN_training/data/upload/*.csv.gz
+!formal_NN_training/data/upload/*.events.csv.gz
+!formal_NN_training/data/upload/*.events.csv.gz.part_*
+!formal_NN_training/data/upload/*/*.csv.gz
+!formal_NN_training/data/upload/*/*.events.csv.gz
+!formal_NN_training/data/upload/*/*.events.csv.gz.part_*
 !formal_NN_training/data/upload/*/lstm_events_*.csv.gz.part_*
 !formal_NN_training/data/upload/*/candidate_table_*.csv.gz.part_*
 !formal_NN_training/data/upload/*/spp_events_*.csv.gz.part_*
-!formal_NN_training/data/upload/*.csv.gz
 
 # Generated action/model/evaluation artifacts. Keep these local; they can be huge
 # and are usually recreated from Colab/cluster runs.
