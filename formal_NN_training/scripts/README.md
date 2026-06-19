@@ -9,6 +9,7 @@ Active scripts here are for the current Pythia-based workflow.
 05_run_residual_demand_audit.sh       # residual demand-audit runner for arbitrary base prefetchers
 06_run_base_prefetcher_zoo_audit.sh   # main behavior-audit runner for normal prefetchers
 07_join_normal_prefetcher_metrics.py  # join behavior + residual summaries into one table
+08_build_normal_prefetcher_oracle_table.py  # build per-access LSTM teacher/oracle tables
 ```
 
 Removed / merged:
@@ -90,7 +91,7 @@ python3 formal_NN_training/scripts/07_join_normal_prefetcher_metrics.py \
   --out formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
 ```
 
-Final output for NN planning:
+Final aggregate output for research planning:
 
 ```text
 formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
@@ -100,8 +101,41 @@ This joined file contains one row per trace/prefetcher with:
 
 ```text
 behavior_*: IPC, speedup, L2 miss rate/reduction, pf issued/useful/useless/late, accuracy, nodup accuracy, timeliness, failure flags
-residual_*: demand miss rate, covered-on-time, coverage among original misses, late rate, residual share, duplicate event rate, event file path
+residual_*: demand miss rate, covered-on-time, coverage among original misses, late rate, residual share, duplicate event rate, top residual PCs/deltas, event file path
 ```
+
+### 4. Build LSTM oracle event tables
+
+Use this after Step 2 has produced residual event files for all working normal prefetchers. The oracle table uses normal prefetchers as teacher labels/diagnostics, not as required runtime model inputs.
+
+```bash
+python3 formal_NN_training/scripts/08_build_normal_prefetcher_oracle_table.py \
+  --event-root formal_NN_training/results/base_prefetcher_zoo/residual_audit/events \
+  --out-root formal_NN_training/results/base_prefetcher_zoo/oracle_event_table \
+  --summary-out formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv \
+  --traces "602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B" \
+  --prefetchers "stride streamer ampm spp ipcp sms sandbox power7" \
+  --max-lookahead 128 \
+  --compressed
+```
+
+Output:
+
+```text
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/<trace>.oracle.csv.gz
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv
+```
+
+Each oracle row is a demand access from the no-prefetch stream with raw stream features plus normal-prefetcher teacher labels:
+
+```text
+raw features: demand_idx, cycle, pc, addr, line, page, page_offset, delta, no_pref_hit/miss
+per-prefetcher teacher labels: <pf>_hit, <pf>_miss, <pf>_covered_on_time, <pf>_late, <pf>_mismatch
+combined teacher labels: covered_by_any_normal, cover_count, teacher_prefetcher_class, residual_after_all_normal, late_by_any_normal
+future labels: future_target_idx, future_distance, future_line, future_delta, future_pc, future_covered_by_any_normal, future_teacher_prefetcher_class, future_residual_after_all_normal
+```
+
+This is the LSTM-ready table for a base-independent replacement direction.
 
 Quick view by best speedup:
 
