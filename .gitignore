@@ -198,58 +198,37 @@ formal_NN_training/results/replay_compare/*
 !formal_NN_training/results/replay_compare/accuracy_compare_*.csv
 !formal_NN_training/results/replay_compare/summary_*.csv
 !formal_NN_training/results/replay_compare/*.svg
-formal_NN_training/results/replay_compare/logs/
-formal_NN_training/results/replay_compare/prefetch_lists/
-
-# Capacity-sweep result summaries and figures. Keep CSV/SVG only.
-!formal_NN_training/results/capacity_sweep/
-formal_NN_training/results/capacity_sweep/*
-!formal_NN_training/results/capacity_sweep/*.csv
-!formal_NN_training/results/capacity_sweep/*.svg
-formal_NN_training/results/capacity_sweep/logs/
-formal_NN_training/results/capacity_sweep/prefetch_lists/
-
-# New-trace pipeline scratch area is local except future explicit curated CSV/SVG.
-!formal_NN_training/results/new_trace_pipeline/
 
 # ------------------------------------------------------------
-# Curated LSTM audit summaries
+# Base-prefetcher zoo / LSTM-oracle outputs
 # ------------------------------------------------------------
-# Keep small summary CSVs/RUN_INFO for reproducibility; keep raw logs/events local.
-!formal_NN_training/results/LSTM/
-formal_NN_training/results/LSTM/*
-
-!formal_NN_training/results/LSTM/behavior_audit/
-formal_NN_training/results/LSTM/behavior_audit/*
-!formal_NN_training/results/LSTM/behavior_audit/summary*.csv
-!formal_NN_training/results/LSTM/behavior_audit/RUN_INFO.txt
-formal_NN_training/results/LSTM/behavior_audit/logs/
-
-!formal_NN_training/results/LSTM/residual_audit/
-formal_NN_training/results/LSTM/residual_audit/*
-!formal_NN_training/results/LSTM/residual_audit/summary*.csv
-!formal_NN_training/results/LSTM/residual_audit/RUN_INFO.txt
-formal_NN_training/results/LSTM/residual_audit/logs/
-formal_NN_training/results/LSTM/residual_audit/events/
-
-# ------------------------------------------------------------
-# Curated normal-prefetcher zoo summaries for LSTM planning
-# ------------------------------------------------------------
-# Keep small joined/summary tables. Keep raw logs and event CSVs local.
+# Keep small curated summaries and run metadata in Git. Keep raw logs, event CSVs,
+# and per-trace oracle CSVs local because they can be very large and reproducible.
 !formal_NN_training/results/base_prefetcher_zoo/
 formal_NN_training/results/base_prefetcher_zoo/*
-!formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
-!formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_all_metrics.csv
 
+# Joined final table for normal-prefetcher analysis.
+!formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
+
+# Counter-level behavior audit: track summaries/RUN_INFO only.
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/
 formal_NN_training/results/base_prefetcher_zoo/behavior_audit/*
-!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary*.csv
+!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary.csv
+!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary_nodup.csv
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/RUN_INFO.txt
 formal_NN_training/results/base_prefetcher_zoo/behavior_audit/logs/
 
+# Demand-centric residual audit: track summaries/RUN_INFO only.
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/
 formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
-!formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary*.csv
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/logs/
 formal_NN_training/results/base_prefetcher_zoo/residual_audit/events/
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/logs/
+
+# LSTM oracle event tables: track summary only; keep per-trace oracle CSVs local.
+!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*
+!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*.oracle.csv
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*.oracle.csv.gz
