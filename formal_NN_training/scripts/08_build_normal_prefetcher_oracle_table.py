@@ -16,6 +16,12 @@ Important design:
   Normal prefetcher outputs are used as teacher labels/diagnostics only. They are
   not required runtime model inputs. The LSTM can train on raw stream features
   such as pc, line, delta, page, offset, hit/miss, and future target deltas.
+
+Alignment note:
+  Do not align runs by row index. Different prefetchers can slightly perturb the
+  number/order of logged demand rows. The default join key is the occurrence
+  number of each (pc,line) pair: the kth occurrence of the same pc+line in the
+  no-prefetch stream is matched to the kth occurrence in each prefetcher stream.
 """
 
 import argparse
@@ -24,7 +30,6 @@ import gzip
 import lzma
 from collections import Counter, deque
 from pathlib import Path
-
 
 DEMAND_EVENTS = {"DEMAND", "DMD", "ACCESS", "LOAD", "RFO"}
 
@@ -115,16 +120,22 @@ def event_path(event_root, trace, prefetcher, compressed=True):
     return event_root / f"{trace}.{prefetcher}{suffixes[0]}"
 
 
+def make_match_key(pc, line, occ):
+    return f"{pc}:{line}:{occ}"
+
+
 def parse_demand_rows(path):
     rows = []
     if not path.exists() or path.stat().st_size == 0:
-        return rows, {"missing": 1, "fieldnames": []}
+        return rows, {}, {"missing": 1, "fieldnames": []}
 
+    occ_counter = Counter()
     try:
         with open_text(path) as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
             prev_line = None
+            seq = 0
             for raw in reader:
                 row = {str(k).strip(): v for k, v in raw.items() if k is not None}
                 if not is_demand_row(row):
@@ -133,17 +144,24 @@ def parse_demand_rows(path):
                 addr = byte_addr(row)
                 pc = to_int(pick(row, ["pc", "ip"], 0), 0)
                 cycle = to_int(pick(row, ["cycle", "timestamp", "time"], 0), 0)
+                event_id = to_int(pick(row, ["event_id", "demand_id", "access_id"], seq), seq)
                 hit = is_truthy(row, ["hit", "cache_hit", "demand_hit", "l2_hit"])
                 miss_field = pick(row, ["miss", "cache_miss", "demand_miss", "l2_miss"], "")
-                if miss_field != "":
-                    miss = to_int(miss_field, 0) != 0
-                else:
-                    miss = not hit
+                miss = to_int(miss_field, 0) != 0 if miss_field != "" else not hit
                 covered = demand_is_covered_on_time(row, hit)
                 late = is_truthy(row, ["late_prefetch", "pf_late", "late"])
                 delta = 0 if prev_line is None or not line else line - prev_line
                 prev_line = line if line else prev_line
+
+                pair = (pc, line)
+                occ = occ_counter[pair]
+                occ_counter[pair] += 1
+                match_key = make_match_key(pc, line, occ)
+
                 rows.append({
+                    "seq_idx": seq,
+                    "event_id": event_id,
+                    "match_key": match_key,
                     "cycle": cycle,
                     "pc": pc,
                     "addr": addr,
@@ -156,9 +174,10 @@ def parse_demand_rows(path):
                     "late": int(late),
                     "delta": delta,
                 })
-        return rows, {"missing": 0, "fieldnames": fieldnames}
+                seq += 1
+        return rows, {r["match_key"]: r for r in rows}, {"missing": 0, "fieldnames": fieldnames, "rows": len(rows)}
     except Exception as e:
-        return rows, {"missing": 1, "fieldnames": [], "error": str(e)[:180]}
+        return rows, {}, {"missing": 1, "fieldnames": [], "error": str(e)[:180]}
 
 
 def compute_future_targets(base_rows, max_lookahead):
@@ -166,8 +185,6 @@ def compute_future_targets(base_rows, max_lookahead):
     n = len(base_rows)
     target_idx = [-1] * n
     q = deque()
-
-    # Walk backwards while keeping future miss indices within the lookahead window.
     for i in range(n - 1, -1, -1):
         while q and q[0] - i > max_lookahead:
             q.popleft()
@@ -175,19 +192,22 @@ def compute_future_targets(base_rows, max_lookahead):
             target_idx[i] = q[0]
         if base_rows[i]["miss"]:
             q.appendleft(i)
-
     return target_idx
 
 
-def best_prefetcher_for_index(per_pf_rows, prefetchers, idx):
+def get_pf_row(per_pf_map, pf, base):
+    return per_pf_map.get(pf, {}).get(base["match_key"])
+
+
+def best_prefetcher_for_base(per_pf_map, prefetchers, base):
     for pf in prefetchers:
-        rows = per_pf_rows.get(pf, [])
-        if idx < len(rows) and rows[idx].get("covered_on_time", 0):
+        r = get_pf_row(per_pf_map, pf, base)
+        if r and r.get("covered_on_time", 0):
             return pf
     return ""
 
 
-def summarize_oracle(trace, out_path, base_rows, per_pf_rows, prefetchers, future_idx, mismatch_counts):
+def summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future_idx, missing_match_counts):
     n = len(base_rows)
     covered_any = 0
     residual_all = 0
@@ -198,8 +218,8 @@ def summarize_oracle(trace, out_path, base_rows, per_pf_rows, prefetchers, futur
     for i, base in enumerate(base_rows):
         any_cov = False
         for pf in prefetchers:
-            rows = per_pf_rows.get(pf, [])
-            cov = bool(i < len(rows) and rows[i].get("covered_on_time", 0))
+            r = get_pf_row(per_pf_map, pf, base)
+            cov = bool(r and r.get("covered_on_time", 0))
             if cov:
                 any_cov = True
                 cover_by_pf[pf] += 1
@@ -210,7 +230,8 @@ def summarize_oracle(trace, out_path, base_rows, per_pf_rows, prefetchers, futur
         j = future_idx[i]
         if j >= 0:
             future_target_count += 1
-            if any(j < len(per_pf_rows.get(pf, [])) and per_pf_rows[pf][j].get("covered_on_time", 0) for pf in prefetchers):
+            target = base_rows[j]
+            if best_prefetcher_for_base(per_pf_map, prefetchers, target):
                 future_target_covered_any += 1
 
     return {
@@ -225,31 +246,31 @@ def summarize_oracle(trace, out_path, base_rows, per_pf_rows, prefetchers, futur
         "future_target_count": future_target_count,
         "future_target_covered_any": future_target_covered_any,
         "future_target_covered_any_rate": div(future_target_covered_any, future_target_count),
-        "mismatch_counts": dict(mismatch_counts),
+        "missing_match_counts": dict(missing_match_counts),
         "cover_by_prefetcher": dict(cover_by_pf),
     }
 
 
 def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compressed=True):
     base_path = event_path(event_root, trace, "no_pref", compressed)
-    base_rows, base_meta = parse_demand_rows(base_path)
+    base_rows, _, base_meta = parse_demand_rows(base_path)
     if not base_rows:
         raise RuntimeError(f"no demand rows for {trace} no_pref at {base_path}")
 
-    per_pf_rows = {}
+    per_pf_map = {}
     pf_meta = {}
     for pf in prefetchers:
         p = event_path(event_root, trace, pf, compressed)
-        rows, meta = parse_demand_rows(p)
-        per_pf_rows[pf] = rows
-        pf_meta[pf] = {**meta, "path": str(p), "rows": len(rows)}
+        rows, row_map, meta = parse_demand_rows(p)
+        per_pf_map[pf] = row_map
+        pf_meta[pf] = {**meta, "path": str(p), "rows": len(rows), "unique_match_keys": len(row_map)}
 
     future_idx = compute_future_targets(base_rows, max_lookahead)
     out_root.mkdir(parents=True, exist_ok=True)
     out_path = out_root / f"{trace}.oracle.csv.gz"
 
     fixed_fields = [
-        "trace", "demand_idx", "cycle", "pc", "addr", "line", "page", "page_offset",
+        "trace", "demand_idx", "base_event_id", "match_key", "cycle", "pc", "addr", "line", "page", "page_offset",
         "delta", "no_pref_hit", "no_pref_miss",
         "covered_by_any_normal", "cover_count", "teacher_prefetcher_class",
         "residual_after_all_normal", "late_by_any_normal",
@@ -260,11 +281,11 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
     pf_fields = []
     for pf in prefetchers:
         pf_fields.extend([
-            f"{pf}_hit", f"{pf}_miss", f"{pf}_covered_on_time", f"{pf}_late", f"{pf}_mismatch",
+            f"{pf}_hit", f"{pf}_miss", f"{pf}_covered_on_time", f"{pf}_late", f"{pf}_missing_match",
         ])
     fields = fixed_fields + pf_fields
 
-    mismatch_counts = Counter()
+    missing_match_counts = Counter()
 
     with gzip.open(out_path, "wt", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields)
@@ -276,6 +297,8 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
             row = {
                 "trace": trace,
                 "demand_idx": i,
+                "base_event_id": base["event_id"],
+                "match_key": base["match_key"],
                 "cycle": base["cycle"],
                 "pc": base["pc"],
                 "addr": base["addr"],
@@ -288,32 +311,29 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
             }
 
             for pf in prefetchers:
-                rows = per_pf_rows.get(pf, [])
-                if i < len(rows):
-                    r = rows[i]
-                    mismatch = int((base["line"] and r["line"] and base["line"] != r["line"]) or (base["pc"] and r["pc"] and base["pc"] != r["pc"]))
-                    if mismatch:
-                        mismatch_counts[pf] += 1
-                    cov = int(r.get("covered_on_time", 0))
-                    late = int(r.get("late", 0))
-                    row[f"{pf}_hit"] = r.get("hit", 0)
-                    row[f"{pf}_miss"] = r.get("miss", 0)
-                    row[f"{pf}_covered_on_time"] = cov
-                    row[f"{pf}_late"] = late
-                    row[f"{pf}_mismatch"] = mismatch
-                    if cov:
-                        cover_count += 1
-                        if not teacher:
-                            teacher = pf
-                    if late:
-                        late_any = True
-                else:
+                r = get_pf_row(per_pf_map, pf, base)
+                if r is None:
                     row[f"{pf}_hit"] = ""
                     row[f"{pf}_miss"] = ""
                     row[f"{pf}_covered_on_time"] = 0
                     row[f"{pf}_late"] = 0
-                    row[f"{pf}_mismatch"] = 1
-                    mismatch_counts[pf] += 1
+                    row[f"{pf}_missing_match"] = 1
+                    missing_match_counts[pf] += 1
+                    continue
+
+                cov = int(r.get("covered_on_time", 0))
+                late = int(r.get("late", 0))
+                row[f"{pf}_hit"] = r.get("hit", 0)
+                row[f"{pf}_miss"] = r.get("miss", 0)
+                row[f"{pf}_covered_on_time"] = cov
+                row[f"{pf}_late"] = late
+                row[f"{pf}_missing_match"] = 0
+                if cov:
+                    cover_count += 1
+                    if not teacher:
+                        teacher = pf
+                if late:
+                    late_any = True
 
             row["covered_by_any_normal"] = int(cover_count > 0)
             row["cover_count"] = cover_count
@@ -324,7 +344,7 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
             j = future_idx[i]
             if j >= 0:
                 target = base_rows[j]
-                future_teacher = best_prefetcher_for_index(per_pf_rows, prefetchers, j)
+                future_teacher = best_prefetcher_for_base(per_pf_map, prefetchers, target)
                 row["future_target_idx"] = j
                 row["future_distance"] = j - i
                 row["future_line"] = target["line"]
@@ -345,8 +365,9 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
 
             writer.writerow(row)
 
-    summary = summarize_oracle(trace, out_path, base_rows, per_pf_rows, prefetchers, future_idx, mismatch_counts)
+    summary = summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future_idx, missing_match_counts)
     summary["base_event_file"] = str(base_path)
+    summary["base_rows"] = base_meta.get("rows", len(base_rows))
     summary["pf_event_meta"] = str(pf_meta)
     return summary
 
@@ -376,7 +397,7 @@ def main():
         "covered_by_any", "covered_by_any_rate",
         "residual_all_normal", "residual_all_normal_rate",
         "future_target_count", "future_target_covered_any", "future_target_covered_any_rate",
-        "mismatch_counts", "cover_by_prefetcher", "base_event_file", "pf_event_meta",
+        "missing_match_counts", "cover_by_prefetcher", "base_event_file", "base_rows", "pf_event_meta",
     ]
     with args.summary_out.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
