@@ -18,10 +18,11 @@ Important design:
   such as pc, line, delta, page, offset, hit/miss, and future target deltas.
 
 Alignment note:
-  Do not align runs by row index. Different prefetchers can slightly perturb the
-  number/order of logged demand rows. The default join key is the occurrence
-  number of each (pc,line) pair: the kth occurrence of the same pc+line in the
-  no-prefetch stream is matched to the kth occurrence in each prefetcher stream.
+  The default join key is event_id, because the residual logger emits an event_id
+  column in every normal-prefetcher run. This makes the oracle table align the
+  same dynamic demand access across different base prefetcher runs. A fallback
+  --join-key pc_line_occ mode is available for old event files without stable
+  event_id; it matches the kth occurrence of each (pc,line) pair.
 """
 
 import argparse
@@ -120,22 +121,30 @@ def event_path(event_root, trace, prefetcher, compressed=True):
     return event_root / f"{trace}.{prefetcher}{suffixes[0]}"
 
 
-def make_match_key(pc, line, occ):
-    return f"{pc}:{line}:{occ}"
+def make_match_key(row_info, join_key, occ):
+    if join_key == "event_id":
+        return str(row_info["event_id"])
+    if join_key == "event_id_pc_line":
+        return f"{row_info['event_id']}:{row_info['pc']}:{row_info['line']}"
+    # fallback for old logs without stable event_id
+    return f"{row_info['pc']}:{row_info['line']}:{occ}"
 
 
-def parse_demand_rows(path):
+def parse_demand_rows(path, join_key):
     rows = []
     if not path.exists() or path.stat().st_size == 0:
         return rows, {}, {"missing": 1, "fieldnames": []}
 
     occ_counter = Counter()
+    key_counter = Counter()
+    duplicate_keys = Counter()
     try:
         with open_text(path) as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames or []
             prev_line = None
             seq = 0
+            row_map = {}
             for raw in reader:
                 row = {str(k).strip(): v for k, v in raw.items() if k is not None}
                 if not is_demand_row(row):
@@ -156,12 +165,10 @@ def parse_demand_rows(path):
                 pair = (pc, line)
                 occ = occ_counter[pair]
                 occ_counter[pair] += 1
-                match_key = make_match_key(pc, line, occ)
 
-                rows.append({
+                info = {
                     "seq_idx": seq,
                     "event_id": event_id,
-                    "match_key": match_key,
                     "cycle": cycle,
                     "pc": pc,
                     "addr": addr,
@@ -173,11 +180,27 @@ def parse_demand_rows(path):
                     "covered_on_time": int(covered),
                     "late": int(late),
                     "delta": delta,
-                })
+                }
+                match_key = make_match_key(info, join_key, occ)
+                info["match_key"] = match_key
+                rows.append(info)
+                key_counter[match_key] += 1
+                if match_key in row_map:
+                    duplicate_keys[match_key] += 1
+                else:
+                    row_map[match_key] = info
                 seq += 1
-        return rows, {r["match_key"]: r for r in rows}, {"missing": 0, "fieldnames": fieldnames, "rows": len(rows)}
+
+        return rows, row_map, {
+            "missing": 0,
+            "fieldnames": fieldnames,
+            "rows": len(rows),
+            "unique_match_keys": len(row_map),
+            "duplicate_match_keys": sum(duplicate_keys.values()),
+            "join_key": join_key,
+        }
     except Exception as e:
-        return rows, {}, {"missing": 1, "fieldnames": [], "error": str(e)[:180]}
+        return rows, {}, {"missing": 1, "fieldnames": [], "error": str(e)[:180], "join_key": join_key}
 
 
 def compute_future_targets(base_rows, max_lookahead):
@@ -207,7 +230,7 @@ def best_prefetcher_for_base(per_pf_map, prefetchers, base):
     return ""
 
 
-def summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future_idx, missing_match_counts):
+def summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future_idx, missing_match_counts, join_key):
     n = len(base_rows)
     covered_any = 0
     residual_all = 0
@@ -238,6 +261,7 @@ def summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future
         "trace": trace,
         "rows": n,
         "out_file": str(out_path),
+        "join_key": join_key,
         "normal_prefetchers": " ".join(prefetchers),
         "covered_by_any": covered_any,
         "covered_by_any_rate": div(covered_any, n),
@@ -251,9 +275,9 @@ def summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future
     }
 
 
-def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compressed=True):
+def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compressed=True, join_key="event_id"):
     base_path = event_path(event_root, trace, "no_pref", compressed)
-    base_rows, _, base_meta = parse_demand_rows(base_path)
+    base_rows, _, base_meta = parse_demand_rows(base_path, join_key)
     if not base_rows:
         raise RuntimeError(f"no demand rows for {trace} no_pref at {base_path}")
 
@@ -261,7 +285,7 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
     pf_meta = {}
     for pf in prefetchers:
         p = event_path(event_root, trace, pf, compressed)
-        rows, row_map, meta = parse_demand_rows(p)
+        rows, row_map, meta = parse_demand_rows(p, join_key)
         per_pf_map[pf] = row_map
         pf_meta[pf] = {**meta, "path": str(p), "rows": len(rows), "unique_match_keys": len(row_map)}
 
@@ -365,9 +389,11 @@ def build_trace(trace, event_root, out_root, prefetchers, max_lookahead, compres
 
             writer.writerow(row)
 
-    summary = summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future_idx, missing_match_counts)
+    summary = summarize_oracle(trace, out_path, base_rows, per_pf_map, prefetchers, future_idx, missing_match_counts, join_key)
     summary["base_event_file"] = str(base_path)
     summary["base_rows"] = base_meta.get("rows", len(base_rows))
+    summary["base_join_key"] = base_meta.get("join_key", join_key)
+    summary["base_duplicate_match_keys"] = base_meta.get("duplicate_match_keys", 0)
     summary["pf_event_meta"] = str(pf_meta)
     return summary
 
@@ -380,24 +406,26 @@ def main():
     ap.add_argument("--traces", required=True, help="space-separated trace names")
     ap.add_argument("--prefetchers", required=True, help="space-separated working normal prefetchers; exclude no_pref")
     ap.add_argument("--max-lookahead", type=int, default=128)
+    ap.add_argument("--join-key", choices=["event_id", "event_id_pc_line", "pc_line_occ"], default="event_id")
     ap.add_argument("--compressed", action="store_true")
     args = ap.parse_args()
 
     prefetchers = [p for p in args.prefetchers.split() if p not in {"no_pref", "none", "nopref"}]
     summaries = []
     for trace in args.traces.split():
-        print(f"[oracle] build trace={trace} prefetchers={' '.join(prefetchers)}")
-        s = build_trace(trace, args.event_root, args.out_root, prefetchers, args.max_lookahead, args.compressed)
+        print(f"[oracle] build trace={trace} join_key={args.join_key} prefetchers={' '.join(prefetchers)}")
+        s = build_trace(trace, args.event_root, args.out_root, prefetchers, args.max_lookahead, args.compressed, args.join_key)
         summaries.append(s)
         print(f"[write] {s['out_file']} rows={s['rows']} covered_any={s['covered_by_any_rate']:.4f} residual_all={s['residual_all_normal_rate']:.4f}")
 
     args.summary_out.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "trace", "rows", "out_file", "normal_prefetchers",
+        "trace", "rows", "out_file", "join_key", "normal_prefetchers",
         "covered_by_any", "covered_by_any_rate",
         "residual_all_normal", "residual_all_normal_rate",
         "future_target_count", "future_target_covered_any", "future_target_covered_any_rate",
-        "missing_match_counts", "cover_by_prefetcher", "base_event_file", "base_rows", "pf_event_meta",
+        "missing_match_counts", "cover_by_prefetcher", "base_event_file", "base_rows",
+        "base_join_key", "base_duplicate_match_keys", "pf_event_meta",
     ]
     with args.summary_out.open("w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fields, extrasaction="ignore")
