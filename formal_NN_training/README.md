@@ -9,6 +9,7 @@ scripts/                                      # common Pythia-based audit / run 
 LSTM/                                         # old/reference LSTM notebooks and new LSTM notebooks
 results/LSTM/                                 # old SPP/LSTM-specific outputs
 results/base_prefetcher_zoo/                  # normal-prefetcher audit outputs for NN planning
+results/base_prefetcher_zoo/oracle_event_table/ # LSTM-ready per-access teacher/oracle tables
 ```
 
 Active scripts:
@@ -20,6 +21,7 @@ formal_NN_training/scripts/04_parse_residual_demand_audit.py
 formal_NN_training/scripts/05_run_residual_demand_audit.sh
 formal_NN_training/scripts/06_run_base_prefetcher_zoo_audit.sh
 formal_NN_training/scripts/07_join_normal_prefetcher_metrics.py
+formal_NN_training/scripts/08_build_normal_prefetcher_oracle_table.py
 ```
 
 Removed / merged:
@@ -29,6 +31,24 @@ Removed / merged:
 17_parse_prefetch_behavior_audit.py   # removed; duplicate parser replaced by 01
 ```
 
+## Research direction
+
+The new target is not an SPP-output filter. The target is a base-independent LSTM prefetcher:
+
+```text
+raw demand stream -> LSTM learns generalized prefetch policy
+```
+
+Normal prefetchers are used as:
+
+```text
+1. baselines
+2. teachers / oracle labels
+3. diagnostic categories
+```
+
+They should not be required runtime inputs to the final LSTM. The LSTM input should come from raw stream information such as pc/ip, address line, delta history, page/offset, hit/miss, access type, and later resource-pressure signals.
+
 ## Current normal-prefetcher goal
 
 Before changing the LSTM input features or labels, collect the same kind of information for every working normal prefetcher:
@@ -37,6 +57,7 @@ Before changing the LSTM input features or labels, collect the same kind of info
 counter behavior: IPC, speedup, L2 miss rate, miss reduction, accuracy, nodup accuracy, timeliness, late rate, duplicate proxy
 residual behavior: demand miss rate, covered-on-time count, coverage among original misses, late rate, residual miss/share, duplicate event rate
 joined planning table: one row per trace/prefetcher with behavior_* and residual_* fields
+oracle event table: one row per demand access with raw features and per-prefetcher teacher labels
 ```
 
 Default stable normal prefetchers:
@@ -47,7 +68,7 @@ no_pref stride streamer ampm spp ipcp sms sandbox power7
 
 These are the prefetchers that completed useful 25M/25M runs in the current Pythia fork. Other names from the Pythia multi-L2 prefetcher file can still be tested manually by overriding `PREFETCHERS`, but they are not default because they produced failed/no-final-stat logs in this setup.
 
-## Full metric collection commands
+## Full metric and LSTM-oracle collection commands
 
 Run these from the repo root on the cluster.
 
@@ -111,37 +132,46 @@ python3 formal_NN_training/scripts/07_join_normal_prefetcher_metrics.py \
   --out formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
 ```
 
-Final output for LSTM planning:
+Final aggregate output for research planning:
 
 ```text
 formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
 ```
 
-Quick view by best speedup:
+### 4. Build LSTM oracle event tables
 
 ```bash
-python3 - <<'PY'
-import csv
-from collections import defaultdict
-path="formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv"
-rows=list(csv.DictReader(open(path)))
-by=defaultdict(list)
-for r in rows:
-    if r.get("behavior_run_failed") == "1":
-        continue
-    by[r["trace"]].append(r)
-for tr, rs in by.items():
-    rs=sorted(rs, key=lambda r: float(r.get("behavior_speedup_vs_no_pref") or 0), reverse=True)
-    print("\n==", tr, "==")
-    for r in rs[:8]:
-        print(f'{r["prefetcher"]:10s} speedup={float(r.get("behavior_speedup_vs_no_pref") or 0):.4f} '
-              f'miss_red={float(r.get("behavior_miss_reduction_vs_no_pref") or 0):.4f} '
-              f'nodup_acc={float(r.get("behavior_nodup_accuracy") or 0):.4f} '
-              f'time={float(r.get("behavior_timeliness") or 0):.4f} '
-              f'cov={float(r.get("residual_coverage_among_misses") or 0):.4f} '
-              f'residual_share={float(r.get("residual_residual_share_of_misses") or 0):.4f}')
-PY
+python3 formal_NN_training/scripts/08_build_normal_prefetcher_oracle_table.py \
+  --event-root formal_NN_training/results/base_prefetcher_zoo/residual_audit/events \
+  --out-root formal_NN_training/results/base_prefetcher_zoo/oracle_event_table \
+  --summary-out formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv \
+  --traces "602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B" \
+  --prefetchers "stride streamer ampm spp ipcp sms sandbox power7" \
+  --max-lookahead 128 \
+  --compressed
 ```
+
+Final LSTM-ready output:
+
+```text
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/602.gcc_s-734B.oracle.csv.gz
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/619.lbm_s-4268B.oracle.csv.gz
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/605.mcf_s-994B.oracle.csv.gz
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/620.omnetpp_s-874B.oracle.csv.gz
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/623.xalancbmk_s-700B.oracle.csv.gz
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv
+```
+
+Each oracle row is a demand access from the no-prefetch stream with:
+
+```text
+raw features: demand_idx, cycle, pc, addr, line, page, page_offset, delta, no_pref_hit/miss
+per-prefetcher teacher labels: <pf>_hit, <pf>_miss, <pf>_covered_on_time, <pf>_late, <pf>_mismatch
+combined teacher labels: covered_by_any_normal, cover_count, teacher_prefetcher_class, residual_after_all_normal, late_by_any_normal
+future labels: future_target_idx, future_distance, future_line, future_delta, future_pc, future_covered_by_any_normal, future_teacher_prefetcher_class, future_residual_after_all_normal
+```
+
+This table is the right input for the base-independent LSTM replacement direction. It uses normal prefetchers as teacher/oracle labels, not as required runtime inputs.
 
 ## Current interpretation from the first behavior zoo audit
 
@@ -151,7 +181,7 @@ The first 25M/25M counter-level sweep showed that SPP is not uniformly the best 
 602.gcc_s-734B:
   best observed base: sandbox
   sandbox speedup ≈ 1.1855, SPP speedup ≈ 1.1640
-  Interpretation: SPP is strong, but sandbox/streamer/ampm/power7 are stronger classical baselines. A booster should be compared against the best base, not only against SPP.
+  Interpretation: SPP is strong, but sandbox/streamer/ampm/power7 are stronger classical baselines. A replacement LSTM must be compared against the best base, not only against SPP.
 
 619.lbm_s-4268B:
   best observed base: sms
@@ -177,34 +207,9 @@ The first 25M/25M counter-level sweep showed that SPP is not uniformly the best 
 High-level conclusion:
 
 ```text
-Use the normal-prefetcher metrics table to choose trace-specific base prefetchers.
-Do not hard-code the new LSTM notebook to SPP only.
-However, keep 619 SPP+LSTM as the first replay candidate because the offline booster signal was strongest there.
-```
-
-## First LSTM residual-booster target
-
-Old LSTM notebooks are kept as reference. New residual-booster notebooks should be added separately.
-
-Recommended first notebook:
-
-```text
-formal_NN_training/LSTM/notebooks/LSTM_residual_booster_spp.ipynb
-```
-
-Next notebook change:
-
-```text
-BASE_PREFETCHER = "spp" / "sms" / "ampm" / "sandbox" / ...
-```
-
-First model scope:
-
-```text
-input:  recent demand stream + selected base prefetcher request/output context
-output: residual useful prefetch / residual delta / timing bin
-seq_len: 64 / 128 / 256, not 2048 by default
-metrics: demand miss reduction, duplicate rate, late rate, nodup accuracy, IPC speedup
+Use normal prefetchers as teachers and baselines.
+Do not hard-code the new LSTM notebook to SPP output.
+Train the LSTM from raw access stream features toward oracle/future labels.
 ```
 
 ## Planned matrix
