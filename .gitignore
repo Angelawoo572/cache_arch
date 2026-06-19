@@ -232,3 +232,10 @@ formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*
 !formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv
 formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*.oracle.csv
 formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*.oracle.csv.gz
+
+# LSTM oracle event tables for Colab / notebook training.
+# These are intentionally trackable when we want Colab to pull them from GitHub.
+!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/
+formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/*
+!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/summary.csv
+!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/*.oracle.csv.gz
