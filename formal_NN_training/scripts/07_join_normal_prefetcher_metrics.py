@@ -3,7 +3,7 @@
 
 This produces the table to feed the next NN planning step: one row per
 trace/prefetcher with IPC/speedup, accuracy/timeliness, demand coverage,
-late/residual rates, duplicate rates, and failure flags.
+late/residual rates, duplicate rates, top residual PCs/deltas, and failure flags.
 """
 
 import argparse
@@ -54,7 +54,8 @@ def main():
         "late_prefetch", "late_rate_among_misses", "residual_miss",
         "residual_miss_rate", "residual_share_of_misses", "original_miss_pool",
         "pf_requested_events", "pf_accepted_events", "pf_duplicate_events",
-        "pf_duplicate_rate", "event_file",
+        "pf_duplicate_rate", "pf_dropped_events", "pf_dropped_rate",
+        "top_residual_pcs", "top_residual_deltas", "parse_error", "event_file",
     ]
 
     rows = []
