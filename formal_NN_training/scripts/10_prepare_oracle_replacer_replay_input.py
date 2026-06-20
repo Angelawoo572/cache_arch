@@ -5,7 +5,7 @@ Why this exists
 ---------------
 The notebook's diagnostic CSV has columns such as
     order,pc,line,...,prefetch_addr
-where ``order`` historically meant simulator cycle, not a dynamic access index.
+where ``order`` historically means simulator cycle, not a dynamic access index.
 A list replayer that expects ``idx,0xaddress`` will otherwise parse:
     idx  <- cycle
     addr <- pc (as hexadecimal)
@@ -19,77 +19,81 @@ For current rich exports without ``replay_idx`` / ``demand_idx``, it maps each
 (order=cycle, pc, line) trigger back to the no-prefetch oracle table and uses
 that row's demand_idx. It is strict by default: an unmatched trigger is an
 error, never a silently dropped prefetch.
-"""
 
-from __future__ import annotations
+This file intentionally uses Python 3.6-compatible syntax because the
+Sacramento login nodes may provide Python 3.6.
+"""
 
 import argparse
 import csv
 import gzip
 import json
 import sys
-from collections import defaultdict, deque
+from collections import defaultdict
 from pathlib import Path
-from typing import Deque, Dict, Iterable, Tuple
 
 
-def open_text(path: Path):
-    return gzip.open(path, "rt", newline="") if str(path).endswith(".gz") else path.open("r", newline="")
+def open_text(path):
+    return gzip.open(str(path), "rt", newline="") if str(path).endswith(".gz") else path.open("r", newline="")
 
 
-def to_int(value: object, *, name: str) -> int:
+def to_int(value, name):
     if value is None:
-        raise ValueError(f"missing {name}")
+        raise ValueError("missing {}".format(name))
     s = str(value).strip()
     if not s:
-        raise ValueError(f"missing {name}")
+        raise ValueError("missing {}".format(name))
     if s.lower().startswith("0x"):
         return int(s, 16)
     return int(float(s))
 
 
-def trigger_key(cycle: int, pc: int, line: int) -> Tuple[int, int, int]:
+def trigger_key(cycle, pc, line):
     return (cycle, pc, line)
 
 
-def load_oracle_index(oracle_path: Path) -> Dict[Tuple[int, int, int], Deque[int]]:
-    """Build cycle/pc/line -> FIFO ROI-L2-load-index mapping from the no-pref oracle."""
-    mapping: Dict[Tuple[int, int, int], Deque[int]] = defaultdict(deque)
+def load_oracle_index(oracle_path):
+    """Build cycle/pc/line -> FIFO ROI-L2-load-index mapping from no-pref oracle."""
+    mapping = defaultdict(list)
+    positions = defaultdict(int)
+
     with open_text(oracle_path) as f:
         reader = csv.DictReader(f)
-        required = {"demand_idx", "cycle", "pc", "line"}
-        missing = required - set(reader.fieldnames or [])
+        required = set(["demand_idx", "cycle", "pc", "line"])
+        missing = required.difference(set(reader.fieldnames or []))
         if missing:
-            raise ValueError(f"oracle {oracle_path} missing columns: {sorted(missing)}")
+            raise ValueError("oracle {} missing columns: {}".format(oracle_path, sorted(missing)))
+
         previous = -1
         for row in reader:
-            idx = to_int(row["demand_idx"], name="oracle demand_idx")
+            idx = to_int(row["demand_idx"], "oracle demand_idx")
             if idx <= previous:
                 raise ValueError("oracle demand_idx must be strictly increasing")
             previous = idx
             key = trigger_key(
-                to_int(row["cycle"], name="oracle cycle"),
-                to_int(row["pc"], name="oracle pc"),
-                to_int(row["line"], name="oracle line"),
+                to_int(row["cycle"], "oracle cycle"),
+                to_int(row["pc"], "oracle pc"),
+                to_int(row["line"], "oracle line"),
             )
             mapping[key].append(idx)
+
     if not mapping:
-        raise ValueError(f"oracle has no rows: {oracle_path}")
-    return mapping
+        raise ValueError("oracle has no rows: {}".format(oracle_path))
+    return mapping, positions
 
 
-def iter_rich_rows(path: Path) -> Iterable[dict[str, str]]:
+def iter_rich_rows(path):
     with path.open("r", newline="") as f:
         reader = csv.DictReader(f)
-        required = {"prefetch_addr"}
-        missing = required - set(reader.fieldnames or [])
+        required = set(["prefetch_addr"])
+        missing = required.difference(set(reader.fieldnames or []))
         if missing:
-            raise ValueError(f"rich export {path} missing columns: {sorted(missing)}")
+            raise ValueError("rich export {} missing columns: {}".format(path, sorted(missing)))
         for row in reader:
             yield row
 
 
-def main() -> int:
+def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rich-list", required=True, type=Path,
                     help="Notebook's rich fair_dedup CSV")
@@ -104,14 +108,13 @@ def main() -> int:
     args = ap.parse_args()
 
     if not args.rich_list.is_file():
-        raise FileNotFoundError(args.rich_list)
+        raise FileNotFoundError(str(args.rich_list))
     if not args.oracle.is_file():
-        raise FileNotFoundError(args.oracle)
+        raise FileNotFoundError(str(args.oracle))
 
-    oracle_map = load_oracle_index(args.oracle)
-    # Cache the most recently resolved key. This allows a future degree-k export
-    # to carry several target addresses for one trigger without consuming several
-    # oracle occurrences. Degree-1 current exports use each key once.
+    oracle_map, oracle_positions = load_oracle_index(args.oracle)
+    # Cache the most recently resolved key. A future degree-k export can carry
+    # several targets for one trigger without consuming several oracle rows.
     last_key = None
     last_idx = None
     used_indices = set()
@@ -121,24 +124,24 @@ def main() -> int:
     mapped_rows = 0
 
     for row_no, row in enumerate(iter_rich_rows(args.rich_list), start=2):
-        addr = to_int(row.get("prefetch_addr"), name=f"prefetch_addr at rich row {row_no}")
+        addr = to_int(row.get("prefetch_addr"), "prefetch_addr at rich row {}".format(row_no))
         if addr <= 0:
-            raise ValueError(f"non-positive prefetch_addr at rich row {row_no}: {addr}")
+            raise ValueError("non-positive prefetch_addr at rich row {}: {}".format(row_no, addr))
         if addr % 64:
-            raise ValueError(f"unaligned prefetch_addr at rich row {row_no}: {addr}")
+            raise ValueError("unaligned prefetch_addr at rich row {}: {}".format(row_no, addr))
 
-        # New notebook exports carry replay_idx directly. Existing exports do not;
-        # their `order` is a cycle count and must never be used as an idx.
+        # New notebook exports carry replay_idx directly. Existing exports do
+        # not; their `order` is a cycle count and must never be used as an idx.
         direct = row.get("replay_idx") or row.get("demand_idx")
         if direct not in (None, ""):
-            idx = to_int(direct, name=f"replay_idx at rich row {row_no}")
+            idx = to_int(direct, "replay_idx at rich row {}".format(row_no))
             direct_index_rows += 1
         else:
             try:
                 key = trigger_key(
-                    to_int(row.get("order"), name=f"order/cycle at rich row {row_no}"),
-                    to_int(row.get("pc"), name=f"pc at rich row {row_no}"),
-                    to_int(row.get("line"), name=f"line at rich row {row_no}"),
+                    to_int(row.get("order"), "order/cycle at rich row {}".format(row_no)),
+                    to_int(row.get("pc"), "pc at rich row {}".format(row_no)),
+                    to_int(row.get("line"), "line at rich row {}".format(row_no)),
                 )
             except ValueError as exc:
                 unmatched.append({"row": row_no, "reason": str(exc)})
@@ -147,11 +150,13 @@ def main() -> int:
             if key == last_key and last_idx is not None:
                 idx = last_idx
             else:
-                q = oracle_map.get(key)
-                if not q:
-                    unmatched.append({"row": row_no, "reason": f"no oracle trigger for cycle/pc/line={key}"})
+                values = oracle_map.get(key)
+                pos = oracle_positions.get(key, 0)
+                if not values or pos >= len(values):
+                    unmatched.append({"row": row_no, "reason": "no unused oracle trigger for cycle/pc/line={}".format(key)})
                     continue
-                idx = q.popleft()
+                idx = values[pos]
+                oracle_positions[key] = pos + 1
                 last_key, last_idx = key, idx
             mapped_rows += 1
 
@@ -159,10 +164,10 @@ def main() -> int:
         used_indices.add(idx)
 
     if unmatched and not args.allow_unmatched:
-        preview = "; ".join(f"row {x['row']}: {x['reason']}" for x in unmatched[:5])
+        preview = "; ".join("row {}: {}".format(x["row"], x["reason"]) for x in unmatched[:5])
         raise RuntimeError(
-            f"{len(unmatched)} rich rows could not be mapped to ROI L2 LOAD indices. "
-            f"Examples: {preview}. Refusing to create a partial replay list."
+            "{} rich rows could not be mapped to ROI L2 LOAD indices. Examples: {}. "
+            "Refusing to create a partial replay list.".format(len(unmatched), preview)
         )
     if not rows:
         raise RuntimeError("no replay entries produced")
@@ -172,7 +177,7 @@ def main() -> int:
     with args.out.open("w", newline="") as f:
         f.write("idx,prefetch_addr\n")
         for idx, addr in rows:
-            f.write(f"{idx},0x{addr:x}\n")
+            f.write("{},0x{:x}\n".format(idx, addr))
 
     meta = {
         "rich_list": str(args.rich_list),
@@ -189,7 +194,7 @@ def main() -> int:
     }
     meta_out = args.meta_out or args.out.with_suffix(args.out.suffix + ".meta.json")
     meta_out.write_text(json.dumps(meta, indent=2) + "\n")
-    print("[ok]", json.dumps(meta, sort_keys=True))
+    print("[ok] " + json.dumps(meta, sort_keys=True))
     return 0
 
 
@@ -197,5 +202,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(f"[error] {exc}", file=sys.stderr)
+        print("[error] {}".format(exc), file=sys.stderr)
         raise SystemExit(2)
