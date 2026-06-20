@@ -1,33 +1,27 @@
 #!/usr/bin/env python3
-"""Convert a rich oracle-LSTM export into strict list-replayer input.
+"""Convert a rich oracle-LSTM export into validated ListReplayer inputs.
 
-Why this exists
----------------
-The notebook's diagnostic CSV has columns such as
+The notebook's rich CSV has columns such as
     order,pc,line,...,prefetch_addr
-where ``order`` historically means simulator cycle, not a dynamic access index.
-A list replayer that expects ``idx,0xprefetch_addr`` will otherwise parse:
-    idx  <- cycle
-    addr <- pc (as hexadecimal)
-which silently produces zero matches or wrong targets.
+where ``order`` is a simulator cycle, not an access index. Feeding that file
+straight to a list replayer silently treats (cycle, PC) as (index, address).
 
-This tool writes exactly two columns:
-    idx,prefetch_addr
-    <ROI L2 LOAD ordinal>,0x<byte-address>
+This converter creates two files:
 
-For current rich exports without ``replay_idx`` / ``demand_idx``, it maps each
-(order=cycle, pc, line) trigger back to the no-prefetch oracle table and uses
-that row's demand_idx. Trigger mapping is strict by default: an unmatched
-trigger is an error, never a silently dropped prefetch.
+1. Sparse prefetch list (``--out``):
+       idx,prefetch_addr
+   where idx is the no-prefetch oracle's post-warmup ROI L2-LOAD ordinal.
 
-A model may occasionally reconstruct an invalid address (negative page/line,
-64-bit overflow, or non-cache-line alignment). That is a legal *policy reject*,
-not a mapping ambiguity. Such candidates are dropped explicitly and counted in
-the JSON sidecar. The notebook should also filter them at export time, but this
-converter keeps existing rich exports safe and replayable.
+2. Dense reference stream (``--reference-out``):
+       idx,pc,line
+   for *every* oracle demand row. The L2 replayer compares every runtime L2
+   LOAD callback against this signature before it emits a list entry. This
+   detects an early index-stream drift; a simple final counter check cannot.
 
-This file intentionally uses Python 3.6-compatible syntax because the
-Sacramento login nodes may provide Python 3.6.
+Current rich exports lack replay_idx/demand_idx, so their (cycle,pc,line)
+trigger is mapped back to the oracle table. Mapping is strict by default.
+
+This file deliberately stays Python-3.6 compatible for Sacramento login nodes.
 """
 
 import argparse
@@ -61,10 +55,11 @@ def trigger_key(cycle, pc, line):
     return (cycle, pc, line)
 
 
-def load_oracle_index(oracle_path):
-    """Build cycle/pc/line -> FIFO ROI-L2-load-index mapping from no-pref oracle."""
+def load_oracle(oracle_path):
+    """Return mapping key -> FIFO idxs plus a dense idx/pc/line reference."""
     mapping = defaultdict(list)
     positions = defaultdict(int)
+    reference = []
 
     with open_text(oracle_path) as f:
         reader = csv.DictReader(f)
@@ -76,19 +71,18 @@ def load_oracle_index(oracle_path):
         previous = -1
         for row in reader:
             idx = to_int(row["demand_idx"], "oracle demand_idx")
-            if idx <= previous:
-                raise ValueError("oracle demand_idx must be strictly increasing")
+            if idx != previous + 1:
+                raise ValueError("oracle demand_idx must be contiguous: expected {}, saw {}".format(previous + 1, idx))
             previous = idx
-            key = trigger_key(
-                to_int(row["cycle"], "oracle cycle"),
-                to_int(row["pc"], "oracle pc"),
-                to_int(row["line"], "oracle line"),
-            )
-            mapping[key].append(idx)
+            cycle = to_int(row["cycle"], "oracle cycle")
+            pc = to_int(row["pc"], "oracle pc")
+            line = to_int(row["line"], "oracle line")
+            mapping[trigger_key(cycle, pc, line)].append(idx)
+            reference.append((idx, pc, line))
 
-    if not mapping:
+    if not reference:
         raise ValueError("oracle has no rows: {}".format(oracle_path))
-    return mapping, positions
+    return mapping, positions, reference
 
 
 def iter_rich_rows(path):
@@ -102,14 +96,24 @@ def iter_rich_rows(path):
             yield row
 
 
+def write_reference(path, reference):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as f:
+        f.write("idx,pc,line\n")
+        for idx, pc, line in reference:
+            f.write("{},{},{}\n".format(idx, pc, line))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--rich-list", required=True, type=Path,
                     help="Notebook's rich fair_dedup CSV")
     ap.add_argument("--oracle", required=True, type=Path,
-                    help="Matching no-prefetch oracle CSV(.gz); used only when rich-list lacks replay_idx/demand_idx")
+                    help="Matching no-prefetch oracle CSV(.gz)")
     ap.add_argument("--out", required=True, type=Path,
-                    help="Strict two-column list-replayer CSV")
+                    help="Strict sparse idx,prefetch_addr replay CSV")
+    ap.add_argument("--reference-out", type=Path, default=None,
+                    help="Dense idx,pc,line oracle reference CSV (default: <out>.reference.csv)")
     ap.add_argument("--meta-out", type=Path, default=None,
                     help="Optional JSON validation summary (default: <out>.meta.json)")
     ap.add_argument("--allow-unmatched", action="store_true",
@@ -123,9 +127,10 @@ def main():
     if not args.oracle.is_file():
         raise FileNotFoundError(str(args.oracle))
 
-    oracle_map, oracle_positions = load_oracle_index(args.oracle)
-    # Cache the most recently resolved key. A future degree-k export can carry
-    # several targets for one trigger without consuming several oracle rows.
+    oracle_map, oracle_positions, reference = load_oracle(args.oracle)
+
+    # A degree-k export may carry several targets for the same trigger. Reuse
+    # the immediately previous mapped index instead of consuming oracle rows.
     last_key = None
     last_idx = None
     used_indices = set()
@@ -137,13 +142,7 @@ def main():
     dropped_invalid_address = 0
 
     for row_no, row in enumerate(iter_rich_rows(args.rich_list), start=2):
-        try:
-            addr = to_int(row.get("prefetch_addr"), "prefetch_addr at rich row {}".format(row_no))
-        except ValueError:
-            # A missing/non-numeric address means the rich export schema is corrupt,
-            # not merely a bad neural candidate.
-            raise
-
+        addr = to_int(row.get("prefetch_addr"), "prefetch_addr at rich row {}".format(row_no))
         valid_address = (addr > 0 and addr <= U64_MAX and addr % CACHE_LINE_BYTES == 0)
         if not valid_address:
             dropped_invalid_address += 1
@@ -153,11 +152,11 @@ def main():
                 raise ValueError("invalid prefetch_addr at rich row {}: {}".format(row_no, addr))
             continue
 
-        # New notebook exports carry replay_idx directly. Existing exports do
-        # not; their `order` is a cycle count and must never be used as an idx.
         direct = row.get("replay_idx") or row.get("demand_idx")
         if direct not in (None, ""):
             idx = to_int(direct, "replay_idx at rich row {}".format(row_no))
+            if idx < 0 or idx >= len(reference):
+                raise ValueError("replay_idx {} at rich row {} outside oracle range [0, {}]".format(idx, row_no, len(reference) - 1))
             direct_index_rows += 1
         else:
             try:
@@ -202,10 +201,15 @@ def main():
         for idx, addr in rows:
             f.write("{},0x{:x}\n".format(idx, addr))
 
+    reference_out = args.reference_out or args.out.with_suffix(args.out.suffix + ".reference.csv")
+    write_reference(reference_out, reference)
+
     meta = {
         "rich_list": str(args.rich_list),
         "oracle": str(args.oracle),
         "out": str(args.out),
+        "reference_out": str(reference_out),
+        "reference_rows": len(reference),
         "entries": len(rows),
         "unique_indices": len(used_indices),
         "min_idx": min(idx for idx, _ in rows),
@@ -215,7 +219,8 @@ def main():
         "unmatched_rows": len(unmatched),
         "dropped_invalid_address": dropped_invalid_address,
         "invalid_address_examples": invalid_examples,
-        "format": "idx,prefetch_addr where idx is ROI L2 LOAD demand_idx and address is an aligned positive uint64 byte-address in 0xhex",
+        "sparse_format": "idx,prefetch_addr where idx is ROI L2 LOAD demand_idx and address is aligned positive uint64 byte-address in 0xhex",
+        "reference_format": "idx,pc,line for every no-prefetch post-warmup ROI L2 LOAD; consumed by ListReplayer signature validation",
     }
     meta_out = args.meta_out or args.out.with_suffix(args.out.suffix + ".meta.json")
     meta_out.write_text(json.dumps(meta, indent=2) + "\n")
