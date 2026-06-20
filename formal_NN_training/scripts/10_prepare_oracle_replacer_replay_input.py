@@ -1,0 +1,201 @@
+#!/usr/bin/env python3
+"""Convert a rich oracle-LSTM export into strict list-replayer input.
+
+Why this exists
+---------------
+The notebook's diagnostic CSV has columns such as
+    order,pc,line,...,prefetch_addr
+where ``order`` historically meant simulator cycle, not a dynamic access index.
+A list replayer that expects ``idx,0xaddress`` will otherwise parse:
+    idx  <- cycle
+    addr <- pc (as hexadecimal)
+which silently produces zero matches or wrong targets.
+
+This tool writes exactly two columns:
+    idx,prefetch_addr
+    <ROI L2 LOAD ordinal>,0x<byte-address>
+
+For current rich exports without ``replay_idx`` / ``demand_idx``, it maps each
+(order=cycle, pc, line) trigger back to the no-prefetch oracle table and uses
+that row's demand_idx. It is strict by default: an unmatched trigger is an
+error, never a silently dropped prefetch.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import gzip
+import json
+import sys
+from collections import defaultdict, deque
+from pathlib import Path
+from typing import Deque, Dict, Iterable, Tuple
+
+
+def open_text(path: Path):
+    return gzip.open(path, "rt", newline="") if str(path).endswith(".gz") else path.open("r", newline="")
+
+
+def to_int(value: object, *, name: str) -> int:
+    if value is None:
+        raise ValueError(f"missing {name}")
+    s = str(value).strip()
+    if not s:
+        raise ValueError(f"missing {name}")
+    if s.lower().startswith("0x"):
+        return int(s, 16)
+    return int(float(s))
+
+
+def trigger_key(cycle: int, pc: int, line: int) -> Tuple[int, int, int]:
+    return (cycle, pc, line)
+
+
+def load_oracle_index(oracle_path: Path) -> Dict[Tuple[int, int, int], Deque[int]]:
+    """Build cycle/pc/line -> FIFO ROI-L2-load-index mapping from the no-pref oracle."""
+    mapping: Dict[Tuple[int, int, int], Deque[int]] = defaultdict(deque)
+    with open_text(oracle_path) as f:
+        reader = csv.DictReader(f)
+        required = {"demand_idx", "cycle", "pc", "line"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"oracle {oracle_path} missing columns: {sorted(missing)}")
+        previous = -1
+        for row in reader:
+            idx = to_int(row["demand_idx"], name="oracle demand_idx")
+            if idx <= previous:
+                raise ValueError("oracle demand_idx must be strictly increasing")
+            previous = idx
+            key = trigger_key(
+                to_int(row["cycle"], name="oracle cycle"),
+                to_int(row["pc"], name="oracle pc"),
+                to_int(row["line"], name="oracle line"),
+            )
+            mapping[key].append(idx)
+    if not mapping:
+        raise ValueError(f"oracle has no rows: {oracle_path}")
+    return mapping
+
+
+def iter_rich_rows(path: Path) -> Iterable[dict[str, str]]:
+    with path.open("r", newline="") as f:
+        reader = csv.DictReader(f)
+        required = {"prefetch_addr"}
+        missing = required - set(reader.fieldnames or [])
+        if missing:
+            raise ValueError(f"rich export {path} missing columns: {sorted(missing)}")
+        for row in reader:
+            yield row
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--rich-list", required=True, type=Path,
+                    help="Notebook's rich fair_dedup CSV")
+    ap.add_argument("--oracle", required=True, type=Path,
+                    help="Matching no-prefetch oracle CSV(.gz); used only when rich-list lacks replay_idx/demand_idx")
+    ap.add_argument("--out", required=True, type=Path,
+                    help="Strict two-column list-replayer CSV")
+    ap.add_argument("--meta-out", type=Path, default=None,
+                    help="Optional JSON validation summary (default: <out>.meta.json)")
+    ap.add_argument("--allow-unmatched", action="store_true",
+                    help="Drop unmatched rich rows instead of failing. Do not use for formal replay.")
+    args = ap.parse_args()
+
+    if not args.rich_list.is_file():
+        raise FileNotFoundError(args.rich_list)
+    if not args.oracle.is_file():
+        raise FileNotFoundError(args.oracle)
+
+    oracle_map = load_oracle_index(args.oracle)
+    # Cache the most recently resolved key. This allows a future degree-k export
+    # to carry several target addresses for one trigger without consuming several
+    # oracle occurrences. Degree-1 current exports use each key once.
+    last_key = None
+    last_idx = None
+    used_indices = set()
+    rows = []
+    unmatched = []
+    direct_index_rows = 0
+    mapped_rows = 0
+
+    for row_no, row in enumerate(iter_rich_rows(args.rich_list), start=2):
+        addr = to_int(row.get("prefetch_addr"), name=f"prefetch_addr at rich row {row_no}")
+        if addr <= 0:
+            raise ValueError(f"non-positive prefetch_addr at rich row {row_no}: {addr}")
+        if addr % 64:
+            raise ValueError(f"unaligned prefetch_addr at rich row {row_no}: {addr}")
+
+        # New notebook exports carry replay_idx directly. Existing exports do not;
+        # their `order` is a cycle count and must never be used as an idx.
+        direct = row.get("replay_idx") or row.get("demand_idx")
+        if direct not in (None, ""):
+            idx = to_int(direct, name=f"replay_idx at rich row {row_no}")
+            direct_index_rows += 1
+        else:
+            try:
+                key = trigger_key(
+                    to_int(row.get("order"), name=f"order/cycle at rich row {row_no}"),
+                    to_int(row.get("pc"), name=f"pc at rich row {row_no}"),
+                    to_int(row.get("line"), name=f"line at rich row {row_no}"),
+                )
+            except ValueError as exc:
+                unmatched.append({"row": row_no, "reason": str(exc)})
+                continue
+
+            if key == last_key and last_idx is not None:
+                idx = last_idx
+            else:
+                q = oracle_map.get(key)
+                if not q:
+                    unmatched.append({"row": row_no, "reason": f"no oracle trigger for cycle/pc/line={key}"})
+                    continue
+                idx = q.popleft()
+                last_key, last_idx = key, idx
+            mapped_rows += 1
+
+        rows.append((idx, addr))
+        used_indices.add(idx)
+
+    if unmatched and not args.allow_unmatched:
+        preview = "; ".join(f"row {x['row']}: {x['reason']}" for x in unmatched[:5])
+        raise RuntimeError(
+            f"{len(unmatched)} rich rows could not be mapped to ROI L2 LOAD indices. "
+            f"Examples: {preview}. Refusing to create a partial replay list."
+        )
+    if not rows:
+        raise RuntimeError("no replay entries produced")
+
+    rows.sort(key=lambda x: x[0])
+    args.out.parent.mkdir(parents=True, exist_ok=True)
+    with args.out.open("w", newline="") as f:
+        f.write("idx,prefetch_addr\n")
+        for idx, addr in rows:
+            f.write(f"{idx},0x{addr:x}\n")
+
+    meta = {
+        "rich_list": str(args.rich_list),
+        "oracle": str(args.oracle),
+        "out": str(args.out),
+        "entries": len(rows),
+        "unique_indices": len(used_indices),
+        "min_idx": min(idx for idx, _ in rows),
+        "max_idx": max(idx for idx, _ in rows),
+        "direct_index_rows": direct_index_rows,
+        "mapped_cycle_pc_line_rows": mapped_rows,
+        "unmatched_rows": len(unmatched),
+        "format": "idx,prefetch_addr where idx is ROI L2 LOAD demand_idx and address is byte-address 0xhex",
+    }
+    meta_out = args.meta_out or args.out.with_suffix(args.out.suffix + ".meta.json")
+    meta_out.write_text(json.dumps(meta, indent=2) + "\n")
+    print("[ok]", json.dumps(meta, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except Exception as exc:
+        print(f"[error] {exc}", file=sys.stderr)
+        raise SystemExit(2)
