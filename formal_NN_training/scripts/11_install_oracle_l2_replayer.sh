@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Install/build the ROI-aligned ListReplayer from Angelawoo572/ChampSim.
 #
-# It patches only the L2 registry (prefetcher/multi.l2c_pref) in the local Pythia
-# checkout. The implementation itself is tracked in the ChampSim fork:
+# It patches the Pythia multi-L2 registry (prefetcher/multi.l2c_pref). The
+# implementation itself is tracked in the ChampSim fork:
 #   inc/list_replayer.h
 #   prefetcher/list_replayer.cc
 #
-# The replayer counts only post-warmup L2 LOAD callbacks, exactly matching the
-# oracle table's demand_idx domain. It also rejects the rich notebook CSV; feed
-# it only a strict idx,0xprefetch_addr list produced by script 10 / notebook v2.
+# CRITICAL: Pythia selects the compiled L2 frontend with build_champsim.sh.
+# Running plain `make` compiles whichever l2c_prefetcher.cc happened to be
+# left in the checkout (usually no.l2c_pref after a previous build), so runtime
+# --l2c_prefetcher_types=list_replayer can never instantiate ListReplayer.
+# We therefore build exactly: no / multi / no / 1 core.
 
 set -euo pipefail
 
@@ -18,8 +20,12 @@ BUILD_JOBS=${BUILD_JOBS:-8}
 MULTI="$CHAMP_DIR/prefetcher/multi.l2c_pref"
 HEADER="$CHAMP_DIR/inc/list_replayer.h"
 SOURCE="$CHAMP_DIR/prefetcher/list_replayer.cc"
+BUILD_SCRIPT="$CHAMP_DIR/build_champsim.sh"
+BUILT="$CHAMP_DIR/bin/perceptron-no-multi-no-ship-1core"
+OUT="$CHAMP_DIR/bin/champsim.oracle_l2_replayer"
 
 [[ -d "$CHAMP_DIR/.git" ]] || { echo "[error] not a ChampSim git checkout: $CHAMP_DIR" >&2; exit 2; }
+[[ -x "$BUILD_SCRIPT" ]] || { echo "[error] missing executable Pythia build script: $BUILD_SCRIPT" >&2; exit 2; }
 [[ -f "$MULTI" ]] || { echo "[error] missing Pythia L2 registry: $MULTI" >&2; exit 2; }
 [[ -f "$HEADER" ]] || { echo "[error] missing $HEADER. Run: git -C $CHAMP_DIR pull" >&2; exit 2; }
 [[ -f "$SOURCE" ]] || { echo "[error] missing $SOURCE. Run: git -C $CHAMP_DIR pull" >&2; exit 2; }
@@ -60,14 +66,28 @@ p.write_text(s)
 print('[patched]', p)
 PY
 
-# Pythia's Makefile compiles src/, branch/, replacement/, and prefetcher/.
-# The selected L2 prefetcher is a runtime knob; runner script 09 supplies
-# --l2c_prefetcher_types=list_replayer.
-echo "[build] $CHAMP_DIR (jobs=$BUILD_JOBS)"
-make -C "$CHAMP_DIR" clean
-make -C "$CHAMP_DIR" -j"$BUILD_JOBS"
+echo "[build] compiling Pythia with L1D=no, L2=multi, LLC=no, cores=1"
+(
+  cd "$CHAMP_DIR"
+  # build_champsim.sh itself runs make clean/make and creates the named binary.
+  # BUILD_JOBS is informational only; this upstream script does not forward -j.
+  ./build_champsim.sh no multi no 1
+)
 
-[[ -x "$CHAMP_DIR/bin/champsim" ]] || { echo "[error] build did not produce bin/champsim" >&2; exit 3; }
-cp "$CHAMP_DIR/bin/champsim" "$CHAMP_DIR/bin/champsim.oracle_l2_replayer"
-echo "[ok] built $CHAMP_DIR/bin/champsim.oracle_l2_replayer"
-echo "[next] use BIN=$CHAMP_DIR/bin/champsim.oracle_l2_replayer with script 09"
+[[ -x "$BUILT" ]] || {
+  echo "[error] expected Pythia multi binary not produced: $BUILT" >&2
+  echo "[hint] inspect the build output above; build_champsim.sh must report L2C Prefetcher: multi" >&2
+  exit 3
+}
+cp -f "$BUILT" "$OUT"
+
+# Static, pre-run sanity: this confirms the multi frontend was compiled into the
+# named binary. Runtime script 09 still checks the actual instantiation line.
+if ! strings "$OUT" | grep -q 'adding L2C_PREFETCHER: list_replayer'; then
+  echo "[error] $OUT does not contain list_replayer registry text; refusing invalid replay binary" >&2
+  exit 4
+fi
+
+echo "[ok] built $OUT"
+echo "[ok] active source frontend: $CHAMP_DIR/prefetcher/l2c_prefetcher.cc (copied from multi.l2c_pref during build)"
+echo "[next] use BIN=$OUT with script 09"
