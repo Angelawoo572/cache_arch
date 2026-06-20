@@ -19,29 +19,45 @@ It therefore interpreted the cycle as an index and the PC as a hexadecimal
 address. No index matched its access counter, so the simulator reproduced the
 no-prefetch IPC with zero requests.
 
-There was a second domain mismatch: the old binary's counter observed a
-non-oracle stream (L1D and/or warmup/RFO accesses), while the neural oracle's
-`demand_idx` refers to **post-warmup L2 LOAD** demand accesses.
+## Correct replay contract
 
-## Fixed contract
+The replay has three independently checked pieces:
 
-1. `10_prepare_oracle_replacer_replay_input.py` converts an existing rich
-   notebook CSV into a strict two-column input. It maps `(cycle, pc, line)` to
-   the matching oracle `demand_idx` and emits `idx,0xprefetch_addr`.
-2. `11_install_oracle_l2_replayer.sh` installs a Pythia-native `list_replayer`
-   at L2. Its counter starts after warmup and advances only for L2 LOADs.
-3. `09_run_oracle_replacer_replay_parallel.sh` invokes that L2 prefetcher,
-   checks its final counter against the oracle row count, and fails on any
-   access-domain mismatch or zero matched trigger.
+1. `10_prepare_oracle_replacer_replay_input.py` maps a rich `(cycle, pc, line)`
+   trigger to its no-prefetch oracle `demand_idx` and creates a sparse list:
+
+   ```text
+   idx,prefetch_addr
+   ```
+
+2. The same converter creates a dense reference for **every** no-prefetch oracle
+   row:
+
+   ```text
+   idx,pc,line
+   ```
+
+3. The Pythia-native L2 `list_replayer` starts after warmup, counts only L2
+   LOADs, and compares every runtime callback's `(pc,line)` to that reference
+   before it emits a list entry. A mismatch suppresses emission and makes the
+   run invalid.
+
+A final counter mismatch by itself is therefore not enough to call a replay
+wrong: a few terminal callbacks can differ as the simulator drains/stops. The
+runner accepts at most `MAX_TAIL_SLACK` terminal callbacks in either direction
+only when all observed callbacks have zero signature mismatches and every list
+entry in the observed prefix replayed exactly.
 
 ## One-time install/build
 
 ```bash
 cd ~/cache
 
-git -C external/ChampSim pull
-# cache_arch must contain scripts 09--11 from the same revision.
 git pull
+# Preserve the local residual-audit patch if it is uncommitted.
+git -C external/ChampSim stash push -u -m "local patch before oracle replayer update"
+git -C external/ChampSim pull --ff-only
+git -C external/ChampSim stash pop
 
 bash formal_NN_training/scripts/11_install_oracle_l2_replayer.sh
 ```
@@ -52,35 +68,42 @@ This produces:
 external/ChampSim/bin/champsim.oracle_l2_replayer
 ```
 
-## Validated parallel replay
+## Validated replay
 
-Start with two traces:
+Run 619 first:
 
 ```bash
 cd ~/cache
-TRACES="619.lbm_s-4268B 602.gcc_s-734B" \
-MAX_JOBS=2 WARMUP=25000000 SIM=25000000 \
-nohup bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh \
-  > formal_NN_training/results/oracle_replacer_replay/driver.log 2>&1 &
+TRACES="619.lbm_s-4268B" \
+MAX_JOBS=1 WARMUP=25000000 SIM=25000000 \
+bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh
 ```
 
-Then run all traces only after the two-trace logs end with both:
+A valid log must contain all of these:
 
 ```text
 adding L2C_PREFETCHER: list_replayer
-[list_replayer] emitted ... over <oracle-row-count> ROI L2 LOAD accesses (... matched access indices)
+[list_replayer] loaded ... dense ROI L2 LOAD signatures ...
+[list_replayer] emitted ... candidates over ... ROI L2 LOAD accesses (...; 0 signature mismatches; ...; reference enabled)
 ```
 
-The runner's validation rejects the old incorrect case:
+The runner rejects both the original format bug and an early stream shift.
 
-```text
-issued 0 prefetches ... (0 attempted, 0 matched access indices)
+## Validated parallel replay
+
+```bash
+cd ~/cache
+MAX_JOBS=3 WARMUP=25000000 SIM=25000000 \
+nohup bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh \
+  > formal_NN_training/results/oracle_replacer_replay/driver.log 2>&1 &
 ```
 
 ## Outputs
 
 ```text
 formal_NN_training/results/oracle_replacer_replay/replay_inputs/
+  *.l2roi.idx_addr.csv       # sparse replay list
+  *.l2roi.reference.csv      # dense PC/line validation stream
 formal_NN_training/results/oracle_replacer_replay/logs/
 formal_NN_training/results/oracle_replacer_replay/driver.log
 ```
