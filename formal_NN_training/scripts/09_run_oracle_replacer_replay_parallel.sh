@@ -8,11 +8,12 @@
 # `idx,0xprefetch_addr`. This runner first converts rich lists to strict inputs
 # indexed by the no-prefetch ROI L2-LOAD ordinal (demand_idx).
 #
-# The binary must be the ROI-aligned L2 ListReplayer built by script 11. Its
-# final counter must equal the number of rows in the corresponding oracle table.
-# A mismatch means the prefetcher is attached at L1D, includes warmup/RFO, or
-# otherwise sees a different access stream. The script fails rather than
-# reporting no-prefetch IPC as an invalid neural result.
+# The binary must be the ROI-aligned L2 ListReplayer built by script 11. During
+# replay, a few final oracle-domain L2 callbacks can legitimately fall beyond
+# the simulation stop boundary because prefetching changes pipeline/cache timing.
+# The runner accepts only a SMALL *tail* shortfall, and verifies that every
+# strict-list entry in the observed prefix emitted. Any interior mismatch,
+# excess access, or a larger shortfall remains a hard failure.
 #
 # This simulator is Pythia, not newer ChampSim. Pythia requires:
 #   --warmup_instructions=<N>
@@ -31,6 +32,10 @@ SIM=${SIM:-25000000}
 BIN=${BIN:-"$ROOT/external/ChampSim/bin/champsim.oracle_l2_replayer"}
 # Pythia parses this as the runtime L2 prefetcher list.
 L2_REPLAYER_KNOB=${L2_REPLAYER_KNOB:---l2c_prefetcher_types=list_replayer}
+# Max allowed number of *final* no-pref oracle L2 LOADs not reached by replay.
+# This is a safety bound, not a performance knob. 64 is tiny relative to 25M
+# instructions and catches an accidental L1/warmup/index-domain mismatch.
+MAX_TAIL_SLACK=${MAX_TAIL_SLACK:-64}
 
 OUT_DIR=${OUT_DIR:-formal_NN_training/results/oracle_replacer_replay}
 LOG_DIR="$OUT_DIR/logs"
@@ -84,9 +89,34 @@ print(n)
 PY
 }
 
+# Print: <strict candidates whose idx < observed> <unique trigger idxs < observed>
+strict_prefix_stats() {
+  local strict="$1" observed="$2"
+  python3 - "$strict" "$observed" <<'PY'
+import csv, sys
+p, observed = sys.argv[1], int(sys.argv[2])
+entries = 0
+indices = set()
+prev = -1
+with open(p, newline='') as f:
+    r = csv.DictReader(f)
+    if r.fieldnames != ['idx', 'prefetch_addr']:
+        raise SystemExit('strict list schema must be exactly idx,prefetch_addr')
+    for row in r:
+        idx = int(row['idx'])
+        if idx < prev:
+            raise SystemExit('strict list is not sorted by idx')
+        prev = idx
+        if idx < observed:
+            entries += 1
+            indices.add(idx)
+print(entries, len(indices))
+PY
+}
+
 validate_log() {
-  local trace="$1" log="$2" expected="$3"
-  local final actual matched emitted
+  local trace="$1" log="$2" expected="$3" strict="$4"
+  local final actual matched emitted prefix_entries prefix_indices tail_gap
 
   if ! grep -q "adding L2C_PREFETCHER: list_replayer" "$log"; then
     echo "[error] $trace: binary did not instantiate list_replayer at L2; inspect $log" >&2
@@ -114,22 +144,52 @@ validate_log() {
     echo "[error] $trace: could not parse final list_replayer line: $final" >&2
     return 1
   fi
-  if [[ "$actual" != "$expected" ]]; then
+  if (( actual > expected )); then
     cat >&2 <<EOF
-[error] $trace: replay access-domain mismatch.
+[error] $trace: replay counter exceeded the oracle domain.
   oracle ROI L2 LOAD rows : $expected
   list_replayer counter   : $actual
-The binary is not counting the same post-warmup L2 LOAD stream as the oracle.
-Do NOT use this IPC. Re-run script 11, then use the rebuilt binary.
+This is not an end-tail effect; it indicates a wrong hook or index domain.
 final: $final
 EOF
     return 1
   fi
+
+  tail_gap=$((expected - actual))
+  if (( tail_gap > MAX_TAIL_SLACK )); then
+    cat >&2 <<EOF
+[error] $trace: replay ended too far before the oracle-domain tail.
+  oracle ROI L2 LOAD rows : $expected
+  list_replayer counter   : $actual
+  tail gap                : $tail_gap (limit $MAX_TAIL_SLACK)
+This is too large to accept as end-of-ROI timing drift.
+final: $final
+EOF
+    return 1
+  fi
+
+  read -r prefix_entries prefix_indices < <(strict_prefix_stats "$strict" "$actual")
+  if [[ "$emitted" != "$prefix_entries" || "$matched" != "$prefix_indices" ]]; then
+    cat >&2 <<EOF
+[error] $trace: strict-list prefix did not replay exactly.
+  observed L2 LOAD prefix : [0, $((actual - 1))]
+  strict prefix candidates: $prefix_entries; replayer emitted: $emitted
+  strict prefix trigger ids: $prefix_indices; replayer matched: $matched
+This indicates an interior trigger/index mismatch, not harmless tail slack.
+final: $final
+EOF
+    return 1
+  fi
+
   if [[ "$matched" == "0" || "$emitted" == "0" ]]; then
     echo "[error] $trace: no list entries matched/emitted despite a non-empty strict input: $final" >&2
     return 1
   fi
-  echo "[ok] $trace: ROI-L2 domain aligned; $final"
+
+  if (( tail_gap > 0 )); then
+    echo "[warn] $trace: accepted validated end-tail slack of $tail_gap L2 LOADs; all strict entries in observed prefix replayed exactly."
+  fi
+  echo "[ok] $trace: ROI-L2 replay prefix aligned; $final"
 }
 
 run_one() {
@@ -145,6 +205,7 @@ run_one() {
   echo "[run] $trace"
   echo "[binary] $BIN"
   echo "[L2 knob] $L2_REPLAYER_KNOB"
+  echo "[max tail slack] $MAX_TAIL_SLACK"
   echo "[rich] $rich"
   echo "[oracle] $oracle"
   echo "[strict] $strict"
@@ -168,7 +229,7 @@ run_one() {
     -traces "$trace_file" \
     > "$log" 2>&1
 
-  validate_log "$trace" "$log" "$expected"
+  validate_log "$trace" "$log" "$expected" "$strict"
   echo "[done] $trace"
 }
 
