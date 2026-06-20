@@ -6,7 +6,7 @@ Why this exists
 The notebook's diagnostic CSV has columns such as
     order,pc,line,...,prefetch_addr
 where ``order`` historically means simulator cycle, not a dynamic access index.
-A list replayer that expects ``idx,0xaddress`` will otherwise parse:
+A list replayer that expects ``idx,0xprefetch_addr`` will otherwise parse:
     idx  <- cycle
     addr <- pc (as hexadecimal)
 which silently produces zero matches or wrong targets.
@@ -17,8 +17,14 @@ This tool writes exactly two columns:
 
 For current rich exports without ``replay_idx`` / ``demand_idx``, it maps each
 (order=cycle, pc, line) trigger back to the no-prefetch oracle table and uses
-that row's demand_idx. It is strict by default: an unmatched trigger is an
-error, never a silently dropped prefetch.
+that row's demand_idx. Trigger mapping is strict by default: an unmatched
+trigger is an error, never a silently dropped prefetch.
+
+A model may occasionally reconstruct an invalid address (negative page/line,
+64-bit overflow, or non-cache-line alignment). That is a legal *policy reject*,
+not a mapping ambiguity. Such candidates are dropped explicitly and counted in
+the JSON sidecar. The notebook should also filter them at export time, but this
+converter keeps existing rich exports safe and replayable.
 
 This file intentionally uses Python 3.6-compatible syntax because the
 Sacramento login nodes may provide Python 3.6.
@@ -31,6 +37,9 @@ import json
 import sys
 from collections import defaultdict
 from pathlib import Path
+
+CACHE_LINE_BYTES = 64
+U64_MAX = (1 << 64) - 1
 
 
 def open_text(path):
@@ -105,6 +114,8 @@ def main():
                     help="Optional JSON validation summary (default: <out>.meta.json)")
     ap.add_argument("--allow-unmatched", action="store_true",
                     help="Drop unmatched rich rows instead of failing. Do not use for formal replay.")
+    ap.add_argument("--fail-on-invalid-address", action="store_true",
+                    help="Treat invalid neural addresses as fatal instead of filtering/counting them.")
     args = ap.parse_args()
 
     if not args.rich_list.is_file():
@@ -120,15 +131,27 @@ def main():
     used_indices = set()
     rows = []
     unmatched = []
+    invalid_examples = []
     direct_index_rows = 0
     mapped_rows = 0
+    dropped_invalid_address = 0
 
     for row_no, row in enumerate(iter_rich_rows(args.rich_list), start=2):
-        addr = to_int(row.get("prefetch_addr"), "prefetch_addr at rich row {}".format(row_no))
-        if addr <= 0:
-            raise ValueError("non-positive prefetch_addr at rich row {}: {}".format(row_no, addr))
-        if addr % 64:
-            raise ValueError("unaligned prefetch_addr at rich row {}: {}".format(row_no, addr))
+        try:
+            addr = to_int(row.get("prefetch_addr"), "prefetch_addr at rich row {}".format(row_no))
+        except ValueError:
+            # A missing/non-numeric address means the rich export schema is corrupt,
+            # not merely a bad neural candidate.
+            raise
+
+        valid_address = (addr > 0 and addr <= U64_MAX and addr % CACHE_LINE_BYTES == 0)
+        if not valid_address:
+            dropped_invalid_address += 1
+            if len(invalid_examples) < 5:
+                invalid_examples.append({"row": row_no, "prefetch_addr": str(addr)})
+            if args.fail_on_invalid_address:
+                raise ValueError("invalid prefetch_addr at rich row {}: {}".format(row_no, addr))
+            continue
 
         # New notebook exports carry replay_idx directly. Existing exports do
         # not; their `order` is a cycle count and must never be used as an idx.
@@ -190,7 +213,9 @@ def main():
         "direct_index_rows": direct_index_rows,
         "mapped_cycle_pc_line_rows": mapped_rows,
         "unmatched_rows": len(unmatched),
-        "format": "idx,prefetch_addr where idx is ROI L2 LOAD demand_idx and address is byte-address 0xhex",
+        "dropped_invalid_address": dropped_invalid_address,
+        "invalid_address_examples": invalid_examples,
+        "format": "idx,prefetch_addr where idx is ROI L2 LOAD demand_idx and address is an aligned positive uint64 byte-address in 0xhex",
     }
     meta_out = args.meta_out or args.out.with_suffix(args.out.suffix + ".meta.json")
     meta_out.write_text(json.dumps(meta, indent=2) + "\n")
