@@ -232,15 +232,15 @@ running=0
 status=0
 for trace in "${TRACE_LIST[@]}"; do
   run_one "$trace" &
-  ((running+=1))
+  running=$((running + 1))
   if (( running >= MAX_JOBS )); then
     if ! wait -n; then status=1; fi
-    ((running-=1))
+    running=$((running - 1))
   fi
 done
 while (( running > 0 )); do
   if ! wait -n; then status=1; fi
-  ((running-=1))
+  running=$((running - 1))
 done
 
 if (( status != 0 )); then
