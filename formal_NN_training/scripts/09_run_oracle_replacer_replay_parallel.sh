@@ -3,17 +3,17 @@
 #
 # IMPORTANT CONTRACT
 # ------------------
-# The rich notebook CSV is NOT list-replayer input. Its historical first two
+# The notebook's rich CSV is NOT list-replayer input. Its historical first two
 # columns are `order` (= cycle) and `pc`, whereas list_replayer expects
 # `idx,0xprefetch_addr`. This runner first converts rich lists to strict inputs
 # indexed by the no-prefetch ROI L2-LOAD ordinal (demand_idx).
 #
-# The binary must be the ROI-aligned L2 ListReplayer built by script 11. During
-# replay, a few final oracle-domain L2 callbacks can legitimately fall beyond
-# the simulation stop boundary because prefetching changes pipeline/cache timing.
-# The runner accepts only a SMALL *tail* shortfall, and verifies that every
-# strict-list entry in the observed prefix emitted. Any interior mismatch,
-# excess access, or a larger shortfall remains a hard failure.
+# Script 10 also creates a dense idx,pc,line reference for the entire no-pref
+# oracle stream. The L2 ListReplayer validates each replay callback against that
+# reference before emitting a candidate. Therefore a small terminal count
+# difference is accepted in either direction ONLY when the whole observed prefix
+# has zero signature mismatches and every strict-list entry in that prefix was
+# emitted at its exact oracle index.
 #
 # This simulator is Pythia, not newer ChampSim. Pythia requires:
 #   --warmup_instructions=<N>
@@ -30,11 +30,9 @@ MAX_JOBS=${MAX_JOBS:-3}
 WARMUP=${WARMUP:-25000000}
 SIM=${SIM:-25000000}
 BIN=${BIN:-"$ROOT/external/ChampSim/bin/champsim.oracle_l2_replayer"}
-# Pythia parses this as the runtime L2 prefetcher list.
 L2_REPLAYER_KNOB=${L2_REPLAYER_KNOB:---l2c_prefetcher_types=list_replayer}
-# Max allowed number of *final* no-pref oracle L2 LOADs not reached by replay.
-# This is a safety bound, not a performance knob. 64 is tiny relative to 25M
-# instructions and catches an accidental L1/warmup/index-domain mismatch.
+# Maximum terminal callback-count drift after signature validation. This is a
+# safety bound, not a performance knob.
 MAX_TAIL_SLACK=${MAX_TAIL_SLACK:-64}
 
 OUT_DIR=${OUT_DIR:-formal_NN_training/results/oracle_replacer_replay}
@@ -59,7 +57,6 @@ if [[ ! -f "$PREP" ]]; then
 fi
 
 if [[ -n "${TRACES:-}" ]]; then
-  # Example: TRACES="619.lbm_s-4268B 602.gcc_s-734B"
   read -r -a TRACE_LIST <<< "$TRACES"
 else
   TRACE_LIST=(
@@ -83,7 +80,7 @@ with op(p, 'rt', newline='') as f:
     for row in r:
         i = int(float(row['demand_idx']))
         if i != n:
-            raise SystemExit(f"non-contiguous demand_idx: expected {n}, saw {i}")
+            raise SystemExit("non-contiguous demand_idx: expected {}, saw {}".format(n, i))
         n += 1
 print(n)
 PY
@@ -116,54 +113,39 @@ PY
 
 validate_log() {
   local trace="$1" log="$2" expected="$3" strict="$4"
-  local final actual matched emitted prefix_entries prefix_indices tail_gap
+  local final actual matched emitted sig_mismatch ref_tail prefix_entries prefix_indices delta abs_delta
 
   if ! grep -q "adding L2C_PREFETCHER: list_replayer" "$log"; then
     echo "[error] $trace: binary did not instantiate list_replayer at L2; inspect $log" >&2
     return 1
   fi
-  if ! grep -q "\[list_replayer\] loaded" "$log"; then
-    echo "[error] $trace: list_replayer did not load a strict list; inspect $log" >&2
+  if ! grep -q "\[list_replayer\] loaded .* dense ROI L2 LOAD signatures" "$log"; then
+    echo "[error] $trace: oracle signature reference was not loaded; rebuild/re-run with current scripts" >&2
     return 1
   fi
 
-  final="$(grep "\[list_replayer\].*over .*accesses" "$log" | tail -1 || true)"
+  final="$(grep "\[list_replayer\].*over .*ROI L2 LOAD accesses" "$log" | tail -1 || true)"
   if [[ -z "$final" ]]; then
     echo "[error] $trace: no list_replayer final-stat line; inspect $log" >&2
     return 1
   fi
 
-  # Supports both the new Pythia-native line and the older legacy line:
-  #   emitted X candidates over Y ROI L2 LOAD accesses (Z matched access indices)
-  #   issued  X prefetches over Y accesses (A attempted, Z matched access indices)
-  actual="$(sed -nE 's/.*over ([0-9]+) (ROI L2 LOAD )?accesses.*/\1/p' <<<"$final")"
-  matched="$(sed -nE 's/.*\(([0-9]+) matched access indices\).*/\1/p' <<<"$final")"
-  emitted="$(sed -nE 's/.*\] (issued|emitted) ([0-9]+) .*/\2/p' <<<"$final")"
+  actual="$(sed -nE 's/.*over ([0-9]+) ROI L2 LOAD accesses.*/\1/p' <<<"$final")"
+  emitted="$(sed -nE 's/.*\] emitted ([0-9]+) candidates.*/\1/p' <<<"$final")"
+  matched="$(sed -nE 's/.*\(([0-9]+) matched access indices;.*/\1/p' <<<"$final")"
+  sig_mismatch="$(sed -nE 's/.*; ([0-9]+) signature mismatches;.*/\1/p' <<<"$final")"
+  ref_tail="$(sed -nE 's/.*; ([0-9]+) post-reference tail accesses;.*/\1/p' <<<"$final")"
 
-  if [[ -z "$actual" || -z "$matched" || -z "$emitted" ]]; then
-    echo "[error] $trace: could not parse final list_replayer line: $final" >&2
+  if [[ -z "$actual" || -z "$matched" || -z "$emitted" || -z "$sig_mismatch" || -z "$ref_tail" ]]; then
+    echo "[error] $trace: could not parse current list_replayer final line: $final" >&2
     return 1
   fi
-  if (( actual > expected )); then
+  if [[ "$sig_mismatch" != "0" ]]; then
     cat >&2 <<EOF
-[error] $trace: replay counter exceeded the oracle domain.
-  oracle ROI L2 LOAD rows : $expected
-  list_replayer counter   : $actual
-This is not an end-tail effect; it indicates a wrong hook or index domain.
-final: $final
-EOF
-    return 1
-  fi
-
-  tail_gap=$((expected - actual))
-  if (( tail_gap > MAX_TAIL_SLACK )); then
-    cat >&2 <<EOF
-[error] $trace: replay ended too far before the oracle-domain tail.
-  oracle ROI L2 LOAD rows : $expected
-  list_replayer counter   : $actual
-  tail gap                : $tail_gap (limit $MAX_TAIL_SLACK)
-This is too large to accept as end-of-ROI timing drift.
-final: $final
+[error] $trace: runtime L2 callback stream diverged from the oracle stream.
+  signature mismatches : $sig_mismatch
+  final: $final
+The index replay is invalid; candidate emission was suppressed at mismatches.
 EOF
     return 1
   fi
@@ -175,21 +157,31 @@ EOF
   observed L2 LOAD prefix : [0, $((actual - 1))]
   strict prefix candidates: $prefix_entries; replayer emitted: $emitted
   strict prefix trigger ids: $prefix_indices; replayer matched: $matched
-This indicates an interior trigger/index mismatch, not harmless tail slack.
-final: $final
+  final: $final
 EOF
     return 1
   fi
 
-  if [[ "$matched" == "0" || "$emitted" == "0" ]]; then
-    echo "[error] $trace: no list entries matched/emitted despite a non-empty strict input: $final" >&2
+  delta=$((actual - expected))
+  abs_delta=$delta
+  if (( abs_delta < 0 )); then abs_delta=$((-abs_delta)); fi
+  if (( abs_delta > MAX_TAIL_SLACK )); then
+    cat >&2 <<EOF
+[error] $trace: terminal callback-count drift exceeds safety bound.
+  oracle ROI L2 LOAD rows : $expected
+  replay L2 LOAD rows     : $actual
+  absolute tail drift     : $abs_delta (limit $MAX_TAIL_SLACK)
+  final: $final
+EOF
     return 1
   fi
 
-  if (( tail_gap > 0 )); then
-    echo "[warn] $trace: accepted validated end-tail slack of $tail_gap L2 LOADs; all strict entries in observed prefix replayed exactly."
+  if (( delta < 0 )); then
+    echo "[warn] $trace: validated prefix ends $((-delta)) callbacks before oracle tail; all observed callbacks signature-match."
+  elif (( delta > 0 )); then
+    echo "[warn] $trace: validated replay has $delta post-reference tail callbacks; all oracle-prefix callbacks signature-match."
   fi
-  echo "[ok] $trace: ROI-L2 replay prefix aligned; $final"
+  echo "[ok] $trace: signature-validated ROI-L2 replay; $final"
 }
 
 run_one() {
@@ -198,6 +190,7 @@ run_one() {
   local rich="$ART_DIR/prefetch_list_${trace}_cl128_fair_dedup_lru2048.csv"
   local oracle="$ORACLE_DIR/${trace}.oracle.csv.gz"
   local strict="$REPLAY_DIR/${trace}.l2roi.idx_addr.csv"
+  local reference="$REPLAY_DIR/${trace}.l2roi.reference.csv"
   local log="$LOG_DIR/${trace}.oracle_replacer.log"
   local expected
 
@@ -209,6 +202,7 @@ run_one() {
   echo "[rich] $rich"
   echo "[oracle] $oracle"
   echo "[strict] $strict"
+  echo "[reference] $reference"
   echo "[log] $log"
   echo "============================================================"
 
@@ -216,12 +210,13 @@ run_one() {
   [[ -f "$rich" ]] || { echo "[error] missing rich export: $rich" >&2; return 1; }
   [[ -f "$oracle" ]] || { echo "[error] missing oracle: $oracle" >&2; return 1; }
 
-  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$strict" \
+  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$strict" --reference-out "$reference" \
     > "$LOG_DIR/${trace}.prepare.log" 2>&1
   expected="$(expected_roi_rows "$oracle")"
 
   # -traces MUST be last: Pythia considers every following argument a trace.
   PFETCH_LIST_PATH="$strict" \
+  PFETCH_REF_PATH="$reference" \
   "$BIN" \
     "$L2_REPLAYER_KNOB" \
     --warmup_instructions="$WARMUP" \
@@ -253,4 +248,4 @@ if (( status != 0 )); then
   exit "$status"
 fi
 
-echo "[all done] validated ROI-L2 oracle replays"
+echo "[all done] signature-validated ROI-L2 oracle replays"
