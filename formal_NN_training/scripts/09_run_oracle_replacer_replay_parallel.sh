@@ -13,6 +13,12 @@
 # A mismatch means the prefetcher is attached at L1D, includes warmup/RFO, or
 # otherwise sees a different access stream. The script fails rather than
 # reporting no-prefetch IPC as an invalid neural result.
+#
+# This simulator is Pythia, not newer ChampSim. Pythia requires:
+#   --warmup_instructions=<N>
+#   --simulation_instructions=<N>
+#   -traces <trace>
+# and treats every argument after -traces as a trace filename.
 
 set -euo pipefail
 
@@ -153,12 +159,13 @@ run_one() {
     > "$LOG_DIR/${trace}.prepare.log" 2>&1
   expected="$(expected_roi_rows "$oracle")"
 
+  # -traces MUST be last: Pythia considers every following argument a trace.
   PFETCH_LIST_PATH="$strict" \
   "$BIN" \
     "$L2_REPLAYER_KNOB" \
-    --warmup-instructions "$WARMUP" \
-    --simulation-instructions "$SIM" \
-    "$trace_file" \
+    --warmup_instructions="$WARMUP" \
+    --simulation_instructions="$SIM" \
+    -traces "$trace_file" \
     > "$log" 2>&1
 
   validate_log "$trace" "$log" "$expected"
