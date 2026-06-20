@@ -8,11 +8,11 @@
 # `idx,0xprefetch_addr`. This runner first converts rich lists to strict inputs
 # indexed by the no-prefetch ROI L2-LOAD ordinal (demand_idx).
 #
-# The binary must also be an ROI-aligned L2 replayer: its final list_replayer
-# counter must equal the number of rows in the corresponding oracle table. A
-# mismatch means it is attached at L1D, includes warmup/RFO, or otherwise sees
-# a different access stream. The script fails rather than reporting no-prefetch
-# IPC as an invalid neural result.
+# The binary must be the ROI-aligned L2 ListReplayer built by script 11. Its
+# final counter must equal the number of rows in the corresponding oracle table.
+# A mismatch means the prefetcher is attached at L1D, includes warmup/RFO, or
+# otherwise sees a different access stream. The script fails rather than
+# reporting no-prefetch IPC as an invalid neural result.
 
 set -euo pipefail
 
@@ -22,7 +22,9 @@ cd "$ROOT"
 MAX_JOBS=${MAX_JOBS:-3}
 WARMUP=${WARMUP:-25000000}
 SIM=${SIM:-25000000}
-BIN=${BIN:-"$ROOT/external/ChampSim/bin/champsim.l2_replayer"}
+BIN=${BIN:-"$ROOT/external/ChampSim/bin/champsim.oracle_l2_replayer"}
+# Pythia parses this as the runtime L2 prefetcher list.
+L2_REPLAYER_KNOB=${L2_REPLAYER_KNOB:---l2c_prefetcher_types=list_replayer}
 
 OUT_DIR=${OUT_DIR:-formal_NN_training/results/oracle_replacer_replay}
 LOG_DIR="$OUT_DIR/logs"
@@ -33,7 +35,11 @@ PREP=${PREP:-formal_NN_training/scripts/10_prepare_oracle_replacer_replay_input.
 mkdir -p "$LOG_DIR" "$REPLAY_DIR"
 
 if [[ ! -x "$BIN" ]]; then
-  echo "[error] replay binary is not executable: $BIN" >&2
+  cat >&2 <<EOF
+[error] replay binary is not executable: $BIN
+Build it first:
+  bash formal_NN_training/scripts/11_install_oracle_l2_replayer.sh
+EOF
   exit 2
 fi
 if [[ ! -f "$PREP" ]]; then
@@ -63,12 +69,10 @@ op = gzip.open if p.endswith('.gz') else open
 with op(p, 'rt', newline='') as f:
     r = csv.DictReader(f)
     n = 0
-    last = -1
     for row in r:
         i = int(float(row['demand_idx']))
         if i != n:
             raise SystemExit(f"non-contiguous demand_idx: expected {n}, saw {i}")
-        last = i
         n += 1
 print(n)
 PY
@@ -76,26 +80,31 @@ PY
 
 validate_log() {
   local trace="$1" log="$2" expected="$3"
-  local final actual matched attempted
+  local final actual matched emitted
 
+  if ! grep -q "adding L2C_PREFETCHER: list_replayer" "$log"; then
+    echo "[error] $trace: binary did not instantiate list_replayer at L2; inspect $log" >&2
+    return 1
+  fi
   if ! grep -q "\[list_replayer\] loaded" "$log"; then
-    echo "[error] $trace: list_replayer did not load a list; inspect $log" >&2
+    echo "[error] $trace: list_replayer did not load a strict list; inspect $log" >&2
     return 1
   fi
 
-  final="$(grep "\[list_replayer\].*over .* accesses" "$log" | tail -1 || true)"
+  final="$(grep "\[list_replayer\].*over .*accesses" "$log" | tail -1 || true)"
   if [[ -z "$final" ]]; then
     echo "[error] $trace: no list_replayer final-stat line; inspect $log" >&2
     return 1
   fi
 
-  # Expected legacy format:
-  # [list_replayer] issued X prefetches over Y accesses (Z attempted, W matched access indices)
-  actual="$(sed -nE 's/.*over ([0-9]+) accesses.*/\1/p' <<<"$final")"
-  attempted="$(sed -nE 's/.*\(([0-9]+) attempted,.*/\1/p' <<<"$final")"
-  matched="$(sed -nE 's/.*, ([0-9]+) matched access indices\).*/\1/p' <<<"$final")"
+  # Supports both the new Pythia-native line and the older legacy line:
+  #   emitted X candidates over Y ROI L2 LOAD accesses (Z matched access indices)
+  #   issued  X prefetches over Y accesses (A attempted, Z matched access indices)
+  actual="$(sed -nE 's/.*over ([0-9]+) (ROI L2 LOAD )?accesses.*/\1/p' <<<"$final")"
+  matched="$(sed -nE 's/.*\(([0-9]+) matched access indices\).*/\1/p' <<<"$final")"
+  emitted="$(sed -nE 's/.*\] (issued|emitted) ([0-9]+) .*/\2/p' <<<"$final")"
 
-  if [[ -z "$actual" ]]; then
+  if [[ -z "$actual" || -z "$matched" || -z "$emitted" ]]; then
     echo "[error] $trace: could not parse final list_replayer line: $final" >&2
     return 1
   fi
@@ -104,15 +113,14 @@ validate_log() {
 [error] $trace: replay access-domain mismatch.
   oracle ROI L2 LOAD rows : $expected
   list_replayer counter   : $actual
-The current binary is not counting the same ROI L2 LOAD stream as the oracle
-(e.g., it is attached at L1D, includes warmup/RFO, or uses a different hook).
-Do NOT use this IPC. Rebuild the ROI-aligned L2 list_replayer before replaying.
+The binary is not counting the same post-warmup L2 LOAD stream as the oracle.
+Do NOT use this IPC. Re-run script 11, then use the rebuilt binary.
 final: $final
 EOF
     return 1
   fi
-  if [[ "${matched:-0}" == "0" || "${attempted:-0}" == "0" ]]; then
-    echo "[error] $trace: no list entries matched/attempted despite a non-empty strict input: $final" >&2
+  if [[ "$matched" == "0" || "$emitted" == "0" ]]; then
+    echo "[error] $trace: no list entries matched/emitted despite a non-empty strict input: $final" >&2
     return 1
   fi
   echo "[ok] $trace: ROI-L2 domain aligned; $final"
@@ -130,6 +138,7 @@ run_one() {
   echo "============================================================"
   echo "[run] $trace"
   echo "[binary] $BIN"
+  echo "[L2 knob] $L2_REPLAYER_KNOB"
   echo "[rich] $rich"
   echo "[oracle] $oracle"
   echo "[strict] $strict"
@@ -146,6 +155,7 @@ run_one() {
 
   PFETCH_LIST_PATH="$strict" \
   "$BIN" \
+    "$L2_REPLAYER_KNOB" \
     --warmup-instructions "$WARMUP" \
     --simulation-instructions "$SIM" \
     "$trace_file" \
