@@ -11,6 +11,10 @@
 # Runtime instantiation is verified by Script 09. Do not use `strings` as a
 # build gate: optimized binaries do not reliably preserve this exact diagnostic
 # literal even when the generated frontend compiled correctly.
+#
+# This script also refuses to compile the pre-signature ListReplayer source.
+# A binary without PFETCH_REF_PATH / dense PC-line validation cannot produce a
+# formally aligned replay result.
 
 set -euo pipefail
 
@@ -46,9 +50,40 @@ trap cleanup EXIT
   exit 2
 }
 
+# A stale initial ListReplayer had only idx->address replay. It did not load
+# PFETCH_REF_PATH and therefore could silently replay addresses after an L2
+# dynamic-stream shift. Require the current signature-validating ABI before
+# spending time compiling.
+for needle in \
+  'PFETCH_REF_PATH' \
+  'dense ROI L2 LOAD signatures' \
+  'signature mismatches' \
+  'reference enabled'; do
+  if ! grep -Fq "$needle" "$SOURCE"; then
+    cat >&2 <<EOF
+[error] stale ListReplayer source: $SOURCE
+[error] missing required signature-validation marker: $needle
+
+This checkout contains the old idx-only replayer. Do not replay with it.
+Update external/ChampSim to the current Angelawoo572/ChampSim master, then rerun:
+  bash formal_NN_training/scripts/11_install_oracle_l2_replayer.sh
+EOF
+    exit 3
+  fi
+done
+
+if ! grep -Fq 'ReferenceSignature' "$HEADER"; then
+  cat >&2 <<EOF
+[error] stale ListReplayer header: $HEADER
+[error] missing ReferenceSignature required by dense PC/line validation.
+Update external/ChampSim before building.
+EOF
+  exit 3
+fi
+
 # Use the committed Pythia multi registry even when the checkout has an old
-# local ListReplayer patch. This keeps the generated build deterministic and
-# avoids carrying that old patch forward.
+# local ListReplayer registry patch. This keeps the generated build deterministic
+# and avoids carrying that local registry patch forward.
 git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref > "$TRACKED_TEMPLATE"
 
 python3 - "$TRACKED_TEMPLATE" "$GENERATED" <<'PY'
@@ -91,11 +126,11 @@ PY
 # Verify exactly the source that will be copied by build_champsim.sh.
 grep -Fq '#include "list_replayer.h"' "$GENERATED" || {
   echo "[error] generated frontend lacks list_replayer header" >&2
-  exit 3
+  exit 4
 }
 grep -Fq 'compare("list_replayer")' "$GENERATED" || {
   echo "[error] generated frontend lacks list_replayer registry branch" >&2
-  exit 3
+  exit 4
 }
 
 echo "[build] compiling Pythia with L1D=no, L2=temporary oracle_replayer, LLC=no, cores=1"
@@ -106,19 +141,21 @@ echo "[build] compiling Pythia with L1D=no, L2=temporary oracle_replayer, LLC=no
 
 [[ -x "$BUILT" ]] || {
   echo "[error] expected Pythia binary not produced: $BUILT" >&2
-  exit 4
+  exit 5
 }
 cp -f "$BUILT" "$OUT"
 
-# Keep a tiny provenance record next to the named replay binary.
+# Keep a small provenance record next to the named replay binary.
 {
   echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "champsim_head=$(git -C "$CHAMP_DIR" rev-parse HEAD)"
+  echo "list_replayer_source_sha256=$(sha256sum "$SOURCE" | awk '{print $1}')"
+  echo "list_replayer_header_sha256=$(sha256sum "$HEADER" | awk '{print $1}')"
   echo "frontend=tracked HEAD:prefetcher/multi.l2c_pref + ListReplayer"
   echo "build_command=./build_champsim.sh no oracle_replayer no 1"
 } > "$OUT.build_info.txt"
 
 echo "[ok] built $OUT"
-echo "[ok] frontend source was verified before compilation"
-echo "[ok] runtime instantiation will be verified by Script 09"
+echo "[ok] signature-validating ListReplayer source was verified before compilation"
+echo "[ok] runtime instantiation and zero-mismatch replay will be verified by Script 09"
 echo "[next] run formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh"
