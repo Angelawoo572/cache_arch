@@ -1,25 +1,19 @@
 #!/usr/bin/env bash
-# Replay the base-independent oracle-LSTM prefetch lists in parallel.
+# Replay base-independent oracle-LSTM prefetch lists in Pythia with strict
+# ROI-L2-LOAD alignment and write one simulator-result summary.csv.
 #
-# IMPORTANT CONTRACT
-# ------------------
-# The notebook's rich CSV is NOT list-replayer input. Its historical first two
-# columns are `order` (= cycle) and `pc`, whereas list_replayer expects
-# `idx,0xprefetch_addr`. This runner first converts rich lists to strict inputs
-# indexed by the no-prefetch ROI L2-LOAD ordinal (demand_idx).
+# Contract:
+#   1) Notebook rich export: cycle/pc/line + prefetch_addr (diagnostic format).
+#   2) Script 10 converts it to strict idx,prefetch_addr where idx is the
+#      no-prefetch post-warmup ROI L2 LOAD ordinal.
+#   3) The Pythia ListReplayer validates every runtime (pc,line) callback
+#      against the dense oracle reference before it emits a candidate.
 #
-# Script 10 also creates a dense idx,pc,line reference for the entire no-pref
-# oracle stream. The L2 ListReplayer validates each replay callback against that
-# reference before emitting a candidate. Therefore a small terminal count
-# difference is accepted in either direction ONLY when the whole observed prefix
-# has zero signature mismatches and every strict-list entry in that prefix was
-# emitted at its exact oracle index.
+# The default rich filename matches the notebook's current default:
+#   prefetch_list_<trace>_cl128_fair_dedup_lru2048.csv
 #
-# This simulator is Pythia, not newer ChampSim. Pythia requires:
-#   --warmup_instructions=<N>
-#   --simulation_instructions=<N>
-#   -traces <trace>
-# and treats every argument after -traces as a trace filename.
+# Use ART_DIR to select a frozen threshold/sweep directory. Do not overwrite a
+# previously replayed list with a new notebook run.
 
 set -euo pipefail
 
@@ -29,18 +23,29 @@ cd "$ROOT"
 MAX_JOBS=${MAX_JOBS:-3}
 WARMUP=${WARMUP:-25000000}
 SIM=${SIM:-25000000}
+CHUNK_LEN=${CHUNK_LEN:-128}
+DEDUP_CAPACITY=${DEDUP_CAPACITY:-2048}
+RICH_SUFFIX=${RICH_SUFFIX:-"fair_dedup_lru${DEDUP_CAPACITY}"}
+RUN_TAG=${RUN_TAG:-"oracle_lstm_cl${CHUNK_LEN}_${RICH_SUFFIX}"}
+
 BIN=${BIN:-"$ROOT/external/ChampSim/bin/champsim.oracle_l2_replayer"}
 L2_REPLAYER_KNOB=${L2_REPLAYER_KNOB:---l2c_prefetcher_types=list_replayer}
 # Maximum terminal callback-count drift after signature validation. This is a
 # safety bound, not a performance knob.
 MAX_TAIL_SLACK=${MAX_TAIL_SLACK:-64}
 
-OUT_DIR=${OUT_DIR:-formal_NN_training/results/oracle_replacer_replay}
+OUT_DIR=${OUT_DIR:-"formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}"}
 LOG_DIR="$OUT_DIR/logs"
 REPLAY_DIR="$OUT_DIR/replay_inputs"
 ART_DIR=${ART_DIR:-formal_NN_training/artifacts/oracle_replacer}
 ORACLE_DIR=${ORACLE_DIR:-formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ}
 PREP=${PREP:-formal_NN_training/scripts/10_prepare_oracle_replacer_replay_input.py}
+PARSER=${PARSER:-formal_NN_training/scripts/12_parse_oracle_replacer_replay.py}
+PARSE_RESULTS=${PARSE_RESULTS:-1}
+SUMMARY_OUT=${SUMMARY_OUT:-"$OUT_DIR/summary.csv"}
+BASELINE_METRICS=${BASELINE_METRICS:-formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv}
+OFFLINE_SUMMARY=${OFFLINE_SUMMARY:-"$ART_DIR/oracle_replacer_sweep.csv"}
+
 mkdir -p "$LOG_DIR" "$REPLAY_DIR"
 
 if [[ ! -x "$BIN" ]]; then
@@ -53,6 +58,10 @@ EOF
 fi
 if [[ ! -f "$PREP" ]]; then
   echo "[error] missing strict-list converter: $PREP" >&2
+  exit 2
+fi
+if (( PARSE_RESULTS )) && [[ ! -f "$PARSER" ]]; then
+  echo "[error] missing replay-summary parser: $PARSER" >&2
   exit 2
 fi
 
@@ -187,7 +196,7 @@ EOF
 run_one() {
   local trace="$1"
   local trace_file="traces/${trace}.champsimtrace.xz"
-  local rich="$ART_DIR/prefetch_list_${trace}_cl128_fair_dedup_lru2048.csv"
+  local rich="$ART_DIR/prefetch_list_${trace}_cl${CHUNK_LEN}_${RICH_SUFFIX}.csv"
   local oracle="$ORACLE_DIR/${trace}.oracle.csv.gz"
   local strict="$REPLAY_DIR/${trace}.l2roi.idx_addr.csv"
   local reference="$REPLAY_DIR/${trace}.l2roi.reference.csv"
@@ -196,9 +205,9 @@ run_one() {
 
   echo "============================================================"
   echo "[run] $trace"
+  echo "[tag] $RUN_TAG"
   echo "[binary] $BIN"
   echo "[L2 knob] $L2_REPLAYER_KNOB"
-  echo "[max tail slack] $MAX_TAIL_SLACK"
   echo "[rich] $rich"
   echo "[oracle] $oracle"
   echo "[strict] $strict"
@@ -224,7 +233,11 @@ run_one() {
     -traces "$trace_file" \
     > "$log" 2>&1
 
-  validate_log "$trace" "$log" "$expected" "$strict"
+  if ! validate_log "$trace" "$log" "$expected" "$strict"; then
+    echo "[oracle-replay-validation] status=fail" >> "$log"
+    return 1
+  fi
+  echo "[oracle-replay-validation] status=pass" >> "$log"
   echo "[done] $trace"
 }
 
@@ -248,4 +261,25 @@ if (( status != 0 )); then
   exit "$status"
 fi
 
-echo "[all done] signature-validated ROI-L2 oracle replays"
+if (( PARSE_RESULTS )); then
+  parse_args=(
+    --log-root "$LOG_DIR"
+    --replay-input-root "$REPLAY_DIR"
+    --out "$SUMMARY_OUT"
+    --traces "${TRACE_LIST[*]}"
+  )
+  if [[ -f "$BASELINE_METRICS" ]]; then
+    parse_args+=(--baseline-metrics "$BASELINE_METRICS")
+  else
+    echo "[warn] no normal-prefetcher baseline table: $BASELINE_METRICS" >&2
+  fi
+  if [[ -f "$OFFLINE_SUMMARY" ]]; then
+    parse_args+=(--offline-summary "$OFFLINE_SUMMARY")
+  else
+    echo "[warn] no offline notebook summary to join: $OFFLINE_SUMMARY" >&2
+  fi
+  python3 "$PARSER" "${parse_args[@]}"
+fi
+
+echo "[all done] signature-validated ROI-L2 replay"
+echo "[summary] $SUMMARY_OUT"
