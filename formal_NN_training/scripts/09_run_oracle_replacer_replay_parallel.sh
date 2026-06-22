@@ -1,19 +1,16 @@
 #!/usr/bin/env bash
-# Replay base-independent oracle-LSTM prefetch lists in Pythia with strict
-# ROI-L2-LOAD alignment and write one simulator-result summary.csv.
+# Replay base-independent LSTM prefetch lists in Pythia using a PC-line-occurrence
+# trigger key rather than a no-prefetch global L2 callback ordinal.
 #
-# Contract:
-#   1) Notebook rich export: cycle/pc/line + prefetch_addr (diagnostic format).
-#   2) Script 10 converts it to strict idx,prefetch_addr where idx is the
-#      no-prefetch post-warmup ROI L2 LOAD ordinal.
-#   3) The Pythia ListReplayer validates every runtime (pc,line) callback
-#      against the dense oracle reference before it emits a candidate.
+# Why: once a prefetch changes memory timing, independent L2 callbacks can reorder.
+# A global callback index from the no-prefetch run is therefore not invariant under
+# the intervention. Script 10 maps each rich notebook event to:
 #
-# The default rich filename matches the notebook's current default:
-#   prefetch_list_<trace>_cl128_fair_dedup_lru2048.csv
+#   pc,line,occ,prefetch_addr
 #
-# Use ART_DIR to select a frozen threshold/sweep directory. Do not overwrite a
-# previously replayed list with a new notebook run.
+# where occ is the no-prefetch occurrence count of that (pc,line) pair. The
+# ListReplayer maintains this local counter at runtime. This is keyed offline-policy
+# replay, not in-simulator PyTorch inference.
 
 set -euo pipefail
 
@@ -30,10 +27,6 @@ RUN_TAG=${RUN_TAG:-"oracle_lstm_cl${CHUNK_LEN}_${RICH_SUFFIX}"}
 
 BIN=${BIN:-"$ROOT/external/ChampSim/bin/champsim.oracle_l2_replayer"}
 L2_REPLAYER_KNOB=${L2_REPLAYER_KNOB:---l2c_prefetcher_types=list_replayer}
-# Maximum terminal callback-count drift after signature validation. This is a
-# safety bound, not a performance knob.
-MAX_TAIL_SLACK=${MAX_TAIL_SLACK:-64}
-
 OUT_DIR=${OUT_DIR:-"formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}"}
 LOG_DIR="$OUT_DIR/logs"
 REPLAY_DIR="$OUT_DIR/replay_inputs"
@@ -56,10 +49,7 @@ Build it first:
 EOF
   exit 2
 fi
-if [[ ! -f "$PREP" ]]; then
-  echo "[error] missing strict-list converter: $PREP" >&2
-  exit 2
-fi
+[[ -f "$PREP" ]] || { echo "[error] missing keyed-list converter: $PREP" >&2; exit 2; }
 if (( PARSE_RESULTS )) && [[ ! -f "$PARSER" ]]; then
   echo "[error] missing replay-summary parser: $PARSER" >&2
   exit 2
@@ -77,120 +67,60 @@ else
   )
 fi
 
-expected_roi_rows() {
-  local oracle="$1"
-  python3 - "$oracle" <<'PY'
-import csv, gzip, sys
-p = sys.argv[1]
-op = gzip.open if p.endswith('.gz') else open
-with op(p, 'rt', newline='') as f:
-    r = csv.DictReader(f)
-    n = 0
-    for row in r:
-        i = int(float(row['demand_idx']))
-        if i != n:
-            raise SystemExit("non-contiguous demand_idx: expected {}, saw {}".format(n, i))
-        n += 1
-print(n)
-PY
-}
-
-# Print: <strict candidates whose idx < observed> <unique trigger idxs < observed>
-strict_prefix_stats() {
-  local strict="$1" observed="$2"
-  python3 - "$strict" "$observed" <<'PY'
-import csv, sys
-p, observed = sys.argv[1], int(sys.argv[2])
-entries = 0
-indices = set()
-prev = -1
-with open(p, newline='') as f:
-    r = csv.DictReader(f)
-    if r.fieldnames != ['idx', 'prefetch_addr']:
-        raise SystemExit('strict list schema must be exactly idx,prefetch_addr')
-    for row in r:
-        idx = int(row['idx'])
-        if idx < prev:
-            raise SystemExit('strict list is not sorted by idx')
-        prev = idx
-        if idx < observed:
-            entries += 1
-            indices.add(idx)
-print(entries, len(indices))
+meta_counts() {
+  local meta="$1"
+  python3 - "$meta" <<'PY'
+import json, sys
+with open(sys.argv[1]) as f:
+    x = json.load(f)
+print(int(x.get("entries", 0)), int(x.get("unique_trigger_keys", 0)), int(x.get("unmatched_rows", -1)))
 PY
 }
 
 validate_log() {
-  local trace="$1" log="$2" expected="$3" strict="$4"
-  local final actual matched emitted sig_mismatch ref_tail prefix_entries prefix_indices delta abs_delta
+  local trace="$1" log="$2" meta="$3"
+  local final entries expected_keys unmatched emitted observed matched loaded_keys
 
   if ! grep -q "adding L2C_PREFETCHER: list_replayer" "$log"; then
     echo "[error] $trace: binary did not instantiate list_replayer at L2; inspect $log" >&2
     return 1
   fi
-  if ! grep -q "\[list_replayer\] loaded .* dense ROI L2 LOAD signatures" "$log"; then
-    echo "[error] $trace: oracle signature reference was not loaded; rebuild/re-run with current scripts" >&2
+  if ! grep -q "PC-line-occ triggers" "$log"; then
+    echo "[error] $trace: keyed PC-line-occ list was not loaded; rebuild with current Pythia" >&2
     return 1
   fi
 
-  final="$(grep "\[list_replayer\].*over .*ROI L2 LOAD accesses" "$log" | tail -1 || true)"
+  read -r entries expected_keys unmatched < <(meta_counts "$meta")
+  if [[ "$unmatched" != "0" || "$entries" == "0" || "$expected_keys" == "0" ]]; then
+    echo "[error] $trace: converter metadata is not a complete keyed list: entries=$entries keys=$expected_keys unmatched=$unmatched" >&2
+    return 1
+  fi
+
+  final="$(grep "\[list_replayer\].*runtime ROI L2 LOAD accesses" "$log" | tail -1 || true)"
   if [[ -z "$final" ]]; then
-    echo "[error] $trace: no list_replayer final-stat line; inspect $log" >&2
+    echo "[error] $trace: no keyed ListReplayer final-stat line; inspect $log" >&2
     return 1
   fi
 
-  actual="$(sed -nE 's/.*over ([0-9]+) ROI L2 LOAD accesses.*/\1/p' <<<"$final")"
-  emitted="$(sed -nE 's/.*\] emitted ([0-9]+) candidates.*/\1/p' <<<"$final")"
-  matched="$(sed -nE 's/.*\(([0-9]+) matched access indices;.*/\1/p' <<<"$final")"
-  sig_mismatch="$(sed -nE 's/.*; ([0-9]+) signature mismatches;.*/\1/p' <<<"$final")"
-  ref_tail="$(sed -nE 's/.*; ([0-9]+) post-reference tail accesses;.*/\1/p' <<<"$final")"
+  emitted="$(sed -nE 's/.*\] emitted ([0-9]+) candidates over.*/\1/p' <<<"$final")"
+  observed="$(sed -nE 's/.*over ([0-9]+) runtime ROI L2 LOAD accesses.*/\1/p' <<<"$final")"
+  matched="$(sed -nE 's/.*\(([0-9]+) matched PC-line-occ triggers;.*/\1/p' <<<"$final")"
+  loaded_keys="$(sed -nE 's/.*; ([0-9]+) loaded trigger keys; key=pc_line_occ\).*/\1/p' <<<"$final")"
 
-  if [[ -z "$actual" || -z "$matched" || -z "$emitted" || -z "$sig_mismatch" || -z "$ref_tail" ]]; then
-    echo "[error] $trace: could not parse current list_replayer final line: $final" >&2
+  if [[ -z "$emitted" || -z "$observed" || -z "$matched" || -z "$loaded_keys" ]]; then
+    echo "[error] $trace: could not parse current keyed final line: $final" >&2
     return 1
   fi
-  if [[ "$sig_mismatch" != "0" ]]; then
-    cat >&2 <<EOF
-[error] $trace: runtime L2 callback stream diverged from the oracle stream.
-  signature mismatches : $sig_mismatch
-  final: $final
-The index replay is invalid; candidate emission was suppressed at mismatches.
-EOF
+  if [[ "$loaded_keys" != "$expected_keys" ]]; then
+    echo "[error] $trace: runtime loaded $loaded_keys keys, converter produced $expected_keys keys" >&2
     return 1
   fi
-
-  read -r prefix_entries prefix_indices < <(strict_prefix_stats "$strict" "$actual")
-  if [[ "$emitted" != "$prefix_entries" || "$matched" != "$prefix_indices" ]]; then
-    cat >&2 <<EOF
-[error] $trace: strict-list prefix did not replay exactly.
-  observed L2 LOAD prefix : [0, $((actual - 1))]
-  strict prefix candidates: $prefix_entries; replayer emitted: $emitted
-  strict prefix trigger ids: $prefix_indices; replayer matched: $matched
-  final: $final
-EOF
+  if (( emitted > entries || matched > expected_keys || observed == 0 )); then
+    echo "[error] $trace: impossible keyed replay counters: $final" >&2
     return 1
   fi
 
-  delta=$((actual - expected))
-  abs_delta=$delta
-  if (( abs_delta < 0 )); then abs_delta=$((-abs_delta)); fi
-  if (( abs_delta > MAX_TAIL_SLACK )); then
-    cat >&2 <<EOF
-[error] $trace: terminal callback-count drift exceeds safety bound.
-  oracle ROI L2 LOAD rows : $expected
-  replay L2 LOAD rows     : $actual
-  absolute tail drift     : $abs_delta (limit $MAX_TAIL_SLACK)
-  final: $final
-EOF
-    return 1
-  fi
-
-  if (( delta < 0 )); then
-    echo "[warn] $trace: validated prefix ends $((-delta)) callbacks before oracle tail; all observed callbacks signature-match."
-  elif (( delta > 0 )); then
-    echo "[warn] $trace: validated replay has $delta post-reference tail callbacks; all oracle-prefix callbacks signature-match."
-  fi
-  echo "[ok] $trace: signature-validated ROI-L2 replay; $final"
+  echo "[ok] $trace: keyed replay transport passed; emitted=$emitted/$entries entries, matched=$matched/$expected_keys PC-line-occ triggers, runtime_l2_loads=$observed"
 }
 
 run_one() {
@@ -198,10 +128,9 @@ run_one() {
   local trace_file="traces/${trace}.champsimtrace.xz"
   local rich="$ART_DIR/prefetch_list_${trace}_cl${CHUNK_LEN}_${RICH_SUFFIX}.csv"
   local oracle="$ORACLE_DIR/${trace}.oracle.csv.gz"
-  local strict="$REPLAY_DIR/${trace}.l2roi.idx_addr.csv"
-  local reference="$REPLAY_DIR/${trace}.l2roi.reference.csv"
+  local keyed="$REPLAY_DIR/${trace}.pc_line_occ.csv"
+  local meta="$REPLAY_DIR/${trace}.pc_line_occ.csv.meta.json"
   local log="$LOG_DIR/${trace}.oracle_replacer.log"
-  local expected
 
   echo "============================================================"
   echo "[run] $trace"
@@ -210,8 +139,7 @@ run_one() {
   echo "[L2 knob] $L2_REPLAYER_KNOB"
   echo "[rich] $rich"
   echo "[oracle] $oracle"
-  echo "[strict] $strict"
-  echo "[reference] $reference"
+  echo "[keyed] $keyed"
   echo "[log] $log"
   echo "============================================================"
 
@@ -219,13 +147,11 @@ run_one() {
   [[ -f "$rich" ]] || { echo "[error] missing rich export: $rich" >&2; return 1; }
   [[ -f "$oracle" ]] || { echo "[error] missing oracle: $oracle" >&2; return 1; }
 
-  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$strict" --reference-out "$reference" \
+  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" \
     > "$LOG_DIR/${trace}.prepare.log" 2>&1
-  expected="$(expected_roi_rows "$oracle")"
 
-  # -traces MUST be last: Pythia considers every following argument a trace.
-  PFETCH_LIST_PATH="$strict" \
-  PFETCH_REF_PATH="$reference" \
+  # -traces MUST be last: Pythia treats every following argument as a trace.
+  PFETCH_LIST_PATH="$keyed" \
   "$BIN" \
     "$L2_REPLAYER_KNOB" \
     --warmup_instructions="$WARMUP" \
@@ -233,11 +159,11 @@ run_one() {
     -traces "$trace_file" \
     > "$log" 2>&1
 
-  if ! validate_log "$trace" "$log" "$expected" "$strict"; then
-    echo "[oracle-replay-validation] status=fail" >> "$log"
+  if ! validate_log "$trace" "$log" "$meta"; then
+    echo "[oracle-replay-validation] status=keyed_transport_fail" >> "$log"
     return 1
   fi
-  echo "[oracle-replay-validation] status=pass" >> "$log"
+  echo "[oracle-replay-validation] status=keyed_transport_pass" >> "$log"
   echo "[done] $trace"
 }
 
@@ -257,7 +183,7 @@ while (( running > 0 )); do
 done
 
 if (( status != 0 )); then
-  echo "[failed] one or more replays failed validation; see $LOG_DIR" >&2
+  echo "[failed] one or more keyed replays failed transport validation; see $LOG_DIR" >&2
   exit "$status"
 fi
 
@@ -281,5 +207,5 @@ if (( PARSE_RESULTS )); then
   python3 "$PARSER" "${parse_args[@]}"
 fi
 
-echo "[all done] signature-validated ROI-L2 replay"
+echo "[all done] PC-line-occ keyed LSTM replay"
 echo "[summary] $SUMMARY_OUT"
