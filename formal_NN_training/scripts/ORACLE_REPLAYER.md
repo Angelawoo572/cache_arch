@@ -50,22 +50,67 @@ cd ~/cache
 git pull --ff-only
 
 git -C external/ChampSim status --short
-git -C external/ChampSim pull --ff-only
+git -C external/ChampSim remote -v
+git -C external/ChampSim branch -vv
 ```
 
-A dirty `prefetcher/multi.l2c_pref` from an older local ListReplayer patch does not block the current build. Script 11 now generates its temporary replay frontend from `HEAD:prefetcher/multi.l2c_pref`, not from that local file. Do not run `git restore` on a dirty Pythia file unless you have inspected its diff and know it is disposable.
+### Required recovery when Script 09 says reference was not loaded
+
+A log that contains only:
+
+```text
+[list_replayer] emitted ... matched access indices
+```
+
+but lacks `dense ROI L2 LOAD signatures`, `signature mismatches`, and `reference enabled` is the old idx-only ListReplayer. Its results are invalid for the formal replay path.
+
+Preserve the local residual-audit patch, discard only the obsolete local multi-registry patch, and reset the tracked Pythia tree to the current GitHub master:
+
+```bash
+cd ~/cache
+
+STAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_DIR="formal_NN_training/backups/pythia_${STAMP}"
+mkdir -p "$BACKUP_DIR"
+
+git -C external/ChampSim status --short > "$BACKUP_DIR/status_before.txt"
+git -C external/ChampSim diff -- src/cache.cc > "$BACKUP_DIR/src_cache_residual_audit.patch"
+git -C external/ChampSim diff -- prefetcher/multi.l2c_pref > "$BACKUP_DIR/multi_registry_obsolete.patch"
+git -C external/ChampSim branch "backup/pre_signature_replayer_${STAMP}" HEAD
+
+# Script 11 generates its own temporary list-replayer registry. The old local
+# modification to multi.l2c_pref is no longer needed.
+git -C external/ChampSim restore --source=HEAD -- prefetcher/multi.l2c_pref
+
+# Preserve the residual audit logger through the source update. vcpkg/ stays
+# untouched because this stash intentionally does not use -u.
+git -C external/ChampSim stash push -m "preserve residual audit logger ${STAMP}" -- src/cache.cc
+
+git -C external/ChampSim remote set-url origin https://github.com/Angelawoo572/ChampSim.git
+git -C external/ChampSim fetch origin master
+git -C external/ChampSim switch master
+git -C external/ChampSim reset --hard origin/master
+git -C external/ChampSim stash pop
+
+grep -nE "PFETCH_REF_PATH|dense ROI L2 LOAD signatures|signature mismatches|reference enabled" \
+  external/ChampSim/prefetcher/list_replayer.cc
+grep -n "ReferenceSignature" external/ChampSim/inc/list_replayer.h
+```
+
+The last two commands must print matching source lines before you build. The backup branch and patches remain available under `formal_NN_training/backups/`.
 
 ## Build ListReplayer
 
 ```bash
 cd ~/cache
+git pull --ff-only
 bash formal_NN_training/scripts/11_install_oracle_l2_replayer.sh
 
 ls -lh external/ChampSim/bin/champsim.oracle_l2_replayer
 cat external/ChampSim/bin/champsim.oracle_l2_replayer.build_info.txt
 ```
 
-Script 11 verifies the generated `oracle_replayer.l2c_pref` source **before** compilation. It intentionally does not use a `strings` test as a build gate; optimized binaries do not reliably preserve the exact diagnostic literal. Script 09 performs the real runtime check when it requires:
+Script 11 verifies both the signature-validating ListReplayer source ABI and the generated `oracle_replayer.l2c_pref` frontend before compilation. It intentionally does not use a `strings` test as a build gate; optimized binaries do not reliably preserve an exact diagnostic literal. Script 09 performs the real runtime check when it requires:
 
 ```text
 adding L2C_PREFETCHER: list_replayer
@@ -81,6 +126,7 @@ cd ~/cache
 
 ART_DIR=formal_NN_training/artifacts/oracle_replacer/lead1_thr010_addrconf_lru2048
 RUN_TAG=base_lstm_lead1_thr010_619
+rm -rf "formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}"
 
 RUN_TAG="$RUN_TAG" \
 TRACES="619.lbm_s-4268B" \
@@ -144,9 +190,9 @@ tail -f "formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}.driver.log
 pgrep -af "09_run_oracle_replacer_replay_parallel|champsim.oracle_l2_replayer"
 ```
 
-## 623 separately
+## 623 diagnostic replay
 
-The lead-1 623 export had a 97.9% offline LRU dedup drop rate. Run it separately, after the primary table, as a repeated-address / policy-collapse diagnostic:
+Run this separately because the current 623 export dropped about 97.9% of undeduplicated candidate rows under LRU dedup:
 
 ```bash
 cd ~/cache
@@ -166,12 +212,10 @@ OFFLINE_SUMMARY="$ART_DIR/oracle_replacer_sweep_lead1_addrconf_lru2048.csv" \
 bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh
 ```
 
-## Interpret each row in order
+## Read every result in this order
 
 1. `replay_validated=1` and `signature_mismatches=0`.
 2. `speedup_vs_no_pref`.
 3. `speedup_vs_best_normal`.
-4. `pf_issued`, `pf_dropped`, `selected_accuracy`, `timeliness`, `pf_late`, and `pf_useless`.
-5. `offline_*` fields only as training/export diagnostics.
-
-For this lead-1 export, a high offline address score can still be late in the real cache hierarchy. Replay is the required timeliness test.
+4. `pf_issued`, `pf_dropped`, `selected_accuracy`, `timeliness`, `pf_useless`, and `pf_late`.
+5. `offline_*` values only as export/training diagnostics, never as simulator results.
