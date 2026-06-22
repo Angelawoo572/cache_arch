@@ -5,15 +5,19 @@
 # Pythia's build_champsim.sh selects an L2 frontend by copying
 # prefetcher/<name>.l2c_pref into prefetcher/l2c_prefetcher.cc before make.
 # We therefore generate a temporary oracle_replayer.l2c_pref from the tracked
-# multi.l2c_pref registry, add ListReplayer to that temporary frontend, build
-# it, and delete the generated frontend on exit.
+# HEAD version of multi.l2c_pref, add ListReplayer to that temporary frontend,
+# build it, and delete the generated frontend on exit.
+#
+# Runtime instantiation is verified by Script 09. Do not use `strings` as a
+# build gate: optimized binaries do not reliably preserve this exact diagnostic
+# literal even when the generated frontend compiled correctly.
 
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CHAMP_DIR=${CHAMP_DIR:-"$ROOT/external/ChampSim"}
-TEMPLATE="$CHAMP_DIR/prefetcher/multi.l2c_pref"
 GENERATED="$CHAMP_DIR/prefetcher/oracle_replayer.l2c_pref"
+TRACKED_TEMPLATE="$CHAMP_DIR/prefetcher/.oracle_replayer_multi_head.tmp"
 HEADER="$CHAMP_DIR/inc/list_replayer.h"
 SOURCE="$CHAMP_DIR/prefetcher/list_replayer.cc"
 BUILD_SCRIPT="$CHAMP_DIR/build_champsim.sh"
@@ -21,7 +25,7 @@ BUILT="$CHAMP_DIR/bin/perceptron-no-oracle_replayer-no-ship-1core"
 OUT="$CHAMP_DIR/bin/champsim.oracle_l2_replayer"
 
 cleanup() {
-  rm -f "$GENERATED"
+  rm -f "$GENERATED" "$TRACKED_TEMPLATE"
 }
 trap cleanup EXIT
 
@@ -33,10 +37,6 @@ trap cleanup EXIT
   echo "[error] missing executable Pythia build script: $BUILD_SCRIPT" >&2
   exit 2
 }
-[[ -f "$TEMPLATE" ]] || {
-  echo "[error] missing Pythia L2 multi registry: $TEMPLATE" >&2
-  exit 2
-}
 [[ -f "$HEADER" ]] || {
   echo "[error] missing $HEADER. Update external/ChampSim first." >&2
   exit 2
@@ -46,7 +46,12 @@ trap cleanup EXIT
   exit 2
 }
 
-python3 - "$TEMPLATE" "$GENERATED" <<'PY'
+# Use the committed Pythia multi registry even when the checkout has an old
+# local ListReplayer patch. This keeps the generated build deterministic and
+# avoids carrying that old patch forward.
+git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref > "$TRACKED_TEMPLATE"
+
+python3 - "$TRACKED_TEMPLATE" "$GENERATED" <<'PY'
 from pathlib import Path
 import sys
 
@@ -57,7 +62,7 @@ s = src.read_text()
 if '#include "list_replayer.h"' not in s:
     anchor = '#include "pref_power7.h"\n'
     if anchor not in s:
-        raise SystemExit('[error] cannot find include anchor in multi.l2c_pref')
+        raise SystemExit('[error] cannot find include anchor in tracked multi.l2c_pref')
     s = s.replace(anchor, anchor + '#include "list_replayer.h"\n', 1)
 
 if 'compare("list_replayer")' not in s:
@@ -76,12 +81,22 @@ if 'compare("list_replayer")' not in s:
 \t\t}
 '''
     if anchor not in s:
-        raise SystemExit('[error] cannot find next_line registry anchor in multi.l2c_pref')
+        raise SystemExit('[error] cannot find next_line registry anchor in tracked multi.l2c_pref')
     s = s.replace(anchor, insert, 1)
 
 out.write_text(s)
 print('[generated]', out)
 PY
+
+# Verify exactly the source that will be copied by build_champsim.sh.
+grep -Fq '#include "list_replayer.h"' "$GENERATED" || {
+  echo "[error] generated frontend lacks list_replayer header" >&2
+  exit 3
+}
+grep -Fq 'compare("list_replayer")' "$GENERATED" || {
+  echo "[error] generated frontend lacks list_replayer registry branch" >&2
+  exit 3
+}
 
 echo "[build] compiling Pythia with L1D=no, L2=temporary oracle_replayer, LLC=no, cores=1"
 (
@@ -91,16 +106,19 @@ echo "[build] compiling Pythia with L1D=no, L2=temporary oracle_replayer, LLC=no
 
 [[ -x "$BUILT" ]] || {
   echo "[error] expected Pythia binary not produced: $BUILT" >&2
-  exit 3
+  exit 4
 }
 cp -f "$BUILT" "$OUT"
 
-# Static pre-run sanity. Script 09 also checks the runtime instantiation line.
-if ! strings "$OUT" | grep -q 'adding L2C_PREFETCHER: list_replayer'; then
-  echo "[error] $OUT does not contain ListReplayer registry text" >&2
-  exit 4
-fi
+# Keep a tiny provenance record next to the named replay binary.
+{
+  echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "champsim_head=$(git -C "$CHAMP_DIR" rev-parse HEAD)"
+  echo "frontend=tracked HEAD:prefetcher/multi.l2c_pref + ListReplayer"
+  echo "build_command=./build_champsim.sh no oracle_replayer no 1"
+} > "$OUT.build_info.txt"
 
 echo "[ok] built $OUT"
-echo "[ok] Pythia tracked sources were not modified"
+echo "[ok] frontend source was verified before compilation"
+echo "[ok] runtime instantiation will be verified by Script 09"
 echo "[next] run formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh"
