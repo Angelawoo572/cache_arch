@@ -10,9 +10,9 @@ This directory contains the active Pythia normal-prefetcher baseline, oracle-tab
 06_run_base_prefetcher_zoo_audit.sh          # normal-prefetcher behavior sweep
 07_join_normal_prefetcher_metrics.py         # join behavior and residual metrics
 08_build_normal_prefetcher_oracle_table.py   # build LSTM oracle tables
-09_run_oracle_replacer_replay_parallel.sh    # strict validated LSTM replay driver
-10_prepare_oracle_replacer_replay_input.py   # rich list -> strict replay input
-11_install_oracle_l2_replayer.sh             # build Pythia ListReplayer binary
+09_run_oracle_replacer_replay_parallel.sh    # PC-line-occurrence keyed replay driver
+10_prepare_oracle_replacer_replay_input.py   # rich list -> pc,line,occ replay list
+11_install_oracle_l2_replayer.sh             # build keyed Pythia ListReplayer binary
 12_parse_oracle_replacer_replay.py           # the only replay result parser
 ```
 
@@ -20,13 +20,13 @@ Normal prefetchers are baselines and teacher diagnostics. The standalone LSTM ru
 
 ## Baseline and oracle-table pipeline
 
-Run 06 for normal behavior logs, 05 for residual event logs, 07 to join the summaries, and 08 to build the `pc_line_occ` oracle tables. The notebook source directory is:
+Run 06 for normal behavior logs, 05 for residual event logs, 07 to join summaries, and 08 to build the `pc_line_occ` oracle tables. The notebook source directory is:
 
 ```text
 formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/
 ```
 
-## Standalone LSTM replay
+## Standalone LSTM keyed replay
 
 Keep every notebook export in an immutable artifact directory. The current lead-1 export is named:
 
@@ -35,6 +35,6 @@ oracle_replacer_sweep_lead1_addrconf_lru2048.csv
 prefetch_list_<trace>_cl128_fair_dedup_lru2048.csv
 ```
 
-Script 09 calls Script 10 to build strict ROI-L2-load index inputs, runs Pythia ListReplayer with PC/line signature validation, and then calls Script 12 to write the simulator summary. Do not run a second legacy summary script.
+Script 09 calls Script 10 to map each rich event to a `pc,line,occ,prefetch_addr` trigger. ListReplayer uses the runtime occurrence count for each `(pc,line)` pair, avoiding the invalid assumption that the no-prefetch global L2 callback order remains unchanged after prefetching. Script 09 then calls Script 12 to write the simulator summary. Do not run a second legacy summary script.
 
 Detailed setup, preflight, build, replay, monitoring, and interpretation commands: [`ORACLE_REPLAYER.md`](ORACLE_REPLAYER.md).
