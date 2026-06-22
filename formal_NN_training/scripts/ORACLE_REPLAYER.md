@@ -1,6 +1,6 @@
-# Standalone base-independent LSTM replay workflow
+# Base-independent LSTM keyed replay workflow
 
-This is the only replay path for `LSTM_base_independent_oracle_prefetcher.ipynb`.
+This is the one replay path for `LSTM_base_independent_oracle_prefetcher.ipynb`.
 
 The notebook exports a rich CSV:
 
@@ -8,124 +8,66 @@ The notebook exports a rich CSV:
 order,pc,line,issue_prob,addr_conf,...,prefetch_addr
 ```
 
-`order` is a simulator cycle, not a dynamic L2 callback index. Never give this rich file directly to Pythia.
+`order` is a simulator cycle. It must not be treated as a runtime L2 callback index.
 
-Script `10_prepare_oracle_replacer_replay_input.py` maps each rich trigger to the matching no-prefetch post-warmup ROI L2-load ordinal and creates:
+## Why the old global-index replay was invalid
 
-```text
-idx,prefetch_addr
-```
+A no-prefetch global L2-load ordinal does **not** stay fixed after a useful prefetch: changing memory latency can reorder independent out-of-order L2 callbacks. The previous `idx,prefetch_addr` plus dense global PC/line signature design therefore correctly detected divergence, but it could not be the final replay mechanism: the intervention itself caused the mismatch.
 
-It also writes a dense callback reference:
+The active workflow instead maps each rich event to:
 
 ```text
-idx,pc,line
+pc,line,occ,prefetch_addr
 ```
 
-At runtime, `list_replayer` verifies the PC/line signature before emitting a list entry. Script 09 rejects a replay if signatures diverge, strict-list replay differs from the observed prefix, or tail drift is above the safety bound.
+`occ` is the zero-based occurrence number of that `(pc,line)` pair in the no-prefetch oracle. At runtime ListReplayer maintains the same local per-`(pc,line)` occurrence counter after warmup and triggers the corresponding candidate. This survives reordering between unrelated PC/line pairs.
+
+This is an **offline-policy keyed replay**, not embedded PyTorch inference. Report it as such. It is appropriate for the first question, “what happens when this frozen LSTM policy is applied to the corresponding dynamic demand events?”, but it is not the final hardware implementation claim.
 
 ## Current lead-1 artifact snapshot
 
-The current exported lists use this naming:
-
-```text
-prefetch_list_<trace>_cl128_fair_dedup_lru2048.csv
-oracle_replacer_sweep_lead1_addrconf_lru2048.csv
-```
-
-The replay input is the `fair_dedup_lru2048` CSV only. The undeduplicated CSV is diagnostic-only.
-
-Freeze a copied notebook export under a distinct directory, for example:
-
 ```text
 formal_NN_training/artifacts/oracle_replacer/lead1_thr010_addrconf_lru2048/
+  prefetch_list_<trace>_cl128_fair_dedup_lru2048.csv
+  oracle_replacer_sweep_lead1_addrconf_lru2048.csv
 ```
 
-Never overwrite a directory after replaying it.
+Replay only the `fair_dedup_lru2048` CSV. The undeduplicated files are diagnostics.
 
-## Update repositories
+## Update and rebuild
 
 ```bash
 cd ~/cache
+
 git pull --ff-only
+git -C external/ChampSim pull --ff-only
 
-git -C external/ChampSim status --short
-git -C external/ChampSim remote -v
-git -C external/ChampSim branch -vv
-```
-
-### Required recovery when Script 09 says reference was not loaded
-
-A log that contains only:
-
-```text
-[list_replayer] emitted ... matched access indices
-```
-
-but lacks `dense ROI L2 LOAD signatures`, `signature mismatches`, and `reference enabled` is the old idx-only ListReplayer. Its results are invalid for the formal replay path.
-
-Preserve the local residual-audit patch, discard only the obsolete local multi-registry patch, and reset the tracked Pythia tree to the current GitHub master:
-
-```bash
-cd ~/cache
-
-STAMP=$(date +%Y%m%d_%H%M%S)
-BACKUP_DIR="formal_NN_training/backups/pythia_${STAMP}"
-mkdir -p "$BACKUP_DIR"
-
-git -C external/ChampSim status --short > "$BACKUP_DIR/status_before.txt"
-git -C external/ChampSim diff -- src/cache.cc > "$BACKUP_DIR/src_cache_residual_audit.patch"
-git -C external/ChampSim diff -- prefetcher/multi.l2c_pref > "$BACKUP_DIR/multi_registry_obsolete.patch"
-git -C external/ChampSim branch "backup/pre_signature_replayer_${STAMP}" HEAD
-
-# Script 11 generates its own temporary list-replayer registry. The old local
-# modification to multi.l2c_pref is no longer needed.
-git -C external/ChampSim restore --source=HEAD -- prefetcher/multi.l2c_pref
-
-# Preserve the residual audit logger through the source update. vcpkg/ stays
-# untouched because this stash intentionally does not use -u.
-git -C external/ChampSim stash push -m "preserve residual audit logger ${STAMP}" -- src/cache.cc
-
-git -C external/ChampSim remote set-url origin https://github.com/Angelawoo572/ChampSim.git
-git -C external/ChampSim fetch origin master
-git -C external/ChampSim switch master
-git -C external/ChampSim reset --hard origin/master
-git -C external/ChampSim stash pop
-
-grep -nE "PFETCH_REF_PATH|dense ROI L2 LOAD signatures|signature mismatches|reference enabled" \
-  external/ChampSim/prefetcher/list_replayer.cc
-grep -n "ReferenceSignature" external/ChampSim/inc/list_replayer.h
-```
-
-The last two commands must print matching source lines before you build. The backup branch and patches remain available under `formal_NN_training/backups/`.
-
-## Build ListReplayer
-
-```bash
-cd ~/cache
-git pull --ff-only
 bash formal_NN_training/scripts/11_install_oracle_l2_replayer.sh
+```
 
-ls -lh external/ChampSim/bin/champsim.oracle_l2_replayer
+The build script creates a temporary L2 frontend from Pythia's tracked `multi.l2c_pref`, adds ListReplayer only to that temporary file, builds it, and cleans up the generated frontend. It should not permanently modify `prefetcher/multi.l2c_pref`.
+
+Check provenance:
+
+```bash
+cd ~/cache
 cat external/ChampSim/bin/champsim.oracle_l2_replayer.build_info.txt
 ```
 
-Script 11 verifies both the signature-validating ListReplayer source ABI and the generated `oracle_replayer.l2c_pref` frontend before compilation. It intentionally does not use a `strings` test as a build gate; optimized binaries do not reliably preserve an exact diagnostic literal. Script 09 performs the real runtime check when it requires:
+The file must contain:
 
 ```text
-adding L2C_PREFETCHER: list_replayer
-[list_replayer] loaded ... dense ROI L2 LOAD signatures
-[list_replayer] emitted ... 0 signature mismatches ... reference enabled
-[oracle-replay-validation] status=pass
+replay_key=pc_line_occ
 ```
 
-## First replay: 619 only
+## First keyed replay: 619
 
 ```bash
 cd ~/cache
 
 ART_DIR=formal_NN_training/artifacts/oracle_replacer/lead1_thr010_addrconf_lru2048
-RUN_TAG=base_lstm_lead1_thr010_619
+RUN_TAG=base_lstm_lead1_thr010_619_keyed
+
 rm -rf "formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}"
 
 RUN_TAG="$RUN_TAG" \
@@ -140,29 +82,42 @@ OFFLINE_SUMMARY="$ART_DIR/oracle_replacer_sweep_lead1_addrconf_lru2048.csv" \
 bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh
 ```
 
-Script 09 automatically runs Script 10 to create strict replay inputs, runs Pythia, validates the full callback stream, and calls Script 12 to write `summary.csv`. Do not run a second legacy replay summary script.
+A successful run contains:
 
-Inspect:
+```text
+adding L2C_PREFETCHER: list_replayer
+[list_replayer] loaded ... PC-line-occ triggers
+[list_replayer] emitted ... runtime ROI L2 LOAD accesses (... matched PC-line-occ triggers; ... key=pc_line_occ)
+[oracle-replay-validation] status=keyed_transport_pass
+```
+
+Inspect its result:
 
 ```bash
 cd ~/cache
-RUN_TAG=base_lstm_lead1_thr010_619
+RUN_TAG=base_lstm_lead1_thr010_619_keyed
 
 column -s, -t \
   "formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}/summary.csv" \
   | less -S
-
-tail -n 45 \
-  "formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}/logs/619.lbm_s-4268B.oracle_replacer.log"
 ```
 
-## Primary batch after 619 validates
+The essential fields are:
+
+1. `replay_transport_ok=1`: conversion, build, table loading, and keyed runtime counters are consistent.
+2. `keyed_trigger_coverage`: matched trigger keys / converted trigger keys. Report it; do not silently assume all decisions fired.
+3. `speedup_vs_no_pref`, then `speedup_vs_best_normal`.
+4. `pf_issued`, `pf_dropped`, `selected_accuracy`, `timeliness`, `pf_late`, and `pf_useless`.
+
+`offline_*` columns remain model/export diagnostics only.
+
+## Run the primary three-trace batch after 619
 
 ```bash
 cd ~/cache
 
 ART_DIR=formal_NN_training/artifacts/oracle_replacer/lead1_thr010_addrconf_lru2048
-RUN_TAG=base_lstm_lead1_thr010_primary3
+RUN_TAG=base_lstm_lead1_thr010_primary3_keyed
 OUT_ROOT="formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}"
 
 RUN_TAG="$RUN_TAG" \
@@ -180,42 +135,4 @@ nohup bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh 
 echo $! > "${OUT_ROOT}.driver.pid"
 ```
 
-Monitor:
-
-```bash
-cd ~/cache
-RUN_TAG=base_lstm_lead1_thr010_primary3
-
-tail -f "formal_NN_training/results/oracle_replacer_replay/${RUN_TAG}.driver.log"
-pgrep -af "09_run_oracle_replacer_replay_parallel|champsim.oracle_l2_replayer"
-```
-
-## 623 diagnostic replay
-
-Run this separately because the current 623 export dropped about 97.9% of undeduplicated candidate rows under LRU dedup:
-
-```bash
-cd ~/cache
-
-ART_DIR=formal_NN_training/artifacts/oracle_replacer/lead1_thr010_addrconf_lru2048
-RUN_TAG=base_lstm_lead1_thr010_623
-
-RUN_TAG="$RUN_TAG" \
-TRACES="623.xalancbmk_s-700B" \
-MAX_JOBS=1 \
-WARMUP=25000000 \
-SIM=25000000 \
-CHUNK_LEN=128 \
-DEDUP_CAPACITY=2048 \
-ART_DIR="$ART_DIR" \
-OFFLINE_SUMMARY="$ART_DIR/oracle_replacer_sweep_lead1_addrconf_lru2048.csv" \
-bash formal_NN_training/scripts/09_run_oracle_replacer_replay_parallel.sh
-```
-
-## Read every result in this order
-
-1. `replay_validated=1` and `signature_mismatches=0`.
-2. `speedup_vs_no_pref`.
-3. `speedup_vs_best_normal`.
-4. `pf_issued`, `pf_dropped`, `selected_accuracy`, `timeliness`, `pf_useless`, and `pf_late`.
-5. `offline_*` values only as export/training diagnostics, never as simulator results.
+Run `623` separately because its current offline LRU dedup rate is 97.9%, which is a model/policy collapse diagnostic rather than a clean main-table point.
