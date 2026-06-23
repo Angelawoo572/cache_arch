@@ -1,0 +1,10 @@
+{
+  "trace": "623.xalancbmk_s-700B",
+  "events": "formal_NN_training/results/standalone_nn_data/demand_events/events/623.xalancbmk_s-700B.no_pref.events.csv.gz",
+  "out": "formal_NN_training/results/standalone_nn_data/oracle/623.xalancbmk_s-700B.oracle.csv.gz",
+  "demand_rows": 1218494,
+  "skipped_non_l2_load_rows": 0,
+  "unique_pc_line_pairs": 35615,
+  "key_format": "pc,line,pc_line_occ",
+  "model_role": "standalone_raw_stream_only"
+}

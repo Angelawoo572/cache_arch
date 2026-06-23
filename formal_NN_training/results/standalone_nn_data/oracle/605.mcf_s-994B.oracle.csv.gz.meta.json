@@ -1,0 +1,10 @@
+{
+  "trace": "605.mcf_s-994B",
+  "events": "formal_NN_training/results/standalone_nn_data/demand_events/events/605.mcf_s-994B.no_pref.events.csv.gz",
+  "out": "formal_NN_training/results/standalone_nn_data/oracle/605.mcf_s-994B.oracle.csv.gz",
+  "demand_rows": 985276,
+  "skipped_non_l2_load_rows": 0,
+  "unique_pc_line_pairs": 368659,
+  "key_format": "pc,line,pc_line_occ",
+  "model_role": "standalone_raw_stream_only"
+}

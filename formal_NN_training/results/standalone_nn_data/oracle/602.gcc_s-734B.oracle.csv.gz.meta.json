@@ -1,0 +1,10 @@
+{
+  "trace": "602.gcc_s-734B",
+  "events": "formal_NN_training/results/standalone_nn_data/demand_events/events/602.gcc_s-734B.no_pref.events.csv.gz",
+  "out": "formal_NN_training/results/standalone_nn_data/oracle/602.gcc_s-734B.oracle.csv.gz",
+  "demand_rows": 404219,
+  "skipped_non_l2_load_rows": 0,
+  "unique_pc_line_pairs": 196902,
+  "key_format": "pc,line,pc_line_occ",
+  "model_role": "standalone_raw_stream_only"
+}

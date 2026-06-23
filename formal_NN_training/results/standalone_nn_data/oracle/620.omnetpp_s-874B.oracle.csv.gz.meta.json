@@ -1,0 +1,10 @@
+{
+  "trace": "620.omnetpp_s-874B",
+  "events": "formal_NN_training/results/standalone_nn_data/demand_events/events/620.omnetpp_s-874B.no_pref.events.csv.gz",
+  "out": "formal_NN_training/results/standalone_nn_data/oracle/620.omnetpp_s-874B.oracle.csv.gz",
+  "demand_rows": 451398,
+  "skipped_non_l2_load_rows": 0,
+  "unique_pc_line_pairs": 267137,
+  "key_format": "pc,line,pc_line_occ",
+  "model_role": "standalone_raw_stream_only"
+}
