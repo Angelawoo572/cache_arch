@@ -5,6 +5,10 @@ The notebook's order/cycle is not a stable post-prefetch callback index.  Each
 exported row is therefore mapped to the no-prefetch oracle demand and written
 as pc,line,occ,prefetch_addr.  `occ` is the zero-based occurrence count of the
 (pc,line) pair in that no-prefetch stream.
+
+For a rich export that already contains demand_idx, this script *also* requires
+its pc and line to match the oracle row at that index.  A numeric index alone is
+not accepted as proof of alignment.
 """
 from __future__ import print_function
 
@@ -75,11 +79,12 @@ def main():
     last_key, last_idx = None, None
     entries = defaultdict(list)
     unmatched, invalid = [], []
-    direct_rows, fallback_rows = 0, 0
+    direct_rows, fallback_rows, direct_verified = 0, 0, 0
 
     with args.rich_list.open("r", newline="") as f:
         reader = csv.DictReader(f)
-        if "prefetch_addr" not in (reader.fieldnames or []):
+        fields = set(reader.fieldnames or [])
+        if "prefetch_addr" not in fields:
             raise ValueError("rich list missing prefetch_addr")
         for row_no, row in enumerate(reader, start=2):
             addr = to_int(row.get("prefetch_addr"), "prefetch_addr")
@@ -90,8 +95,20 @@ def main():
             if direct not in (None, ""):
                 idx = to_int(direct, "replay_idx")
                 if idx not in identity:
-                    raise ValueError("replay_idx outside oracle: {}".format(idx))
+                    raise ValueError("replay_idx outside oracle at CSV row {}: {}".format(row_no, idx))
+                if "pc" not in fields or "line" not in fields:
+                    raise ValueError("direct-index rich list must include pc and line for alignment verification")
+                export_pc = to_int(row.get("pc"), "pc")
+                export_line = to_int(row.get("line"), "line")
+                oracle_pc, oracle_line, _ = identity[idx]
+                if export_pc != oracle_pc or export_line != oracle_line:
+                    raise ValueError(
+                        "direct-index alignment mismatch at CSV row {}: idx={} export=(pc={},line={}) oracle=(pc={},line={})".format(
+                            row_no, idx, export_pc, export_line, oracle_pc, oracle_line
+                        )
+                    )
                 direct_rows += 1
+                direct_verified += 1
             else:
                 key = (to_int(row.get("order"), "order"), to_int(row.get("pc"), "pc"), to_int(row.get("line"), "line"))
                 if key == last_key and last_idx is not None:
@@ -125,6 +142,7 @@ def main():
         "oracle_rows": len(identity), "entries": sum(len(x) for x in entries.values()),
         "unique_trigger_keys": len(entries), "unmatched_rows": len(unmatched),
         "dropped_invalid_address": len(invalid), "direct_index_rows": direct_rows,
+        "direct_index_rows_verified_pc_line": direct_verified,
         "mapped_cycle_pc_line_rows": fallback_rows,
         "key_format": "pc,line,occ,prefetch_addr",
         "replay_semantics": "offline keyed replay; not in-simulator PyTorch inference",
