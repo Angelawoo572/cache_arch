@@ -1,15 +1,10 @@
 # ============================================================
 # cache_arch .gitignore
 # ============================================================
-# Goal:
-# - Track source code, configs, docs, notebooks, small summaries, and curated result tables/figures.
-# - Ignore local ChampSim clones/builds, large raw dumps, logs, caches, and temporary experiment outputs.
-# - Allow Colab upload split files to be tracked when intentionally added.
-# - Keep raw traces local unless they are intentionally handled by git-lfs or external storage.
+# Track source code, docs, notebooks, curated summaries, and the compressed
+# standalone NN oracle datasets needed by Colab. Keep transient artifacts local.
 
-# ------------------------------------------------------------
 # OS / editor
-# ------------------------------------------------------------
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -19,9 +14,7 @@
 *.swo
 *~
 
-# ------------------------------------------------------------
 # Python / notebook local state
-# ------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
@@ -31,30 +24,20 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
-
-# Local Python environments
 .venv/
 venv/
 env/
 ENV/
 conda-env/
 
-# ------------------------------------------------------------
-# Local dependency clones / submodule working trees
-# ------------------------------------------------------------
+# Local dependency clones / simulator builds
 ChampSim/
 ChampSim-ML/
-
-# external submodules: keep only submodule pointers / explicitly tracked files.
 external/*
 !external/ChampSim/
 !external/ChampSim-ML/
 !external/README.md
 !external/.gitkeep
-
-# ------------------------------------------------------------
-# ChampSim / simulator build outputs
-# ------------------------------------------------------------
 bin/
 obj/
 build/
@@ -72,11 +55,7 @@ compile_commands.json
 *.gcda
 *.gcno
 
-# ------------------------------------------------------------
-# Trace files
-# ------------------------------------------------------------
-# ChampSim traces are usually too large for normal GitHub commits.
-# Keep them local or use git-lfs/external storage.
+# Traces and raw trace/candidate logs
 traces/
 **/traces/
 *.champsimtrace
@@ -85,10 +64,6 @@ traces/
 *.trace.xz
 *.trace.gz
 *.xz
-
-# ------------------------------------------------------------
-# Large raw dumps from trace/candidate logging.
-# ------------------------------------------------------------
 access_trace*.csv
 **/access_trace*.csv
 candidate_trace*.csv
@@ -101,20 +76,12 @@ shadow_candidates*.csv
 *.sqlite3
 *.db
 
-# ------------------------------------------------------------
 # Logs
-# ------------------------------------------------------------
 *.log
 logs/
 **/logs/
 
-# Accidentally copied root-level generated summary. Use the curated path under
-# formal_NN_training/results/final_tables/ instead.
-/accuracy_compare_all_traces.csv
-
-# ------------------------------------------------------------
-# Generated experiment outputs
-# ------------------------------------------------------------
+# Generic generated output
 results/tmp/*
 !results/tmp/.gitkeep
 results/raw/*
@@ -123,7 +90,6 @@ results/logs/*
 !results/logs/.gitkeep
 results/generated/*
 !results/generated/.gitkeep
-!results/generated/prefetch_lists/
 results/generated/prefetch_lists/*
 !results/generated/prefetch_lists/.gitkeep
 
@@ -135,26 +101,20 @@ projects/legacy_gru_prefetch/results/logs/*
 !projects/legacy_gru_prefetch/results/logs/.gitkeep
 projects/legacy_gru_prefetch/results/generated/*
 !projects/legacy_gru_prefetch/results/generated/.gitkeep
-!projects/legacy_gru_prefetch/results/generated/prefetch_lists/
 projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
 !projects/legacy_gru_prefetch/results/generated/prefetch_lists/.gitkeep
 
 # ------------------------------------------------------------
-# Formal LSTM/SPP local/generated outputs
+# formal_NN_training generated material
 # ------------------------------------------------------------
-# Raw generated event CSVs stay local.
-formal_NN_training/data/generated/
-
-# Local generated Pythia config snippets. Scripts recreate these.
+formal_NN_training/artifacts/
+formal_NN_training/backups/
 formal_NN_training/_cfg/
-
-# Local scratch scripts copied from cluster experiments. Promote/rename only the
-# stable versions that should become part of the shared workflow.
+formal_NN_training/data/generated/
 formal_NN_training/scripts/local_*.py
 formal_NN_training/scripts/local_*.sh
 
-# Colab upload files are allowed when intentionally added, because Colab can pull
-# these directly from GitHub. Raw generated CSVs outside upload/ stay ignored.
+# Existing intentionally-uploaded Colab payloads.
 formal_NN_training/data/upload/*
 !formal_NN_training/data/upload/*/
 !formal_NN_training/data/upload/*.csv.gz
@@ -167,75 +127,53 @@ formal_NN_training/data/upload/*
 !formal_NN_training/data/upload/*/candidate_table_*.csv.gz.part_*
 !formal_NN_training/data/upload/*/spp_events_*.csv.gz.part_*
 
-# Generated action/model/evaluation artifacts. Keep these local; they can be huge
-# and are usually recreated from Colab/cluster runs.
-formal_NN_training/artifacts/*.csv
-formal_NN_training/artifacts/*.json
-formal_NN_training/artifacts/*.pt
-formal_NN_training/artifacts/*.pth
-formal_NN_training/artifacts/*.gz
-formal_NN_training/artifacts/full_lstm_cache_actions*
-formal_NN_training/artifacts/recall_lstm_*.csv
-formal_NN_training/artifacts/recall_lstm_*.json
-formal_NN_training/artifacts/by_trace/
-formal_NN_training/artifacts/packed/
-
-# Ignore most generated result content, but allow curated final tables/figures
-# and small replay summary CSVs. Do not commit raw logs or prefetch lists.
+# By default all NN results are local.
 formal_NN_training/results/*
 !formal_NN_training/results/.gitkeep
 
-# Final paper/report-ready tables and figures.
+# Curated paper/report tables.
 !formal_NN_training/results/final_tables/
 formal_NN_training/results/final_tables/*
 !formal_NN_training/results/final_tables/*.csv
 !formal_NN_training/results/final_tables/*.svg
 !formal_NN_training/results/final_tables/*.md
 
-# Per-trace replay result summaries. Keep CSV/SVG only; logs/prefetch lists stay ignored.
+# Current normal-prefetcher baseline summary only.
+!formal_NN_training/results/prefetcher_baselines/
+formal_NN_training/results/prefetcher_baselines/*
+!formal_NN_training/results/prefetcher_baselines/summary.csv
+
+# Pure standalone NN data: Colab needs only compact oracle files.
+!formal_NN_training/results/standalone_nn_data/
+formal_NN_training/results/standalone_nn_data/*
+!formal_NN_training/results/standalone_nn_data/oracle/
+formal_NN_training/results/standalone_nn_data/oracle/*
+!formal_NN_training/results/standalone_nn_data/oracle/*.oracle.csv.gz
+!formal_NN_training/results/standalone_nn_data/oracle/*.oracle.csv.gz.meta.json
+
+# Keyed standalone replay: summary only, never logs/replay inputs/prefetch lists.
+!formal_NN_training/results/standalone_lstm_replay/
+formal_NN_training/results/standalone_lstm_replay/*
+!formal_NN_training/results/standalone_lstm_replay/*/
+!formal_NN_training/results/standalone_lstm_replay/*/summary.csv
+
+# Retain small legacy replay summaries for provenance.
 !formal_NN_training/results/replay_compare/
 formal_NN_training/results/replay_compare/*
 !formal_NN_training/results/replay_compare/accuracy_compare_*.csv
 !formal_NN_training/results/replay_compare/summary_*.csv
 !formal_NN_training/results/replay_compare/*.svg
 
-# ------------------------------------------------------------
-# Base-prefetcher zoo / LSTM-oracle outputs
-# ------------------------------------------------------------
-# Keep small curated summaries and run metadata in Git. Keep raw logs, event CSVs,
-# and per-trace oracle CSVs local because they can be very large and reproducible.
+# Older zoo summaries remain trackable; raw logs/events/oracles are local-only.
 !formal_NN_training/results/base_prefetcher_zoo/
 formal_NN_training/results/base_prefetcher_zoo/*
-
-# Joined final table for normal-prefetcher analysis.
 !formal_NN_training/results/base_prefetcher_zoo/normal_prefetcher_metrics.csv
-
-# Counter-level behavior audit: track summaries/RUN_INFO only.
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/
 formal_NN_training/results/base_prefetcher_zoo/behavior_audit/*
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary.csv
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary_nodup.csv
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/RUN_INFO.txt
-formal_NN_training/results/base_prefetcher_zoo/behavior_audit/logs/
-
-# Demand-centric residual audit: track summaries/RUN_INFO only.
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/
 formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/events/
-formal_NN_training/results/base_prefetcher_zoo/residual_audit/logs/
-
-# LSTM oracle event tables: track summary only; keep per-trace oracle CSVs local.
-!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/
-formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*
-!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/summary.csv
-formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*.oracle.csv
-formal_NN_training/results/base_prefetcher_zoo/oracle_event_table/*.oracle.csv.gz
-
-# LSTM oracle event tables for Colab / notebook training.
-# These are intentionally trackable when we want Colab to pull them from GitHub.
-!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/
-formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/*
-!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/summary.csv
-!formal_NN_training/results/base_prefetcher_zoo/oracle_event_table_pc_line_occ/*.oracle.csv.gz
