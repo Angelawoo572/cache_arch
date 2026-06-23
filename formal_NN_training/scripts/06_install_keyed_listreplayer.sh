@@ -14,12 +14,15 @@ OUT="$CHAMP_DIR/bin/champsim.standalone_nn_replayer"
 
 cleanup() { rm -f "$GENERATED" "$TEMPLATE"; }
 trap cleanup EXIT
+
 [[ -d "$CHAMP_DIR/.git" ]] || { echo "[error] not a ChampSim checkout: $CHAMP_DIR" >&2; exit 2; }
 [[ -f "$HEADER" && -f "$SOURCE" ]] || { echo "[error] missing keyed ListReplayer source/header" >&2; exit 2; }
 
+# Reject the old global-index ListReplayer. Keyed replay must use PC-line-occurrence.
 for marker in 'PC-line-occ triggers' 'key=pc_line_occ' 'occurrences_'; do
-  grep -Fq "$marker" "$SOURCE" || { echo "[error] stale ListReplayer; update external/ChampSim" >&2; exit 3; }
+  grep -Fq "$marker" "$SOURCE" || { echo "[error] stale ListReplayer source; update external/ChampSim" >&2; exit 3; }
 done
+grep -Fq 'TriggerKey' "$HEADER" || { echo "[error] stale ListReplayer header; update external/ChampSim" >&2; exit 3; }
 
 git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref > "$TEMPLATE"
 python3 - "$TEMPLATE" "$GENERATED" <<'PY'
@@ -53,12 +56,17 @@ if 'compare("list_replayer")' not in s:
 out.write_text(s)
 PY
 
+grep -Fq '#include "list_replayer.h"' "$GENERATED" || { echo "[error] generated frontend lacks ListReplayer include" >&2; exit 4; }
+grep -Fq 'compare("list_replayer")' "$GENERATED" || { echo "[error] generated frontend lacks ListReplayer registry" >&2; exit 4; }
+
 ( cd "$CHAMP_DIR" && ./build_champsim.sh no standalone_nn_replayer no 1 )
 [[ -x "$BUILT" ]] || { echo "[error] expected binary missing: $BUILT" >&2; exit 4; }
 cp -f "$BUILT" "$OUT"
 {
   echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   echo "champsim_head=$(git -C "$CHAMP_DIR" rev-parse HEAD)"
+  echo "list_replayer_source_sha256=$(sha256sum "$SOURCE" | awk '{print $1}')"
+  echo "list_replayer_header_sha256=$(sha256sum "$HEADER" | awk '{print $1}')"
   echo "replay_key=pc_line_occ"
   echo "frontend=tracked HEAD multi.l2c_pref plus ListReplayer"
 } > "$OUT.build_info.txt"
