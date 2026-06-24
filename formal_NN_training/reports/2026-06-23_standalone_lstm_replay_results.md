@@ -48,6 +48,28 @@ formal_NN_training/results/standalone_lstm_replay/v3_3_context_balanced_all5_202
 | 620.omnetpp_s-874B | 0.24559 | 0.23750 | sms | 0.24695 | 1.03406 | 0.99449 | 0.44437 | 0.99257 | 187366 | 83252 | 74440 | 623 | 1 |
 | 623.xalancbmk_s-700B | 0.37893 | 0.35321 | spp | 0.35391 | 1.07282 | 1.07070 | 0.75104 | 0.99700 | 570297 | 428219 | 25092 | 1288 | 1 |
 
+## Best-normal comparison with traffic context
+
+The baseline rows below come from `formal_NN_training/results/prefetcher_baselines/summary.csv`. The standalone row is the better of v3.1 and v3.3 balanced replay for each trace. `standalone / best-normal issued` is not a universal efficiency metric, but it makes the traffic scale visible.
+
+| trace | chosen standalone | standalone IPC | best normal IPC | IPC delta vs best normal | standalone issued | best-normal issued | standalone / best-normal issued | comparison |
+|---|---|---:|---:|---:|---:|---:|---:|---|
+| 602.gcc_s-734B | v3.3 context | 0.42887 | sandbox: 0.43628 | -0.00741 | 186723 | 3839474 | 4.86% | Near sandbox IPC with far less prefetch traffic; coverage is the remaining bottleneck. |
+| 619.lbm_s-4268B | v3.1 hybrid | 0.38492 | SMS: 0.38105 | +0.00387 | 293605 | 568017 | 51.69% | Standalone wins IPC while using about half of SMS issued traffic. |
+| 605.mcf_s-994B | v3.1 hybrid | 0.18862 | AMPM: 0.18874 | -0.00012 | 104121 | 509840 | 20.42% | Essentially tied IPC, but low candidate reachability prevents a reliable standalone win. SPP also ties AMPM at 0.18874 IPC. |
+| 620.omnetpp_s-874B | v3.3 context | 0.24559 | SMS: 0.24695 | -0.00136 | 187366 | 808086 | 23.19% | Near SMS IPC with much lower traffic, but low prediction quality remains the limit. |
+| 623.xalancbmk_s-700B | v3.3 context | 0.37893 | SPP: 0.35391 | +0.02502 | 570297 | 1670201 | 34.15% | Strongest result: standalone wins IPC by 7.07% over the best normal baseline with about one-third of its issued traffic. |
+
+### Best-normal baseline behavior
+
+| trace | best normal | IPC | issued | useful | useless | late | selected accuracy | timeliness |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 602.gcc_s-734B | sandbox | 0.43628 | 3839474 | 390102 | 32524 | 59 | 0.10184 | 0.99985 |
+| 619.lbm_s-4268B | SMS | 0.38105 | 568017 | 535130 | 84 | 26099 | 0.94210 | 0.95350 |
+| 605.mcf_s-994B | AMPM | 0.18874 | 509840 | 90495 | 58586 | 1305 | 0.17787 | 0.98578 |
+| 620.omnetpp_s-874B | SMS | 0.24695 | 808086 | 197737 | 394038 | 3655 | 0.24470 | 0.98185 |
+| 623.xalancbmk_s-700B | SPP | 0.35391 | 1670201 | 7816 | 23108 | 1870 | 0.00485 | 0.80694 |
+
 ## Immediate observations
 
 - v3.3 is the strongest current result on `623.xalancbmk_s-700B`: it reaches `1.07282x` over no-prefetch and `1.07070x` over the best normal prefetcher.
