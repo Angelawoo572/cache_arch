@@ -18,12 +18,12 @@ The repository has two separate workflows: a pure standalone NN workflow built o
 11_run_prefetch_event_attribution.sh       Collect normal and standalone L2C event evidence.
 12_analyze_prefetch_event_attribution.py   Compare timely, late, and residual demand outcomes.
 13_build_cache_capacity_variant.sh         Build one reversible L1D/L2C/LLC capacity-specific binary.
-14_summarize_prefetch_evidence.py          Merge trace, baseline, attribution, and replay evidence.
+15_summarize_prefetch_evidence.py          Merge trace, baseline, attribution, and replay evidence.
 ```
 
 ## Evidence first
 
-Before modifying the notebook, run 10 → 04 → 11 → 12 → 14. The resulting CSV/Markdown evidence identifies trace composition, normal prefetcher traffic/accuracy/timeliness, residual PC-delta-offset contexts, and the normal-only versus standalone-only timely demand misses.
+Before modifying the notebook, run 10 → 04 → 11 → 12 → 15. The resulting CSV/Markdown evidence identifies trace composition, normal prefetcher traffic/accuracy/timeliness, residual PC-delta-offset contexts, and the normal-only versus standalone-only timely demand misses.
 
 The standard ChampSim input trace has dynamic PCs, branch flags, register IDs, and memory addresses. It has no opcode bytes. Script 10 can attach assembly only when an original benchmark executable is supplied with `--binary` and its address space matches trace PCs.
 
