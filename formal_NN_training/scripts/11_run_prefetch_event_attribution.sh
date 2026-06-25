@@ -28,6 +28,7 @@ OUT_ROOT="${OUT_ROOT:-$ROOT/formal_NN_training/results/prefetch_explainability/$
 PATCH="$ROOT/formal_NN_training/scripts/02_patch_pythia_demand_logger.sh"
 PREP="$ROOT/formal_NN_training/scripts/07_prepare_keyed_replay_input.py"
 REPLAYER_BUILD="$ROOT/formal_NN_training/scripts/06_install_keyed_listreplayer.sh"
+NORMAL_PARSER="$ROOT/formal_NN_training/scripts/01_parse_prefetch_behavior_audit.py"
 NORMAL_BIN="${NORMAL_BIN:-$CHAMP_DIR/bin/perceptron-no-multi-no-ship-1core}"
 REPLAY_BIN="${REPLAY_BIN:-$CHAMP_DIR/bin/champsim.standalone_nn_replayer}"
 
@@ -41,6 +42,7 @@ pref_type() {
     *) echo "$1" ;;
   esac
 }
+
 write_cfg() {
   local type="$1" cfg="$2"
   {
@@ -51,12 +53,14 @@ write_cfg() {
     fi
   } > "$cfg"
 }
+
 build_all() {
   [[ "$BUILD" == 1 ]] || return 0
   RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH"
   ( cd "$CHAMP_DIR" && bash ./build_champsim.sh no multi no 1 )
   CHAMP_DIR="$CHAMP_DIR" bash "$REPLAYER_BUILD"
 }
+
 run_normal() {
   local trace="$1" pf="$2"
   local raw="$OUT_ROOT/normal/events/$trace.$pf.events.csv"
@@ -74,6 +78,7 @@ run_normal() {
   [[ -s "$raw" ]] && grep -Fq Core_0_IPC "$log" || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
   gzip -f "$raw"
 }
+
 run_lstm() {
   local trace="$1" label="$2" art_dir="$3"
   local variant_root="$OUT_ROOT/lstm/$label"
@@ -100,6 +105,7 @@ run_lstm() {
 
 build_all
 [[ -x "$NORMAL_BIN" && -x "$REPLAY_BIN" ]] || { echo "[error] expected binaries missing" >&2; exit 2; }
+[[ -f "$NORMAL_PARSER" ]] || { echo "[error] missing normal parser: $NORMAL_PARSER" >&2; exit 2; }
 
 running=0
 status=0
@@ -111,6 +117,7 @@ launch() {
     running=$((running - 1))
   fi
 }
+
 if [[ "$MODE" == normal || "$MODE" == both ]]; then
   for trace in $TRACES; do
     for pf in $NORMAL_PREFETCHERS; do
@@ -136,6 +143,15 @@ while (( running > 0 )); do
 done
 (( status == 0 )) || exit "$status"
 
+if [[ "$MODE" == normal || "$MODE" == both ]]; then
+  python3 "$NORMAL_PARSER" \
+    --log-root "$OUT_ROOT/normal/logs" \
+    --out "$OUT_ROOT/normal/summary.csv" \
+    --traces "$TRACES" \
+    --prefetchers "$NORMAL_PREFETCHERS" \
+    --nodup
+fi
+
 cat > "$OUT_ROOT/RUN_INFO.txt" <<EOF
 RUN_KIND=prefetch_event_explainability
 TRACES=$TRACES
@@ -147,5 +163,6 @@ CHUNK_LEN=$CHUNK_LEN
 EXPORT_SUFFIX=$EXPORT_SUFFIX
 NORMAL_BIN=$NORMAL_BIN
 REPLAY_BIN=$REPLAY_BIN
+NORMAL_SUMMARY=$OUT_ROOT/normal/summary.csv
 EOF
 echo "[done] $OUT_ROOT"
