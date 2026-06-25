@@ -17,14 +17,13 @@ The repository has two separate workflows: a pure standalone NN workflow built o
 10_profile_champsim_trace.py               Profile dynamic trace PC/branch/register/memory behavior.
 11_run_prefetch_event_attribution.sh       Collect normal and standalone L2C event evidence.
 12_analyze_prefetch_event_attribution.py   Compare timely, late, and residual demand outcomes.
-13_build_cache_capacity_variant.sh         Build one reversible L1D/L2C/LLC capacity binary.
-14_run_cache_capacity_sweep.sh             Run frozen-list capacity sensitivity controls.
-15_summarize_prefetch_evidence.py          Merge trace, baseline, attribution, and replay evidence.
+13_build_cache_capacity_variant.sh         Build one reversible L1D/L2C/LLC capacity-specific binary.
+14_summarize_prefetch_evidence.py          Merge trace, baseline, attribution, and replay evidence.
 ```
 
 ## Evidence first
 
-Before modifying the notebook, run 10 → 04 → 11 → 12 → 15. The resulting CSV/Markdown evidence identifies trace composition, normal prefetcher traffic/accuracy/timeliness, residual PC-delta-offset contexts, and the normal-only versus standalone-only timely demand misses.
+Before modifying the notebook, run 10 → 04 → 11 → 12 → 14. The resulting CSV/Markdown evidence identifies trace composition, normal prefetcher traffic/accuracy/timeliness, residual PC-delta-offset contexts, and the normal-only versus standalone-only timely demand misses.
 
 The standard ChampSim input trace has dynamic PCs, branch flags, register IDs, and memory addresses. It has no opcode bytes. Script 10 can attach assembly only when an original benchmark executable is supplied with `--binary` and its address space matches trace PCs.
 
@@ -40,4 +39,6 @@ A frozen LSTM export records selected actions only. Therefore `no_earlier_select
 
 ## Capacity
 
-Script 14 performs a frozen-list system-sensitivity control across L1D, L2C, and LLC capacities. A genuine capacity-trained NN requires a new capacity-specific no-prefetch collection, oracle, Colab training/export, and replay for every capacity point.
+The previous automatic frozen-list capacity sweep was removed. It would have mixed a baseline-capacity frozen L2C policy with changed cache configurations, which is only a sensitivity control and is not a capacity-trained NN result.
+
+Keep `13_build_cache_capacity_variant.sh` for a later, explicitly designed experiment. A real capacity-trained NN point requires a new capacity-specific no-prefetch collection, oracle, Colab training/export, and matching replay binary.
