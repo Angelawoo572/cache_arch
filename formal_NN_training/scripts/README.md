@@ -14,16 +14,17 @@ The repository has two separate workflows: a pure standalone NN workflow built o
 07_prepare_keyed_replay_input.py          Convert frozen NN exports to replay inputs.
 08_run_standalone_lstm_replay.sh          Run keyed standalone replays.
 09_parse_standalone_lstm_replay.py        Parse replay outputs.
-10_profile_champsim_trace.py               Profile dynamic trace PC/branch/register/memory behavior.
-11_run_prefetch_event_attribution.sh       Collect normal and standalone L2C event evidence and a normal summary.
-12_analyze_prefetch_event_attribution.py   Compare timely, late, and residual demand outcomes.
-13_build_cache_capacity_variant.sh         Build one reversible L1D/L2C/LLC capacity-specific binary.
-15_summarize_prefetch_evidence.py          Merge trace, baseline, attribution, and replay evidence.
+10_profile_champsim_trace.py              Profile dynamic trace PC/branch/register/memory behavior.
+11_run_prefetch_event_attribution.sh      Collect normal and standalone L2C event evidence and a normal summary.
+12_analyze_prefetch_event_attribution.py  Compare timely, late, and residual demand outcomes.
+13_build_cache_capacity_variant.sh        Build one reversible L1D/L2C/LLC capacity-specific binary.
+14_prepare_capacity_training_point.sh     Build one valid capacity-specific oracle and normal baseline point.
+15_summarize_prefetch_evidence.py         Merge trace, baseline, attribution, and replay evidence.
 ```
 
 ## Evidence first
 
-Before modifying the notebook, run 10 → 11 → 12 → 15. Script 11 now writes `normal/summary.csv` from the same normal runs that produced the per-demand logs, so running script 04 as well is unnecessary for an evidence campaign. Use script 04 only when a quick counter-only baseline refresh is needed.
+Before modifying the notebook, run 10 → 11 → 12 → 15. Script 11 writes `normal/summary.csv` from the same normal runs that produced the per-demand logs, so running script 04 as well is unnecessary for an evidence campaign. Use script 04 only when a quick counter-only baseline refresh is needed.
 
 The resulting CSV/Markdown evidence identifies trace composition, normal prefetcher traffic/accuracy/timeliness, residual PC-delta-offset contexts, and the normal-only versus standalone-only timely demand misses.
 
@@ -41,6 +42,15 @@ A frozen LSTM export records selected actions only. Therefore `no_earlier_select
 
 ## Capacity
 
-The previous automatic frozen-list capacity sweep was removed. It would have mixed a baseline-capacity frozen L2C policy with changed cache configurations, which is only a sensitivity control and is not a capacity-trained NN result.
+A baseline-capacity frozen L2C list must not be presented as a changed-capacity NN result. A valid capacity point is:
 
-Keep `13_build_cache_capacity_variant.sh` for a later, explicitly designed experiment. A real capacity-trained NN point requires a new capacity-specific no-prefetch collection, oracle, Colab training/export, and matching replay binary.
+```text
+13 build a changed-capacity normal binary with demand logger
+03 collect changed-capacity no-prefetch demand events
+05 build the matching oracle
+Colab train and export a new artifact from that exact oracle
+13 build the matching changed-capacity keyed replayer binary
+08 replay only that matching artifact
+```
+
+Script `14_prepare_capacity_training_point.sh` automates the first three steps and runs selected normal-prefetcher comparisons. It stops deliberately before replay, because a new Colab artifact is required.
