@@ -43,6 +43,25 @@ macro_value() {
   awk -v macro="$macro" '$1 == "#define" && $2 == macro { print $3; exit }' "$CACHE_H"
 }
 
+# ChampSim's single-core default uses `#define LLC_SET NUM_CPUS*2048`.
+# The capacity builder needs a literal set count, so resolve only the simple,
+# integer macro expressions that the checked configuration uses. The capacity
+# builder itself still receives a numeric literal and restores cache.h after
+# every build.
+evaluate_integer_macro() {
+  local label="$1" raw="$2" expression value
+  [[ -n "$raw" ]] || { echo "[error] missing macro $label in $CACHE_H" >&2; return 1; }
+  expression="${raw//[[:space:]]/}"
+  expression="${expression//NUM_CPUS/1}"
+  [[ "$expression" =~ ^[0-9+*/\(\)]+$ ]] || {
+    echo "[error] unsupported integer expression for $label: $raw" >&2
+    return 1
+  }
+  value=$((expression))
+  (( value > 0 )) || { echo "[error] nonpositive value for $label: $raw" >&2; return 1; }
+  printf '%s\n' "$value"
+}
+
 scaled_sets() {
   local base="$1" scale="$2"
   case "$scale" in
@@ -62,10 +81,10 @@ variant_tag() {
 
 for level in $LEVELS; do
   case "$level" in L1D|L2C|LLC) ;; *) echo "[error] invalid LEVEL=$level" >&2; exit 2 ;; esac
-  base_sets="$(macro_value "${level}_SET")"
-  base_ways="$(macro_value "${level}_WAY")"
-  [[ "$base_sets" =~ ^[0-9]+$ && "$base_ways" =~ ^[0-9]+$ ]] || {
-    echo "[error] could not read ${level}_SET/${level}_WAY from $CACHE_H" >&2; exit 2; }
+  raw_sets="$(macro_value "${level}_SET")"
+  raw_ways="$(macro_value "${level}_WAY")"
+  base_sets="$(evaluate_integer_macro "${level}_SET" "$raw_sets")"
+  base_ways="$(evaluate_integer_macro "${level}_WAY" "$raw_ways")"
 
   for scale in $SCALES; do
     sets="$(scaled_sets "$base_sets" "$scale")"
