@@ -12,8 +12,8 @@ WARMUP_RECORDS="${WARMUP_RECORDS:-25000000}"
 PROGRESS_EVERY="${PROGRESS_EVERY:-1000000}"
 
 BUILDER="$REPO_ROOT/formal_NN_training/scripts/16_build_trace_dependency_features.py"
-OUT="$OUT_DIR/605.mcf_s-994B.v3_9_dependency.npz"
-META="${OUT%.npz}.json"
+OUT="$OUT_DIR/605.mcf_s-994B.v3_9_dependency.csv.gz"
+META="${OUT%.csv.gz}.json"
 PACKAGE="$OUT_DIR/605.mcf_s-994B.v3_9_dependency_sidecar.tar.gz"
 
 [[ -d "$REPO_ROOT/.git" ]] || { echo "[error] REPO_ROOT is not a cache repo: $REPO_ROOT" >&2; exit 2; }
@@ -39,8 +39,10 @@ python3 "$BUILDER" \
 tar -C "$OUT_DIR" -czf "$PACKAGE" "$(basename "$OUT")" "$(basename "$META")"
 
 python3 - "$META" <<'PY'
-import json, sys
-meta = json.load(open(sys.argv[1], encoding="utf-8"))
+import json
+import sys
+with open(sys.argv[1]) as handle:
+    meta = json.load(handle)
 assert meta["alignment"] == 1.0, meta
 print("[verified] aligned_events={:,} dependency_present_fraction={:.4f}".format(
     meta["aligned_events"], meta["dependency_present_fraction"]
