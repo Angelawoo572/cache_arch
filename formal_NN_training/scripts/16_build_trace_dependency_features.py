@@ -54,7 +54,7 @@ def parse_int_maybe_hex(text):
         return int(s, 0)
 
 
-def read_event_targets(events_csv, pc_col, line_col):
+def read_event_targets(events_csv, pc_col, line_col, line_bytes):
     # Returns (pc_list, line_list) in file (chronological) order.
     pcs = []
     lines = []
@@ -79,7 +79,7 @@ def read_event_targets(events_csv, pc_col, line_col):
             if not row:
                 continue
             pcs.append(parse_int_maybe_hex(row[pi]))
-            lines.append(parse_int_maybe_hex(row[li]))
+            lines.append(parse_int_maybe_hex(row[li]) // int(line_bytes))
     finally:
         handle.close()
     return pcs, lines
@@ -118,7 +118,7 @@ def build(trace, raw_dir, events_csv, out_csv, warmup, sim,
         else:
             raise RuntimeError("raw trace not found: " + raw_path)
 
-    pc_target, line_target = read_event_targets(events_csv, pc_col, line_col)
+    pc_target, line_target = read_event_targets(events_csv, pc_col, line_col, line_bytes)
     n_events = len(pc_target)
     if n_events == 0:
         raise RuntimeError("no events parsed from " + events_csv)
