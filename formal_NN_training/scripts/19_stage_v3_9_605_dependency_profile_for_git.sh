@@ -34,10 +34,10 @@ print("[verified] unique_pcs={:,}, dependency_pcs={:,}, profile_records={:,}".fo
 PY
 
 cd "$REPO_ROOT"
-git check-ignore -v "$DST_DIR/$PROFILE" && {
+if git check-ignore -q "$DST_DIR/$PROFILE"; then
   echo "[error] profile is still ignored; pull the latest .gitignore" >&2
   exit 3
-} || true
+fi
 
 git status --short \
   formal_NN_training/data/upload/v3_9_dependency_sidecars \
