@@ -20,24 +20,7 @@ The repository has two separate workflows: a pure standalone NN workflow built o
 13_build_cache_capacity_variant.sh        Build one reversible L1D/L2C/LLC capacity-specific binary.
 14_prepare_capacity_training_point.sh     Build one valid capacity-specific oracle and normal baseline point.
 15_summarize_prefetch_evidence.py         Merge trace, baseline, attribution, and replay evidence.
-19_run_v3_9_replay_plan.sh                Replay every fresh current-run list in a v3.9 plan.
-20_parse_v3_9_replay_plan.py              Select replay IPC winners and compare every candidate to all normal baselines.
-21_run_v3_9_full_comparison.sh            Replay v3.9 lists, refresh the normal zoo, and write final comparison tables.
 ```
-
-## v3.9 current-run campaign replay
-
-The v3.9 notebook writes a replay plan containing only fresh lists from the current notebook run. Script `19` stages each listed CSV through the keyed PC-line-occurrence converter, runs one same-binary no-prefetch control per trace, replays every listed candidate, and writes:
-
-```text
-v3_9_replay_results.csv
-v3_9_final_winners.csv
-v3_9_vs_all_normal_prefetchers.csv
-v3_9_final_winners_vs_all_normal_prefetchers.csv
-v3_9_comparison.md
-```
-
-The winner table chooses the highest replay IPC among all successful current-run candidates for each trace; it does not reuse a historical list. `21` additionally refreshes the standard normal-prefetcher zoo (`no_pref stride streamer ampm spp ipcp sms sandbox power7`) over the requested trace/window before it rewrites those comparison files. Its no-pref binary-drift column makes the comparison boundary explicit.
 
 ## Evidence first
 
