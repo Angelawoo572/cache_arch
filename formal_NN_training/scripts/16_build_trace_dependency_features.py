@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Build causal dynamic-dependency sidecar features for one ChampSim input_instr trace.
+Build a prefix-only static dependency profile from a ChampSim input_instr trace.
 
-This script does NOT change the trace, oracle labels, or ChampSim replay protocol.
-It reads the existing no-prefetch oracle and original .champsimtrace(.xz) stream,
-aligns each oracle demand event to the matching dynamic instruction by (PC, line),
-and writes a compressed NumPy sidecar keyed by oracle demand_idx.
+Why this is a PC-keyed profile rather than an oracle-row sidecar:
+the existing no-prefetch oracle is emitted at L2 request-service time, while
+input_instr is a program-order trace. They are not a losslessly joinable
+event stream. This tool therefore never fabricates an event-by-event join.
 
-The sidecar is intentionally separate from Git-tracked sources/results. It is a
-derived artifact for v3.9 605.mcf_s dependency-aware modeling.
+Instead, it scans only the raw-trace training prefix and writes one profile row
+per instruction PC. The v3.9 notebook joins this profile by PC to add static
+source/destination-register signatures and causal producer-PC statistics. It
+does not use validation oracle labels or normal-prefetcher output.
 """
-from __future__ import annotations
-
 import argparse
+import csv
 import gzip
 import json
 import lzma
@@ -20,364 +21,277 @@ import os
 import struct
 import sys
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
-
-import numpy as np
-import pandas as pd
 
 INPUT_INSTR_RECORD = struct.Struct("<QBB2B4B2Q4Q")
 CACHE_LINE_BYTES = 64
-PAGE_LINES = 64
+
+CSV_FIELDS = [
+    "pc",
+    "src_reg0", "src_reg1", "src_reg2", "src_reg3",
+    "dst_reg0", "dst_reg1",
+    "instruction_count", "load_instruction_count",
+    "signature_variant_count",
+    "dependency_observations",
+    "parent_pc0", "parent_pc0_count",
+    "parent_pc1", "parent_pc1_count",
+    "parent_is_load_ppm",
+    "parent_gap_median",
+    "parent_gap_mean",
+    "parent_depth_median",
+    "parent_depth_mean",
+]
 
 
-def parse_int_maybe_hex(value: object, default: int = 0) -> int:
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return default
-    if isinstance(value, (int, np.integer)):
-        return int(value)
-    if isinstance(value, float):
-        return default if np.isnan(value) else int(value)
-    text = str(value).strip()
-    if not text:
-        return default
-    try:
-        return int(text, 16) if text.lower().startswith("0x") else int(float(text))
-    except (TypeError, ValueError):
-        return default
+def open_trace(path):
+    return lzma.open(path, "rb") if str(path).endswith(".xz") else open(path, "rb")
 
 
-def first_existing_col(frame: pd.DataFrame, names: Sequence[str]) -> Optional[str]:
-    return next((name for name in names if name in frame.columns), None)
-
-
-def numeric_col(frame: pd.DataFrame, name: Optional[str], default: int = 0) -> np.ndarray:
-    if name is None:
-        return np.full(len(frame), default, dtype=np.int64)
-    # Keep hexadecimal string support, which pd.to_numeric does not provide.
-    return frame[name].map(lambda x: parse_int_maybe_hex(x, default)).to_numpy(np.int64)
-
-
-def resolve_oracle(path: Path) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    frame = pd.read_csv(path)
-    pc_col = first_existing_col(frame, ("pc", "ip", "PC", "IP"))
-    line_col = first_existing_col(frame, ("line", "addr_line", "address_line", "block"))
-    idx_col = first_existing_col(frame, ("demand_idx", "event_idx", "idx", "index"))
-    if pc_col is None or line_col is None:
-        raise ValueError(
-            f"{path}: need PC and line columns; found {list(frame.columns)}"
-        )
-    pc = numeric_col(frame, pc_col)
-    line = numeric_col(frame, line_col)
-    demand_idx = numeric_col(frame, idx_col) if idx_col else np.arange(len(frame), dtype=np.int64)
-    expected = np.arange(len(frame), dtype=np.int64)
-    if not np.array_equal(demand_idx, expected):
-        raise ValueError(
-            f"{path}: demand_idx must be contiguous 0..N-1 to make a safe sidecar"
-        )
-    return pc, line, demand_idx
-
-
-def skip_records(handle, n_records: int) -> None:
-    remaining = int(n_records)
-    bytes_per = INPUT_INSTR_RECORD.size
-    while remaining:
+def skip_records(handle, count):
+    remaining = int(count)
+    width = INPUT_INSTR_RECORD.size
+    while remaining > 0:
         take = min(remaining, 1 << 20)
-        block = handle.read(take * bytes_per)
-        got = len(block) // bytes_per
-        if got == 0:
+        block = handle.read(take * width)
+        got = len(block) // width
+        if got <= 0:
             raise RuntimeError(
-                f"trace ended while skipping warmup: skipped {n_records - remaining}/{n_records}"
+                "trace ended while skipping warmup: skipped {}/{} records".format(
+                    int(count) - remaining, int(count)
+                )
             )
-        if len(block) % bytes_per:
-            raise RuntimeError("trace has a partial input_instr record while skipping warmup")
+        if len(block) != got * width:
+            raise RuntimeError("trace contains a partial input_instr record")
         remaining -= got
 
 
-def _save_npz(output: Path, arrays: Dict[str, np.ndarray]) -> None:
-    output.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(output, **arrays)
+def median_from_hist(hist):
+    total = sum(hist.values())
+    if total <= 0:
+        return 0
+    target = (total - 1) // 2
+    run = 0
+    for value in sorted(hist):
+        run += hist[value]
+        if run > target:
+            return int(value)
+    return int(max(hist))
 
 
-def build_sidecar(
-    *,
-    trace_path: Path,
-    oracle_path: Path,
-    output_path: Path,
-    warmup_records: int,
-    progress_every: int,
-    min_alignment: float,
-) -> Dict[str, object]:
-    oracle_pc, oracle_line, demand_idx = resolve_oracle(oracle_path)
-    n = len(oracle_line)
-    if n == 0:
-        raise ValueError("oracle is empty")
+def bounded_hist_add(hist, value, max_keys):
+    value = int(value)
+    if value in hist:
+        hist[value] += 1
+        return
+    if len(hist) < max_keys:
+        hist[value] = 1
+        return
+    # Bounded histogram: retain heavy, representative buckets without allowing
+    # a trace with many unique gaps to consume unbounded memory.
+    victim = min(hist, key=hist.get)
+    victim_count = hist.pop(victim)
+    hist[value] = victim_count + 1
 
-    # Event-aligned arrays. int64 preserves true addresses; v3.9 hashes/buckets
-    # them only after the causal alignment audit passes.
-    src_regs = np.zeros((n, 4), dtype=np.uint8)
-    dst_regs = np.zeros((n, 2), dtype=np.uint8)
-    dep_present = np.zeros(n, dtype=np.uint8)
-    dep_parent_event = np.full(n, -1, dtype=np.int64)
-    dep_parent_pc = np.zeros(n, dtype=np.uint64)
-    dep_parent_line = np.zeros(n, dtype=np.int64)
-    dep_parent_dynamic_gap = np.zeros(n, dtype=np.int32)
-    dep_chain_depth = np.zeros(n, dtype=np.uint16)
-    dep_parent_is_load = np.zeros(n, dtype=np.uint8)
-    branches_since_parent = np.zeros(n, dtype=np.int32)
-    taken_since_parent = np.zeros(n, dtype=np.int32)
-    stores_since_parent = np.zeros(n, dtype=np.int32)
-    latest_store_line = np.zeros(n, dtype=np.int64)
-    latest_store_dynamic_gap = np.zeros(n, dtype=np.int32)
-    dynamic_instruction_index = np.full(n, -1, dtype=np.int64)
-    matched_source_mem_slot = np.full(n, -1, dtype=np.int8)
 
-    # Register origin:
-    # (dynamic_seq, oracle_event_or_-1, pc, line, chain_depth,
-    #  branch_counter, taken_counter, store_counter, is_load)
-    register_origin: Dict[int, Tuple[int, int, int, int, int, int, int, int, int]] = {}
-    dynamic_seq = 0
-    event = 0
-    branch_counter = 0
-    taken_counter = 0
-    store_counter = 0
-    last_store_dynamic_seq = -1
-    last_store_line = 0
-    begin = time.time()
-    opener = lzma.open if trace_path.suffix == ".xz" else open
+def add_counter_bounded(counter, value, max_keys):
+    value = int(value)
+    if value in counter:
+        counter[value] += 1
+        return
+    if len(counter) < max_keys:
+        counter[value] = 1
+        return
+    victim = min(counter, key=counter.get)
+    victim_count = counter.pop(victim)
+    counter[value] = victim_count + 1
 
-    with opener(trace_path, "rb") as handle:
-        skip_records(handle, warmup_records)
 
-        while event < n:
-            record = handle.read(INPUT_INSTR_RECORD.size)
-            if len(record) == 0:
-                break
-            if len(record) != INPUT_INSTR_RECORD.size:
-                raise RuntimeError(
-                    f"partial input_instr record at dynamic instruction {dynamic_seq}"
-                )
-            fields = INPUT_INSTR_RECORD.unpack(record)
-            pc = int(fields[0])
-            is_branch = int(fields[1])
-            taken = int(fields[2])
-            dst = tuple(int(x) for x in fields[3:5])
-            src = tuple(int(x) for x in fields[5:9])
-            dst_mem = tuple(int(x) for x in fields[9:11])
-            src_mem = tuple(int(x) for x in fields[11:15])
-            source_lines = [addr // CACHE_LINE_BYTES for addr in src_mem if addr]
-            source_slots = [slot for slot, addr in enumerate(src_mem) if addr]
-            is_load = int(bool(source_lines))
-            is_store = int(any(dst_mem))
-
-            parents = [register_origin[r] for r in src if r and r in register_origin]
-            parent = max(parents, key=lambda value: value[0]) if parents else None
-
-            # Oracle rows are ordered dynamic demand events. We only advance on a
-            # precise (PC, line) match and never write a partially aligned sidecar.
-            if pc == int(oracle_pc[event]) and source_lines:
-                try:
-                    source_slot = source_lines.index(int(oracle_line[event]))
-                except ValueError:
-                    source_slot = -1
-                if source_slot >= 0:
-                    src_regs[event] = np.asarray(src, dtype=np.uint8)
-                    dst_regs[event] = np.asarray(dst, dtype=np.uint8)
-                    dynamic_instruction_index[event] = dynamic_seq
-                    matched_source_mem_slot[event] = source_slots[source_slot]
-
-                    if parent is not None:
-                        (
-                            parent_seq,
-                            parent_event,
-                            parent_pc,
-                            parent_line,
-                            parent_depth,
-                            parent_branch_count,
-                            parent_taken_count,
-                            parent_store_count,
-                            parent_is_load,
-                        ) = parent
-                        gap = max(0, dynamic_seq - parent_seq)
-                        dep_present[event] = 1
-                        dep_parent_event[event] = parent_event
-                        dep_parent_pc[event] = np.uint64(parent_pc)
-                        dep_parent_line[event] = int(parent_line)
-                        dep_parent_dynamic_gap[event] = gap
-                        dep_chain_depth[event] = min(np.iinfo(np.uint16).max, parent_depth)
-                        dep_parent_is_load[event] = parent_is_load
-                        branches_since_parent[event] = max(0, branch_counter - parent_branch_count)
-                        taken_since_parent[event] = max(0, taken_counter - parent_taken_count)
-                        stores_since_parent[event] = max(0, store_counter - parent_store_count)
-
-                    latest_store_line[event] = int(last_store_line)
-                    latest_store_dynamic_gap[event] = (
-                        max(0, dynamic_seq - last_store_dynamic_seq)
-                        if last_store_dynamic_seq >= 0 else 0
-                    )
-                    current_event = event
-                    event += 1
-                else:
-                    current_event = -1
-            else:
-                current_event = -1
-
-            # The current instruction writes its destination after its source
-            # dependencies are observed. A load becomes a new causal origin.
-            if is_load:
-                line_for_origin = int(source_lines[0])
-                depth_for_origin = (int(parent[4]) + 1) if parent is not None else 1
-                origin = (
-                    dynamic_seq,
-                    current_event,
-                    pc,
-                    line_for_origin,
-                    depth_for_origin,
-                    branch_counter,
-                    taken_counter,
-                    store_counter,
-                    1,
-                )
-            elif parent is not None:
-                origin = parent
-            else:
-                origin = None
-
-            if origin is not None:
-                for reg in dst:
-                    if reg:
-                        register_origin[reg] = origin
-
-            if is_store:
-                store_counter += 1
-                store_addr = next((addr for addr in dst_mem if addr), 0)
-                if store_addr:
-                    last_store_line = int(store_addr // CACHE_LINE_BYTES)
-                    last_store_dynamic_seq = dynamic_seq
-            if is_branch:
-                branch_counter += 1
-                taken_counter += int(bool(taken))
-
-            dynamic_seq += 1
-            if progress_every and dynamic_seq % progress_every == 0:
-                elapsed = time.time() - begin
-                print(
-                    f"[progress] dynamic={dynamic_seq:,} aligned={event:,}/{n:,} "
-                    f"({event / n:.4%}) elapsed={elapsed/60:.1f}m",
-                    flush=True,
-                )
-
-    alignment = event / n
-    if alignment < min_alignment:
-        raise RuntimeError(
-            f"unsafe alignment: only {event:,}/{n:,} ({alignment:.4%}) oracle events matched; "
-            f"minimum is {min_alignment:.2%}. No output written."
-        )
-    if event != n:
-        raise RuntimeError(
-            f"trace ended with incomplete but superficially high alignment {event:,}/{n:,}; "
-            "sidecar intentionally not written."
-        )
-
-    arrays = {
-        "version": np.asarray(["v3_9_dependency_sidecar"], dtype="U32"),
-        "demand_idx": demand_idx,
-        "oracle_pc": oracle_pc.astype(np.uint64, copy=False),
-        "oracle_line": oracle_line.astype(np.int64, copy=False),
-        "src_regs": src_regs,
-        "dst_regs": dst_regs,
-        "dep_present": dep_present,
-        "dep_parent_event": dep_parent_event,
-        "dep_parent_pc": dep_parent_pc,
-        "dep_parent_line": dep_parent_line,
-        "dep_parent_dynamic_gap": dep_parent_dynamic_gap,
-        "dep_chain_depth": dep_chain_depth,
-        "dep_parent_is_load": dep_parent_is_load,
-        "branches_since_parent": branches_since_parent,
-        "taken_since_parent": taken_since_parent,
-        "stores_since_parent": stores_since_parent,
-        "latest_store_line": latest_store_line,
-        "latest_store_dynamic_gap": latest_store_dynamic_gap,
-        "dynamic_instruction_index": dynamic_instruction_index,
-        "matched_source_mem_slot": matched_source_mem_slot,
+def make_state():
+    return {
+        "instruction_count": 0,
+        "load_instruction_count": 0,
+        "signatures": Counter(),
+        "dep_observations": 0,
+        "parent_pcs": Counter(),
+        "parent_is_load": 0,
+        "gap_sum": 0,
+        "depth_sum": 0,
+        "gap_hist": {},
+        "depth_hist": {},
     }
-    _save_npz(output_path, arrays)
-
-    meta = {
-        "version": "v3_9_dependency_sidecar",
-        "trace": str(trace_path),
-        "oracle": str(oracle_path),
-        "output": str(output_path),
-        "record_bytes": INPUT_INSTR_RECORD.size,
-        "warmup_records_skipped": int(warmup_records),
-        "oracle_events": int(n),
-        "aligned_events": int(event),
-        "alignment": float(alignment),
-        "dynamic_instructions_scanned_after_warmup": int(dynamic_seq),
-        "dependency_present_events": int(dep_present.sum()),
-        "dependency_present_fraction": float(dep_present.mean()),
-        "median_parent_dynamic_gap": float(np.median(dep_parent_dynamic_gap[dep_present.astype(bool)]))
-            if dep_present.any() else 0.0,
-        "source": "input_instr dynamic trace; no register or memory values are available",
-    }
-    meta_path = output_path.with_suffix(".json")
-    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-    print("[saved]", output_path)
-    print("[saved]", meta_path)
-    print(json.dumps(meta, indent=2))
-    return meta
 
 
-def choose_oracle(trace_stem: str, oracle: Optional[str], oracle_dir: Optional[str]) -> Path:
-    if oracle:
-        path = Path(oracle)
-        if not path.is_file():
-            raise FileNotFoundError(path)
-        return path
-    if not oracle_dir:
-        raise ValueError("pass --oracle or --oracle-dir")
-    root = Path(oracle_dir)
-    matches = sorted(
-        path for path in root.rglob("*")
-        if path.is_file() and trace_stem in path.name and path.suffix in {".csv", ".gz"}
-    )
-    if len(matches) != 1:
-        raise RuntimeError(
-            f"expected exactly one oracle under {root} containing {trace_stem!r}; found {matches}"
-        )
-    return matches[0]
-
-
-def main() -> int:
+def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trace", required=True, help="original .champsimtrace or .xz")
-    parser.add_argument("--oracle", default=None, help="explicit no-prefetch oracle CSV/CSV.GZ")
-    parser.add_argument("--oracle-dir", default=None, help="auto-find an oracle by trace stem")
-    parser.add_argument("--trace-stem", default="605.mcf_s-994B")
-    parser.add_argument("--output", required=True, help="output .npz path")
-    parser.add_argument("--warmup-records", type=int, default=25_000_000)
-    parser.add_argument("--progress-every", type=int, default=1_000_000)
-    parser.add_argument("--min-alignment", type=float, default=0.9999)
+    parser.add_argument("--output", required=True, help="output .csv.gz profile")
+    parser.add_argument("--meta", default=None, help="output metadata .json (default derived from --output)")
+    parser.add_argument("--warmup-records", type=int, default=25000000)
+    parser.add_argument(
+        "--profile-records",
+        type=int,
+        default=20000000,
+        help="number of post-warmup raw instructions used; default is the 80%% train prefix of 25M simulation",
+    )
+    parser.add_argument("--progress-every", type=int, default=1000000)
+    parser.add_argument("--max-parent-pcs", type=int, default=8)
+    parser.add_argument("--max-hist-buckets", type=int, default=64)
+    parser.add_argument("--dry-run", action="store_true", help="parse and validate only; do not write outputs")
     args = parser.parse_args()
 
     trace_path = Path(args.trace)
-    if not trace_path.is_file():
-        raise FileNotFoundError(trace_path)
-    oracle_path = choose_oracle(args.trace_stem, args.oracle, args.oracle_dir)
     output_path = Path(args.output)
-    if output_path.suffix != ".npz":
-        raise ValueError("--output must end in .npz")
-    build_sidecar(
-        trace_path=trace_path,
-        oracle_path=oracle_path,
-        output_path=output_path,
-        warmup_records=args.warmup_records,
-        progress_every=args.progress_every,
-        min_alignment=args.min_alignment,
-    )
+    meta_path = Path(args.meta) if args.meta else output_path.with_suffix("").with_suffix(".json")
+    if not trace_path.is_file():
+        raise SystemExit("[error] trace not found: {}".format(trace_path))
+    if output_path.suffix != ".gz" or not str(output_path).endswith(".csv.gz"):
+        raise SystemExit("[error] --output must end in .csv.gz")
+    if args.warmup_records < 0 or args.profile_records <= 0:
+        raise SystemExit("[error] warmup must be >= 0 and profile-records must be > 0")
+
+    # reg -> (producer_pc, producer_sequence, producer_depth, producer_is_load)
+    origins = {}
+    profiles = defaultdict(make_state)
+    sequence = 0
+    load_count = 0
+    start = time.time()
+
+    with open_trace(str(trace_path)) as handle:
+        skip_records(handle, args.warmup_records)
+        for local_index in range(int(args.profile_records)):
+            record = handle.read(INPUT_INSTR_RECORD.size)
+            if len(record) != INPUT_INSTR_RECORD.size:
+                raise RuntimeError(
+                    "trace ended or has partial record after {} post-warmup instructions".format(local_index)
+                )
+            fields = INPUT_INSTR_RECORD.unpack(record)
+            pc = int(fields[0])
+            # The two one-byte flags are not required for the dependency profile.
+            dst = tuple(int(x) for x in fields[3:5])
+            src = tuple(int(x) for x in fields[5:9])
+            src_mem = tuple(int(x) for x in fields[11:15])
+            is_load = int(any(src_mem))
+
+            state = profiles[pc]
+            state["instruction_count"] += 1
+            signature = src + dst
+            state["signatures"][signature] += 1
+            parents = [origins[r] for r in src if r and r in origins]
+            parent = max(parents, key=lambda item: item[1]) if parents else None
+
+            if is_load:
+                state["load_instruction_count"] += 1
+                load_count += 1
+                if parent is not None:
+                    parent_pc, parent_seq, parent_depth, parent_is_load = parent
+                    gap = max(0, sequence - parent_seq)
+                    depth = max(1, parent_depth)
+                    state["dep_observations"] += 1
+                    add_counter_bounded(state["parent_pcs"], parent_pc, args.max_parent_pcs)
+                    state["parent_is_load"] += int(parent_is_load)
+                    state["gap_sum"] += gap
+                    state["depth_sum"] += depth
+                    bounded_hist_add(state["gap_hist"], gap, args.max_hist_buckets)
+                    bounded_hist_add(state["depth_hist"], depth, args.max_hist_buckets)
+
+            # Read dependencies before defining destinations. A load destination
+            # becomes a fresh producer; arithmetic instructions propagate the
+            # youngest causal producer they read.
+            if is_load:
+                depth = (parent[2] + 1) if parent is not None else 1
+                new_origin = (pc, sequence, depth, 1)
+            elif parent is not None:
+                new_origin = parent
+            else:
+                new_origin = None
+            if new_origin is not None:
+                for reg in dst:
+                    if reg:
+                        origins[reg] = new_origin
+
+            sequence += 1
+            if args.progress_every and sequence % int(args.progress_every) == 0:
+                elapsed = time.time() - start
+                print(
+                    "[progress] raw_train_records={:,}/{:,} pcs={:,} loads={:,} elapsed={:.1f}m".format(
+                        sequence, args.profile_records, len(profiles), load_count, elapsed / 60.0
+                    ),
+                    flush=True,
+                )
+
+    rows = []
+    for pc in sorted(profiles):
+        state = profiles[pc]
+        signature, _ = state["signatures"].most_common(1)[0]
+        parent_top = state["parent_pcs"].most_common(2)
+        parent0 = int(parent_top[0][0]) if parent_top else 0
+        parent0_count = int(parent_top[0][1]) if parent_top else 0
+        parent1 = int(parent_top[1][0]) if len(parent_top) > 1 else 0
+        parent1_count = int(parent_top[1][1]) if len(parent_top) > 1 else 0
+        deps = int(state["dep_observations"])
+        rows.append({
+            "pc": pc,
+            "src_reg0": signature[0], "src_reg1": signature[1],
+            "src_reg2": signature[2], "src_reg3": signature[3],
+            "dst_reg0": signature[4], "dst_reg1": signature[5],
+            "instruction_count": int(state["instruction_count"]),
+            "load_instruction_count": int(state["load_instruction_count"]),
+            "signature_variant_count": int(len(state["signatures"])),
+            "dependency_observations": deps,
+            "parent_pc0": parent0, "parent_pc0_count": parent0_count,
+            "parent_pc1": parent1, "parent_pc1_count": parent1_count,
+            "parent_is_load_ppm": int(round(1000000.0 * state["parent_is_load"] / deps)) if deps else 0,
+            "parent_gap_median": median_from_hist(state["gap_hist"]),
+            "parent_gap_mean": int(round(float(state["gap_sum"]) / deps)) if deps else 0,
+            "parent_depth_median": median_from_hist(state["depth_hist"]),
+            "parent_depth_mean": int(round(float(state["depth_sum"]) / deps)) if deps else 0,
+        })
+
+    dependency_pcs = sum(1 for row in rows if int(row["dependency_observations"]) > 0)
+    meta = {
+        "schema": "v3_9_pc_static_dependency_profile",
+        "trace": str(trace_path),
+        "record_bytes": INPUT_INSTR_RECORD.size,
+        "warmup_records_skipped": int(args.warmup_records),
+        "profile_records": int(args.profile_records),
+        "profile_scope": "raw-trace training prefix only",
+        "uses_oracle_alignment": False,
+        "why_no_oracle_alignment": (
+            "input_instr is program-order while the existing oracle is an L2 request-service stream; "
+            "a lossless event-by-event join is not available from these two artifacts alone"
+        ),
+        "unique_pcs": len(rows),
+        "pcs_with_dependency_observations": dependency_pcs,
+        "load_instructions": int(load_count),
+        "elapsed_seconds": round(time.time() - start, 3),
+    }
+
+    if args.dry_run:
+        print(json.dumps(meta, indent=2))
+        return 0
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_output = Path(str(output_path) + ".partial")
+    tmp_meta = Path(str(meta_path) + ".partial")
+    with gzip.open(str(tmp_output), "wt", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    with open(str(tmp_meta), "w") as handle:
+        json.dump(meta, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+    os.replace(str(tmp_output), str(output_path))
+    os.replace(str(tmp_meta), str(meta_path))
+    print("[saved] {}".format(output_path))
+    print("[saved] {}".format(meta_path))
+    print(json.dumps(meta, indent=2))
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        print("[interrupted] no completed sidecar was committed", file=sys.stderr)
+        sys.exit(130)
