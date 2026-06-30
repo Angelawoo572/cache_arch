@@ -5,6 +5,8 @@ This script never creates training labels. It turns existing experiment outputs 
 measured evidence: trace composition, normal counter behavior, event-level timely
 coverage, residual contexts, and normal-vs-standalone demand-outcome overlap.
 """
+from __future__ import print_function
+
 import argparse
 import csv
 import json
@@ -102,7 +104,13 @@ def main():
         label, path = parse_label_path(item)
         for row in read_csv(path):
             copied = dict(row)
-            copied["standalone_variant"] = label
+            # Plan-mode replay summaries already carry a unique candidate tag.
+            # Preserve it so the event-attribution label and replay row can join.
+            copied["standalone_variant"] = (
+                copied.get("standalone_variant")
+                or copied.get("candidate_tag")
+                or label
+            )
             copied["summary_path"] = str(path)
             replay_rows.append(copied)
 
