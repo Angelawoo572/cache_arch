@@ -1,5 +1,15 @@
-# OS/editor files
+# ============================================================
+# cache_arch .gitignore
+# ============================================================
+# Track source code, docs, notebooks, curated summaries, and the compressed
+# standalone NN oracle datasets needed by Colab. Keep transient artifacts local.
+
+# OS / editor
 .DS_Store
+.AppleDouble
+.LSOverride
+.vscode/
+.idea/
 *.swp
 *.swo
 *~
@@ -7,21 +17,75 @@
 # Python / notebook local state
 __pycache__/
 *.py[cod]
+*$py.class
 .ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .venv/
 venv/
+env/
+ENV/
+conda-env/
 
-# Build products
+# Local dependency clones / simulator builds
+ChampSim/
+ChampSim-ML/
+external/*
+!external/ChampSim/
+!external/ChampSim-ML/
+!external/README.md
+!external/.gitkeep
+bin/
+obj/
 build/
-dist/
-*.egg-info/
+build_*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+*.out
+*.exe
+*.o
+*.a
+*.so
+*.dylib
+*.gcda
+*.gcno
 
-# Simulator build outputs and logs
-external/ChampSim/bin/
-external/ChampSim/obj/
-external/ChampSim/*.log
+# Traces and raw trace/candidate logs
+traces/
+**/traces/
+*.champsimtrace
+*.champsimtrace.xz
+*.trace
+*.trace.xz
+*.trace.gz
+*.xz
+access_trace*.csv
+**/access_trace*.csv
+candidate_trace*.csv
+**/candidate_trace*.csv
+shadow_candidate*.csv
+**/shadow_candidate*.csv
+shadow_candidates*.csv
+**/shadow_candidates*.csv
+*.sqlite
+*.sqlite3
+*.db
 
-# Generic project outputs
+# Logs
+*.log
+logs/
+**/logs/
+
+# Generic generated output
+results/tmp/*
+!results/tmp/.gitkeep
+results/raw/*
+!results/raw/.gitkeep
 results/logs/*
 !results/logs/.gitkeep
 results/generated/*
@@ -61,13 +125,7 @@ formal_NN_training/data/upload/*
 !formal_NN_training/data/upload/*/*.events.csv.gz.part_*
 !formal_NN_training/data/upload/*/lstm_events_*.csv.gz.part_*
 !formal_NN_training/data/upload/*/candidate_table_*.csv.gz.part_*
-
-# v3.9's 605 PC-keyed dependency profile is a small, curated Colab input.
-# Track the unpacked CSV + metadata JSON only. Do not track the duplicate tar.gz,
-# raw trace, logs, checkpoints, or generated replay lists.
-!formal_NN_training/data/upload/v3_9_dependency_profiles/
-!formal_NN_training/data/upload/v3_9_dependency_profiles/605.mcf_s-994B.v3_9_dependency_profile.csv.gz
-!formal_NN_training/data/upload/v3_9_dependency_profiles/605.mcf_s-994B.v3_9_dependency_profile.json
+!formal_NN_training/data/upload/*/spp_events_*.csv.gz.part_*
 
 # By default all NN results are local.
 formal_NN_training/results/*
@@ -114,3 +172,13 @@ formal_NN_training/results/base_prefetcher_zoo/*
 formal_NN_training/results/base_prefetcher_zoo/behavior_audit/*
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary.csv
 !formal_NN_training/results/base_prefetcher_zoo/behavior_audit/summary_nodup.csv
+!formal_NN_training/results/base_prefetcher_zoo/behavior_audit/RUN_INFO.txt
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/
+formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv
+!formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
+accuracy_compare_all_traces.csv
+formal_NN_training/results/standalone_lstm_replay/raw_v2_profiled_keyed_diag_602_619_20260623_150430/replay_inputs/
+formal_NN_training/results/standalone_lstm_replay/v3_1_hybrid_balanced_all5_20260623_194953/
+formal_NN_training/results/standalone_lstm_replay/v3_3_context_balanced_all5_20260623_194504/
+formal_NN_training/results/standalone_lstm_replay/raw_v2_profiled_keyed_diag_602_619_20260623_150430/
