@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
-"""Compare normal and frozen standalone prefetchers at L2C demand-event granularity.
+"""Compare normal and standalone prefetchers at L2C demand-event granularity.
 
 Normal-prefetcher results are analysis references only. Existing standalone rich
 exports contain only selected list entries, not every candidate that the notebook
 considered. Consequently, an address absent from an earlier selected export is
 not proof that it was absent from the candidate bank.
+
+In addition to legacy --lstm-artifact LABEL=DIR inputs, --replay-plan supports
+all fresh candidates produced by a v3.9 notebook run without copying lists into
+historical artifact directories.
 """
+from __future__ import print_function
+
 import argparse
 import bisect
 import csv
@@ -162,14 +168,47 @@ def event_category(normal_state, standalone_state, selected_earlier):
     return "neither_timely", ""
 
 
-def parse_variants(items):
-    variants = {}
+def parse_legacy_variants(items):
+    out = []
+    seen = set()
     for item in items:
         label, separator, directory = item.partition("=")
         if not separator or not label or not directory:
             raise ValueError("invalid --lstm-artifact: %s" % item)
-        variants[label] = Path(directory)
-    return variants
+        if label in seen:
+            raise ValueError("duplicate standalone label: %s" % label)
+        seen.add(label)
+        out.append({"label": label, "trace": "", "artifact_dir": Path(directory), "rich_list": None})
+    return out
+
+
+def parse_plan(path, plan_root):
+    required = {"tag", "trace", "source_rel"}
+    seen = set()
+    out = []
+    with path.open(newline="") as handle:
+        reader = csv.DictReader(handle)
+        missing = sorted(required - set(reader.fieldnames or []))
+        if missing:
+            raise ValueError("replay plan missing columns: {}".format(missing))
+        for line_no, raw in enumerate(reader, start=2):
+            label = (raw.get("tag") or "").strip()
+            trace = (raw.get("trace") or "").strip()
+            source_rel = (raw.get("source_rel") or "").strip()
+            if not label or not trace or not source_rel:
+                raise ValueError("blank tag/trace/source_rel at replay plan row {}".format(line_no))
+            if label in seen:
+                raise ValueError("duplicate replay plan tag: {}".format(label))
+            seen.add(label)
+            rich = Path(source_rel)
+            rich = rich if rich.is_absolute() else plan_root / rich
+            rich = rich.resolve()
+            if not rich.is_file() or not rich.stat().st_size:
+                raise FileNotFoundError("missing/nonempty rich list for {}: {}".format(label, rich))
+            out.append({"label": label, "trace": trace, "artifact_dir": None, "rich_list": rich})
+    if not out:
+        raise ValueError("replay plan has no candidates")
+    return out
 
 
 def main():
@@ -180,7 +219,10 @@ def main():
     parser.add_argument("--traces", required=True)
     parser.add_argument("--normal-prefetchers", required=True)
     parser.add_argument("--lstm-artifact", action="append", default=[],
-                        help="LABEL=ARTIFACT_DIR; repeat for each frozen NN family")
+                        help="LABEL=ARTIFACT_DIR; repeat for each legacy standalone family")
+    parser.add_argument("--replay-plan", type=Path, default=None,
+                        help="Current-run v3.9 plan with tag,trace,source_rel.")
+    parser.add_argument("--plan-root", type=Path, default=None)
     parser.add_argument("--chunk-len", type=int, default=1024)
     parser.add_argument("--export-suffix", default="pure_balanced_lru256")
     parser.add_argument("--top-k", type=int, default=50)
@@ -188,7 +230,17 @@ def main():
                         help="Write a potentially large per-demand comparison CSV.GZ.")
     args = parser.parse_args()
 
-    variants = parse_variants(args.lstm_artifact)
+    variants = parse_legacy_variants(args.lstm_artifact)
+    if args.replay_plan is not None:
+        root = args.plan_root or args.replay_plan.parent
+        variants.extend(parse_plan(args.replay_plan.resolve(), root.resolve()))
+    if not variants:
+        raise ValueError("provide --lstm-artifact and/or --replay-plan")
+
+    labels = [entry["label"] for entry in variants]
+    if len(labels) != len(set(labels)):
+        raise ValueError("duplicate label between legacy artifacts and replay plan")
+
     args.out_dir.mkdir(parents=True, exist_ok=True)
     run_summary = []
     pair_summary = []
@@ -235,13 +287,17 @@ def main():
                     if row["no_pref_miss"] and outcome(row, events.get(key)) == "residual":
                         residual_context[(trace, "normal", prefetcher, row["pc"], row["delta"], row["page_offset"])] += 1
 
+            active_variants = [entry for entry in variants if not entry["trace"] or entry["trace"] == trace]
             lstm_events = {}
             selected = {}
-            for label, artifact_dir in variants.items():
+            for entry in active_variants:
+                label = entry["label"]
                 event_file = args.event_root / "lstm" / label / "events" / (trace + ".events.csv.gz")
                 events, unmatched, observed = load_l2_events(event_file, oracle_by_key)
                 lstm_events[label] = events
-                rich_list = find_rich_list(artifact_dir, trace, args.chunk_len, args.export_suffix)
+                rich_list = entry["rich_list"]
+                if rich_list is None:
+                    rich_list = find_rich_list(entry["artifact_dir"], trace, args.chunk_len, args.export_suffix)
                 selected[label] = selected_by_address(rich_list)
                 outcomes = Counter(outcome(row, events.get(key)) for key, row in oracle_rows)
                 run_summary.append({
@@ -340,8 +396,9 @@ def main():
     metadata = {
         "scope": "L2C demand-event analysis",
         "event_rows_written": bool(args.write_event_rows),
+        "replay_plan": str(args.replay_plan) if args.replay_plan is not None else "",
         "limit": (
-            "Frozen standalone exports contain selections only. "
+            "Standalone exports contain selections only. "
             "no_earlier_selected_standalone_export is not proof of candidate-bank absence."
         ),
         "next_notebook_requirement": (
