@@ -125,7 +125,13 @@ formal_NN_training/data/upload/*
 !formal_NN_training/data/upload/*/*.events.csv.gz.part_*
 !formal_NN_training/data/upload/*/lstm_events_*.csv.gz.part_*
 !formal_NN_training/data/upload/*/candidate_table_*.csv.gz.part_*
-!formal_NN_training/data/upload/*/spp_events_*.csv.gz.part_*
+
+# v3.9's 605 PC-keyed dependency profile is a small, curated Colab input.
+# It is the two unpacked files only; do not track the duplicate tar.gz, logs,
+# raw trace, checkpoints, or generated replay lists.
+!formal_NN_training/data/upload/v3_9_dependency_sidecars/
+!formal_NN_training/data/upload/v3_9_dependency_sidecars/605.mcf_s-994B.v3_9_dependency_profile.csv.gz
+!formal_NN_training/data/upload/v3_9_dependency_sidecars/605.mcf_s-994B.v3_9_dependency_profile.json
 
 # By default all NN results are local.
 formal_NN_training/results/*
