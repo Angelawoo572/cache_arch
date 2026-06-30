@@ -1,5 +1,6 @@
 {
-  "elapsed_seconds": 201.593,
+  "cache_line_bytes": 64,
+  "elapsed_seconds": 320.514,
   "load_instructions": 6919743,
   "pcs_with_dependency_observations": 117,
   "profile_records": 20000000,
@@ -7,6 +8,7 @@
   "record_bytes": 64,
   "schema": "v3_9_pc_static_dependency_profile",
   "trace": "/home/qianruw/cache/traces/605.mcf_s-994B.champsimtrace.xz",
+  "trace_sha256": "3216f131809626217f0c6130c6537704b5143ad11b0b6364bdd3a787da0a9167",
   "unique_pcs": 715,
   "uses_oracle_alignment": false,
   "warmup_records_skipped": 25000000,
