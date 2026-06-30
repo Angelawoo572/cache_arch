@@ -1,0 +1,14 @@
+{
+  "elapsed_seconds": 201.593,
+  "load_instructions": 6919743,
+  "pcs_with_dependency_observations": 117,
+  "profile_records": 20000000,
+  "profile_scope": "raw-trace training prefix only",
+  "record_bytes": 64,
+  "schema": "v3_9_pc_static_dependency_profile",
+  "trace": "/home/qianruw/cache/traces/605.mcf_s-994B.champsimtrace.xz",
+  "unique_pcs": 715,
+  "uses_oracle_alignment": false,
+  "warmup_records_skipped": 25000000,
+  "why_no_oracle_alignment": "input_instr is program-order while the existing oracle is an L2 request-service stream; a lossless event-by-event join is not available from these two artifacts alone"
+}
