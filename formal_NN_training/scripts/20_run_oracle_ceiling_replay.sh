@@ -38,7 +38,7 @@ for trace in $TRACES; do
   if [[ "$CEILING_MODE" == "omniscient" ]]; then
     args+=(--min-lead-events "$MIN_LEAD_EVENTS")
   else
-    ledger=$(ls "$LEDGER_DIR"/decision_ledger_${trace}_*_all_candidates.csv.gz 2>/dev/null | head -n 1 || true)
+    ledger=$(ls "$LEDGER_DIR"/decision_ledger_${trace}_*_full_candidates.csv.gz 2>/dev/null | head -n 1 || true)
     [[ -n "$ledger" ]] || ledger=$(ls "$LEDGER_DIR"/decision_ledger_${trace}_*_val_candidates.csv.gz 2>/dev/null | head -n 1 || true)
     [[ -n "$ledger" ]] || { echo "missing candidate ledger for $trace" >&2; exit 2; }
     args+=(--ledger-candidates "$ledger" --min-lead-bin "$MIN_LEAD_BIN")
@@ -54,24 +54,11 @@ plan, root, mode, *traces = sys.argv[1:]
 root = Path(root)
 rows = []
 for trace in traces:
-    rows.append({
-        "tag": "ceiling_{}_{}".format(mode, trace.split(".", 1)[0]),
-        "trace": trace,
-        "source_rel": str((root / "lists" / "{}.{}.csv".format(trace, mode)).resolve()),
-        "candidate_role": "oracle_ceiling_not_nn_candidate",
-        "replay_kind": "{}_ceiling".format(mode),
-        "model_family": "oracle_ceiling",
-        "policy_tag": mode,
-    })
+    rows.append({"tag":"ceiling_{}_{}".format(mode, trace.split(".",1)[0]),"trace":trace,"source_rel":str((root / "lists" / "{}.{}.csv".format(trace,mode)).resolve()),"candidate_role":"oracle_ceiling_not_nn_candidate","replay_kind":"{}_ceiling".format(mode),"model_family":"oracle_ceiling","policy_tag":mode})
 with open(plan, "w", newline="") as handle:
-    writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-    writer.writeheader(); writer.writerows(rows)
+    writer = csv.DictWriter(handle, fieldnames=list(rows[0])); writer.writeheader(); writer.writerows(rows)
 PY
 
 REPLAY_OUT="$OUT_ROOT/replay"
-RUN_TAG="$RUN_TAG" OUT_DIR="$REPLAY_OUT" REPLAY_PLAN="$PLAN" PLAN_ROOT="$OUT_ROOT" \
-ORACLE_DIR="$ORACLE_DIR" BASELINE_SUMMARY="$BASELINE_SUMMARY" \
-WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" FORCE="$FORCE" \
-BASELINE_REFERENCE_JSON="$BASELINE_REFERENCE_JSON" bash "$REPLAY"
-
+RUN_TAG="$RUN_TAG" OUT_DIR="$REPLAY_OUT" REPLAY_PLAN="$PLAN" PLAN_ROOT="$OUT_ROOT" ORACLE_DIR="$ORACLE_DIR" BASELINE_SUMMARY="$BASELINE_SUMMARY" WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" FORCE="$FORCE" BASELINE_REFERENCE_JSON="$BASELINE_REFERENCE_JSON" bash "$REPLAY"
 echo "[done] $OUT_ROOT"
