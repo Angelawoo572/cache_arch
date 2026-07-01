@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Replay frozen standalone NN exports with PC-line-occurrence keys.
 #
-# This is offline keyed replay, not in-simulator PyTorch inference. The driver
-# also runs a no-prefetch control with the exact same replayer binary so the
-# replay summary has both current-normal and same-binary comparisons.
+# Legacy mode replays one conventional list per trace from ART_DIR.
+# Plan mode (REPLAY_PLAN=...) replays every fresh current-run list in a plan
+# independently, preserving tag-specific logs and keyed inputs.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -23,6 +23,8 @@ LOG_DIR="$OUT_DIR/logs"
 REPLAY_DIR="$OUT_DIR/replay_inputs"
 RUN_SAME_BINARY_NO_PREF="${RUN_SAME_BINARY_NO_PREF:-1}"
 FORCE="${FORCE:-0}"
+REPLAY_PLAN="${REPLAY_PLAN:-}"
+PLAN_ROOT="${PLAN_ROOT:-}"
 
 BIN="${BIN:-$ROOT/external/ChampSim/bin/champsim.standalone_nn_replayer}"
 PREP="$ROOT/formal_NN_training/scripts/07_prepare_keyed_replay_input.py"
@@ -33,42 +35,165 @@ BASELINE_SUMMARY="${BASELINE_SUMMARY:-formal_NN_training/results/prefetcher_base
 mkdir -p "$LOG_DIR" "$REPLAY_DIR"
 [[ -x "$BIN" ]] || { echo "[error] run scripts/06_install_keyed_listreplayer.sh first" >&2; exit 2; }
 [[ -f "$PREP" && -f "$PARSER" && -f "$BASELINE_SUMMARY" ]] || { echo "[error] missing script or baseline table" >&2; exit 2; }
+[[ "$MAX_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "[error] MAX_JOBS must be a positive integer" >&2; exit 2; }
 
-run_one() {
+run_same_binary_no_pref() {
   local trace="$1"
-  local rich="$ART_DIR/prefetch_list_${trace}_cl${CHUNK_LEN}_${EXPORT_SUFFIX}.csv"
-  local oracle="$ORACLE_DIR/${trace}.oracle.csv.gz"
-  local keyed="$REPLAY_DIR/${trace}.pc_line_occ.csv"
-  local log="$LOG_DIR/${trace}.standalone_lstm.log"
-  local same_bin_log="$LOG_DIR/${trace}.same_binary_no_pref.log"
   local trace_file="traces/${trace}.champsimtrace.xz"
-  [[ -s "$rich" && -s "$oracle" && -s "$trace_file" ]] || { echo "[error] missing input for $trace" >&2; return 1; }
-
-  if [[ "$RUN_SAME_BINARY_NO_PREF" == "1" && ( "$FORCE" == "1" || ! -s "$same_bin_log" ) ]]; then
-    echo "[run same-binary no_pref] $trace"
-    env -u PFETCH_LIST_PATH "$BIN" --l2c_prefetcher_types=none \
-      --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" \
-      -traces "$trace_file" > "$same_bin_log" 2>&1
-    grep -Fq 'Core_0_IPC' "$same_bin_log"
-  fi
-
-  if [[ "$FORCE" != "1" && -s "$log" && -s "$keyed" ]]; then
-    echo "[skip replay] $trace"
+  local same_bin_log="$LOG_DIR/${trace}.same_binary_no_pref.log"
+  [[ -s "$trace_file" ]] || { echo "[error] missing trace file for $trace: $trace_file" >&2; return 1; }
+  if [[ "$RUN_SAME_BINARY_NO_PREF" != "1" ]]; then
     return 0
   fi
+  if [[ "$FORCE" != "1" && -s "$same_bin_log" ]]; then
+    echo "[skip same-binary no_pref] $trace"
+    return 0
+  fi
+  echo "[run same-binary no_pref] $trace"
+  env -u PFETCH_LIST_PATH "$BIN" --l2c_prefetcher_types=none \
+    --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" \
+    -traces "$trace_file" > "$same_bin_log" 2>&1
+  grep -Fq 'Core_0_IPC' "$same_bin_log"
+}
 
-  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" > "$LOG_DIR/${trace}.prepare.log" 2>&1
+run_plan_candidate() {
+  local tag="$1"
+  local trace="$2"
+  local rich="$3"
+  local oracle="$ORACLE_DIR/${trace}.oracle.csv.gz"
+  local keyed="$REPLAY_DIR/${tag}.pc_line_occ.csv"
+  local log="$LOG_DIR/${tag}.standalone_lstm.log"
+  local trace_file="traces/${trace}.champsimtrace.xz"
+
+  [[ -s "$rich" && -s "$oracle" && -s "$trace_file" ]] || {
+    echo "[error] missing input for tag=$tag trace=$trace rich=$rich oracle=$oracle trace_file=$trace_file" >&2
+    return 1
+  }
+  if [[ "$FORCE" != "1" && -s "$log" && -s "$keyed" ]]; then
+    echo "[skip replay] $tag ($trace)"
+    return 0
+  fi
+  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" > "$LOG_DIR/${tag}.prepare.log" 2>&1
   PFETCH_LIST_PATH="$keyed" "$BIN" --l2c_prefetcher_types=list_replayer \
     --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" \
     -traces "$trace_file" > "$log" 2>&1
   grep -Fq 'adding L2C_PREFETCHER: list_replayer' "$log"
   grep -Fq 'PC-line-occ triggers' "$log"
   grep -Fq 'key=pc_line_occ' "$log"
-  echo "[done] $trace"
+  echo "[done] $tag ($trace)"
 }
 
+run_parallel_file() {
+  local worker="$1"
+  local infile="$2"
+  local status=0
+  local running=0
+  local a b c
+  while IFS=$'\t' read -r a b c; do
+    [[ -n "$a" ]] || continue
+    if [[ -n "$c" ]]; then
+      "$worker" "$a" "$b" "$c" &
+    elif [[ -n "$b" ]]; then
+      "$worker" "$a" "$b" &
+    else
+      "$worker" "$a" &
+    fi
+    running=$((running + 1))
+    if (( running >= MAX_JOBS )); then
+      wait -n || status=1
+      running=$((running - 1))
+    fi
+  done < "$infile"
+  while (( running > 0 )); do
+    wait -n || status=1
+    running=$((running - 1))
+  done
+  return "$status"
+}
+
+if [[ -n "$REPLAY_PLAN" ]]; then
+  [[ -f "$REPLAY_PLAN" ]] || { echo "[error] replay plan not found: $REPLAY_PLAN" >&2; exit 2; }
+  if [[ -z "$PLAN_ROOT" ]]; then
+    PLAN_ROOT="$(dirname "$REPLAY_PLAN")"
+  fi
+  [[ -d "$PLAN_ROOT" ]] || { echo "[error] plan root not found: $PLAN_ROOT" >&2; exit 2; }
+
+  RESOLVED_PLAN="$OUT_DIR/replay_plan_resolved.tsv"
+  python3 - "$REPLAY_PLAN" "$PLAN_ROOT" "$RESOLVED_PLAN" <<'PY'
+import csv
+import re
+import sys
+from pathlib import Path
+
+plan = Path(sys.argv[1]).resolve()
+root = Path(sys.argv[2]).resolve()
+out = Path(sys.argv[3]).resolve()
+required = {"tag", "trace", "source_rel"}
+safe = re.compile(r"^[A-Za-z0-9_.-]+$")
+rows = []
+seen = set()
+with plan.open(newline="") as handle:
+    reader = csv.DictReader(handle)
+    missing = required - set(reader.fieldnames or [])
+    if missing:
+        raise SystemExit("[error] replay plan missing columns: {}".format(sorted(missing)))
+    for line_no, row in enumerate(reader, start=2):
+        tag = (row.get("tag") or "").strip()
+        trace = (row.get("trace") or "").strip()
+        source_rel = (row.get("source_rel") or "").strip()
+        if not tag or not trace or not source_rel:
+            raise SystemExit("[error] blank tag/trace/source_rel at plan row {}".format(line_no))
+        if not safe.match(tag) or not safe.match(trace):
+            raise SystemExit("[error] unsafe tag or trace at plan row {}".format(line_no))
+        if tag in seen:
+            raise SystemExit("[error] duplicate replay tag: {}".format(tag))
+        seen.add(tag)
+        rich = Path(source_rel)
+        rich = rich if rich.is_absolute() else root / rich
+        rich = rich.resolve()
+        if not rich.is_file() or rich.stat().st_size <= 0:
+            raise SystemExit("[error] missing/nonempty rich list for {}: {}".format(tag, rich))
+        rows.append((tag, trace, str(rich)))
+if not rows:
+    raise SystemExit("[error] replay plan has no candidates")
+out.parent.mkdir(parents=True, exist_ok=True)
+with out.open("w", newline="") as handle:
+    for tag, trace, rich in rows:
+        handle.write("{}\t{}\t{}\n".format(tag, trace, rich))
+print("[plan preflight PASS] {} candidates".format(len(rows)))
+for tag, trace, _ in rows:
+    print("  {}  {}".format(trace, tag))
+PY
+
+  printf 'RUN_KIND=standalone_keyed_replay_plan\nREPLAY_PLAN=%s\nPLAN_ROOT=%s\n' "$REPLAY_PLAN" "$PLAN_ROOT" > "$OUT_DIR/RUN_INFO.txt"
+  {
+    printf 'WARMUP=%s\nSIM=%s\nMAX_JOBS=%s\nBIN=%s\nORACLE_DIR=%s\nBASELINE_SUMMARY=%s\nRUN_SAME_BINARY_NO_PREF=%s\n' \
+      "$WARMUP" "$SIM" "$MAX_JOBS" "$BIN" "$ORACLE_DIR" "$BASELINE_SUMMARY" "$RUN_SAME_BINARY_NO_PREF"
+  } >> "$OUT_DIR/RUN_INFO.txt"
+
+  cut -f2 "$RESOLVED_PLAN" | sort -u | awk '{print $1 "\t"}' > "$OUT_DIR/unique_traces.tsv"
+  run_parallel_file run_same_binary_no_pref "$OUT_DIR/unique_traces.tsv" || exit $?
+  run_parallel_file run_plan_candidate "$RESOLVED_PLAN" || exit $?
+
+  PLAN_STEM="$(basename "$REPLAY_PLAN" .csv)"
+  WINNER_PREFIX="${PLAN_STEM%_replay_plan}"
+  [[ "$WINNER_PREFIX" != "$PLAN_STEM" ]] || WINNER_PREFIX="$PLAN_STEM"
+  python3 "$PARSER" \
+    --log-root "$LOG_DIR" \
+    --replay-input-root "$REPLAY_DIR" \
+    --out "$OUT_DIR/summary.csv" \
+    --baseline-summary "$BASELINE_SUMMARY" \
+    --same-binary-log-root "$LOG_DIR" \
+    --replay-plan "$REPLAY_PLAN" \
+    --plan-root "$PLAN_ROOT" \
+    --winner-out "$OUT_DIR/${WINNER_PREFIX}_nn_winners.csv"
+  echo "[done] $OUT_DIR/summary.csv"
+  exit 0
+fi
+
+# Legacy one-list-per-trace mode retained for previous workflows.
 cat > "$OUT_DIR/RUN_INFO.txt" <<EOF
-RUN_KIND=standalone_keyed_replay
+RUN_KIND=standalone_keyed_replay_legacy
 ART_DIR=$ART_DIR
 TRACES=$TRACES
 WARMUP=$WARMUP
@@ -82,25 +207,15 @@ BASELINE_SUMMARY=$BASELINE_SUMMARY
 RUN_SAME_BINARY_NO_PREF=$RUN_SAME_BINARY_NO_PREF
 EOF
 
-running=0
-status=0
+legacy_plan="$OUT_DIR/legacy_plan.tsv"
+: > "$legacy_plan"
 for trace in $TRACES; do
-  run_one "$trace" &
-  running=$((running+1))
-  if (( running >= MAX_JOBS )); then
-    wait -n || status=1
-    running=$((running-1))
-  fi
+  rich="$ART_DIR/prefetch_list_${trace}_cl${CHUNK_LEN}_${EXPORT_SUFFIX}.csv"
+  printf '%s\t%s\t%s\n' "$trace" "$trace" "$rich" >> "$legacy_plan"
 done
-while (( running > 0 )); do
-  wait -n || status=1
-  running=$((running-1))
-done
-(( status == 0 )) || exit "$status"
+cut -f2 "$legacy_plan" | sort -u | awk '{print $1 "\t"}' > "$OUT_DIR/unique_traces.tsv"
+run_parallel_file run_same_binary_no_pref "$OUT_DIR/unique_traces.tsv" || exit $?
+run_parallel_file run_plan_candidate "$legacy_plan" || exit $?
 
-parse_args=(--log-root "$LOG_DIR" --replay-input-root "$REPLAY_DIR" --out "$OUT_DIR/summary.csv" --traces "$TRACES" --baseline-summary "$BASELINE_SUMMARY")
-if [[ "$RUN_SAME_BINARY_NO_PREF" == "1" ]]; then
-  parse_args+=(--same-binary-log-root "$LOG_DIR")
-fi
-python3 "$PARSER" "${parse_args[@]}"
+python3 "$PARSER" --log-root "$LOG_DIR" --replay-input-root "$REPLAY_DIR" --out "$OUT_DIR/summary.csv" --traces "$TRACES" --baseline-summary "$BASELINE_SUMMARY" --same-binary-log-root "$LOG_DIR"
 echo "[done] $OUT_DIR/summary.csv"
