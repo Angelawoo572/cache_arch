@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Classify audit normal-only misses using a notebook decision ledger."""
+"""Classify audit normal-only misses using one notebook decision ledger.
+
+The ledger is for exactly one replay candidate, so --standalone-variant is
+required.  The join key is (trace, pc, line, pc_line_occ), reconstructed from
+the raw no-prefetch oracle and checked against the demand index.
+"""
 from __future__ import annotations
 import argparse
 import csv
@@ -31,6 +36,8 @@ def main():
     parser.add_argument("--attribution-detail", required=True, type=Path)
     parser.add_argument("--oracle-dir", required=True, type=Path)
     parser.add_argument("--ledger-events", required=True, type=Path)
+    parser.add_argument("--standalone-variant", required=True,
+                        help="Exact replay-plan tag represented by --ledger-events.")
     parser.add_argument("--out", required=True, type=Path)
     args = parser.parse_args()
 
@@ -41,15 +48,21 @@ def main():
             ledger[key] = row
     oracle_cache = {}
     joined = []
+    skipped_other_variants = 0
     with open_csv(args.attribution_detail) as handle:
         for row in csv.DictReader(handle):
             if row.get("category") != "normal_only_timely":
+                continue
+            if row.get("standalone_variant") != args.standalone_variant:
+                skipped_other_variants += 1
                 continue
             trace = row["trace"]
             if trace not in oracle_cache:
                 oracle_cache[trace] = load_oracle(args.oracle_dir / (trace + ".oracle.csv.gz"))
             demand_idx = integer(row["demand_idx"])
             pc, line, occ = oracle_cache[trace][demand_idx]
+            if integer(row["pc"]) != pc or integer(row["line"]) != line:
+                raise RuntimeError("audit/oracle identity mismatch")
             event = ledger.get((trace, pc, line, occ))
             out = dict(row)
             out["pc_line_occ"] = occ
@@ -76,15 +89,17 @@ def main():
                     out["ledger_reason"] = "ledger_unclassified"
             joined.append(out)
     if not joined:
-        raise RuntimeError("no normal-only timely rows found")
+        raise RuntimeError("no normal-only timely rows for standalone variant " + args.standalone_variant)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     fields = sorted({key for row in joined for key in row})
     with open_csv(args.out, "wt") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader(); writer.writerows(joined)
     summary = Counter(row["ledger_reason"] for row in joined)
-    args.out.with_suffix(".summary.json").write_text(json.dumps(dict(summary, rows=len(joined)), indent=2) + "\n")
-    print("[ledger join]", json.dumps(dict(summary, rows=len(joined))))
+    metadata = dict(summary, rows=len(joined), standalone_variant=args.standalone_variant,
+                    skipped_other_variants=skipped_other_variants)
+    args.out.with_suffix(".summary.json").write_text(json.dumps(metadata, indent=2) + "\n")
+    print("[ledger join]", json.dumps(metadata))
 
 
 if __name__ == "__main__":
