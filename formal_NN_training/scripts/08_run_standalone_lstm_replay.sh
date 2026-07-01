@@ -4,6 +4,9 @@
 # Legacy mode replays one conventional list per trace from ART_DIR.
 # Plan mode (REPLAY_PLAN=...) replays every fresh current-run list in a plan
 # independently, preserving tag-specific logs and keyed inputs.
+#
+# Before candidate replay, a frozen same-binary/no-pref IPC guard verifies that
+# the simulator/binary/window tuple did not drift from the registered reference.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -25,10 +28,15 @@ RUN_SAME_BINARY_NO_PREF="${RUN_SAME_BINARY_NO_PREF:-1}"
 FORCE="${FORCE:-0}"
 REPLAY_PLAN="${REPLAY_PLAN:-}"
 PLAN_ROOT="${PLAN_ROOT:-}"
+# Set BASELINE_REFERENCE_JSON= to intentionally disable the guard for an
+# explicitly new simulator/window experiment. Normal replay defaults to v4.0.
+BASELINE_REFERENCE_JSON="${BASELINE_REFERENCE_JSON:-$ROOT/formal_NN_training/_cfg/replay_same_binary_no_pref_reference_v4_0.json}"
+BASELINE_TOLERANCE="${BASELINE_TOLERANCE:-}"
 
 BIN="${BIN:-$ROOT/external/ChampSim/bin/champsim.standalone_nn_replayer}"
 PREP="$ROOT/formal_NN_training/scripts/07_prepare_keyed_replay_input.py"
 PARSER="$ROOT/formal_NN_training/scripts/09_parse_standalone_lstm_replay.py"
+BASELINE_GUARD="$ROOT/formal_NN_training/scripts/10_verify_same_binary_no_pref.py"
 ORACLE_DIR="${ORACLE_DIR:-formal_NN_training/results/standalone_nn_data/oracle}"
 BASELINE_SUMMARY="${BASELINE_SUMMARY:-formal_NN_training/results/prefetcher_baselines/summary.csv}"
 
@@ -36,6 +44,11 @@ mkdir -p "$LOG_DIR" "$REPLAY_DIR"
 [[ -x "$BIN" ]] || { echo "[error] run scripts/06_install_keyed_listreplayer.sh first" >&2; exit 2; }
 [[ -f "$PREP" && -f "$PARSER" && -f "$BASELINE_SUMMARY" ]] || { echo "[error] missing script or baseline table" >&2; exit 2; }
 [[ "$MAX_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "[error] MAX_JOBS must be a positive integer" >&2; exit 2; }
+if [[ -n "$BASELINE_REFERENCE_JSON" ]]; then
+  [[ -f "$BASELINE_REFERENCE_JSON" && -f "$BASELINE_GUARD" ]] || {
+    echo "[error] missing baseline reference or guard: $BASELINE_REFERENCE_JSON" >&2; exit 2;
+  }
+fi
 
 run_same_binary_no_pref() {
   local trace="$1"
@@ -54,6 +67,26 @@ run_same_binary_no_pref() {
     --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" \
     -traces "$trace_file" > "$same_bin_log" 2>&1
   grep -Fq 'Core_0_IPC' "$same_bin_log"
+}
+
+verify_same_binary_no_pref() {
+  local trace_file="$1"
+  [[ "$RUN_SAME_BINARY_NO_PREF" == "1" ]] || return 0
+  [[ -n "$BASELINE_REFERENCE_JSON" ]] || {
+    echo "[baseline guard skipped] BASELINE_REFERENCE_JSON is empty" >&2
+    return 0
+  }
+  local args=(--reference "$BASELINE_REFERENCE_JSON" --log-root "$LOG_DIR"
+              --out "$OUT_DIR/same_binary_no_pref_verification.json")
+  if [[ -n "$BASELINE_TOLERANCE" ]]; then
+    args+=(--tolerance "$BASELINE_TOLERANCE")
+  fi
+  local trace
+  local traces=()
+  while IFS=$'\t' read -r trace _; do
+    [[ -n "$trace" ]] && traces+=("$trace")
+  done < "$trace_file"
+  python3 "$BASELINE_GUARD" "${args[@]}" --traces "${traces[@]}"
 }
 
 run_plan_candidate() {
@@ -167,12 +200,13 @@ PY
 
   printf 'RUN_KIND=standalone_keyed_replay_plan\nREPLAY_PLAN=%s\nPLAN_ROOT=%s\n' "$REPLAY_PLAN" "$PLAN_ROOT" > "$OUT_DIR/RUN_INFO.txt"
   {
-    printf 'WARMUP=%s\nSIM=%s\nMAX_JOBS=%s\nBIN=%s\nORACLE_DIR=%s\nBASELINE_SUMMARY=%s\nRUN_SAME_BINARY_NO_PREF=%s\n' \
-      "$WARMUP" "$SIM" "$MAX_JOBS" "$BIN" "$ORACLE_DIR" "$BASELINE_SUMMARY" "$RUN_SAME_BINARY_NO_PREF"
+    printf 'WARMUP=%s\nSIM=%s\nMAX_JOBS=%s\nBIN=%s\nORACLE_DIR=%s\nBASELINE_SUMMARY=%s\nRUN_SAME_BINARY_NO_PREF=%s\nBASELINE_REFERENCE_JSON=%s\nBASELINE_TOLERANCE=%s\n' \
+      "$WARMUP" "$SIM" "$MAX_JOBS" "$BIN" "$ORACLE_DIR" "$BASELINE_SUMMARY" "$RUN_SAME_BINARY_NO_PREF" "$BASELINE_REFERENCE_JSON" "$BASELINE_TOLERANCE"
   } >> "$OUT_DIR/RUN_INFO.txt"
 
   cut -f2 "$RESOLVED_PLAN" | sort -u | awk '{print $1 "\t"}' > "$OUT_DIR/unique_traces.tsv"
   run_parallel_file run_same_binary_no_pref "$OUT_DIR/unique_traces.tsv" || exit $?
+  verify_same_binary_no_pref "$OUT_DIR/unique_traces.tsv"
   run_parallel_file run_plan_candidate "$RESOLVED_PLAN" || exit $?
 
   PLAN_STEM="$(basename "$REPLAY_PLAN" .csv)"
@@ -205,6 +239,8 @@ BIN=$BIN
 ORACLE_DIR=$ORACLE_DIR
 BASELINE_SUMMARY=$BASELINE_SUMMARY
 RUN_SAME_BINARY_NO_PREF=$RUN_SAME_BINARY_NO_PREF
+BASELINE_REFERENCE_JSON=$BASELINE_REFERENCE_JSON
+BASELINE_TOLERANCE=$BASELINE_TOLERANCE
 EOF
 
 legacy_plan="$OUT_DIR/legacy_plan.tsv"
@@ -215,6 +251,7 @@ for trace in $TRACES; do
 done
 cut -f2 "$legacy_plan" | sort -u | awk '{print $1 "\t"}' > "$OUT_DIR/unique_traces.tsv"
 run_parallel_file run_same_binary_no_pref "$OUT_DIR/unique_traces.tsv" || exit $?
+verify_same_binary_no_pref "$OUT_DIR/unique_traces.tsv"
 run_parallel_file run_plan_candidate "$legacy_plan" || exit $?
 
 python3 "$PARSER" --log-root "$LOG_DIR" --replay-input-root "$REPLAY_DIR" --out "$OUT_DIR/summary.csv" --traces "$TRACES" --baseline-summary "$BASELINE_SUMMARY" --same-binary-log-root "$LOG_DIR"
