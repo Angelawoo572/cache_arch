@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
-"""Classify audit normal-only misses using one notebook decision ledger.
+"""Join one decision ledger to normal-only timely attribution rows.
 
-The ledger is for exactly one replay candidate, so --standalone-variant is
-required. The join key is (trace, pc, line, pc_line_occ), reconstructed from
-the raw no-prefetch oracle and checked against the demand index.
+This is a standard-library-only Python 3.6 script.  The ledger must correspond
+exactly to --standalone-variant.
 """
-from __future__ import annotations
 import argparse
 import csv
 import gzip
@@ -15,52 +13,71 @@ from pathlib import Path
 
 
 def open_csv(path, mode="rt"):
-    return gzip.open(str(path), mode, newline="") if str(path).endswith(".gz") else open(str(path), mode, newline="")
+    if str(path).endswith(".gz"):
+        return gzip.open(str(path), mode, newline="")
+    return open(str(path), mode, newline="")
 
 
 def integer(value):
-    text = str(value).strip()
-    return int(text, 16) if text.lower().startswith("0x") else int(float(text))
+    value = str(value).strip()
+    return int(value, 16) if value.lower().startswith("0x") else int(float(value))
 
 
 def load_oracle(path):
-    rows = {}
+    result = {}
     with open_csv(path) as handle:
         for row in csv.DictReader(handle):
-            rows[integer(row["demand_idx"])] = (integer(row["pc"]), integer(row["line"]), integer(row["pc_line_occ"]))
-    return rows
+            result[integer(row["demand_idx"])] = (
+                integer(row["pc"]), integer(row["line"]), integer(row["pc_line_occ"])
+            )
+    return result
+
+
+def reason(event):
+    if event is None:
+        return "ledger_unmatched"
+    if not integer(event["future_target_exists"]):
+        return "outside_candidate_label_horizon"
+    if not integer(event["target_reachable"]):
+        return "candidate_bank_absent"
+    if integer(event["target_selected"]):
+        return "selected_but_not_timely"
+    if integer(event["target_dedup_suppressed"]):
+        return "dedup_suppressed"
+    if integer(event["target_model_rejected"]):
+        return "model_threshold_rejected"
+    if integer(event["target_other_rejected"]):
+        return "policy_rank_or_budget_rejected"
+    return "ledger_unclassified"
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--attribution-detail", required=True, type=Path)
-    parser.add_argument("--oracle-dir", required=True, type=Path)
-    parser.add_argument("--ledger-events", required=True, type=Path)
-    parser.add_argument("--standalone-variant", required=True,
-                        help="Exact replay-plan tag represented by --ledger-events.")
-    parser.add_argument("--normal-prefetcher", default="",
-                        help="Optional normal baseline filter, e.g. sms or sandbox.")
-    parser.add_argument("--out", required=True, type=Path)
-    args = parser.parse_args()
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--attribution-detail", required=True, type=Path)
+    ap.add_argument("--oracle-dir", required=True, type=Path)
+    ap.add_argument("--ledger-events", required=True, type=Path)
+    ap.add_argument("--standalone-variant", required=True)
+    ap.add_argument("--normal-prefetcher", default="")
+    ap.add_argument("--out", required=True, type=Path)
+    args = ap.parse_args()
 
     ledger = {}
     with open_csv(args.ledger_events) as handle:
         for row in csv.DictReader(handle):
             key = (row["trace"], integer(row["pc"]), integer(row["line"]), integer(row["pc_line_occ"]))
+            if key in ledger:
+                raise RuntimeError("duplicate ledger key {}".format(key))
             ledger[key] = row
+
     oracle_cache = {}
-    joined = []
-    skipped_other_variants = 0
-    skipped_other_normals = 0
+    rows = []
     with open_csv(args.attribution_detail) as handle:
         for row in csv.DictReader(handle):
             if row.get("category") != "normal_only_timely":
                 continue
             if row.get("standalone_variant") != args.standalone_variant:
-                skipped_other_variants += 1
                 continue
             if args.normal_prefetcher and row.get("normal_prefetcher") != args.normal_prefetcher:
-                skipped_other_normals += 1
                 continue
             trace = row["trace"]
             if trace not in oracle_cache:
@@ -68,46 +85,33 @@ def main():
             demand_idx = integer(row["demand_idx"])
             pc, line, occ = oracle_cache[trace][demand_idx]
             if integer(row["pc"]) != pc or integer(row["line"]) != line:
-                raise RuntimeError("audit/oracle identity mismatch")
+                raise RuntimeError("audit/oracle mismatch")
             event = ledger.get((trace, pc, line, occ))
             out = dict(row)
             out["pc_line_occ"] = occ
             out["ledger_joined"] = int(event is not None)
-            if event is None:
-                out["ledger_reason"] = "ledger_unmatched"
-            else:
-                out.update({"ledger_" + k: v for k, v in event.items()})
+            out["ledger_reason"] = reason(event)
+            if event is not None:
                 if integer(event["demand_idx"]) != demand_idx:
-                    raise RuntimeError("demand-index mismatch after exact ledger key join")
-                if not integer(event["future_target_exists"]):
-                    out["ledger_reason"] = "outside_candidate_label_horizon"
-                elif not integer(event["target_reachable"]):
-                    out["ledger_reason"] = "candidate_bank_absent"
-                elif integer(event["target_selected"]):
-                    out["ledger_reason"] = "selected_but_not_timely"
-                elif integer(event["target_dedup_suppressed"]):
-                    out["ledger_reason"] = "dedup_suppressed"
-                elif integer(event["target_model_rejected"]):
-                    out["ledger_reason"] = "model_threshold_rejected"
-                elif integer(event["target_other_rejected"]):
-                    out["ledger_reason"] = "policy_rank_or_budget_rejected"
-                else:
-                    out["ledger_reason"] = "ledger_unclassified"
-            joined.append(out)
-    if not joined:
-        raise RuntimeError("no normal-only timely rows for requested candidate/baseline")
+                    raise RuntimeError("ledger demand index mismatch")
+                for name, value in event.items():
+                    out["ledger_" + name] = value
+            rows.append(out)
+
+    if not rows:
+        raise RuntimeError("no matching normal-only timely rows")
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    fields = sorted({key for row in joined for key in row})
+    fields = sorted(set(name for row in rows for name in row))
     with open_csv(args.out, "wt") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
-        writer.writeheader(); writer.writerows(joined)
-    summary = Counter(row["ledger_reason"] for row in joined)
-    metadata = dict(summary, rows=len(joined), standalone_variant=args.standalone_variant,
-                    normal_prefetcher=args.normal_prefetcher,
-                    skipped_other_variants=skipped_other_variants,
-                    skipped_other_normals=skipped_other_normals)
-    args.out.with_suffix(".summary.json").write_text(json.dumps(metadata, indent=2) + "\n")
-    print("[ledger join]", json.dumps(metadata))
+        writer.writeheader()
+        writer.writerows(rows)
+    summary = dict(Counter(row["ledger_reason"] for row in rows))
+    summary["rows"] = len(rows)
+    summary["standalone_variant"] = args.standalone_variant
+    summary["normal_prefetcher"] = args.normal_prefetcher
+    args.out.with_suffix(".summary.json").write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    print("[ledger join] " + json.dumps(summary, sort_keys=True))
 
 
 if __name__ == "__main__":
