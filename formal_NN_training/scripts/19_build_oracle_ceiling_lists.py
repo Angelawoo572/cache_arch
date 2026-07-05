@@ -1,14 +1,7 @@
 #!/usr/bin/env python3
-"""Build keyed rich lists for explicit replay ceilings.
+"""Build keyed rich lists for explicit replay ceilings."""
+from __future__ import print_function
 
-``omniscient`` schedules each no-prefetch miss exactly N demand events before
-its target.  ``bank`` emits only oracle-positive rows already present in a full
-candidate ledger.  Both modes write the normal rich-list schema consumed by
-07_prepare_keyed_replay_input.py.
-
-This script intentionally uses only Python's standard library so it works on
-Sacramento's Python 3.6 installation.  It does not import pandas.
-"""
 import argparse
 import csv
 import gzip
@@ -129,7 +122,6 @@ def build_omniscient(oracle, min_lead_events, max_degree):
             skipped_same_line += 1
             continue
         by_trigger[trigger_idx].append(target)
-
     rows = []
     dropped_by_degree = 0
     for trigger_idx in sorted(by_trigger):
@@ -143,22 +135,15 @@ def build_omniscient(oracle, min_lead_events, max_degree):
             if rank >= max_degree:
                 dropped_by_degree += 1
                 continue
-            rows.append(make_rich_row(
-                trace, trigger, target["line"], target["addr"], rank,
-                "oracle_future_no_pref_miss", "events_{}".format(min_lead_events), 1, 0
-            ))
+            rows.append(make_rich_row(trace, trigger, target["line"], target["addr"], rank,
+                                      "oracle_future_no_pref_miss", "events_{}".format(min_lead_events), 1, 0))
             rank += 1
     return rows, {
-        "mode": "omniscient",
-        "trace": trace,
-        "oracle_rows": len(oracle),
-        "no_pref_miss_targets": no_pref_misses,
-        "min_lead_events": min_lead_events,
-        "max_degree": max_degree,
-        "scheduled_rows": len(rows),
+        "mode": "omniscient", "trace": trace, "oracle_rows": len(oracle),
+        "no_pref_miss_targets": no_pref_misses, "min_lead_events": min_lead_events,
+        "max_degree": max_degree, "scheduled_rows": len(rows),
         "scheduled_target_fraction": float(len(rows)) / no_pref_misses if no_pref_misses else 0.0,
-        "skipped_too_early": skipped_early,
-        "skipped_same_trigger_line": skipped_same_line,
+        "skipped_too_early": skipped_early, "skipped_same_trigger_line": skipped_same_line,
         "dropped_by_degree": dropped_by_degree,
         "semantics": "offline omniscient replay ceiling; not an online NN policy",
     }
@@ -167,30 +152,22 @@ def build_omniscient(oracle, min_lead_events, max_degree):
 def build_bank(oracle, candidate_ledger, min_lead_bin, max_degree, require_full_coverage):
     trace = oracle[0]["trace"]
     by_idx = dict((row["demand_idx"], row) for row in oracle)
-    by_identity = dict((
-        (row["demand_idx"], row["pc"], row["line"]), row
-    ) for row in oracle)
+    by_identity = dict(((row["demand_idx"], row["pc"], row["line"]), row) for row in oracle)
     by_trigger = defaultdict(list)
-    ledger_events = set()
+    covered_events = set()
     unmatched = 0
-
+    ledger_rows = 0
+    eligible_rows = 0
     with open_text(candidate_ledger) as handle:
         reader = csv.DictReader(handle)
-        required = set([
-            "trace", "demand_idx", "pc", "line", "candidate_line", "candidate_valid",
-            "future_label", "candidate_score", "candidate_rank",
-        ])
+        required = set(["trace", "demand_idx", "pc", "line", "candidate_line", "candidate_valid", "future_label", "candidate_score", "candidate_rank"])
         missing = required.difference(set(reader.fieldnames or []))
         if missing:
             raise ValueError("candidate ledger missing columns: {}".format(sorted(missing)))
         for raw in reader:
+            ledger_rows += 1
             if str(raw.get("trace") or "") != trace:
                 raise ValueError("candidate ledger trace mismatch: {}".format(raw.get("trace")))
-            if not as_int(raw.get("candidate_valid"), "candidate_valid"):
-                continue
-            future_label = as_int(raw.get("future_label"), "future_label")
-            if future_label < min_lead_bin:
-                continue
             demand_idx = as_int(raw.get("demand_idx"), "demand_idx")
             pc = as_int(raw.get("pc"), "pc")
             line = as_int(raw.get("line"), "line")
@@ -198,10 +175,16 @@ def build_bank(oracle, candidate_ledger, min_lead_bin, max_degree, require_full_
             if trigger is None:
                 unmatched += 1
                 continue
-            ledger_events.add(demand_idx)
+            covered_events.add(demand_idx)
+            if not as_int(raw.get("candidate_valid"), "candidate_valid"):
+                continue
+            future_label = as_int(raw.get("future_label"), "future_label")
+            if future_label < min_lead_bin:
+                continue
             target_line = as_int(raw.get("candidate_line"), "candidate_line")
             if target_line == line:
                 continue
+            eligible_rows += 1
             by_trigger[demand_idx].append({
                 "line": target_line,
                 "rank": as_int(raw.get("candidate_rank"), "candidate_rank"),
@@ -209,14 +192,8 @@ def build_bank(oracle, candidate_ledger, min_lead_bin, max_degree, require_full_
                 "future_label": future_label,
                 "future_cycle_label": as_int(raw.get("future_cycle_label"), "future_cycle_label") if raw.get("future_cycle_label") not in (None, "") else 0,
             })
-
-    if require_full_coverage and len(ledger_events) != len(oracle):
-        raise RuntimeError(
-            "ledger covers {}/{} oracle events; run the notebook with LEDGER_SCOPE=full and LEDGER_CSV=full".format(
-                len(ledger_events), len(oracle)
-            )
-        )
-
+    if require_full_coverage and len(covered_events) != len(oracle):
+        raise RuntimeError("ledger covers {}/{} oracle events; run the notebook with LEDGER_SCOPE=full and LEDGER_CSV=full".format(len(covered_events), len(oracle)))
     rows = []
     dropped_by_degree = 0
     for demand_idx in sorted(by_trigger):
@@ -231,24 +208,19 @@ def build_bank(oracle, candidate_ledger, min_lead_bin, max_degree, require_full_
             if output_rank >= max_degree:
                 dropped_by_degree += 1
                 continue
-            rows.append(make_rich_row(
-                trace, trigger, cand["line"], cand["line"] * CACHE_LINE_BYTES,
-                output_rank, "oracle_positive_fixed_candidate_bank",
-                "ledger_bin_{}".format(cand["future_label"]),
-                cand["future_label"], cand["future_cycle_label"]
-            ))
+            rows.append(make_rich_row(trace, trigger, cand["line"], cand["line"] * CACHE_LINE_BYTES,
+                                      output_rank, "oracle_positive_fixed_candidate_bank",
+                                      "ledger_bin_{}".format(cand["future_label"]),
+                                      cand["future_label"], cand["future_cycle_label"]))
             output_rank += 1
     return rows, {
-        "mode": "bank",
-        "trace": trace,
-        "candidate_ledger": str(candidate_ledger),
-        "oracle_rows": len(oracle),
-        "ledger_events_seen": len(ledger_events),
-        "ledger_full_scope_verified": len(ledger_events) == len(oracle),
-        "min_lead_bin": min_lead_bin,
-        "max_degree": max_degree,
-        "scheduled_rows": len(rows),
-        "dropped_by_degree": dropped_by_degree,
+        "mode": "bank", "trace": trace, "candidate_ledger": str(candidate_ledger),
+        "oracle_rows": len(oracle), "ledger_rows": ledger_rows,
+        "ledger_events_seen": len(covered_events),
+        "ledger_full_scope_verified": len(covered_events) == len(oracle),
+        "eligible_candidate_rows": eligible_rows,
+        "min_lead_bin": min_lead_bin, "max_degree": max_degree,
+        "scheduled_rows": len(rows), "dropped_by_degree": dropped_by_degree,
         "unmatched_ledger_rows": unmatched,
         "semantics": "oracle-positive fixed-candidate-bank replay ceiling; not an online NN policy",
     }
@@ -266,7 +238,6 @@ def main():
     ap.add_argument("--ledger-candidates", type=Path, default=None)
     ap.add_argument("--require-full-coverage", action="store_true")
     args = ap.parse_args()
-
     if args.max_degree <= 0:
         raise SystemExit("max-degree must be positive")
     oracle = read_oracle(args.oracle)
@@ -275,10 +246,7 @@ def main():
     else:
         if args.ledger_candidates is None:
             raise SystemExit("--ledger-candidates is required for bank mode")
-        rows, metadata = build_bank(
-            oracle, args.ledger_candidates, args.min_lead_bin,
-            args.max_degree, args.require_full_coverage
-        )
+        rows, metadata = build_bank(oracle, args.ledger_candidates, args.min_lead_bin, args.max_degree, args.require_full_coverage)
     write_rich_list(args.out, rows)
     metadata["oracle"] = str(args.oracle)
     metadata["out"] = str(args.out)
