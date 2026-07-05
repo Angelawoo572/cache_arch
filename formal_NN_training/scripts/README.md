@@ -1,13 +1,15 @@
 # `formal_NN_training/scripts`
 
-All Sacramento-side Python utilities are Python 3.6 compatible and use only the standard library.
+Current script paths retain their historic numeric names; no path migration is in
+progress. All Sacramento-side Python utilities are Python 3.6 compatible and use
+only the standard library.
 
 ## Active pipeline
 
 ```text
 01_parse_prefetch_behavior_audit.py       Parse normal simulator runs into summary.csv.
 02_patch_pythia_demand_logger.sh          Enable per-event L2C logging when needed.
-03_collect_no_pref_demand_events.sh       Collect raw no-prefetch demand events.
+03_collect_no_pref_demand_events.sh       Collect raw no-prefetch demand events safely.
 05_build_standalone_oracle_dataset.py     Build standalone oracle data.
 06_install_keyed_listreplayer.sh          Build keyed ListReplayer.
 07_prepare_keyed_replay_input.py          Convert rich lists to keyed replay input.
@@ -23,6 +25,16 @@ All Sacramento-side Python utilities are Python 3.6 compatible and use only the 
 `04_run_normal_prefetcher_sweep.sh` was merged into script 11. Use
 `MODE=normal COLLECT_EVENT_LOGS=0` with script 11 for counter-only normal runs.
 
+## Shared replay-plan contract
+
+A plan has `tag`, `trace`, and `source_rel` columns. `08`, `09`, `11`, and `12`
+now use `replay/resolve_replay_plan.py` as the canonical validator, rather than
+maintaining independent path-resolution rules.
+
+`08` performs keyed replay and same-binary validation. `09` summarizes replay
+logs. `11` collects normal/standalone event evidence. `12` analyzes that evidence.
+They consume different artifacts and are not duplicate experiment drivers.
+
 ## Optional research builders
 
 ```text
@@ -30,7 +42,7 @@ All Sacramento-side Python utilities are Python 3.6 compatible and use only the 
 14_build_base_candidate_table.py           Optional normal-proposal table for base-aware research.
 16_build_trace_dependency_features.py      Dependency profile and edge vocabulary builder.
 17_prepare_v3_9_605_dependency_sidecar.sh  605 wrapper around script 16.
-19_build_oracle_ceiling_lists.py           Ceiling-list builder.
+19_build_oracle_ceiling_lists.py           Low-level ceiling-list builder.
 20_run_oracle_ceiling_replay.sh            Ceiling replay driver.
 21_join_decision_ledger_attribution.py     Event-attribution to full-ledger join.
 22_resource_summary.py                     PQ/MSHR/request-pressure summary.
@@ -39,11 +51,8 @@ replay/resolve_replay_plan.py              Shared replay-plan resolver.
 replay/verify_same_binary_no_pref.py       Same-binary no-pref IPC guard.
 ```
 
-Removed duplicate or pure-wrapper scripts:
+## Legacy action-predictor material
 
-```text
-04_run_normal_prefetcher_sweep.sh
-10_verify_same_binary_no_pref.py
-16_verify_same_binary_no_pref.py
-v4/run_oracle_ceiling_replay.sh
-```
+`formal_NN_training/LSTM/draft/` and the two `LSTM_cache_action_predictor*.ipynb`
+notebooks are historical reference only. They use the retired action-predictor
+workflow and must not be run as part of the current standalone no-prefetch pipeline.
