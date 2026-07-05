@@ -14,7 +14,6 @@ LEVELS="${LEVELS:-L1D L2C LLC}"
 SCALES="${SCALES:-half base double}"
 TRACES="${TRACES:-602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B}"
 PREFETCHERS="${PREFETCHERS:-no_pref stride streamer ampm spp ipcp sms sandbox power7}"
-# Semicolon-separated LABEL=ARTIFACT_DIR entries.
 NN_VARIANTS="${NN_VARIANTS:-v3_1=formal_NN_training/artifacts/standalone_multihorizon_lstm_v3_1;v3_3=formal_NN_training/artifacts/standalone_multihorizon_lstm_v3_3_context_coverage}"
 WARMUP="${WARMUP:-25000000}"
 SIM="${SIM:-25000000}"
@@ -30,12 +29,12 @@ CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 CACHE_H="$CHAMP_DIR/inc/cache.h"
 OUT_ROOT="${OUT_ROOT:-$ROOT/formal_NN_training/results/cache_capacity_sweep/frozen_l2c_control_$(date +%Y%m%d_%H%M%S)}"
 BUILD_CAPACITY="$ROOT/formal_NN_training/scripts/13_build_cache_capacity_variant.sh"
-RUN_NORMAL="$ROOT/formal_NN_training/scripts/04_run_normal_prefetcher_sweep.sh"
+RUN_EXPERIMENTS="$ROOT/formal_NN_training/scripts/11_run_prefetch_event_attribution.sh"
 RUN_REPLAY="$ROOT/formal_NN_training/scripts/08_run_standalone_lstm_replay.sh"
 
 [[ -f "$CACHE_H" ]] || { echo "[error] missing $CACHE_H" >&2; exit 2; }
 [[ -f "$BUILD_CAPACITY" ]] || { echo "[error] missing $BUILD_CAPACITY" >&2; exit 2; }
-[[ -f "$RUN_NORMAL" && -f "$RUN_REPLAY" ]] || { echo "[error] missing normal/replay driver" >&2; exit 2; }
+[[ -f "$RUN_EXPERIMENTS" && -f "$RUN_REPLAY" ]] || { echo "[error] missing normal/replay driver" >&2; exit 2; }
 mkdir -p "$OUT_ROOT"
 
 macro_value() {
@@ -43,20 +42,12 @@ macro_value() {
   awk -v macro="$macro" '$1 == "#define" && $2 == macro { print $3; exit }' "$CACHE_H"
 }
 
-# ChampSim's single-core default uses `#define LLC_SET NUM_CPUS*2048`.
-# The capacity builder needs a literal set count, so resolve only the simple,
-# integer macro expressions that the checked configuration uses. The capacity
-# builder itself still receives a numeric literal and restores cache.h after
-# every build.
 evaluate_integer_macro() {
   local label="$1" raw="$2" expression value
   [[ -n "$raw" ]] || { echo "[error] missing macro $label in $CACHE_H" >&2; return 1; }
   expression="${raw//[[:space:]]/}"
   expression="${expression//NUM_CPUS/1}"
-  [[ "$expression" =~ ^[0-9+*/\(\)]+$ ]] || {
-    echo "[error] unsupported integer expression for $label: $raw" >&2
-    return 1
-  }
+  [[ "$expression" =~ ^[0-9+*/\(\)]+$ ]] || { echo "[error] unsupported integer expression for $label: $raw" >&2; return 1; }
   value=$((expression))
   (( value > 0 )) || { echo "[error] nonpositive value for $label: $raw" >&2; return 1; }
   printf '%s\n' "$value"
@@ -96,24 +87,17 @@ for level in $LEVELS; do
     mkdir -p "$bin_dir"
 
     echo "[capacity] level=$level scale=$scale sets=$sets ways=$ways tag=$tag"
-    LEVEL="$level" SETS="$sets" WAYS="$ways" FRONTEND=normal \
-      PATCH_LOGGER="$PATCH_LOGGER" RESET_PATCH="$RESET_PATCH" \
-      CHAMP_DIR="$CHAMP_DIR" OUT_DIR="$bin_dir" \
-      bash "$BUILD_CAPACITY"
+    LEVEL="$level" SETS="$sets" WAYS="$ways" FRONTEND=normal PATCH_LOGGER="$PATCH_LOGGER" RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" OUT_DIR="$bin_dir" bash "$BUILD_CAPACITY"
     normal_bin="$bin_dir/champsim.${tag}.normal"
     [[ -x "$normal_bin" ]] || { echo "[error] missing normal capacity binary $normal_bin" >&2; exit 3; }
 
-    OUT_ROOT="$normal_root" BIN="$normal_bin" TRACES="$TRACES" \
-      PREFETCHERS="$PREFETCHERS" WARMUP="$WARMUP" SIM="$SIM" \
-      MAX_JOBS="$MAX_JOBS" FORCE="$FORCE" BUILD=0 \
-      bash "$RUN_NORMAL"
+    # This replaces the deleted 04_run_normal_prefetcher_sweep.sh. Event logs
+    # are intentionally disabled because this capacity control needs counters.
+    OUT_ROOT="$normal_root" NORMAL_SUMMARY_PATH="$normal_root/summary.csv" NORMAL_BIN="$normal_bin" TRACES="$TRACES" NORMAL_PREFETCHERS="$PREFETCHERS" MODE=normal COLLECT_EVENT_LOGS=0 WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" FORCE="$FORCE" BUILD=0 bash "$RUN_EXPERIMENTS"
     normal_summary="$normal_root/summary.csv"
     [[ -s "$normal_summary" ]] || { echo "[error] no normal summary: $normal_summary" >&2; exit 3; }
 
-    LEVEL="$level" SETS="$sets" WAYS="$ways" FRONTEND=replayer \
-      PATCH_LOGGER="$PATCH_LOGGER" RESET_PATCH=0 \
-      CHAMP_DIR="$CHAMP_DIR" OUT_DIR="$bin_dir" \
-      bash "$BUILD_CAPACITY"
+    LEVEL="$level" SETS="$sets" WAYS="$ways" FRONTEND=replayer PATCH_LOGGER="$PATCH_LOGGER" RESET_PATCH=0 CHAMP_DIR="$CHAMP_DIR" OUT_DIR="$bin_dir" bash "$BUILD_CAPACITY"
     replay_bin="$bin_dir/champsim.${tag}.replayer"
     [[ -x "$replay_bin" ]] || { echo "[error] missing replay capacity binary $replay_bin" >&2; exit 3; }
 
@@ -125,12 +109,7 @@ for level in $LEVELS; do
       [[ "$label" != "$art_dir" ]] || { echo "[error] NN_VARIANTS requires LABEL=ARTIFACT_DIR" >&2; exit 2; }
       out_dir="$variant_root/standalone/$label"
       echo "[frozen L2C replay control] $tag $label"
-      BIN="$replay_bin" ART_DIR="$art_dir" OUT_DIR="$out_dir" TRACES="$TRACES" \
-        WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" \
-        CHUNK_LEN="$CHUNK_LEN" DEDUP_CAPACITY="$DEDUP_CAPACITY" \
-        EXPORT_SUFFIX="$EXPORT_SUFFIX" BASELINE_SUMMARY="$normal_summary" \
-        FORCE="$FORCE" RUN_SAME_BINARY_NO_PREF=1 \
-        bash "$RUN_REPLAY"
+      BIN="$replay_bin" ART_DIR="$art_dir" OUT_DIR="$out_dir" TRACES="$TRACES" WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" CHUNK_LEN="$CHUNK_LEN" DEDUP_CAPACITY="$DEDUP_CAPACITY" EXPORT_SUFFIX="$EXPORT_SUFFIX" BASELINE_SUMMARY="$normal_summary" FORCE="$FORCE" RUN_SAME_BINARY_NO_PREF=1 bash "$RUN_REPLAY"
     done
 
     cat > "$variant_root/RUN_INFO.txt" <<EOF
