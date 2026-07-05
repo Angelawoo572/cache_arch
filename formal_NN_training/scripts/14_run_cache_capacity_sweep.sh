@@ -109,7 +109,9 @@ for level in $LEVELS; do
       [[ "$label" != "$art_dir" ]] || { echo "[error] NN_VARIANTS requires LABEL=ARTIFACT_DIR" >&2; exit 2; }
       out_dir="$variant_root/standalone/$label"
       echo "[frozen L2C replay control] $tag $label"
-      BIN="$replay_bin" ART_DIR="$art_dir" OUT_DIR="$out_dir" TRACES="$TRACES" WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" CHUNK_LEN="$CHUNK_LEN" DEDUP_CAPACITY="$DEDUP_CAPACITY" EXPORT_SUFFIX="$EXPORT_SUFFIX" BASELINE_SUMMARY="$normal_summary" FORCE="$FORCE" RUN_SAME_BINARY_NO_PREF=1 bash "$RUN_REPLAY"
+      # The capacity binary has a different simulator configuration, so the
+      # baseline-capacity v4.0 IPC reference must not be used as a guard here.
+      BIN="$replay_bin" ART_DIR="$art_dir" OUT_DIR="$out_dir" TRACES="$TRACES" WARMUP="$WARMUP" SIM="$SIM" MAX_JOBS="$MAX_JOBS" CHUNK_LEN="$CHUNK_LEN" DEDUP_CAPACITY="$DEDUP_CAPACITY" EXPORT_SUFFIX="$EXPORT_SUFFIX" BASELINE_SUMMARY="$normal_summary" BASELINE_REFERENCE_JSON="" FORCE="$FORCE" RUN_SAME_BINARY_NO_PREF=1 bash "$RUN_REPLAY"
     done
 
     cat > "$variant_root/RUN_INFO.txt" <<EOF
