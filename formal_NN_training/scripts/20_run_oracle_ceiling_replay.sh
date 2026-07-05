@@ -11,7 +11,6 @@ LEDGER_DIR="${LEDGER_DIR:-}"
 MIN_LEAD_EVENTS="${MIN_LEAD_EVENTS:-8}"
 MIN_LEAD_BIN="${MIN_LEAD_BIN:-2}"
 MAX_DEGREE="${MAX_DEGREE:-1}"
-REQUIRE_FULL_LEDGER="${REQUIRE_FULL_LEDGER:-0}"
 WARMUP="${WARMUP:-25000000}"
 SIM="${SIM:-25000000}"
 MAX_JOBS="${MAX_JOBS:-2}"
@@ -39,10 +38,8 @@ for trace in $TRACES; do
     args+=(--min-lead-events "$MIN_LEAD_EVENTS")
   else
     ledger=$(ls "$LEDGER_DIR"/decision_ledger_${trace}_*_full_candidates.csv.gz 2>/dev/null | head -n 1 || true)
-    [[ -n "$ledger" ]] || ledger=$(ls "$LEDGER_DIR"/decision_ledger_${trace}_*_val_candidates.csv.gz 2>/dev/null | head -n 1 || true)
-    [[ -n "$ledger" ]] || { echo "missing candidate ledger for $trace" >&2; exit 2; }
-    args+=(--ledger-candidates "$ledger" --min-lead-bin "$MIN_LEAD_BIN")
-    [[ "$REQUIRE_FULL_LEDGER" == "1" ]] && args+=(--require-full-coverage)
+    [[ -n "$ledger" ]] || { echo "missing full candidate ledger for $trace" >&2; exit 2; }
+    args+=(--ledger-candidates "$ledger" --min-lead-bin "$MIN_LEAD_BIN" --require-full-coverage)
   fi
   python3 "$BUILDER" "${args[@]}"
 done
