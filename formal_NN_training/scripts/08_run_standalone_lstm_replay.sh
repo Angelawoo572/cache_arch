@@ -6,7 +6,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
-TRACES="${TRACES:-602.gcc_s-734B 619.lbm_s-4268B}"
+TRACES="${TRACES:-602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B}"
 WARMUP="${WARMUP:-25000000}"
 SIM="${SIM:-25000000}"
 MAX_JOBS="${MAX_JOBS:-2}"
@@ -19,10 +19,10 @@ OUT_DIR="${OUT_DIR:-formal_NN_training/results/standalone_lstm_replay/${RUN_TAG}
 LOG_DIR="$OUT_DIR/logs"
 REPLAY_DIR="$OUT_DIR/replay_inputs"
 RUN_SAME_BINARY_NO_PREF="${RUN_SAME_BINARY_NO_PREF:-1}"
+SKIP_BASELINE_REFERENCE="${SKIP_BASELINE_REFERENCE:-0}"
 FORCE="${FORCE:-0}"
 REPLAY_PLAN="${REPLAY_PLAN:-}"
 PLAN_ROOT="${PLAN_ROOT:-}"
-BASELINE_REFERENCE_JSON="${BASELINE_REFERENCE_JSON:-$ROOT/formal_NN_training/_cfg/replay_same_binary_no_pref_reference_v4_0.json}"
 BASELINE_TOLERANCE="${BASELINE_TOLERANCE:-}"
 BIN="${BIN:-$ROOT/external/ChampSim/bin/champsim.standalone_nn_replayer}"
 ORACLE_DIR="${ORACLE_DIR:-formal_NN_training/results/standalone_nn_data/oracle}"
@@ -31,6 +31,14 @@ PREP="$ROOT/formal_NN_training/scripts/07_prepare_keyed_replay_input.py"
 PARSER="$ROOT/formal_NN_training/scripts/09_parse_standalone_lstm_replay.py"
 PLAN_RESOLVER="$ROOT/formal_NN_training/scripts/replay/resolve_replay_plan.py"
 BASELINE_GUARD="$ROOT/formal_NN_training/scripts/replay/verify_same_binary_no_pref.py"
+
+[[ "$RUN_SAME_BINARY_NO_PREF" == 0 || "$RUN_SAME_BINARY_NO_PREF" == 1 ]] || { echo "[error] RUN_SAME_BINARY_NO_PREF must be 0 or 1" >&2; exit 2; }
+[[ "$SKIP_BASELINE_REFERENCE" == 0 || "$SKIP_BASELINE_REFERENCE" == 1 ]] || { echo "[error] SKIP_BASELINE_REFERENCE must be 0 or 1" >&2; exit 2; }
+if [[ "$SKIP_BASELINE_REFERENCE" == 1 ]]; then
+  BASELINE_REFERENCE_JSON=""
+else
+  BASELINE_REFERENCE_JSON="${BASELINE_REFERENCE_JSON:-$ROOT/formal_NN_training/_cfg/replay_same_binary_no_pref_reference_v4_0.json}"
+fi
 
 mkdir -p "$LOG_DIR" "$REPLAY_DIR"
 [[ -x "$BIN" ]] || { echo "[error] run scripts/06_install_keyed_listreplayer.sh first" >&2; exit 2; }
@@ -44,6 +52,13 @@ completed_log() {
   [[ -s "$1" ]] && grep -Fq "$2" "$1"
 }
 
+completed_replay_log() {
+  local log="$1"
+  completed_log "$log" 'adding L2C_PREFETCHER: list_replayer' \
+    && completed_log "$log" 'PC-line-occ triggers' \
+    && completed_log "$log" 'key=pc_line_occ'
+}
+
 run_same_binary_no_pref() {
   local trace="$1"
   local trace_file="traces/${trace}.champsimtrace.xz"
@@ -55,14 +70,17 @@ run_same_binary_no_pref() {
     return 0
   fi
   echo "[run same-binary no_pref] $trace"
-  env -u PFETCH_LIST_PATH "$BIN" --l2c_prefetcher_types=none --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" -traces "$trace_file" > "$log" 2>&1
-  completed_log "$log" Core_0_IPC
+  if ! env -u PFETCH_LIST_PATH "$BIN" --l2c_prefetcher_types=none --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" -traces "$trace_file" > "$log" 2>&1; then
+    echo "[error] same-binary no_pref simulator failed: $trace" >&2
+    return 1
+  fi
+  completed_log "$log" Core_0_IPC || { echo "[error] same-binary no_pref has no final IPC: $trace" >&2; return 1; }
 }
 
 verify_same_binary_no_pref() {
   local input="$1"
   [[ "$RUN_SAME_BINARY_NO_PREF" == 1 ]] || return 0
-  [[ -n "$BASELINE_REFERENCE_JSON" ]] || { echo "[baseline guard skipped] BASELINE_REFERENCE_JSON is empty" >&2; return 0; }
+  [[ -n "$BASELINE_REFERENCE_JSON" ]] || { echo "[baseline guard skipped] SKIP_BASELINE_REFERENCE=1" >&2; return 0; }
   local args=(--reference "$BASELINE_REFERENCE_JSON" --log-root "$LOG_DIR" --out "$OUT_DIR/same_binary_no_pref_verification.json")
   [[ -z "$BASELINE_TOLERANCE" ]] || args+=(--tolerance "$BASELINE_TOLERANCE")
   local trace traces=()
@@ -77,16 +95,20 @@ run_candidate() {
   local log="$LOG_DIR/${tag}.standalone_lstm.log"
   local trace_file="traces/${trace}.champsimtrace.xz"
   [[ -s "$rich" && -s "$oracle" && -s "$trace_file" ]] || { echo "[error] missing replay input for $tag" >&2; return 1; }
-  if [[ "$FORCE" != 1 && -s "$keyed" ]] && completed_log "$log" 'key=pc_line_occ'; then
+  if [[ "$FORCE" != 1 && -s "$keyed" ]] && completed_replay_log "$log"; then
     echo "[skip replay] $tag ($trace)"
     return 0
   fi
-  python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" > "$LOG_DIR/${tag}.prepare.log" 2>&1
+  if ! python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" > "$LOG_DIR/${tag}.prepare.log" 2>&1; then
+    echo "[error] replay-input preparation failed: $tag" >&2
+    return 1
+  fi
   echo "[replay] $tag ($trace)"
-  PFETCH_LIST_PATH="$keyed" "$BIN" --l2c_prefetcher_types=list_replayer --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" -traces "$trace_file" > "$log" 2>&1
-  completed_log "$log" 'adding L2C_PREFETCHER: list_replayer'
-  completed_log "$log" 'PC-line-occ triggers'
-  completed_log "$log" 'key=pc_line_occ'
+  if ! PFETCH_LIST_PATH="$keyed" "$BIN" --l2c_prefetcher_types=list_replayer --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" -traces "$trace_file" > "$log" 2>&1; then
+    echo "[error] simulator replay failed: $tag ($trace)" >&2
+    return 1
+  fi
+  completed_replay_log "$log" || { echo "[error] incomplete replay log: $tag ($trace)" >&2; return 1; }
 }
 
 run_parallel() {
@@ -127,4 +149,19 @@ run_parallel run_same_binary_no_pref "$SAME_BIN_INPUT"
 verify_same_binary_no_pref "$SAME_BIN_INPUT"
 run_parallel run_candidate "$RESOLVED_PLAN"
 python3 "$PARSER" --log-root "$LOG_DIR" --replay-input-root "$REPLAY_DIR" --out "$OUT_DIR/summary.csv" --baseline-summary "$BASELINE_SUMMARY" --same-binary-log-root "$LOG_DIR" --replay-plan "$PLAN_CSV" --plan-root "$PLAN_ROOT_FOR_PARSE" --winner-out "$OUT_DIR/winners.csv"
+
+cat > "$OUT_DIR/RUN_INFO.txt" <<EOF
+RUN_KIND=standalone_keyed_replay
+TRACES=$TRACES
+REPLAY_PLAN=$REPLAY_PLAN
+PLAN_ROOT=$PLAN_ROOT_FOR_PARSE
+WARMUP=$WARMUP
+SIM=$SIM
+MAX_JOBS=$MAX_JOBS
+RUN_SAME_BINARY_NO_PREF=$RUN_SAME_BINARY_NO_PREF
+SKIP_BASELINE_REFERENCE=$SKIP_BASELINE_REFERENCE
+BASELINE_REFERENCE_JSON=$BASELINE_REFERENCE_JSON
+BIN=$BIN
+EOF
+
 echo "[done] $OUT_DIR"
