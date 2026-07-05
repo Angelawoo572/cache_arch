@@ -21,8 +21,9 @@ The normal-baseline axis is still important: for each trace, compare the standal
 
 ```text
 1. Normal baselines
-   scripts/04_run_normal_prefetcher_sweep.sh
-   -> results/prefetcher_baselines/summary.csv
+   MODE=normal COLLECT_EVENT_LOGS=0 \
+     bash scripts/11_run_prefetch_event_attribution.sh
+   -> results/.../normal/summary.csv
 
 2. Raw standalone NN data
    scripts/03_collect_no_pref_demand_events.sh
@@ -37,6 +38,11 @@ The normal-baseline axis is still important: for each trace, compare the standal
    scripts/06_install_keyed_listreplayer.sh
    scripts/08_run_standalone_lstm_replay.sh
    -> results/standalone_lstm_replay/<run_tag>/summary.csv
+
+5. Causal event evidence, only when needed
+   MODE=both COLLECT_EVENT_LOGS=1 \
+     bash scripts/11_run_prefetch_event_attribution.sh
+   scripts/12_analyze_prefetch_event_attribution.py
 ```
 
 ## Dataset contract before the notebook starts
