@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Build an evidence report from trace, normal-prefetcher, and LSTM experiments.
+"""Build measured normal-vs-standalone prefetch evidence.
 
-This script never creates training labels. It turns existing experiment outputs into
-measured evidence: trace composition, normal counter behavior, event-level timely
-coverage, residual contexts, and normal-vs-standalone demand-outcome overlap.
+This report does not create NN labels and does not claim causal mechanisms from
+counters alone.  It joins trace profiles, normal counter summaries, keyed replay
+summaries, and L2C demand-event attribution.  In addition to IPC and prefetch
+accuracy, it writes an explicit cache-miss comparison so a high-precision
+prefetcher is not incorrectly assumed to cover the same misses as another
+high-precision prefetcher.
 """
 from __future__ import print_function
 
@@ -21,36 +24,41 @@ def number(value, default=0.0):
 
 
 def read_csv(path):
+    path = Path(path)
     if not path.is_file():
         return []
     with path.open(newline="") as handle:
         return list(csv.DictReader(handle))
 
 
-def write_csv(path, rows, fields):
+def write_csv(path, rows, fields=None):
+    path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    if fields is None:
+        fields = sorted({key for row in rows for key in row}) if rows else []
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+        if fields:
+            writer.writeheader()
+            writer.writerows(rows)
 
 
 def parse_label_path(value):
-    label, sep, path = value.partition("=")
-    if not sep or not label or not path:
-        raise ValueError("expected LABEL=PATH, got %r" % value)
+    label, separator, path = value.partition("=")
+    if not separator or not label or not path:
+        raise ValueError("expected LABEL=PATH, got {!r}".format(value))
     return label, Path(path)
 
 
 def find_profile(profile_dir, trace):
-    matches = sorted(profile_dir.glob(trace + "*.trace_profile.json"))
+    matches = sorted(Path(profile_dir).glob(trace + "*.trace_profile.json"))
     if not matches:
         return {}
     return json.loads(matches[0].read_text())
 
 
 def baseline_best(rows):
-    result = {}
+    output = {}
     for row in rows:
         trace = row.get("trace", "")
         prefetcher = row.get("prefetcher", "")
@@ -58,10 +66,10 @@ def baseline_best(rows):
             continue
         if number(row.get("run_failed")):
             continue
-        current = result.get(trace)
+        current = output.get(trace)
         if current is None or number(row.get("ipc")) > number(current.get("ipc")):
-            result[trace] = row
-    return result
+            output[trace] = row
+    return output
 
 
 def tags_for_run(row):
@@ -79,6 +87,26 @@ def tags_for_run(row):
     if issued and useless / issued > 0.25:
         tags.append("high_useless_fraction")
     return ";".join(tags)
+
+
+def miss_reading(row):
+    """A descriptive guardrail, not a causal explanation."""
+    delta = number(row.get("l2_miss_delta_standalone_minus_normal"))
+    normal_cov = number(row.get("normal_event_coverage"))
+    standalone_cov = number(row.get("standalone_event_coverage"))
+    normal_time = number(row.get("normal_event_timeliness"))
+    standalone_time = number(row.get("standalone_event_timeliness"))
+    if delta < 0 and standalone_cov >= normal_cov and standalone_time >= normal_time:
+        return "NN has fewer L2 misses and no lower measured timely-event coverage/timeliness."
+    if delta < 0:
+        return "NN has fewer L2 misses; inspect overlap and resource counters before assigning cause."
+    if delta > 0 and standalone_cov < normal_cov:
+        return "NN has more L2 misses and lower measured timely-event coverage."
+    if delta > 0 and standalone_time < normal_time:
+        return "NN has more L2 misses and lower measured event timeliness."
+    if delta > 0:
+        return "NN has more L2 misses despite its selected-precision value; inspect target overlap, dedup, and resource pressure."
+    return "Equal L2 miss count in this measured window; compare event overlap and resource counters."
 
 
 def main():
@@ -104,12 +132,8 @@ def main():
         label, path = parse_label_path(item)
         for row in read_csv(path):
             copied = dict(row)
-            # Plan-mode replay summaries already carry a unique candidate tag.
-            # Preserve it so the event-attribution label and replay row can join.
             copied["standalone_variant"] = (
-                copied.get("standalone_variant")
-                or copied.get("candidate_tag")
-                or label
+                copied.get("standalone_variant") or copied.get("candidate_tag") or label
             )
             copied["summary_path"] = str(path)
             replay_rows.append(copied)
@@ -130,16 +154,17 @@ def main():
             "store_instruction_fraction": profile.get("store_instruction_fraction", ""),
             "memory_instruction_fraction": profile.get("memory_instruction_fraction", ""),
         })
-    write_csv(args.out_dir / "trace_profile_summary.csv", profile_rows, list(profile_rows[0].keys()))
+    write_csv(args.out_dir / "trace_profile_summary.csv", profile_rows)
 
-    outcome_lookup = {(row.get("trace"), row.get("family"), row.get("variant")): row
-                      for row in outcome_rows}
+    outcome_lookup = {
+        (row.get("trace"), row.get("family"), row.get("variant")): row
+        for row in outcome_rows
+    }
+
     normal_evidence = []
     for row in baseline_rows:
-        trace = row.get("trace", "")
-        prefetcher = row.get("prefetcher", "")
         joined = dict(row)
-        outcome = outcome_lookup.get((trace, "normal", prefetcher), {})
+        outcome = outcome_lookup.get((row.get("trace"), "normal", row.get("prefetcher")), {})
         joined.update({
             "unique_event_coverage": outcome.get("unique_event_coverage", ""),
             "event_timeliness_over_covered": outcome.get("timeliness_over_covered", ""),
@@ -149,15 +174,14 @@ def main():
         })
         joined["evidence_tags"] = tags_for_run(joined)
         normal_evidence.append(joined)
-    normal_fields = sorted({key for row in normal_evidence for key in row})
-    write_csv(args.out_dir / "normal_prefetcher_evidence.csv", normal_evidence, normal_fields)
+    write_csv(args.out_dir / "normal_prefetcher_evidence.csv", normal_evidence)
 
     standalone_evidence = []
     for row in replay_rows:
-        trace = row.get("trace", "")
-        label = row.get("standalone_variant", "")
         joined = dict(row)
-        outcome = outcome_lookup.get((trace, "standalone", label), {})
+        trace = row.get("trace", "")
+        variant = row.get("standalone_variant", "")
+        outcome = outcome_lookup.get((trace, "standalone", variant), {})
         joined.update({
             "unique_event_coverage": outcome.get("unique_event_coverage", ""),
             "event_timeliness_over_covered": outcome.get("timeliness_over_covered", ""),
@@ -167,19 +191,28 @@ def main():
         })
         joined["evidence_tags"] = tags_for_run(joined)
         standalone_evidence.append(joined)
-    standalone_fields = sorted({key for row in standalone_evidence for key in row})
-    write_csv(args.out_dir / "standalone_prefetcher_evidence.csv", standalone_evidence, standalone_fields)
+    write_csv(args.out_dir / "standalone_prefetcher_evidence.csv", standalone_evidence)
+
+    normal_index = {
+        (row.get("trace"), row.get("prefetcher")): row for row in normal_evidence
+    }
+    standalone_index = {
+        (row.get("trace"), row.get("standalone_variant")): row for row in standalone_evidence
+    }
 
     pair_evidence = []
+    cache_miss_rows = []
     for row in pair_rows:
         trace = row.get("trace", "")
-        normal = row.get("normal_prefetcher", "")
-        label = row.get("standalone_variant", "")
+        normal_name = row.get("normal_prefetcher", "")
+        standalone_name = row.get("standalone_variant", "")
+        normal_row = normal_index.get((trace, normal_name), {})
+        standalone_row = standalone_index.get((trace, standalone_name), {})
         enriched = dict(row)
-        normal_row = next((x for x in normal_evidence
-                           if x.get("trace") == trace and x.get("prefetcher") == normal), {})
-        standalone_row = next((x for x in standalone_evidence
-                               if x.get("trace") == trace and x.get("standalone_variant") == label), {})
+        normal_miss = number(normal_row.get("l2_load_miss"))
+        standalone_miss = number(standalone_row.get("l2_load_miss"))
+        normal_rate = number(normal_row.get("l2_load_miss_rate"))
+        standalone_rate = number(standalone_row.get("l2_load_miss_rate"))
         enriched.update({
             "normal_ipc": normal_row.get("ipc", ""),
             "standalone_ipc": standalone_row.get("ipc", ""),
@@ -188,83 +221,131 @@ def main():
             "standalone_event_coverage": standalone_row.get("unique_event_coverage", ""),
             "normal_event_timeliness": normal_row.get("event_timeliness_over_covered", ""),
             "standalone_event_timeliness": standalone_row.get("event_timeliness_over_covered", ""),
+            "normal_l2_load_miss": int(normal_miss),
+            "standalone_l2_load_miss": int(standalone_miss),
+            "l2_miss_delta_standalone_minus_normal": int(standalone_miss - normal_miss),
+            "normal_l2_load_miss_rate": normal_rate,
+            "standalone_l2_load_miss_rate": standalone_rate,
+            "l2_miss_rate_delta_standalone_minus_normal": standalone_rate - normal_rate,
+            "normal_selected_accuracy": normal_row.get("selected_accuracy", ""),
+            "standalone_selected_accuracy": standalone_row.get("selected_accuracy", ""),
+            "normal_pf_issued": normal_row.get("pf_issued", ""),
+            "standalone_pf_issued": standalone_row.get("pf_issued", ""),
+            "normal_pf_useless": normal_row.get("pf_useless", ""),
+            "standalone_pf_useless": standalone_row.get("pf_useless", ""),
+            "normal_pf_late": normal_row.get("pf_late", ""),
+            "standalone_pf_late": standalone_row.get("pf_late", ""),
         })
+        enriched["cache_miss_reading"] = miss_reading(enriched)
         pair_evidence.append(enriched)
-    pair_fields = sorted({key for row in pair_evidence for key in row})
-    write_csv(args.out_dir / "normal_vs_standalone_evidence.csv", pair_evidence, pair_fields)
+        cache_miss_rows.append({
+            "trace": trace,
+            "normal_prefetcher": normal_name,
+            "standalone_variant": standalone_name,
+            "normal_l2_load_miss": int(normal_miss),
+            "standalone_l2_load_miss": int(standalone_miss),
+            "l2_miss_delta_standalone_minus_normal": int(standalone_miss - normal_miss),
+            "normal_l2_load_miss_rate": normal_rate,
+            "standalone_l2_load_miss_rate": standalone_rate,
+            "l2_miss_rate_delta_standalone_minus_normal": standalone_rate - normal_rate,
+            "normal_selected_accuracy": normal_row.get("selected_accuracy", ""),
+            "standalone_selected_accuracy": standalone_row.get("selected_accuracy", ""),
+            "normal_event_coverage": normal_row.get("unique_event_coverage", ""),
+            "standalone_event_coverage": standalone_row.get("unique_event_coverage", ""),
+            "normal_event_timeliness": normal_row.get("event_timeliness_over_covered", ""),
+            "standalone_event_timeliness": standalone_row.get("event_timeliness_over_covered", ""),
+            "both_timely": row.get("both_timely", 0),
+            "normal_only_timely": row.get("normal_only_timely", 0),
+            "standalone_only_timely": row.get("standalone_only_timely", 0),
+            "both_late": row.get("both_late", 0),
+            "neither_timely": row.get("neither_timely", 0),
+            "cache_miss_reading": enriched["cache_miss_reading"],
+        })
+    write_csv(args.out_dir / "normal_vs_standalone_evidence.csv", pair_evidence)
+    write_csv(args.out_dir / "cache_miss_comparison.csv", cache_miss_rows)
 
-    report = []
-    report.append("# Trace and prefetch evidence report")
-    report.append("")
-    report.append("This report records measured associations from trace profiling, counter summaries, and L2C demand-event attribution. It does not claim a causal explanation beyond what these counters and event outcomes establish.")
-    report.append("")
-    report.append("## Inputs")
-    report.append("")
-    report.append("- Trace profiles: `%s`" % args.trace_profile_dir)
-    report.append("- Normal baseline summary: `%s`" % args.baseline_summary)
-    report.append("- Event attribution: `%s`" % args.attribution_dir)
+    report = [
+        "# Trace and prefetch evidence report",
+        "",
+        "This report records measured associations from trace profiling, counter summaries, and L2C demand-event attribution. It does not claim a causal explanation beyond these measured counters and outcomes.",
+        "",
+        "## Inputs",
+        "",
+        "- Trace profiles: `{}`".format(args.trace_profile_dir),
+        "- Normal baseline summary: `{}`".format(args.baseline_summary),
+        "- Event attribution: `{}`".format(args.attribution_dir),
+    ]
     for item in args.replay_summary:
-        report.append("- Standalone replay summary: `%s`" % item)
+        report.append("- Standalone replay summary: `{}`".format(item))
     report.append("")
 
     for trace in args.traces.split():
         profile = next((row for row in profile_rows if row["trace"] == trace), {})
         best = best_normal.get(trace, {})
-        report.append("## %s" % trace)
-        report.append("")
-        report.append("Trace window: %s instructions profiled; unique PCs=%s; branch fraction=%s; load-instruction fraction=%s; memory-instruction fraction=%s." % (
-            profile.get("records_read", ""), profile.get("unique_pcs", ""),
-            profile.get("branch_fraction", ""), profile.get("load_instruction_fraction", ""),
-            profile.get("memory_instruction_fraction", ""),
-        ))
-        report.append("")
+        report.extend([
+            "## {}".format(trace),
+            "",
+            "Trace window: {} instructions profiled; unique PCs={}; branch fraction={}; load-instruction fraction={}; memory-instruction fraction={} .".format(
+                profile.get("records_read", ""), profile.get("unique_pcs", ""),
+                profile.get("branch_fraction", ""), profile.get("load_instruction_fraction", ""),
+                profile.get("memory_instruction_fraction", ""),
+            ),
+            "",
+        ])
         if best:
-            report.append("Best normal IPC: `%s` at `%s`; issued=%s, useful=%s, useless=%s, late=%s, selected accuracy=%s, timeliness=%s." % (
-                best.get("prefetcher"), best.get("ipc"), best.get("pf_issued"),
-                best.get("pf_useful"), best.get("pf_useless"), best.get("pf_late"),
-                best.get("selected_accuracy"), best.get("timeliness"),
-            ))
-            report.append("")
-
-        report.append("| standalone | IPC | delta vs best normal | selected accuracy | counter timeliness | unique demand-event coverage | event timeliness | issued | useful | useless | late |")
-        report.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
-        trace_lstm_rows = [row for row in standalone_evidence if row.get("trace") == trace]
-        for row in trace_lstm_rows:
-            report.append("| %s | %s | %.6f | %s | %s | %s | %s | %s | %s | %s | %s |" % (
+            report.extend([
+                "Best normal IPC: `{}` at `{}`; L2 misses={}; selected accuracy={}; timeliness={}.".format(
+                    best.get("prefetcher"), best.get("ipc"), best.get("l2_load_miss"),
+                    best.get("selected_accuracy"), best.get("timeliness"),
+                ),
+                "",
+            ])
+        report.extend([
+            "| standalone | IPC | delta vs best normal | selected accuracy | counter timeliness | unique demand-event coverage | event timeliness | L2 misses |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ])
+        for row in standalone_evidence:
+            if row.get("trace") != trace:
+                continue
+            report.append("| {} | {} | {:.6f} | {} | {} | {} | {} | {} |".format(
                 row.get("standalone_variant", ""), row.get("ipc", ""),
                 number(row.get("ipc")) - number(best.get("ipc")),
                 row.get("selected_accuracy", ""), row.get("timeliness", ""),
                 row.get("unique_event_coverage", ""), row.get("event_timeliness_over_covered", ""),
-                row.get("pf_issued", ""), row.get("pf_useful", ""),
-                row.get("pf_useless", ""), row.get("pf_late", ""),
+                row.get("l2_load_miss", ""),
             ))
         report.append("")
 
-        best_pairs = [row for row in pair_evidence
-                      if row.get("trace") == trace and row.get("normal_prefetcher") == best.get("prefetcher")]
+        best_pairs = [
+            row for row in pair_evidence
+            if row.get("trace") == trace and row.get("normal_prefetcher") == best.get("prefetcher")
+        ]
         if best_pairs:
-            report.append("Demand-event overlap against the best normal prefetcher:")
-            report.append("")
-            report.append("| standalone | both timely | normal-only timely | standalone-only timely | both late | neither timely | selected but late | no earlier selected export |")
-            report.append("|---|---:|---:|---:|---:|---:|---:|---:|")
+            report.extend([
+                "Demand-event and cache-miss comparison against the best normal prefetcher:",
+                "",
+                "| standalone | normal L2 misses | standalone L2 misses | NN - normal misses | both timely | normal-only timely | standalone-only timely | reading |",
+                "|---|---:|---:|---:|---:|---:|---:|---|",
+            ])
             for row in best_pairs:
-                report.append("| %s | %s | %s | %s | %s | %s | %s | %s |" % (
-                    row.get("standalone_variant", ""), row.get("both_timely", 0),
-                    row.get("normal_only_timely", 0), row.get("standalone_only_timely", 0),
-                    row.get("both_late", 0), row.get("neither_timely", 0),
-                    row.get("reason_standalone_selected_but_late", 0),
-                    row.get("reason_no_earlier_selected_standalone_export", 0),
+                report.append("| {} | {} | {} | {} | {} | {} | {} | {} |".format(
+                    row.get("standalone_variant", ""), row.get("normal_l2_load_miss", ""),
+                    row.get("standalone_l2_load_miss", ""),
+                    row.get("l2_miss_delta_standalone_minus_normal", ""),
+                    row.get("both_timely", 0), row.get("normal_only_timely", 0),
+                    row.get("standalone_only_timely", 0), row.get("cache_miss_reading", ""),
                 ))
             report.append("")
 
-        trace_residual = [row for row in residual_rows if row.get("trace") == trace]
-        trace_residual.sort(key=lambda row: -number(row.get("residual_no_pref_miss_events")))
-        if trace_residual:
-            report.append("Top residual contexts are preserved in `top_residual_contexts.csv`; they are evidence for later candidate-representation analysis, not NN labels.")
-            report.append("")
+        residual = [row for row in residual_rows if row.get("trace") == trace]
+        if residual:
+            report.extend([
+                "Top residual contexts are preserved in `top_residual_contexts.csv`; they are evidence for later candidate-representation analysis, not NN labels.",
+                "",
+            ])
 
     (args.out_dir / "trace_prefetch_evidence_report.md").write_text("\n".join(report) + "\n")
-    print("[write] %s" % args.out_dir)
+    print("[write] {}".format(args.out_dir))
 
 
 if __name__ == "__main__":
