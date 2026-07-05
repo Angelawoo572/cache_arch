@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Re-run normal and standalone policies with per-event L2C logging.
-# Analysis-only: normal outcomes never become standalone-NN labels or inputs.
+# Unified normal-baseline, standalone-replay, and event-evidence driver.
 #
-# Legacy NN_VARIANTS mode consumes one artifact directory per label.  Plan mode
-# (REPLAY_PLAN=...) consumes every current-run v3.9 list directly from its plan.
+# MODE=normal COLLECT_EVENT_LOGS=0 replaces the old counter-only baseline
+# sweep.  MODE=normal|lstm|both with COLLECT_EVENT_LOGS=1 collects the causal
+# L2C event evidence. Normal outcomes are comparison evidence only.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 
 TRACES="${TRACES:-602.gcc_s-734B 619.lbm_s-4268B 605.mcf_s-994B 620.omnetpp_s-874B 623.xalancbmk_s-700B}"
 NORMAL_PREFETCHERS="${NORMAL_PREFETCHERS:-no_pref stride streamer ampm spp ipcp sms sandbox power7}"
-# Semicolon-separated LABEL=ARTIFACT_DIRECTORY entries; legacy mode only.
 NN_VARIANTS="${NN_VARIANTS:-v3_1=formal_NN_training/artifacts/standalone_multihorizon_lstm_v3_1;v3_3=formal_NN_training/artifacts/standalone_multihorizon_lstm_v3_3_context_coverage}"
-MODE="${MODE:-both}" # normal, lstm, or both
+MODE="${MODE:-both}"
+COLLECT_EVENT_LOGS="${COLLECT_EVENT_LOGS:-1}"
 WARMUP="${WARMUP:-25000000}"
 SIM="${SIM:-25000000}"
 MAX_JOBS="${MAX_JOBS:-2}"
@@ -22,16 +22,15 @@ RESET_PATCH="${RESET_PATCH:-0}"
 CHUNK_LEN="${CHUNK_LEN:-1024}"
 DEDUP_CAPACITY="${DEDUP_CAPACITY:-256}"
 EXPORT_SUFFIX="${EXPORT_SUFFIX:-pure_balanced_lru${DEDUP_CAPACITY}}"
-
-# Optional v3.9 replay-plan mode.
 REPLAY_PLAN="${REPLAY_PLAN:-}"
 PLAN_ROOT="${PLAN_ROOT:-}"
 
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_DIR="${TRACE_DIR:-$ROOT/traces}"
 ORACLE_DIR="${ORACLE_DIR:-$ROOT/formal_NN_training/results/standalone_nn_data/oracle}"
-RUN_TAG="${RUN_TAG:-event_audit_$(date +%Y%m%d_%H%M%S)}"
-OUT_ROOT="${OUT_ROOT:-$ROOT/formal_NN_training/results/prefetch_explainability/$RUN_TAG}"
+RUN_TAG="${RUN_TAG:-prefetch_experiment_$(date +%Y%m%d_%H%M%S)}"
+OUT_ROOT="${OUT_ROOT:-$ROOT/formal_NN_training/results/prefetch_experiments/$RUN_TAG}"
+NORMAL_SUMMARY_PATH="${NORMAL_SUMMARY_PATH:-$OUT_ROOT/normal/summary.csv}"
 PATCH="$ROOT/formal_NN_training/scripts/02_patch_pythia_demand_logger.sh"
 PREP="$ROOT/formal_NN_training/scripts/07_prepare_keyed_replay_input.py"
 REPLAYER_BUILD="$ROOT/formal_NN_training/scripts/06_install_keyed_listreplayer.sh"
@@ -40,11 +39,14 @@ NORMAL_BIN="${NORMAL_BIN:-$CHAMP_DIR/bin/perceptron-no-multi-no-ship-1core}"
 REPLAY_BIN="${REPLAY_BIN:-$CHAMP_DIR/bin/champsim.standalone_nn_replayer}"
 PLAN_ENTRIES="$OUT_ROOT/replay_plan_entries.tsv"
 
-mkdir -p "$OUT_ROOT/normal/events" "$OUT_ROOT/normal/logs" "$OUT_ROOT/normal/configs" \
-         "$OUT_ROOT/lstm" "$OUT_ROOT/replay_inputs"
-[[ "$MODE" == normal || "$MODE" == lstm || "$MODE" == both ]] || {
-  echo "[error] MODE must be normal, lstm, or both" >&2; exit 2; }
+mkdir -p "$OUT_ROOT/normal/events" "$OUT_ROOT/normal/logs" "$OUT_ROOT/normal/configs" "$OUT_ROOT/lstm" "$OUT_ROOT/replay_inputs"
+[[ "$MODE" == normal || "$MODE" == lstm || "$MODE" == both ]] || { echo "[error] MODE must be normal, lstm, or both" >&2; exit 2; }
+[[ "$COLLECT_EVENT_LOGS" == 0 || "$COLLECT_EVENT_LOGS" == 1 ]] || { echo "[error] COLLECT_EVENT_LOGS must be 0 or 1" >&2; exit 2; }
 [[ "$MAX_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "[error] MAX_JOBS must be a positive integer" >&2; exit 2; }
+if [[ "$COLLECT_EVENT_LOGS" == 0 && "$MODE" != normal ]]; then
+  echo "[error] COLLECT_EVENT_LOGS=0 is supported only with MODE=normal" >&2
+  exit 2
+fi
 
 pref_type() {
   case "$1" in
@@ -117,7 +119,9 @@ PY
 
 build_all() {
   [[ "$BUILD" == 1 ]] || return 0
-  RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH"
+  if [[ "$COLLECT_EVENT_LOGS" == 1 ]]; then
+    RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH"
+  fi
   if [[ "$MODE" == normal || "$MODE" == both ]]; then
     ( cd "$CHAMP_DIR" && bash ./build_champsim.sh no multi no 1 )
   fi
@@ -129,19 +133,26 @@ build_all() {
 run_normal() {
   local trace="$1" pf="$2"
   local raw="$OUT_ROOT/normal/events/$trace.$pf.events.csv"
-  local out="$raw.gz"
+  local event_out="$raw.gz"
   local log="$OUT_ROOT/normal/logs/$trace.$pf.log"
   local cfg="$OUT_ROOT/normal/configs/$pf.ini"
   local trace_file="$TRACE_DIR/$trace.champsimtrace.xz"
   [[ -s "$trace_file" ]] || { echo "[error] missing $trace_file" >&2; return 1; }
-  [[ "$FORCE" == 1 || ! -s "$out" || ! -s "$log" ]] || { echo "[skip normal] $trace $pf"; return 0; }
+  if [[ "$COLLECT_EVENT_LOGS" == 1 ]]; then
+    [[ "$FORCE" == 1 || ! -s "$event_out" || ! -s "$log" ]] || { echo "[skip normal] $trace $pf"; return 0; }
+  else
+    [[ "$FORCE" == 1 || ! -s "$log" ]] || { echo "[skip normal] $trace $pf"; return 0; }
+  fi
   write_cfg "$(pref_type "$pf")" "$cfg"
   echo "[normal] $trace $pf"
-  DEMAND_EVENT_LOG="$raw" "$NORMAL_BIN" \
-    --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" \
-    --config="$cfg" -traces "$trace_file" > "$log" 2>&1
-  [[ -s "$raw" ]] && grep -Fq Core_0_IPC "$log" || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
-  gzip -f "$raw"
+  if [[ "$COLLECT_EVENT_LOGS" == 1 ]]; then
+    DEMAND_EVENT_LOG="$raw" "$NORMAL_BIN" --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" --config="$cfg" -traces "$trace_file" > "$log" 2>&1
+    [[ -s "$raw" ]] && grep -Fq Core_0_IPC "$log" || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
+    gzip -f "$raw"
+  else
+    "$NORMAL_BIN" --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" --config="$cfg" -traces "$trace_file" > "$log" 2>&1
+    grep -Fq Core_0_IPC "$log" || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
+  fi
 }
 
 run_lstm_common() {
@@ -151,48 +162,36 @@ run_lstm_common() {
   local oracle="$ORACLE_DIR/$trace.oracle.csv.gz"
   local keyed="$OUT_ROOT/replay_inputs/$label/$trace.pc_line_occ.csv"
   local raw="$variant_root/events/$trace.events.csv"
-  local out="$raw.gz"
+  local event_out="$raw.gz"
   local log="$variant_root/logs/$trace.standalone_lstm.log"
   mkdir -p "$variant_root/events" "$variant_root/logs" "$(dirname "$keyed")"
-  [[ -s "$trace_file" && -s "$rich" && -s "$oracle" ]] || {
-    echo "[error] missing trace, rich export, or oracle for $label/$trace" >&2; return 1; }
-  [[ "$FORCE" == 1 || ! -s "$out" || ! -s "$log" || ! -s "$keyed" ]] || {
-    echo "[skip lstm] $label $trace"; return 0; }
+  [[ -s "$trace_file" && -s "$rich" && -s "$oracle" ]] || { echo "[error] missing trace, rich export, or oracle for $label/$trace" >&2; return 1; }
+  [[ "$FORCE" == 1 || ! -s "$event_out" || ! -s "$log" || ! -s "$keyed" ]] || { echo "[skip lstm] $label $trace"; return 0; }
   python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" > "$variant_root/logs/$trace.prepare.log" 2>&1
   echo "[lstm] $label $trace"
-  PFETCH_LIST_PATH="$keyed" DEMAND_EVENT_LOG="$raw" "$REPLAY_BIN" \
-    --l2c_prefetcher_types=list_replayer \
-    --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" \
-    -traces "$trace_file" > "$log" 2>&1
-  [[ -s "$raw" ]] && grep -Fq 'key=pc_line_occ' "$log" || {
-    echo "[error] replay failed: $label $trace" >&2; return 1; }
+  PFETCH_LIST_PATH="$keyed" DEMAND_EVENT_LOG="$raw" "$REPLAY_BIN" --l2c_prefetcher_types=list_replayer --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" -traces "$trace_file" > "$log" 2>&1
+  [[ -s "$raw" ]] && grep -Fq 'key=pc_line_occ' "$log" || { echo "[error] replay failed: $label $trace" >&2; return 1; }
   gzip -f "$raw"
 }
 
 run_lstm_legacy() {
   local trace="$1" label="$2" art_dir="$3"
-  local rich="$art_dir/prefetch_list_${trace}_cl${CHUNK_LEN}_${EXPORT_SUFFIX}.csv"
-  run_lstm_common "$trace" "$label" "$rich"
+  run_lstm_common "$trace" "$label" "$art_dir/prefetch_list_${trace}_cl${CHUNK_LEN}_${EXPORT_SUFFIX}.csv"
 }
 
 run_lstm_plan() {
-  local tag="$1" trace="$2" rich="$3"
-  run_lstm_common "$trace" "$tag" "$rich"
+  run_lstm_common "$1" "$2" "$3"
 }
 
 if [[ -n "$REPLAY_PLAN" ]]; then
   [[ -z "$PLAN_ROOT" ]] && PLAN_ROOT="$(cd "$(dirname "$REPLAY_PLAN")" && pwd)"
   plan_entries "$REPLAY_PLAN" "$PLAN_ROOT" "$PLAN_ENTRIES"
-  cp -f "$REPLAY_PLAN" "$OUT_ROOT/v3_9_replay_plan.csv"
+  cp -f "$REPLAY_PLAN" "$OUT_ROOT/replay_plan.csv"
 fi
 
 build_all
-if [[ "$MODE" == normal || "$MODE" == both ]]; then
-  [[ -x "$NORMAL_BIN" ]] || { echo "[error] expected normal binary missing: $NORMAL_BIN" >&2; exit 2; }
-fi
-if [[ "$MODE" == lstm || "$MODE" == both ]]; then
-  [[ -x "$REPLAY_BIN" ]] || { echo "[error] expected replayer binary missing: $REPLAY_BIN" >&2; exit 2; }
-fi
+if [[ "$MODE" == normal || "$MODE" == both ]]; then [[ -x "$NORMAL_BIN" ]] || { echo "[error] normal binary missing: $NORMAL_BIN" >&2; exit 2; }; fi
+if [[ "$MODE" == lstm || "$MODE" == both ]]; then [[ -x "$REPLAY_BIN" ]] || { echo "[error] replayer binary missing: $REPLAY_BIN" >&2; exit 2; }; fi
 [[ -f "$NORMAL_PARSER" ]] || { echo "[error] missing normal parser: $NORMAL_PARSER" >&2; exit 2; }
 
 running=0
@@ -200,57 +199,35 @@ status=0
 launch() {
   "$@" &
   running=$((running + 1))
-  if (( running >= MAX_JOBS )); then
-    wait -n || status=1
-    running=$((running - 1))
-  fi
+  if (( running >= MAX_JOBS )); then wait -n || status=1; running=$((running - 1)); fi
 }
-
 if [[ "$MODE" == normal || "$MODE" == both ]]; then
-  for trace in $TRACES; do
-    for pf in $NORMAL_PREFETCHERS; do
-      launch run_normal "$trace" "$pf"
-    done
-  done
+  for trace in $TRACES; do for pf in $NORMAL_PREFETCHERS; do launch run_normal "$trace" "$pf"; done; done
 fi
-
 if [[ "$MODE" == lstm || "$MODE" == both ]]; then
   if [[ -n "$REPLAY_PLAN" ]]; then
-    while IFS=$'\t' read -r tag trace rich; do
-      launch run_lstm_plan "$tag" "$trace" "$rich"
-    done < "$PLAN_ENTRIES"
+    while IFS=$'\t' read -r tag trace rich; do launch run_lstm_plan "$trace" "$tag" "$rich"; done < "$PLAN_ENTRIES"
   else
     IFS=';' read -r -a variants <<< "$NN_VARIANTS"
     for spec in "${variants[@]}"; do
       [[ -n "$spec" ]] || continue
-      label="${spec%%=*}"
-      art_dir="${spec#*=}"
-      [[ "$label" != "$art_dir" ]] || {
-        echo "[error] NN_VARIANTS entry must be label=dir" >&2; exit 2; }
-      for trace in $TRACES; do
-        launch run_lstm_legacy "$trace" "$label" "$art_dir"
-      done
+      label="${spec%%=*}"; art_dir="${spec#*=}"
+      [[ "$label" != "$art_dir" ]] || { echo "[error] NN_VARIANTS entry must be label=dir" >&2; exit 2; }
+      for trace in $TRACES; do launch run_lstm_legacy "$trace" "$label" "$art_dir"; done
     done
   fi
 fi
-
-while (( running > 0 )); do
-  wait -n || status=1
-  running=$((running - 1))
-done
+while (( running > 0 )); do wait -n || status=1; running=$((running - 1)); done
 (( status == 0 )) || exit "$status"
 
 if [[ "$MODE" == normal || "$MODE" == both ]]; then
-  python3 "$NORMAL_PARSER" \
-    --log-root "$OUT_ROOT/normal/logs" \
-    --out "$OUT_ROOT/normal/summary.csv" \
-    --traces "$TRACES" \
-    --prefetchers "$NORMAL_PREFETCHERS" \
-    --nodup
+  mkdir -p "$(dirname "$NORMAL_SUMMARY_PATH")"
+  python3 "$NORMAL_PARSER" --log-root "$OUT_ROOT/normal/logs" --out "$NORMAL_SUMMARY_PATH" --traces "$TRACES" --prefetchers "$NORMAL_PREFETCHERS" --nodup
 fi
-
 cat > "$OUT_ROOT/RUN_INFO.txt" <<EOF
-RUN_KIND=prefetch_event_explainability
+RUN_KIND=prefetch_experiment
+MODE=$MODE
+COLLECT_EVENT_LOGS=$COLLECT_EVENT_LOGS
 TRACES=$TRACES
 NORMAL_PREFETCHERS=$NORMAL_PREFETCHERS
 NN_VARIANTS=$NN_VARIANTS
@@ -258,11 +235,9 @@ REPLAY_PLAN=$REPLAY_PLAN
 PLAN_ROOT=$PLAN_ROOT
 WARMUP=$WARMUP
 SIM=$SIM
-CHUNK_LEN=$CHUNK_LEN
-EXPORT_SUFFIX=$EXPORT_SUFFIX
 NORMAL_BIN=$NORMAL_BIN
 REPLAY_BIN=$REPLAY_BIN
-NORMAL_SUMMARY=$OUT_ROOT/normal/summary.csv
+NORMAL_SUMMARY=$NORMAL_SUMMARY_PATH
 MAX_JOBS=$MAX_JOBS
 FORCE=$FORCE
 EOF
