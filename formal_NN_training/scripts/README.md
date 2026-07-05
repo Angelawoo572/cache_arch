@@ -1,3 +1,3 @@
-# Script layout
+# `formal_NN_training/scripts`
 
-Role-based script reorganization is in progress.
+Role-based reorganization is being applied directly on `main`.
