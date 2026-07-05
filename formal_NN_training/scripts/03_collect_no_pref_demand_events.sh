@@ -21,6 +21,8 @@ PATCH="$ROOT/formal_NN_training/scripts/02_patch_pythia_demand_logger.sh"
 
 mkdir -p "$EVENT_DIR" "$LOG_DIR"
 [[ -d "$CHAMP_DIR" ]] || { echo "[error] missing $CHAMP_DIR" >&2; exit 2; }
+[[ -f "$PATCH" ]] || { echo "[error] missing demand logger patch: $PATCH" >&2; exit 2; }
+[[ "$MAX_JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "[error] MAX_JOBS must be a positive integer" >&2; exit 2; }
 
 build_if_needed() {
   if [[ "$BUILD" != "1" && -x "$BIN" ]]; then
@@ -36,6 +38,11 @@ build_if_needed() {
   [[ -x "$BIN" ]] || { echo "[error] expected binary missing: $BIN" >&2; exit 2; }
 }
 
+completed_run() {
+  local out="$1" log="$2"
+  [[ -s "$out" ]] && gzip -t "$out" >/dev/null 2>&1 && grep -q '^Core_0_IPC ' "$log"
+}
+
 run_one() {
   local trace="$1"
   local trace_file="$TRACE_DIR/${trace}.champsimtrace.xz"
@@ -43,10 +50,11 @@ run_one() {
   local out="$raw.gz"
   local log="$LOG_DIR/${trace}.no_pref.log"
   [[ -s "$trace_file" ]] || { echo "[error] missing trace: $trace_file" >&2; return 1; }
-  if [[ "$FORCE" != "1" && -s "$out" && -s "$log" ]]; then
+  if [[ "$FORCE" != "1" ]] && completed_run "$out" "$log"; then
     echo "[skip] $trace"
     return 0
   fi
+  rm -f "$raw" "$out"
   echo "[run] $trace"
   DEMAND_EVENT_LOG="$raw" "$BIN" \
     --l2c_prefetcher_types=none \
@@ -54,8 +62,9 @@ run_one() {
     --simulation_instructions="$SIM" \
     -traces "$trace_file" > "$log" 2>&1
   [[ -s "$raw" ]] || { echo "[error] logger wrote no event file: $raw" >&2; return 1; }
-  gzip -f "$raw"
   grep -q '^Core_0_IPC ' "$log" || { echo "[error] missing final IPC: $log" >&2; return 1; }
+  gzip -f "$raw"
+  gzip -t "$out" >/dev/null 2>&1 || { echo "[error] invalid gzip output: $out" >&2; return 1; }
 }
 
 build_if_needed
