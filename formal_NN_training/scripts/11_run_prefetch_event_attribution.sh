@@ -2,8 +2,8 @@
 # Unified normal-baseline, standalone-replay, and event-evidence driver.
 #
 # MODE=normal COLLECT_EVENT_LOGS=0 replaces the old counter-only baseline
-# sweep.  MODE=normal|lstm|both with COLLECT_EVENT_LOGS=1 collects the causal
-# L2C event evidence. Normal outcomes are comparison evidence only.
+# sweep. MODE=normal|lstm|both with COLLECT_EVENT_LOGS=1 collects causal L2C
+# event evidence. Normal outcomes are comparison evidence only.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
@@ -38,6 +38,7 @@ NORMAL_PARSER="$ROOT/formal_NN_training/scripts/01_parse_prefetch_behavior_audit
 NORMAL_BIN="${NORMAL_BIN:-$CHAMP_DIR/bin/perceptron-no-multi-no-ship-1core}"
 REPLAY_BIN="${REPLAY_BIN:-$CHAMP_DIR/bin/champsim.standalone_nn_replayer}"
 PLAN_ENTRIES="$OUT_ROOT/replay_plan_entries.tsv"
+JOBS="${JOBS:-8}"
 
 mkdir -p "$OUT_ROOT/normal/events" "$OUT_ROOT/normal/logs" "$OUT_ROOT/normal/configs" "$OUT_ROOT/lstm" "$OUT_ROOT/replay_inputs"
 [[ "$MODE" == normal || "$MODE" == lstm || "$MODE" == both ]] || { echo "[error] MODE must be normal, lstm, or both" >&2; exit 2; }
@@ -65,6 +66,22 @@ write_cfg() {
       echo "spp_dev2_pf_threshold = 40"
     fi
   } > "$cfg"
+}
+
+ensure_libbf() {
+  if [[ -f "$CHAMP_DIR/libbf/bf/all.hpp" && -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]]; then
+    return 0
+  fi
+  echo "[libbf] missing; building local dependency"
+  if [[ ! -d "$CHAMP_DIR/libbf/.git" ]]; then
+    rm -rf "$CHAMP_DIR/libbf"
+    git clone https://github.com/mavam/libbf.git "$CHAMP_DIR/libbf"
+  fi
+  mkdir -p "$CHAMP_DIR/libbf/build"
+  ( cd "$CHAMP_DIR/libbf/build" && cmake .. && make -j"$JOBS" )
+  [[ -f "$CHAMP_DIR/libbf/bf/all.hpp" && -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]] || {
+    echo "[error] libbf setup failed" >&2; exit 2;
+  }
 }
 
 plan_entries() {
@@ -123,6 +140,7 @@ build_all() {
     RESET_PATCH="$RESET_PATCH" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH"
   fi
   if [[ "$MODE" == normal || "$MODE" == both ]]; then
+    ensure_libbf
     ( cd "$CHAMP_DIR" && bash ./build_champsim.sh no multi no 1 )
   fi
   if [[ "$MODE" == lstm || "$MODE" == both ]]; then
