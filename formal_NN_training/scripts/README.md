@@ -1,56 +1,24 @@
 # `formal_NN_training/scripts`
 
-The repository has two separate workflows: a pure standalone NN workflow built only from the raw no-prefetch L2C demand stream, and an analysis workflow that uses normal-prefetcher outcomes only as evidence and comparison data. No active Python script uses pandas.
+Sacramento-side Python scripts in this directory are Python 3.6 compatible and use only the standard library.
 
-## Script order
+## Stable core pipeline
 
-```text
-01_parse_prefetch_behavior_audit.py       Parse normal-prefetcher counter logs.
-02_patch_pythia_demand_logger.sh          Enable L2C demand-event logging.
-03_collect_no_pref_demand_events.sh       Collect raw no-prefetch L2C demand events.
-04_run_normal_prefetcher_sweep.sh         Run a counter-only normal baseline sweep.
-05_build_standalone_oracle_dataset.py     Build raw standalone NN input data.
-06_install_keyed_listreplayer.sh          Build keyed PC-line-occurrence ListReplayer.
-07_prepare_keyed_replay_input.py          Convert frozen NN exports to replay inputs.
-08_run_standalone_lstm_replay.sh          Run keyed standalone replays.
-09_parse_standalone_lstm_replay.py        Parse replay outputs.
-10_profile_champsim_trace.py              Profile dynamic trace PC/branch/register/memory behavior.
-11_run_prefetch_event_attribution.sh      Collect normal and standalone L2C event evidence and a normal summary.
-12_analyze_prefetch_event_attribution.py  Compare timely, late, and residual demand outcomes.
-13_build_cache_capacity_variant.sh        Build one reversible L1D/L2C/LLC capacity-specific binary.
-14_prepare_capacity_training_point.sh     Build one valid capacity-specific oracle and normal baseline point.
-15_summarize_prefetch_evidence.py         Merge trace, baseline, attribution, and replay evidence.
-```
+`01` through `09`, then `11` through `15`, are the raw-oracle, keyed-replay, event-evidence, and capacity-control workflow. Keep these paths stable because current notebooks, reports, and server commands reference them.
 
-## Evidence first
+## Optional feature builders
 
-Before modifying the notebook, run 10 → 11 → 12 → 15. Script 11 writes `normal/summary.csv` from the same normal runs that produced the per-demand logs, so running script 04 as well is unnecessary for an evidence campaign. Use script 04 only when a quick counter-only baseline refresh is needed.
+`10_profile_champsim_trace.py`, `14_build_base_candidate_table.py`, `16_build_trace_dependency_features.py`, and `17_prepare_v3_9_605_dependency_sidecar.sh` are not duplicates. They create different raw-trace or base-aware artifacts and should not be deleted.
 
-The resulting CSV/Markdown evidence identifies trace composition, normal prefetcher traffic/accuracy/timeliness, residual PC-delta-offset contexts, and the normal-only versus standalone-only timely demand misses.
+## Replay helpers
 
-The standard ChampSim input trace has dynamic PCs, branch flags, register IDs, and memory addresses. It has no opcode bytes. Script 10 can attach assembly only when an original benchmark executable is supplied with `--binary` and its address space matches trace PCs.
+- `replay/verify_same_binary_no_pref.py` is the canonical same-binary IPC guard.
+- `v4/run_oracle_ceiling_replay.sh` is the canonical v4 ceiling replay entrypoint.
+- `19_build_oracle_ceiling_lists.py` builds ceiling rich lists.
+- `21_join_decision_ledger_attribution.py` joins audit rows to one matching full decision ledger.
+- `22_resource_summary.py` summarizes measured PQ/MSHR and request pressure.
+- `25_build_v4_1_notebook.py` is Colab-only.
 
-The standalone oracle remains:
+The duplicate `16_verify_same_binary_no_pref.py` was removed. Script `08_run_standalone_lstm_replay.sh` now uses the canonical verifier under `replay/`.
 
-```text
-formal_NN_training/results/standalone_nn_data/oracle/<trace>.oracle.csv.gz
-```
-
-It is derived only from no-prefetch L2C demand events. Normal-prefetcher results never become standalone NN labels or inputs.
-
-A frozen LSTM export records selected actions only. Therefore `no_earlier_selected_standalone_export` is not proof of candidate-bank absence. A future notebook must export a full per-candidate decision ledger with source, score, timing probabilities, eligibility, dedup result, and reject reason.
-
-## Capacity
-
-A baseline-capacity frozen L2C list must not be presented as a changed-capacity NN result. A valid capacity point is:
-
-```text
-13 build a changed-capacity normal binary with demand logger
-03 collect changed-capacity no-prefetch demand events
-05 build the matching oracle
-Colab train and export a new artifact from that exact oracle
-13 build the matching changed-capacity keyed replayer binary
-08 replay only that matching artifact
-```
-
-Script `14_prepare_capacity_training_point.sh` automates the first three steps and runs selected normal-prefetcher comparisons. It stops deliberately before replay, because a new Colab artifact is required.
+`19` and `20` remain separate because one is a pure list builder while the other owns simulator replay. `21` and `22` consume different evidence types, so merging them would make failures less diagnosable.
