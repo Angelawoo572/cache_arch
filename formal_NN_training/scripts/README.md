@@ -32,8 +32,7 @@ For causal event evidence use `MODE=both COLLECT_EVENT_LOGS=1` with the same dri
 ## Specialized builders retained deliberately
 
 ```text
-10_profile_champsim_trace.py               Dynamic trace profile; distinct output contract.
-14_build_base_candidate_table.py           Base-proposal table; not used by standalone v4, retained for base-aware research.
+10_profile_champsim_trace.py               Dynamic trace profile consumed by v4 analysis.
 16_build_trace_dependency_features.py      Generic dependency profile/edge vocabulary builder.
 17_prepare_v3_9_605_dependency_sidecar.sh  Reproducible 605 packaging/validation wrapper around script 16.
 19_build_oracle_ceiling_lists.py           Pure ceiling-list builder.
@@ -46,11 +45,12 @@ replay/verify_same_binary_no_pref.py       Same-binary no-pref IPC guard.
 
 These are not duplicates. In particular, 19 creates a rich list while 20 invokes the simulator; 21 consumes event attribution plus one full decision ledger, while 22 consumes event logs only. Combining either pair would couple unrelated input contracts and hide failure modes.
 
-Removed as duplicate or redundant:
+Removed as duplicate, superseded, or unused in the current standalone project:
 
 ```text
 04_run_normal_prefetcher_sweep.sh
 10_verify_same_binary_no_pref.py
+14_build_base_candidate_table.py
 16_verify_same_binary_no_pref.py
 v4/run_oracle_ceiling_replay.sh
 ```
