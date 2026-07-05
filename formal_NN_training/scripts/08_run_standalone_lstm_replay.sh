@@ -33,12 +33,13 @@ PLAN_ROOT="${PLAN_ROOT:-}"
 BASELINE_REFERENCE_JSON="${BASELINE_REFERENCE_JSON:-$ROOT/formal_NN_training/_cfg/replay_same_binary_no_pref_reference_v4_0.json}"
 BASELINE_TOLERANCE="${BASELINE_TOLERANCE:-}"
 
-BIN="${BIN:-$ROOT/external/ChampSim/bin/champsim.standalone_nn_replayer}"
 PREP="$ROOT/formal_NN_training/scripts/07_prepare_keyed_replay_input.py"
 PARSER="$ROOT/formal_NN_training/scripts/09_parse_standalone_lstm_replay.py"
-BASELINE_GUARD="$ROOT/formal_NN_training/scripts/10_verify_same_binary_no_pref.py"
+BASELINE_GUARD="$ROOT/formal_NN_training/scripts/replay/verify_same_binary_no_pref.py"
 ORACLE_DIR="${ORACLE_DIR:-formal_NN_training/results/standalone_nn_data/oracle}"
 BASELINE_SUMMARY="${BASELINE_SUMMARY:-formal_NN_training/results/prefetcher_baselines/summary.csv}"
+
+BIN="${BIN:-$ROOT/external/ChampSim/bin/champsim.standalone_nn_replayer}"
 
 mkdir -p "$LOG_DIR" "$REPLAY_DIR"
 [[ -x "$BIN" ]] || { echo "[error] run scripts/06_install_keyed_listreplayer.sh first" >&2; exit 2; }
@@ -158,101 +159,61 @@ import re
 import sys
 from pathlib import Path
 
-plan = Path(sys.argv[1]).resolve()
+plan = Path(sys.argv[1])
 root = Path(sys.argv[2]).resolve()
-out = Path(sys.argv[3]).resolve()
-required = {"tag", "trace", "source_rel"}
-safe = re.compile(r"^[A-Za-z0-9_.-]+$")
+out = Path(sys.argv[3])
+required = set(["tag", "trace", "source_rel"])
 rows = []
 seen = set()
 with plan.open(newline="") as handle:
     reader = csv.DictReader(handle)
-    missing = required - set(reader.fieldnames or [])
+    missing = required.difference(set(reader.fieldnames or []))
     if missing:
         raise SystemExit("[error] replay plan missing columns: {}".format(sorted(missing)))
-    for line_no, row in enumerate(reader, start=2):
-        tag = (row.get("tag") or "").strip()
-        trace = (row.get("trace") or "").strip()
-        source_rel = (row.get("source_rel") or "").strip()
+    for line_no, raw in enumerate(reader, start=2):
+        tag = (raw.get("tag") or "").strip()
+        trace = (raw.get("trace") or "").strip()
+        source_rel = (raw.get("source_rel") or "").strip()
         if not tag or not trace or not source_rel:
-            raise SystemExit("[error] blank tag/trace/source_rel at plan row {}".format(line_no))
-        if not safe.match(tag) or not safe.match(trace):
-            raise SystemExit("[error] unsafe tag or trace at plan row {}".format(line_no))
+            raise SystemExit("[error] replay plan blank tag/trace/source_rel at row {}".format(line_no))
+        if not re.match(r"^[A-Za-z0-9_.-]+$", tag):
+            raise SystemExit("[error] unsafe plan tag at row {}: {}".format(line_no, tag))
         if tag in seen:
-            raise SystemExit("[error] duplicate replay tag: {}".format(tag))
+            raise SystemExit("[error] duplicate plan tag: {}".format(tag))
         seen.add(tag)
-        rich = Path(source_rel)
-        rich = rich if rich.is_absolute() else root / rich
-        rich = rich.resolve()
-        if not rich.is_file() or rich.stat().st_size <= 0:
-            raise SystemExit("[error] missing/nonempty rich list for {}: {}".format(tag, rich))
-        rows.append((tag, trace, str(rich)))
+        source = Path(source_rel)
+        source = source if source.is_absolute() else root / source
+        source = source.resolve()
+        if not source.is_file() or source.stat().st_size == 0:
+            raise SystemExit("[error] missing/nonempty plan list for {}: {}".format(tag, source))
+        rows.append((tag, trace, str(source)))
 if not rows:
-    raise SystemExit("[error] replay plan has no candidates")
+    raise SystemExit("[error] replay plan has no rows")
 out.parent.mkdir(parents=True, exist_ok=True)
-with out.open("w", newline="") as handle:
-    for tag, trace, rich in rows:
-        handle.write("{}\t{}\t{}\n".format(tag, trace, rich))
-print("[plan preflight PASS] {} candidates".format(len(rows)))
-for tag, trace, _ in rows:
-    print("  {}  {}".format(trace, tag))
+with out.open("w") as handle:
+    for tag, trace, source in rows:
+        handle.write("{}\t{}\t{}\n".format(tag, trace, source))
 PY
 
-  printf 'RUN_KIND=standalone_keyed_replay_plan\nREPLAY_PLAN=%s\nPLAN_ROOT=%s\n' "$REPLAY_PLAN" "$PLAN_ROOT" > "$OUT_DIR/RUN_INFO.txt"
-  {
-    printf 'WARMUP=%s\nSIM=%s\nMAX_JOBS=%s\nBIN=%s\nORACLE_DIR=%s\nBASELINE_SUMMARY=%s\nRUN_SAME_BINARY_NO_PREF=%s\nBASELINE_REFERENCE_JSON=%s\nBASELINE_TOLERANCE=%s\n' \
-      "$WARMUP" "$SIM" "$MAX_JOBS" "$BIN" "$ORACLE_DIR" "$BASELINE_SUMMARY" "$RUN_SAME_BINARY_NO_PREF" "$BASELINE_REFERENCE_JSON" "$BASELINE_TOLERANCE"
-  } >> "$OUT_DIR/RUN_INFO.txt"
-
-  cut -f2 "$RESOLVED_PLAN" | sort -u | awk '{print $1 "\t"}' > "$OUT_DIR/unique_traces.tsv"
-  run_parallel_file run_same_binary_no_pref "$OUT_DIR/unique_traces.tsv" || exit $?
-  verify_same_binary_no_pref "$OUT_DIR/unique_traces.tsv"
-  run_parallel_file run_plan_candidate "$RESOLVED_PLAN" || exit $?
-
-  PLAN_STEM="$(basename "$REPLAY_PLAN" .csv)"
-  WINNER_PREFIX="${PLAN_STEM%_replay_plan}"
-  [[ "$WINNER_PREFIX" != "$PLAN_STEM" ]] || WINNER_PREFIX="$PLAN_STEM"
-  python3 "$PARSER" \
-    --log-root "$LOG_DIR" \
-    --replay-input-root "$REPLAY_DIR" \
-    --out "$OUT_DIR/summary.csv" \
-    --baseline-summary "$BASELINE_SUMMARY" \
-    --same-binary-log-root "$LOG_DIR" \
-    --replay-plan "$REPLAY_PLAN" \
-    --plan-root "$PLAN_ROOT" \
-    --winner-out "$OUT_DIR/${WINNER_PREFIX}_nn_winners.csv"
-  echo "[done] $OUT_DIR/summary.csv"
-  exit 0
+  SAME_BIN_INPUT="$OUT_DIR/same_binary_no_pref_traces.tsv"
+  cut -f2 "$RESOLVED_PLAN" | sort -u | awk 'NF {print $0 "\t"}' > "$SAME_BIN_INPUT"
+  run_parallel_file run_same_binary_no_pref "$SAME_BIN_INPUT"
+  verify_same_binary_no_pref "$SAME_BIN_INPUT"
+  run_parallel_file run_plan_candidate "$RESOLVED_PLAN"
+  python3 "$PARSER" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR" \
+    --baseline-summary "$BASELINE_SUMMARY" --plan "$RESOLVED_PLAN" --tag-prefix "${RUN_TAG}_"
+else
+  LEGACY_PLAN="$OUT_DIR/legacy_replay_plan.tsv"
+  : > "$LEGACY_PLAN"
+  for trace in $TRACES; do
+    rich="$ART_DIR/prefetch_list_${trace}_cl${CHUNK_LEN}_${EXPORT_SUFFIX}.csv"
+    printf '%s\t%s\t%s\n' "legacy_${trace}" "$trace" "$rich" >> "$LEGACY_PLAN"
+  done
+  run_parallel_file run_same_binary_no_pref "$LEGACY_PLAN"
+  verify_same_binary_no_pref "$LEGACY_PLAN"
+  run_parallel_file run_plan_candidate "$LEGACY_PLAN"
+  python3 "$PARSER" --log-dir "$LOG_DIR" --out-dir "$OUT_DIR" \
+    --baseline-summary "$BASELINE_SUMMARY" --plan "$LEGACY_PLAN" --tag-prefix "${RUN_TAG}_"
 fi
 
-# Legacy one-list-per-trace mode retained for previous workflows.
-cat > "$OUT_DIR/RUN_INFO.txt" <<EOF
-RUN_KIND=standalone_keyed_replay_legacy
-ART_DIR=$ART_DIR
-TRACES=$TRACES
-WARMUP=$WARMUP
-SIM=$SIM
-CHUNK_LEN=$CHUNK_LEN
-DEDUP_CAPACITY=$DEDUP_CAPACITY
-EXPORT_SUFFIX=$EXPORT_SUFFIX
-BIN=$BIN
-ORACLE_DIR=$ORACLE_DIR
-BASELINE_SUMMARY=$BASELINE_SUMMARY
-RUN_SAME_BINARY_NO_PREF=$RUN_SAME_BINARY_NO_PREF
-BASELINE_REFERENCE_JSON=$BASELINE_REFERENCE_JSON
-BASELINE_TOLERANCE=$BASELINE_TOLERANCE
-EOF
-
-legacy_plan="$OUT_DIR/legacy_plan.tsv"
-: > "$legacy_plan"
-for trace in $TRACES; do
-  rich="$ART_DIR/prefetch_list_${trace}_cl${CHUNK_LEN}_${EXPORT_SUFFIX}.csv"
-  printf '%s\t%s\t%s\n' "$trace" "$trace" "$rich" >> "$legacy_plan"
-done
-cut -f2 "$legacy_plan" | sort -u | awk '{print $1 "\t"}' > "$OUT_DIR/unique_traces.tsv"
-run_parallel_file run_same_binary_no_pref "$OUT_DIR/unique_traces.tsv" || exit $?
-verify_same_binary_no_pref "$OUT_DIR/unique_traces.tsv"
-run_parallel_file run_plan_candidate "$legacy_plan" || exit $?
-
-python3 "$PARSER" --log-root "$LOG_DIR" --replay-input-root "$REPLAY_DIR" --out "$OUT_DIR/summary.csv" --traces "$TRACES" --baseline-summary "$BASELINE_SUMMARY" --same-binary-log-root "$LOG_DIR"
-echo "[done] $OUT_DIR/summary.csv"
+echo "[done] $OUT_DIR"
