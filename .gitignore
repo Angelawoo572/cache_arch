@@ -131,7 +131,7 @@ formal_NN_training/data/upload/*
 formal_NN_training/results/*
 !formal_NN_training/results/.gitkeep
 
-# Curated paper/report tables.
+# Curated paper/report tables only.
 !formal_NN_training/results/final_tables/
 formal_NN_training/results/final_tables/*
 !formal_NN_training/results/final_tables/*.csv
@@ -151,11 +151,13 @@ formal_NN_training/results/standalone_nn_data/oracle/*
 !formal_NN_training/results/standalone_nn_data/oracle/*.oracle.csv.gz
 !formal_NN_training/results/standalone_nn_data/oracle/*.oracle.csv.gz.meta.json
 
-# Keyed standalone replay: summary only, never logs/replay inputs/prefetch lists.
-!formal_NN_training/results/standalone_lstm_replay/
-formal_NN_training/results/standalone_lstm_replay/*
-!formal_NN_training/results/standalone_lstm_replay/*/
-!formal_NN_training/results/standalone_lstm_replay/*/summary.csv
+# Every keyed standalone replay run is local. Promote only selected, reviewed
+# summaries to results/final_tables/ or a checked-in report.
+formal_NN_training/results/standalone_lstm_replay/
+
+# Generated evidence packets are local. Keep the human-reviewed conclusions in
+# formal_NN_training/reports/*.md, not timestamped parser output directories.
+formal_NN_training/reports/evidence/
 
 # Retain small legacy replay summaries for provenance.
 !formal_NN_training/results/replay_compare/
@@ -178,7 +180,3 @@ formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
 accuracy_compare_all_traces.csv
-formal_NN_training/results/standalone_lstm_replay/raw_v2_profiled_keyed_diag_602_619_20260623_150430/replay_inputs/
-formal_NN_training/results/standalone_lstm_replay/v3_1_hybrid_balanced_all5_20260623_194953/
-formal_NN_training/results/standalone_lstm_replay/v3_3_context_balanced_all5_20260623_194504/
-formal_NN_training/results/standalone_lstm_replay/raw_v2_profiled_keyed_diag_602_619_20260623_150430/
