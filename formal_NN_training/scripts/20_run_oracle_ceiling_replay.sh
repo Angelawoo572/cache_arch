@@ -21,9 +21,10 @@ BASELINE_SUMMARY="${BASELINE_SUMMARY:-$ROOT/formal_NN_training/results/prefetche
 BASELINE_REFERENCE_JSON="${BASELINE_REFERENCE_JSON:-$ROOT/formal_NN_training/_cfg/replay_same_binary_no_pref_reference_v4_0.json}"
 
 BUILDER="$ROOT/formal_NN_training/scripts/19_build_oracle_ceiling_lists.py"
+COVERAGE="$ROOT/formal_NN_training/scripts/replay/verify_full_ledger_coverage.py"
 REPLAY="$ROOT/formal_NN_training/scripts/08_run_standalone_lstm_replay.sh"
 [[ "$CEILING_MODE" == "omniscient" || "$CEILING_MODE" == "bank" ]] || { echo "invalid CEILING_MODE" >&2; exit 2; }
-[[ -f "$BUILDER" && -f "$REPLAY" ]] || { echo "missing ceiling builder or replay driver" >&2; exit 2; }
+[[ -f "$BUILDER" && -f "$COVERAGE" && -f "$REPLAY" ]] || { echo "missing ceiling helper or replay driver" >&2; exit 2; }
 [[ "$CEILING_MODE" != "bank" || -n "$LEDGER_DIR" ]] || { echo "LEDGER_DIR required for bank mode" >&2; exit 2; }
 mkdir -p "$OUT_ROOT/lists" "$OUT_ROOT/meta"
 PLAN="$OUT_ROOT/${CEILING_MODE}_ceiling_replay_plan.csv"
@@ -39,7 +40,8 @@ for trace in $TRACES; do
   else
     ledger=$(ls "$LEDGER_DIR"/decision_ledger_${trace}_*_full_candidates.csv.gz 2>/dev/null | head -n 1 || true)
     [[ -n "$ledger" ]] || { echo "missing full candidate ledger for $trace" >&2; exit 2; }
-    args+=(--ledger-candidates "$ledger" --min-lead-bin "$MIN_LEAD_BIN" --require-full-coverage)
+    python3 "$COVERAGE" --oracle "$oracle" --ledger "$ledger" --out "$OUT_ROOT/meta/${trace}.bank_ledger_coverage.json"
+    args+=(--ledger-candidates "$ledger" --min-lead-bin "$MIN_LEAD_BIN")
   fi
   python3 "$BUILDER" "${args[@]}"
 done
