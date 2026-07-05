@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
 """Compare normal and standalone prefetchers at L2C demand-event granularity.
 
-Normal-prefetcher results are analysis references only. Existing standalone rich
-exports contain only selected list entries, not every candidate that the notebook
-considered. Consequently, an address absent from an earlier selected export is
-not proof that it was absent from the candidate bank.
-
-In addition to legacy --lstm-artifact LABEL=DIR inputs, --replay-plan supports
-all fresh candidates produced by a v3.9 notebook run without copying lists into
-historical artifact directories.
+Normal-prefetcher results are analysis references only. Standalone rich exports
+contain selected list entries, not every candidate considered by a notebook;
+an address absent from a selected export is therefore not proof of candidate-bank
+absence. Replay-plan validation is shared with the replay drivers.
 """
 from __future__ import print_function
 
@@ -17,8 +13,15 @@ import bisect
 import csv
 import gzip
 import json
+import sys
 from collections import Counter, defaultdict
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+REPLAY_HELPER_DIR = SCRIPT_DIR / "replay"
+if str(REPLAY_HELPER_DIR) not in sys.path:
+    sys.path.insert(0, str(REPLAY_HELPER_DIR))
+from resolve_replay_plan import read_plan
 
 
 def open_text(path, mode="rt"):
@@ -62,6 +65,8 @@ def load_oracle(path):
             key = (row["pc"], row["line"], to_int(raw.get("pc_line_occ")))
             by_key[key] = row
             rows.append((key, row))
+    if not rows:
+        raise ValueError("empty oracle: {}".format(path))
     return by_key, rows
 
 
@@ -129,7 +134,7 @@ def find_rich_list(artifact_dir, trace, chunk_len, suffix):
 def selected_by_address(path):
     selected = defaultdict(list)
     if not path.is_file():
-        return selected
+        raise FileNotFoundError("rich list is missing: {}".format(path))
     with path.open(newline="") as handle:
         for raw in csv.DictReader(handle):
             try:
@@ -144,8 +149,7 @@ def selected_by_address(path):
 
 
 def selected_before(selected, address, demand_idx):
-    indexes = selected.get(address, [])
-    return bisect.bisect_left(indexes, demand_idx) > 0
+    return bisect.bisect_left(selected.get(address, []), demand_idx) > 0
 
 
 def event_category(normal_state, standalone_state, selected_earlier):
@@ -183,32 +187,12 @@ def parse_legacy_variants(items):
 
 
 def parse_plan(path, plan_root):
-    required = {"tag", "trace", "source_rel"}
-    seen = set()
-    out = []
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        missing = sorted(required - set(reader.fieldnames or []))
-        if missing:
-            raise ValueError("replay plan missing columns: {}".format(missing))
-        for line_no, raw in enumerate(reader, start=2):
-            label = (raw.get("tag") or "").strip()
-            trace = (raw.get("trace") or "").strip()
-            source_rel = (raw.get("source_rel") or "").strip()
-            if not label or not trace or not source_rel:
-                raise ValueError("blank tag/trace/source_rel at replay plan row {}".format(line_no))
-            if label in seen:
-                raise ValueError("duplicate replay plan tag: {}".format(label))
-            seen.add(label)
-            rich = Path(source_rel)
-            rich = rich if rich.is_absolute() else plan_root / rich
-            rich = rich.resolve()
-            if not rich.is_file() or not rich.stat().st_size:
-                raise FileNotFoundError("missing/nonempty rich list for {}: {}".format(label, rich))
-            out.append({"label": label, "trace": trace, "artifact_dir": None, "rich_list": rich})
-    if not out:
-        raise ValueError("replay plan has no candidates")
-    return out
+    return [{
+        "label": row["tag"],
+        "trace": row["trace"],
+        "artifact_dir": None,
+        "rich_list": Path(row["rich_list"]),
+    } for row in read_plan(path, plan_root)]
 
 
 def main():
@@ -221,7 +205,7 @@ def main():
     parser.add_argument("--lstm-artifact", action="append", default=[],
                         help="LABEL=ARTIFACT_DIR; repeat for each legacy standalone family")
     parser.add_argument("--replay-plan", type=Path, default=None,
-                        help="Current-run v3.9 plan with tag,trace,source_rel.")
+                        help="Current-run plan with tag,trace,source_rel.")
     parser.add_argument("--plan-root", type=Path, default=None)
     parser.add_argument("--chunk-len", type=int, default=1024)
     parser.add_argument("--export-suffix", default="pure_balanced_lru256")
