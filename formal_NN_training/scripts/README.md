@@ -20,37 +20,31 @@ All Sacramento-side Python utilities are Python 3.6 compatible and use only the 
 15_summarize_prefetch_evidence.py         Merge evidence into a report.
 ```
 
-The old `04_run_normal_prefetcher_sweep.sh` was deleted after its normal-run functionality was merged into script 11. For a counter-only baseline use:
+`04_run_normal_prefetcher_sweep.sh` was deleted after its normal-run behavior
+was merged into script 11. Use `MODE=normal COLLECT_EVENT_LOGS=0` with script
+11 for a counter-only normal campaign.
 
-```bash
-MODE=normal COLLECT_EVENT_LOGS=0 \
-  bash formal_NN_training/scripts/11_run_prefetch_event_attribution.sh
-```
-
-For causal event evidence use `MODE=both COLLECT_EVENT_LOGS=1` with the same driver.
-
-## Specialized builders retained deliberately
+## Optional research builders
 
 ```text
-10_profile_champsim_trace.py               Dynamic trace profile consumed by v4 analysis.
-16_build_trace_dependency_features.py      Generic dependency profile/edge vocabulary builder.
-17_prepare_v3_9_605_dependency_sidecar.sh  Reproducible 605 packaging/validation wrapper around script 16.
-19_build_oracle_ceiling_lists.py           Pure ceiling-list builder.
-20_run_oracle_ceiling_replay.sh            Ceiling build + replay driver.
-21_join_decision_ledger_attribution.py     Exact event audit-to-ledger join.
+10_profile_champsim_trace.py               Dynamic trace profile used by evidence reports.
+14_build_base_candidate_table.py           Optional normal-proposal table for base-aware research.
+16_build_trace_dependency_features.py      Dependency profile and edge vocabulary builder.
+17_prepare_v3_9_605_dependency_sidecar.sh  605 wrapper around script 16.
+19_build_oracle_ceiling_lists.py           Ceiling-list builder.
+20_run_oracle_ceiling_replay.sh            Ceiling replay driver.
+21_join_decision_ledger_attribution.py     Event-attribution to full-ledger join.
 22_resource_summary.py                     PQ/MSHR/request-pressure summary.
 25_build_v4_1_notebook.py                  Colab-only v4.1 materializer.
+replay/resolve_replay_plan.py              Shared replay-plan resolver.
 replay/verify_same_binary_no_pref.py       Same-binary no-pref IPC guard.
 ```
 
-These are not duplicates. In particular, 19 creates a rich list while 20 invokes the simulator; 21 consumes event attribution plus one full decision ledger, while 22 consumes event logs only. Combining either pair would couple unrelated input contracts and hide failure modes.
-
-Removed as duplicate, superseded, or unused in the current standalone project:
+Removed duplicates or pure wrappers:
 
 ```text
 04_run_normal_prefetcher_sweep.sh
 10_verify_same_binary_no_pref.py
-14_build_base_candidate_table.py
 16_verify_same_binary_no_pref.py
 v4/run_oracle_ceiling_replay.sh
 ```
