@@ -84,6 +84,16 @@ ensure_libbf() {
   }
 }
 
+completed_log() {
+  local log="$1" marker="$2"
+  [[ -s "$log" ]] && grep -Fq "$marker" "$log"
+}
+
+completed_gzip() {
+  local path="$1"
+  [[ -s "$path" ]] && gzip -t "$path" >/dev/null 2>&1
+}
+
 plan_entries() {
   local plan="$1" root="$2" out="$3"
   python3 - "$plan" "$root" "$out" <<'PY'
@@ -156,20 +166,26 @@ run_normal() {
   local cfg="$OUT_ROOT/normal/configs/$pf.ini"
   local trace_file="$TRACE_DIR/$trace.champsimtrace.xz"
   [[ -s "$trace_file" ]] || { echo "[error] missing $trace_file" >&2; return 1; }
-  if [[ "$COLLECT_EVENT_LOGS" == 1 ]]; then
-    [[ "$FORCE" == 1 || ! -s "$event_out" || ! -s "$log" ]] || { echo "[skip normal] $trace $pf"; return 0; }
-  else
-    [[ "$FORCE" == 1 || ! -s "$log" ]] || { echo "[skip normal] $trace $pf"; return 0; }
+  if [[ "$FORCE" != 1 ]]; then
+    if [[ "$COLLECT_EVENT_LOGS" == 1 ]] && completed_log "$log" Core_0_IPC && completed_gzip "$event_out"; then
+      echo "[skip normal] $trace $pf"
+      return 0
+    fi
+    if [[ "$COLLECT_EVENT_LOGS" == 0 ]] && completed_log "$log" Core_0_IPC; then
+      echo "[skip normal] $trace $pf"
+      return 0
+    fi
   fi
   write_cfg "$(pref_type "$pf")" "$cfg"
   echo "[normal] $trace $pf"
   if [[ "$COLLECT_EVENT_LOGS" == 1 ]]; then
+    rm -f "$raw" "$event_out"
     DEMAND_EVENT_LOG="$raw" "$NORMAL_BIN" --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" --config="$cfg" -traces "$trace_file" > "$log" 2>&1
-    [[ -s "$raw" ]] && grep -Fq Core_0_IPC "$log" || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
+    [[ -s "$raw" ]] && completed_log "$log" Core_0_IPC || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
     gzip -f "$raw"
   else
     "$NORMAL_BIN" --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" --config="$cfg" -traces "$trace_file" > "$log" 2>&1
-    grep -Fq Core_0_IPC "$log" || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
+    completed_log "$log" Core_0_IPC || { echo "[error] normal run failed: $trace $pf" >&2; return 1; }
   fi
 }
 
@@ -184,11 +200,15 @@ run_lstm_common() {
   local log="$variant_root/logs/$trace.standalone_lstm.log"
   mkdir -p "$variant_root/events" "$variant_root/logs" "$(dirname "$keyed")"
   [[ -s "$trace_file" && -s "$rich" && -s "$oracle" ]] || { echo "[error] missing trace, rich export, or oracle for $label/$trace" >&2; return 1; }
-  [[ "$FORCE" == 1 || ! -s "$event_out" || ! -s "$log" || ! -s "$keyed" ]] || { echo "[skip lstm] $label $trace"; return 0; }
+  if [[ "$FORCE" != 1 ]] && completed_log "$log" 'key=pc_line_occ' && completed_gzip "$event_out" && [[ -s "$keyed" ]]; then
+    echo "[skip lstm] $label $trace"
+    return 0
+  fi
+  rm -f "$raw" "$event_out"
   python3 "$PREP" --rich-list "$rich" --oracle "$oracle" --out "$keyed" > "$variant_root/logs/$trace.prepare.log" 2>&1
   echo "[lstm] $label $trace"
   PFETCH_LIST_PATH="$keyed" DEMAND_EVENT_LOG="$raw" "$REPLAY_BIN" --l2c_prefetcher_types=list_replayer --warmup_instructions="$WARMUP" --simulation_instructions="$SIM" -traces "$trace_file" > "$log" 2>&1
-  [[ -s "$raw" ]] && grep -Fq 'key=pc_line_occ' "$log" || { echo "[error] replay failed: $label $trace" >&2; return 1; }
+  [[ -s "$raw" ]] && completed_log "$log" 'key=pc_line_occ' || { echo "[error] replay failed: $label $trace" >&2; return 1; }
   gzip -f "$raw"
 }
 
