@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Summarize standalone keyed-LSTM replay logs.
 
-Legacy mode summarizes one conventional replay per trace.  Plan mode summarizes
-every current-run candidate named in a v3.9 replay-plan CSV and writes the best
-successful NN candidate per trace separately.
+Legacy mode summarizes one conventional replay per trace. Plan mode summarizes
+all current-run candidates declared in one replay-plan CSV and writes the best
+successful candidate per trace. Plan validation is centralized in
+``scripts/replay/resolve_replay_plan.py``.
 """
 from __future__ import print_function
 
@@ -12,16 +13,25 @@ import csv
 import importlib.util
 import json
 import re
+import sys
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-spec = importlib.util.spec_from_file_location("pythia_stats", str(SCRIPT_DIR / "01_parse_prefetch_behavior_audit.py"))
+REPLAY_HELPER_DIR = SCRIPT_DIR / "replay"
+if str(REPLAY_HELPER_DIR) not in sys.path:
+    sys.path.insert(0, str(REPLAY_HELPER_DIR))
+from resolve_replay_plan import read_plan
+
+spec = importlib.util.spec_from_file_location(
+    "pythia_stats", str(SCRIPT_DIR / "01_parse_prefetch_behavior_audit.py")
+)
+if spec is None or spec.loader is None:
+    raise RuntimeError("cannot import normal-log parser")
 pythia_stats = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pythia_stats)
 
 LOADED_RE = re.compile(r"\[list_replayer\] loaded\s+(\d+)\s+prefetch entries across\s+(\d+)\s+PC-line-occ triggers")
 FINAL_RE = re.compile(r"\[list_replayer\] emitted\s+(\d+)\s+candidates over\s+(\d+)\s+runtime ROI L2 LOAD accesses\s+\((\d+)\s+matched PC-line-occ triggers;\s+(\d+)\s+loaded trigger keys;\s+key=pc_line_occ\)")
-SAFE_TAG_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def to_float(x, default=0.0):
@@ -95,39 +105,8 @@ def load_meta(path):
 
 
 def load_plan(path, plan_root):
-    required = {"tag", "trace", "source_rel"}
-    seen = set()
-    entries = []
-    with path.open(newline="") as handle:
-        reader = csv.DictReader(handle)
-        fields = set(reader.fieldnames or [])
-        missing = sorted(required - fields)
-        if missing:
-            raise ValueError("replay plan missing columns: {}".format(missing))
-        for line_no, raw in enumerate(reader, start=2):
-            tag = (raw.get("tag") or "").strip()
-            trace = (raw.get("trace") or "").strip()
-            source_rel = (raw.get("source_rel") or "").strip()
-            if not tag or not trace or not source_rel:
-                raise ValueError("blank tag/trace/source_rel at plan row {}".format(line_no))
-            if not SAFE_TAG_RE.match(tag) or not SAFE_TAG_RE.match(trace):
-                raise ValueError("unsafe tag or trace at plan row {}".format(line_no))
-            if tag in seen:
-                raise ValueError("duplicate plan tag: {}".format(tag))
-            seen.add(tag)
-            rich = Path(source_rel)
-            rich = rich if rich.is_absolute() else plan_root / rich
-            rich = rich.resolve()
-            if not rich.is_file() or not rich.stat().st_size:
-                raise FileNotFoundError("missing/nonempty rich list for {}: {}".format(tag, rich))
-            entry = dict(raw)
-            entry["tag"] = tag
-            entry["trace"] = trace
-            entry["rich_list"] = str(rich)
-            entries.append(entry)
-    if not entries:
-        raise ValueError("replay plan has no candidates")
-    return entries
+    """Return canonical validated replay-plan entries."""
+    return read_plan(path, plan_root)
 
 
 def enrich_row(base, replay, meta, normal, same, extra):
@@ -153,14 +132,14 @@ def enrich_row(base, replay, meta, normal, same, extra):
         and replay["list_loaded_trigger_keys"] == meta.get("unique_trigger_keys", -1)
         and replay["replayer_final_loaded_trigger_keys"] == meta.get("unique_trigger_keys", -1)
         and meta.get("unmatched_rows", -1) == 0
-        and not base.get("run_failed", 0)
+        and int(to_float(base.get("run_failed"))) == 0
     )
     if same is not None:
         same_ipc = to_float(same.get("ipc"))
         row["same_binary_no_pref_ipc"] = same_ipc
         row["speedup_vs_same_binary_no_pref"] = div(ipc, same_ipc)
         row["ipc_delta_vs_same_binary_no_pref"] = ipc - same_ipc
-        row["same_binary_no_pref_run_failed"] = int(same.get("run_failed", 0))
+        row["same_binary_no_pref_run_failed"] = int(to_float(same.get("run_failed")))
     return row
 
 
