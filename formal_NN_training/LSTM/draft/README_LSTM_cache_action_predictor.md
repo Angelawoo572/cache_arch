@@ -1,49 +1,28 @@
-# Outcome-aware SPP-assisted LSTM Cache Action Predictor
+# Legacy SPP-assisted cache-action predictor
 
-This note is now a **legacy/reference note** for the older LSTM cache-action experiments. The repo has moved to the Pythia-based `external/ChampSim`, so the old ChampSim `spp_dev` candidate-logging / `list_replayer` scripts were removed from `formal_NN_training/scripts/`.
+This directory is historical reference material for the retired SPP/action-predictor
+experiments. It is **not** part of the current standalone no-prefetch pipeline.
 
-Current active scripts are:
+The notebooks and notes here reference scripts that were retired with the old
+candidate-logging workflow. Do not repair those paths, do not run these notebooks
+as current experiments, and do not treat their outputs as evidence for the current
+keyed standalone replay design.
 
-```text
-formal_NN_training/scripts/17_parse_prefetch_behavior_audit.py
-formal_NN_training/scripts/18_run_prefetch_behavior_audit.sh
-```
+## Current pipeline boundary
 
-Current active first step:
+The active pipeline is built from no-prefetch demand events, a standalone oracle,
+frozen rich-list exports, and PC-line-occurrence keyed replay. Its active scripts
+are documented in `formal_NN_training/scripts/README.md`.
 
-```text
-Pythia no_pref / SPP / IPCP behavior audit
-  -> logs in formal_NN_training/results/LSTM/behavior_audit/logs/
-  -> summary_nodup.csv
-  -> decide residual-booster labels before writing the new LSTM notebook
-```
-
-Old LSTM notebooks are still kept here for reference:
+## Historical material retained here
 
 ```text
 formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor.ipynb
 formal_NN_training/LSTM/notebooks/LSTM_cache_action_predictor_SPP_LSTM_direct_hybrid.ipynb
 formal_NN_training/LSTM/LSTM_cache_action_pipeline_story.md
-```
-
-Research framing kept from the old version:
-
-```text
-SPP was used as candidate + context + supervision.
-LSTM learned whether a candidate cache action was useful, non-duplicate, and worth issuing.
-```
-
-New framing going forward:
-
-```text
-normal prefetcher = SPP first, IPCP later
-NN = LSTM first, tiny Transformer later
-label = residual demand misses not covered in time by the normal prefetcher
-metrics = accuracy + timeliness + coverage + IPC/speedup
-```
-
-Old result files remain under:
-
-```text
 formal_NN_training/results/LSTM/draft/
 ```
+
+The old framing was: SPP supplied candidates/context/supervision and an LSTM
+predicted a cache action. That framing is archived; it must not be mixed with the
+current standalone model's measured results.
