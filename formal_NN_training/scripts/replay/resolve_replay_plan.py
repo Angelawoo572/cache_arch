@@ -8,7 +8,9 @@ import re
 from pathlib import Path
 
 REQUIRED = set(["tag", "trace", "source_rel"])
-SAFE = re.compile(r"^[A-Za-z0-9_.-]+$")
+# Replay tags may be structured as v4_9_5|trace|route|policy|size|seed.
+# Keep path separators, whitespace, shell metacharacters, and absolute-path syntax out.
+SAFE = re.compile(r"^[A-Za-z0-9_.|-]+$")
 
 
 def read_plan(plan, root):
