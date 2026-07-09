@@ -104,6 +104,11 @@ projects/legacy_gru_prefetch/results/generated/*
 projects/legacy_gru_prefetch/results/generated/prefetch_lists/*
 !projects/legacy_gru_prefetch/results/generated/prefetch_lists/.gitkeep
 
+# Local V4.1 tiny / 619 legacy diagnosis bundles; keep generated payloads out of GitHub.
+v4_1_tiny_*_seed7_artifacts.zip
+v4_1_tiny_all5_analysis_bundle_*.tar.gz
+v4_1_tiny_ledger_diagnosis_*.tar.gz
+
 # ------------------------------------------------------------
 # formal_NN_training generated material
 # ------------------------------------------------------------
