@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Linux stages for the isolated 602 offline LSTM-versus-stride experiment.
+# Colab trains/generates lists; ChampSim only replays and measures them.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -9,13 +10,17 @@ RUN_ID="${RUN_ID:-602_offline_lstm_stride_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
+BUILD="${BUILD:-1}"
+# Each tag must correspond to colab_output/<tag>/run_metadata.json.
+MODEL_TAGS_CSV="${MODEL_TAGS:-h8,h16,h32,h64,h128}"
+BASE_MODEL_TAG="${BASE_MODEL_TAG:-h8}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
 LOG_DIR="$RUN_DIR/logs"
 EVENT_DIR="$RUN_DIR/events"
 STREAM_DIR="$RUN_DIR/colab_input"
-COLAB_OUT="$RUN_DIR/colab_output"
+COLAB_ROOT="$RUN_DIR/colab_output"
 BIN="${BIN:-$CHAMP_DIR/bin/champsim.602_offline_replay}"
 EXPECTED_LIBBF_HEAD="4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c"
 
@@ -23,9 +28,10 @@ PATCH_LOGGER="$EXP/linux/patch_demand_logger.sh"
 BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
 NORMALIZE="$EXP/python/normalize_events.py"
 ANALYZE="$EXP/python/analyze_replay.py"
-STRIDE_CONFIG="$EXP/config/stride_64x_degree2.ini"
 
-mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_OUT"
+IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
+[[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
+mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
 [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
 
 ensure_libbf() {
@@ -92,52 +98,108 @@ collect() {
   echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
 }
 
+colab_dir() {
+  printf '%s/%s' "$COLAB_ROOT" "$1"
+}
+
+assert_live_stride() {
+  local log="$1"
+  grep -Fq "adding L2C_PREFETCHER: stride" "$log" || {
+    echo "[error] live stride was not registered; refusing an inactive reference" >&2
+    exit 3
+  }
+  grep -Fq "stride_num_trackers 64" "$log" || {
+    echo "[error] live stride did not use 64 trackers" >&2
+    exit 3
+  }
+  grep -Fq "stride_pref_degree 2" "$log" || {
+    echo "[error] live stride did not use degree 2" >&2
+    exit 3
+  }
+  grep -Eq '^stride_pref_generated [1-9][0-9]*$' "$log" || {
+    echo "[error] live stride generated zero prefetches" >&2
+    exit 3
+  }
+}
+
 run_method() {
   local method="$1"
   local log="$LOG_DIR/$TRACE.$method.log"
-  if [[ "$FORCE" != 1 && -s "$log" ]] && grep -q '^Core_0_IPC ' "$log"; then
+  local raw="$EVENT_DIR/$TRACE.$method.events.csv"
+  local gz="$raw.gz"
+  if [[ "$FORCE" != 1 && -s "$log" && -s "$gz" ]] && grep -q '^Core_0_IPC ' "$log" && gzip -t "$gz"; then
     echo "[skip] $method"
     return
   fi
+  rm -f "$raw" "$gz"
   case "$method" in
     no_pref)
-      "$BIN" --l2c_prefetcher_types=none \
+      DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=none \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     live_stride_reference)
-      "$BIN" --config="$STRIDE_CONFIG" \
+      # Explicit top-level flags are required by this ChampSim parser.
+      DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=stride \
+        --stride_num_trackers=64 --stride_pref_degree=2 \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
+      assert_live_stride "$log"
       ;;
-    offline_stride|offline_lstm)
-      local list="$COLAB_OUT/$method.replay.csv"
+    offline_stride)
+      local list
+      list="$(colab_dir "$BASE_MODEL_TAG")/offline_stride.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing Colab list $list" >&2; exit 2; }
-      PFETCH_LIST_PATH="$list" "$BIN" --l2c_prefetcher_types=list_replayer \
+      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" --l2c_prefetcher_types=list_replayer \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
+    offline_lstm_*)
+      local tag="${method#offline_lstm_}"
+      local list
+      list="$(colab_dir "$tag")/offline_lstm.replay.csv"
+      [[ -s "$list" ]] || { echo "[error] missing Colab list $list" >&2; exit 2; }
+      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" --l2c_prefetcher_types=list_replayer \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
+      ;;
+    *) echo "[error] unknown method $method" >&2; exit 2 ;;
   esac
   grep -q '^Core_0_IPC ' "$log" || { echo "[error] missing final IPC for $method" >&2; exit 3; }
+  [[ -s "$raw" ]] || { echo "[error] missing replay event output for $method" >&2; exit 3; }
+  gzip -f "$raw"
+  gzip -t "$gz"
+}
+
+require_colab_outputs() {
+  for tag in "${MODEL_TAGS[@]}"; do
+    [[ -s "$(colab_dir "$tag")/run_metadata.json" ]] || {
+      echo "[error] missing Colab output $(colab_dir "$tag")/run_metadata.json" >&2
+      exit 2
+    }
+  done
+}
+
+analyze() {
+  python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV" --base-model-tag "$BASE_MODEL_TAG"
 }
 
 replay() {
-  [[ -x "$BIN" ]] || build
-  [[ -s "$COLAB_OUT/run_metadata.json" ]] || {
-    echo "[error] copy the complete Colab output into $COLAB_OUT" >&2
-    exit 2
-  }
+  if [[ "$BUILD" == 1 || ! -x "$BIN" ]]; then build; fi
+  require_colab_outputs
   run_method no_pref
   run_method live_stride_reference
   run_method offline_stride
-  run_method offline_lstm
-  python3 "$ANALYZE" --run-dir "$RUN_DIR"
+  for tag in "${MODEL_TAGS[@]}"; do
+    run_method "offline_lstm_$tag"
+  done
+  analyze
 }
 
 case "$STAGE" in
   collect) collect ;;
   replay) replay ;;
-  analyze) python3 "$ANALYZE" --run-dir "$RUN_DIR" ;;
+  analyze) analyze ;;
   build) build ;;
   *) echo "[error] STAGE must be build, collect, replay, or analyze" >&2; exit 2 ;;
 esac
