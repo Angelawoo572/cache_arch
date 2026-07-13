@@ -65,7 +65,9 @@ run_no_pref_events() {
     return
   fi
   rm -f "$raw" "$gz"
-  DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=none +    --warmup_instructions="$warmup" --simulation_instructions="$sim" +    -traces "$TRACE_FILE" > "$log" 2>&1
+  DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=none \
+    --warmup_instructions="$warmup" --simulation_instructions="$sim" \
+    -traces "$TRACE_FILE" > "$log" 2>&1
   [[ -s "$raw" ]] || { echo "[error] missing event output for $label" >&2; exit 3; }
   gzip -f "$raw"
   gzip -t "$gz"
@@ -75,13 +77,18 @@ collect() {
   build
   run_no_pref_events train_prefix 0 20000000
   run_no_pref_events evaluation 25000000 25000000
-  python3 "$NORMALIZE" +    --events "$EVENT_DIR/$TRACE.train_prefix.events.csv.gz" +    --out "$STREAM_DIR/$TRACE.train_stream.csv.gz"
-  python3 "$NORMALIZE" +    --events "$EVENT_DIR/$TRACE.evaluation.events.csv.gz" +    --out "$STREAM_DIR/$TRACE.eval_stream.csv.gz"
+  python3 "$NORMALIZE" \
+    --events "$EVENT_DIR/$TRACE.train_prefix.events.csv.gz" \
+    --out "$STREAM_DIR/$TRACE.train_stream.csv.gz"
+  python3 "$NORMALIZE" \
+    --events "$EVENT_DIR/$TRACE.evaluation.events.csv.gz" \
+    --out "$STREAM_DIR/$TRACE.eval_stream.csv.gz"
   (
     cd "$STREAM_DIR"
     sha256sum "$TRACE.train_stream.csv.gz" "$TRACE.eval_stream.csv.gz" > SHA256SUMS
   )
-  tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" +    "$TRACE.train_stream.csv.gz" "$TRACE.eval_stream.csv.gz" SHA256SUMS
+  tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
+    "$TRACE.train_stream.csv.gz" "$TRACE.eval_stream.csv.gz" SHA256SUMS
   echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
 }
 
@@ -94,15 +101,21 @@ run_method() {
   fi
   case "$method" in
     no_pref)
-      "$BIN" --l2c_prefetcher_types=none +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      "$BIN" --l2c_prefetcher_types=none \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     live_stride_reference)
-      "$BIN" --config="$STRIDE_CONFIG" +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      "$BIN" --config="$STRIDE_CONFIG" \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     offline_stride|offline_lstm)
       local list="$COLAB_OUT/$method.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing Colab list $list" >&2; exit 2; }
-      PFETCH_LIST_PATH="$list" "$BIN" --l2c_prefetcher_types=list_replayer +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      PFETCH_LIST_PATH="$list" "$BIN" --l2c_prefetcher_types=list_replayer \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
   esac
   grep -q '^Core_0_IPC ' "$log" || { echo "[error] missing final IPC for $method" >&2; exit 3; }
