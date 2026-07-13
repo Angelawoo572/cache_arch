@@ -1,72 +1,34 @@
 # formal_NN_training
 
-## Active research direction
-
-The current project is a **standalone, base-independent neural prefetcher**.
+The current experiment is:
 
 ```text
-raw no-prefetch demand stream -> standalone LSTM / tiny Transformer -> keyed replay
+experiments/602_offline_lstm_stride/
 ```
 
-This is **not** a residual/booster model:
+Research question:
 
-- normal-prefetcher outputs are not neural inputs;
-- normal-prefetcher coverage is not a neural label or loss weight;
-- the experiment is not a `base + NN` union;
-- normal prefetchers are baselines used only for final comparison.
+> With the same 602 evaluation PC/address stream, the same causal history, one future-stride candidate, and the same keyed replay transport, does a 545-parameter LSTM select a more useful prefetch list than offline stride?
 
-The normal-baseline axis is still important: for each trace, compare the standalone NN against no-prefetch and every stable normal prefetcher, then report the best normal separately.
-
-## Clean pipeline
+The current workflow is intentionally one trace and one baseline:
 
 ```text
-1. Normal baselines
-   MODE=normal COLLECT_EVENT_LOGS=0 \
-     bash scripts/11_run_prefetch_event_attribution.sh
-   -> results/.../normal/summary.csv
+Linux collect
+  -> 0-20M training PC/address stream
+  -> 25M-warmup + 25M evaluation PC/address stream
 
-2. Raw standalone NN data
-   scripts/03_collect_no_pref_demand_events.sh
-   scripts/05_build_standalone_oracle_dataset.py
-   -> results/standalone_nn_data/oracle/<trace>.oracle.csv.gz
+Colab A100
+  -> train tiny LSTM on the training stream
+  -> offline causal inference on the evaluation stream
+  -> export offline_stride.replay.csv
+  -> export offline_lstm.replay.csv
 
-3. Model notebook
-   LSTM/notebooks/LSTM_base_independent_multihorizon_policy_prefetcher.ipynb
-   -> artifacts/standalone_multihorizon_lstm/
-
-4. Valid keyed replay
-   scripts/06_install_keyed_listreplayer.sh
-   scripts/08_run_standalone_lstm_replay.sh
-   -> results/standalone_lstm_replay/<run_tag>/summary.csv
-
-5. Causal event evidence, only when needed
-   MODE=both COLLECT_EVENT_LOGS=1 \
-     bash scripts/11_run_prefetch_event_attribution.sh
-   scripts/12_analyze_prefetch_event_attribution.py
+Linux replay
+  -> same ListReplayer binary for both lists
+  -> no-prefetch and live stride retained as references
+  -> matched_comparison.json must report PASS
 ```
 
-## Dataset contract before the notebook starts
+The LSTM and offline stride receive only current PC, current cache-line address, and causal state derived from prior PC/address rows. Hit/miss, cycle, queue occupancy, metadata, and future evaluation rows are excluded.
 
-One row equals one no-prefetch L2 demand access. The required fields are:
-
-```text
-trace, demand_idx, cycle, pc, addr, line, page, page_offset, delta,
-no_pref_hit, no_pref_miss, pc_line_occ
-```
-
-The notebook computes future-miss targets from this stream itself. The no-prefetch event stream is the only training data. `prefetcher_baselines/summary.csv` is evaluation metadata only.
-
-## Evaluation
-
-For every trace/model-size setting, report:
-
-```text
-offline: candidate-bank reachability, precision, recall, emitted requests/event
-replay: IPC, L2 miss rate, useful/issued, timeliness, late requests,
-        useless requests, dropped requests, speedup vs no-pref,
-        speedup vs best normal, replay_transport_ok
-```
-
-A replay point is valid only when `replay_transport_ok=1`. The keyed replay uses `(pc,line,occ)` rather than a global L2 callback index, because the latter changes after prefetching changes memory timing.
-
-See `scripts/README.md` for the exact active script list and execution order.
+All prior numbered scripts were moved to `legacy/scripts/`. They remain available only for provenance and are not part of the current experiment.
