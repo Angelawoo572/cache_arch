@@ -129,16 +129,16 @@ class TinyStrideLSTM(nn.Module):
         self.projection = nn.Sequential(nn.Linear(hidden_size + 2, hidden_size), nn.Tanh())
         self.head = nn.Linear(hidden_size, 1)
 
+    def forward(self, runtime, candidate, state=None):
+        hidden, state = self.lstm(runtime, state)
+        joined = torch.cat([hidden, candidate], dim=-1)
+        return self.head(self.projection(joined)).squeeze(-1), state
+
 
 def parameter_count(hidden_size):
     # LSTM(4,h): 4h*4 + 4h*h + two 4h biases; projection(h+2,h);
     # scalar head.  This is 5h^2 + 28h + 1 and is checked against PyTorch below.
     return 5 * hidden_size * hidden_size + 28 * hidden_size + 1
-
-    def forward(self, runtime, candidate, state=None):
-        hidden, state = self.lstm(runtime, state)
-        joined = torch.cat([hidden, candidate], dim=-1)
-        return self.head(self.projection(joined)).squeeze(-1), state
 
 
 def chunk_tensors(runtime, candidate, labels, valid, end, chunk_len):
