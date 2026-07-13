@@ -14,7 +14,10 @@ OUT="${OUT:-$CHAMP_DIR/bin/champsim.602_offline_replay}"
 cleanup() { rm -f "$GENERATED" "$TEMPLATE"; }
 trap cleanup EXIT
 
-[[ -d "$CHAMP_DIR/.git" ]] || { echo "[error] not a ChampSim checkout: $CHAMP_DIR" >&2; exit 2; }
+git -C "$CHAMP_DIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "[error] not a ChampSim checkout: $CHAMP_DIR" >&2
+  exit 2
+}
 [[ -f "$HEADER" && -f "$SOURCE" ]] || { echo "[error] missing keyed ListReplayer source/header" >&2; exit 2; }
 for marker in 'PC-line-occ triggers' 'key=pc_line_occ' 'occurrences_'; do
   grep -Fq "$marker" "$SOURCE" || { echo "[error] stale ListReplayer source" >&2; exit 3; }
