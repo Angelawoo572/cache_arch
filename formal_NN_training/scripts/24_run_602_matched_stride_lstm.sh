@@ -199,7 +199,7 @@ collect_stage() {
 }
 
 train_stage() {
-  require_common_files
+  require_file "$TRAIN_LSTM"
   require_file "$TRAIN_STREAM"
   python3 "$TRAIN_LSTM" \
     --train-stream "$TRAIN_STREAM" \
