@@ -17,6 +17,7 @@ EVENT_DIR="$RUN_DIR/events"
 STREAM_DIR="$RUN_DIR/colab_input"
 COLAB_OUT="$RUN_DIR/colab_output"
 BIN="${BIN:-$CHAMP_DIR/bin/champsim.602_offline_replay}"
+EXPECTED_LIBBF_HEAD="4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c"
 
 PATCH_LOGGER="$EXP/linux/patch_demand_logger.sh"
 BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
@@ -27,12 +28,30 @@ STRIDE_CONFIG="$EXP/config/stride_64x_degree2.ini"
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_OUT"
 [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
 
-build() {
-  RESET_PATCH="${RESET_PATCH:-0}" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
-  if [[ ! -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]]; then
-    echo "[error] build external/ChampSim/libbf before running this experiment" >&2
+ensure_libbf() {
+  if [[ -e "$CHAMP_DIR/libbf" && ! -d "$CHAMP_DIR/libbf/.git" ]]; then
+    echo "[error] $CHAMP_DIR/libbf exists but is not the expected git checkout" >&2
     exit 2
   fi
+  if [[ ! -d "$CHAMP_DIR/libbf/.git" ]]; then
+    git clone https://github.com/mavam/libbf.git "$CHAMP_DIR/libbf"
+    git -C "$CHAMP_DIR/libbf" checkout --detach "$EXPECTED_LIBBF_HEAD"
+  fi
+  local observed
+  observed="$(git -C "$CHAMP_DIR/libbf" rev-parse HEAD)"
+  [[ "$observed" == "$EXPECTED_LIBBF_HEAD" ]] || {
+    echo "[error] libbf HEAD $observed != pinned $EXPECTED_LIBBF_HEAD" >&2
+    exit 2
+  }
+  if [[ ! -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]]; then
+    cmake -S "$CHAMP_DIR/libbf" -B "$CHAMP_DIR/libbf/build"
+    cmake --build "$CHAMP_DIR/libbf/build" -j"$JOBS"
+  fi
+}
+
+build() {
+  RESET_PATCH="${RESET_PATCH:-0}" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
+  ensure_libbf
   CHAMP_DIR="$CHAMP_DIR" OUT="$BIN" bash "$BUILD_REPLAYER"
 }
 
