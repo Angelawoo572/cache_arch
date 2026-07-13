@@ -185,3 +185,14 @@ formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/summary.csv
 !formal_NN_training/results/base_prefetcher_zoo/residual_audit/RUN_INFO.txt
 accuracy_compare_all_traces.csv
+
+
+# 602 matched-input experiment outputs remain local until independently reviewed.
+formal_NN_training/results/602_matched_stride_lstm/
+formal_NN_training/artifacts/602_matched_stride_lstm/
+# Colab/PyTorch checkpoints and exported live-runtime models are generated artifacts.
+*.pt
+*.pth
+*.ckpt
+*.model.txt
+*.build_info.txt
