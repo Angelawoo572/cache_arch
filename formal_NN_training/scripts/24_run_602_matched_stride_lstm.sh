@@ -18,6 +18,7 @@ cd "$ROOT"
 
 TRACE="602.gcc_s-734B"
 EXPECTED_CHAMPSIM_HEAD="fd26fc51a44554976022e1ee13e73e7b06e2307e"
+EXPECTED_LIBBF_HEAD="4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c"
 TRAIN_WARMUP=0
 TRAIN_SIM=20000000
 EVAL_WARMUP=25000000
@@ -97,17 +98,25 @@ require_common_files() {
 }
 
 ensure_libbf() {
-  if [[ -f "$CHAMP_DIR/libbf/bf/all.hpp" && -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]]; then
-    return 0
-  fi
-  command -v cmake >/dev/null || { echo "[error] cmake is required to build libbf" >&2; exit 2; }
   if [[ -e "$CHAMP_DIR/libbf" && ! -d "$CHAMP_DIR/libbf/.git" ]]; then
     echo "[error] $CHAMP_DIR/libbf exists but is not a git checkout; resolve it manually" >&2
     exit 2
   fi
   if [[ ! -d "$CHAMP_DIR/libbf/.git" ]]; then
     git clone https://github.com/mavam/libbf.git "$CHAMP_DIR/libbf"
+    git -C "$CHAMP_DIR/libbf" checkout --detach "$EXPECTED_LIBBF_HEAD"
   fi
+  local observed
+  observed="$(git -C "$CHAMP_DIR/libbf" rev-parse HEAD)"
+  if [[ "$observed" != "$EXPECTED_LIBBF_HEAD" && "${ALLOW_LIBBF_DRIFT:-0}" != 1 ]]; then
+    echo "[error] libbf HEAD $observed != pinned $EXPECTED_LIBBF_HEAD" >&2
+    echo "        Preserve local work, then check out the pinned commit." >&2
+    exit 3
+  fi
+  if [[ -f "$CHAMP_DIR/libbf/bf/all.hpp" && -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]]; then
+    return 0
+  fi
+  command -v cmake >/dev/null || { echo "[error] cmake is required to build libbf" >&2; exit 2; }
   mkdir -p "$CHAMP_DIR/libbf/build"
   ( cd "$CHAMP_DIR/libbf/build" && cmake .. && make -j"$JOBS" )
   [[ -f "$CHAMP_DIR/libbf/bf/all.hpp" && -f "$CHAMP_DIR/libbf/build/lib/libbf.a" ]] || {
@@ -242,6 +251,8 @@ payload = {
     "cache_arch_head": head(root),
     "champsim_head": head(champ),
     "expected_champsim_head": "fd26fc51a44554976022e1ee13e73e7b06e2307e",
+    "libbf_head": head(champ / "libbf"),
+    "expected_libbf_head": "4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c",
     "trace_file": str(trace_file),
     "trace_sha256": sha(trace_file),
     "simulator_binary": str(binary),

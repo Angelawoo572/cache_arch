@@ -224,6 +224,7 @@ def main():
     require(identity.get("schema") == "602_matched_stride_lstm_run_identity_v3", "unexpected identity schema", failures)
     require(identity.get("trace") == TRACE, "identity is not 602", failures)
     require(identity.get("champsim_head") == identity.get("expected_champsim_head"), "ChampSim HEAD is not pinned", failures)
+    require(identity.get("libbf_head") == identity.get("expected_libbf_head"), "libbf HEAD is not pinned", failures)
     require(identity.get("same_binary_methods") == ["no_pref", "stride", "matched_stride_lstm"], "same-binary method set changed", failures)
     require(identity.get("primary_nn_execution") == "live_in_simulator_not_keyed_replay", "primary NN is not live", failures)
     require(identity.get("baseline_config", {}).get("stride_num_trackers") == 64, "stride trackers are not 64", failures)
