@@ -28,8 +28,6 @@ import torch.nn.functional as F
 TRACE = "602.gcc_s-734B"
 TRACKERS = 64
 PAGE_LINES = 64
-PARAMETERS = 545
-
 
 def sha256(path):
     digest = hashlib.sha256()
@@ -124,11 +122,18 @@ def training_labels(rows, valid, target, min_lead, max_lead):
 
 
 class TinyStrideLSTM(nn.Module):
-    def __init__(self):
+    def __init__(self, hidden_size):
         super().__init__()
-        self.lstm = nn.LSTM(4, 8, batch_first=True)
-        self.projection = nn.Sequential(nn.Linear(10, 8), nn.Tanh())
-        self.head = nn.Linear(8, 1)
+        self.hidden_size = hidden_size
+        self.lstm = nn.LSTM(4, hidden_size, batch_first=True)
+        self.projection = nn.Sequential(nn.Linear(hidden_size + 2, hidden_size), nn.Tanh())
+        self.head = nn.Linear(hidden_size, 1)
+
+
+def parameter_count(hidden_size):
+    # LSTM(4,h): 4h*4 + 4h*h + two 4h biases; projection(h+2,h);
+    # scalar head.  This is 5h^2 + 28h + 1 and is checked against PyTorch below.
+    return 5 * hidden_size * hidden_size + 28 * hidden_size + 1
 
     def forward(self, runtime, candidate, state=None):
         hidden, state = self.lstm(runtime, state)
@@ -270,7 +275,11 @@ def main():
     ap.add_argument("--min-lead", type=int, default=4)
     ap.add_argument("--max-lead", type=int, default=64)
     ap.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    ap.add_argument("--hidden-size", type=int, default=8,
+                    help="LSTM hidden width; each width is one independent capacity-sweep point")
     args = ap.parse_args()
+    if args.hidden_size < 1:
+        raise RuntimeError("--hidden-size must be positive")
 
     random.seed(args.seed)
     np.random.seed(args.seed)
@@ -287,9 +296,10 @@ def main():
     train_runtime, train_candidate, train_valid, train_repeat, train_target = causal_arrays(train_rows)
     train_labels_array = training_labels(train_rows, train_valid, train_target, args.min_lead, args.max_lead)
     fit_end = int(0.8 * len(train_rows))
-    model = TinyStrideLSTM()
-    if sum(p.numel() for p in model.parameters()) != PARAMETERS:
-        raise RuntimeError("parameter count changed")
+    model = TinyStrideLSTM(args.hidden_size)
+    parameters = sum(p.numel() for p in model.parameters())
+    if parameters != parameter_count(args.hidden_size):
+        raise RuntimeError("parameter-count formula mismatch: {} != {}".format(parameters, parameter_count(args.hidden_size)))
     history = train_model(
         model, train_runtime, train_candidate, train_labels_array, train_valid,
         fit_end, device, args.epochs, args.chunk_len, args.batch_chunks, args.learning_rate,
@@ -303,13 +313,15 @@ def main():
     stride_selected = eval_repeat.copy()
     stride_count = write_replay(args.out_dir / "offline_stride.replay.csv", eval_rows, stride_selected, eval_valid, eval_target)
     lstm_count = write_replay(args.out_dir / "offline_lstm.replay.csv", eval_rows, lstm_selected, eval_valid, eval_target)
-    torch.save({"state_dict": model.cpu().state_dict(), "parameters": PARAMETERS, "trace": TRACE}, args.out_dir / "model.pt")
+    torch.save({"state_dict": model.cpu().state_dict(), "parameters": parameters, "hidden_size": args.hidden_size, "trace": TRACE}, args.out_dir / "model.pt")
     write_table(args.out_dir / "training_history.csv", history)
     write_table(args.out_dir / "policy_sweep.csv", sweep)
     metadata = {
         "trace": TRACE,
         "model_family": "LSTM",
-        "parameter_count": PARAMETERS,
+        "parameter_count": parameters,
+        "hidden_size": args.hidden_size,
+        "parameter_count_formula": "5*h^2 + 28*h + 1",
         "seed": args.seed,
         "training_and_inference_location": "Colab_or_any_PyTorch_host",
         "inference_mode": "offline_causal_list_generation",
@@ -334,7 +346,7 @@ def main():
         "torch": torch.__version__,
     }
     (args.out_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n")
-    print("[ok] " + json.dumps({"device": str(device), "threshold": policy["threshold"], "stride_entries": stride_count, "lstm_entries": lstm_count}, sort_keys=True))
+    print("[ok] " + json.dumps({"device": str(device), "hidden_size": args.hidden_size, "parameters": parameters, "threshold": policy["threshold"], "stride_entries": stride_count, "lstm_entries": lstm_count}, sort_keys=True))
 
 
 if __name__ == "__main__":
