@@ -1,128 +1,162 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.68in]{geometry}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{graphicx}
+\usepackage[margin=0.65in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs,tabularx,array,graphicx,xcolor,enumitem,float}
 \usepackage{hyperref}
-\usepackage{xcolor}
-\usepackage{enumitem}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\setlength{\parindent}{0pt}
 \setlength{\parskip}{3pt}
 \setlist{nosep,leftmargin=*}
 \renewcommand{\arraystretch}{1.08}
 
 \begin{document}\small
 \begin{center}
-{\Large\bfseries 602 Offline LSTM vs. Offline Stride}\\[2pt]
-{\small Capacity sweep results for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
+{\Large\bfseries 602 Offline LSTM Gate vs. Offline Stride}\\[2pt]
+{\small Matched-input capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
 \end{center}
 
-\section*{Status and experiment contract}
-This is a single-trace, offline experiment. Colab trains a one-layer LSTM on an earlier no-prefetch training prefix and performs causal sequential inference on a disjoint no-prefetch evaluation stream. It exports keyed PC--line--occurrence replay lists. ChampSim replays both the fixed offline-stride list and each offline-LSTM list using the same \texttt{ListReplayer} transport.
-
-The shared evaluation information is current PC, current cache-line address, and causal prior PC/address history. The model does not receive hit/miss, cycle, queue state, metadata, or future evaluation rows. The primary comparison is \texttt{offline\_stride} versus \texttt{offline\_lstm\_h<width>}. Live stride is a validated general reference only.
-
-All eight simulations completed with the same 25M warmup and 25M measured window (25,000,003 reported instructions). The final analyzer reports \texttt{PASS}, an empty failure list, and \texttt{fair\_comparison\_claim\_allowed=true}. For every model tag, it verified the original Colab-input gzip hash and then proved that the original and current decompressed CSV contents are identical. No Colab or ChampSim rerun is required.
-
-\section*{Measured comparison}
-\begin{center}
-\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrr}
+\section*{Experiment contract}
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
-Method & Params & IPC & $\Delta$ vs.\ stride & Replayed & Useful & L2 miss reduction & Late \\
-\midrule
-No prefetch & -- & 0.36800 & -- & 0 & 0 & 0.00\% & 0 \\
-Live stride reference & -- & 0.37006 & -- & 0 & 34,854 & 17.16\% & 164 \\
-Offline stride & -- & 0.37016 & 0.00000 & 60,255 & 34,850 & 17.16\% & 165 \\
-\midrule
-Offline LSTM h8 & 545 & 0.36915 & -0.00101 & 34,337 & 18,836 & 9.27\% & 90 \\
-Offline LSTM h16 & 1,729 & \textbf{0.37090} & \textbf{+0.00074} & 33,891 & 13,700 & 6.74\% & 144 \\
-Offline LSTM h32 & 6,017 & 0.37033 & +0.00017 & 36,695 & 16,936 & 8.34\% & 230 \\
-Offline LSTM h64 & 22,273 & 0.36905 & -0.00111 & 34,351 & 18,612 & 9.16\% & 63 \\
-Offline LSTM h128 & 85,505 & 0.36886 & -0.00130 & 33,584 & 17,626 & 8.68\% & 10 \\
+Status & \textbf{PASS}; all five capacities passed original-byte-hash plus canonical decompressed-content checks.\\
+Primary comparison & \texttt{offline\_stride} vs. \texttt{offline\_lstm\_h<width>}; identical keyed ListReplayer transport.\\
+Shared information & Current PC, current cache-line address, and causal prior PC/address history.\\
+Forbidden information & Hit/miss, cycle, queues, metadata, and future evaluation rows.\\
+Window & 25M warmup + 25M measured; 25,000,003 reported instructions.\\
+Normal policy & Stride: 64 PC-indexed trackers, prefetch degree 2.\\
 \bottomrule
-\end{tabular}}
+\end{tabularx}
 \end{center}
 
-\emph{Useful} means a post-warmup L2 demand hit on a line marked as prefetched. L2 miss reduction is relative to the no-prefetch run with 203,131 L2 demand misses. The live-stride reference reports 122,156 post-warmup prefetch request events, while offline stride replays 60,255 keyed target entries; their IPCs differ by only 0.00010. Thus the primary offline-stride control is the appropriate replay comparator, while the live result independently confirms that stride was active with 64 trackers and degree 2.
-
-\section*{Accuracy, coverage, and timeliness diagnosis}
-The available counters do not contain a direct hardware prefetch-accuracy field. We therefore report \emph{observed useful-hit yield}, defined as useful-prefetch demand hits divided by post-warmup prefetch-request events. This is a diagnostic proxy, not strict accuracy: a request can be rejected, merged, duplicated, or evicted before use, and those outcomes are not separately counted here. Coverage is useful hits divided by the 203,131 no-prefetch L2 demand misses. The late/request ratio is also only a timeliness proxy; suppressing requests can reduce the absolute late count without improving the timing of retained requests.
-
-Offline stride has 34,850 useful hits from 60,255 requests, an observed useful-hit yield of 57.84\%, coverage of 17.16\%, and 165 late misses (0.274\% of requests). The measured h16 crossing has 13,700 useful hits from 33,891 requests: its yield is only 40.42\%, coverage is 6.74\%, and its 144 late misses are 0.425\% of requests. It also has 21,151 more L2 demand misses than offline stride (189,432 versus 168,281). Thus the measured accuracy, coverage, and timeliness proxies do \emph{not} explain h16's small IPC advantage.
-
-The correct conclusion is limited: h16 measured 0.00074 higher IPC on this one seed/window, but the current counters cannot attribute that difference to a better prefetch decision. Possible unmeasured mechanisms include cache pollution, duplicate or rejected requests, bandwidth/queue pressure, and memory-level parallelism; ordinary run-to-run or window variation is also not ruled out.
-
-\begin{figure}[ht]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-  width=0.93\linewidth,
-  height=5.4cm,
-  xmode=log,
-  log basis x=2,
-  xtick={8,16,32,64,128},
-  xticklabels={h8,h16,h32,h64,h128},
-  xlabel={LSTM hidden width},
-  ylabel={IPC},
-  ymin=0.3684,
-  ymax=0.3711,
-  ytick={0.3685,0.3690,0.3695,0.3700,0.3705,0.3710},
-  yticklabel style={
-    /pgf/number format/fixed,
-    /pgf/number format/fixed zerofill,
-    /pgf/number format/precision=4
-  },
-  grid=major,
-  legend style={at={(0.03,0.97)},anchor=north west,font=\small,draw=none,fill=white},
-]
-\addplot[blue,mark=*] coordinates {
-  (8,0.36915) (16,0.37090) (32,0.37033) (64,0.36905) (128,0.36886)
-};
-\addlegendentry{Offline LSTM}
-\addplot[black,dashed] coordinates {(8,0.37016) (128,0.37016)};
-\addlegendentry{Offline stride}
-\addplot[red,only marks,mark=square*] coordinates {(16,0.37090)};
-\addlegendentry{Best measured h16}
-\end{axis}
-\end{tikzpicture}
-\caption{Capacity sweep. h16 is the first and highest measured point above offline stride. The response is non-monotonic.}
-\end{figure}
-
-\section*{What the data supports}
-\begin{itemize}
-\item \textbf{Best and first measured crossing:} h16 has 1,729 trainable parameters and IPC 0.37090. It exceeds offline stride by 0.00074 IPC, or 0.200\% relative to offline stride, and exceeds no prefetch by 0.788\%.
-\item \textbf{Not a monotonic saturation curve:} h32 is only 0.00017 above stride; h8, h64, and h128 are below stride. Therefore h16 is the current \emph{best measured capacity point}, not proof that more parameters monotonically improve performance or that a final saturation point is known.
-\item \textbf{Counter interpretation:} h16 replayed 33,891 requests, 43.75\% fewer than offline stride's 60,255, but its useful-hit yield (40.42\% versus 57.84\%), coverage (6.74\% versus 17.16\%), late/request ratio (0.425\% versus 0.274\%), and L2 demand misses are all worse. Do not describe h16 as more accurate or more timely from these counters. Its IPC crossing is measured but mechanistically unresolved.
-\item \textbf{Transport validation:} offline stride (0.37016) closely matches active live stride (0.37006). The old inactive live-stride row is not used.
-\end{itemize}
-
-\section*{How to interpret and confirm h16}
-The capacity sweep reused one evaluation stream to compare widths. Treat h16 as an \emph{exploratory selection}, not a final general claim. Before reporting LSTM beats stride beyond this sweep, keep h16 fixed and confirm it on a fresh held-out 602 window and at least one additional random seed. The next analysis question is not add more parameters, but why h16's more selective list produces a small IPC gain despite lower useful-hit count.
-
-To explain that mechanism, a confirmation run should add accepted/merged/rejected prefetch counts, filled-but-unused and evicted-before-use lines, duplicate suppression, PQ/MSHR occupancy, DRAM traffic, and a lead-time distribution. The present data are sufficient to report the matched-input IPC crossing and to reject an accuracy/timeliness explanation; they are not sufficient to claim why the crossing occurred or that it generalizes.
-
-\section*{Verified provenance and final status}
-The two gzip containers differ because their container metadata differs, but their normalized stream contents are exact matches:
-\begin{center}
-\scriptsize
-\begin{tabular}{llll}
+\section*{Metric definitions}
+Let $R$ be post-warmup replayed requests, $U$ useful-prefetch demand hits, $L$ late demand misses, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+\[
+\boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
+\qquad
+\boxed{C=100\frac{U}{M_0}}
+\qquad
+\boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
+\]
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l X l@{}}
 \toprule
-Stream & Current gzip SHA prefix & Original gzip SHA prefix & Shared content SHA prefix \\
+Metric & Name & Exact interpretation & Desired direction \\
 \midrule
-Train & \texttt{83981fdcef8e} & \texttt{2cd771b1ce8c} & \texttt{2564c753145a} \\
-Evaluation & \texttt{73ee5e643b08} & \texttt{4c6d110b57b4} & \texttt{36ce707c2f27} \\
+$A_{\mathrm{proxy}}$ & Observed useful-hit yield & Useful demand hits per logged request; \emph{not} strict hardware accuracy. & Higher \\
+$C$ & Coverage & Fraction of no-prefetch L2 misses converted into useful prefetched hits. & Higher \\
+$T_{\mathrm{late}}$ & Late density & Late demand misses per 100,000 requests; not a lead-time distribution. & Lower \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Strict accuracy additionally needs accepted/rejected/merged/duplicate and evicted-before-use counts. Strict timeliness needs issue-to-demand lead-time distributions.
+
+\section*{Measured data}
+\begin{center}\scriptsize
+\begin{tabular}{lrrrrrr}
+\toprule
+Method & Params & IPC & $\Delta$ IPC & $A_{\rm proxy}$ & Coverage & Late/100k \\
+\midrule
+Offline stride & -- & 0.37016 & 0.00000 & \textbf{57.838\%} & \textbf{17.156\%} & 273.836 \\
+LSTM h8 & 545 & 0.36915 & -0.00101 & 54.856\% & 9.273\% & 262.108 \\
+LSTM h16 & 1,729 & \textbf{0.37090} & \textbf{+0.00074} & 40.424\% & 6.744\% & 424.892 \\
+LSTM h32 & 6,017 & 0.37033 & +0.00017 & 46.153\% & 8.337\% & 626.788 \\
+LSTM h64 & 22,273 & 0.36905 & -0.00111 & 54.182\% & 9.163\% & 183.401 \\
+LSTM h128 & 85,505 & 0.36886 & -0.00130 & 52.483\% & 8.677\% & 29.776 \\
 \bottomrule
 \end{tabular}
 \end{center}
-All h8, h16, h32, h64, and h128 outputs were accepted through the legacy
-source-byte-hash plus decompressed-content matching mode.
-The matched-input offline claim is therefore allowed for this measured sweep:
-h16 is the first and best measured capacity above offline stride. This remains
-an exploratory capacity selection because all widths share one evaluation
-stream; a fresh held-out confirmation is still required before generalizing.
+
+\begin{center}\scriptsize
+\begin{tabularx}{0.92\textwidth}{@{}lrrX@{}}
+\toprule
+h16 relative to offline stride & Stride & h16 & Diagnostic meaning \\
+\midrule
+Requests & 60,255 & 33,891 & $-26{,}364$ ($-43.75\%$).\\
+Useful hits & 34,850 & 13,700 & $-21{,}150$: substantially lower useful coverage.\\
+L2 demand misses & 168,281 & 189,432 & $+21{,}151$: counter proxies are worse.\\
+Late misses & 165 & 144 & $-21$ absolute, but late density is higher.\\
+IPC & 0.37016 & 0.37090 & $+0.00074$ ($+0.200\%$): measured crossing remains unexplained.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\clearpage
+\section*{Accuracy--coverage--timeliness diagrams}
+\begin{center}
+\begin{tikzpicture}[baseline=-0.5ex]
+\draw[blue,thick] (0,0)--(0.7,0) node[right,black]{LSTM capacity sweep};
+\draw[black,dashed,thick] (4.0,0)--(4.7,0) node[right,black]{offline stride baseline};
+\end{tikzpicture}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Performance: IPC},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=0.3684,ymax=0.3711,ytick={0.3685,0.3690,0.3695,0.3700,0.3705,0.3710},grid=major,
+yticklabel style={/pgf/number format/fixed,/pgf/number format/fixed zerofill,/pgf/number format/precision=4}]
+\addplot[blue,mark=*] coordinates {(8,0.36915)(16,0.37090)(32,0.37033)(64,0.36905)(128,0.36886)};
+\addplot[black,dashed] coordinates {(8,0.37016)(128,0.37016)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Accuracy proxy: $A_{\rm proxy}$ (\%)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=38,ymax=60,grid=major]
+\addplot[blue,mark=*] coordinates {(8,54.8563)(16,40.4237)(32,46.1534)(64,54.1818)(128,52.4833)};
+\addplot[black,dashed] coordinates {(8,57.8375)(128,57.8375)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Coverage $C$ (\%)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=5.5,ymax=18.2,grid=major]
+\addplot[blue,mark=*] coordinates {(8,9.2728)(16,6.7444)(32,8.3375)(64,9.1626)(128,8.6772)};
+\addplot[black,dashed] coordinates {(8,17.1564)(128,17.1564)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Timeliness proxy: late/100k (lower is better)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=0,ymax=680,grid=major]
+\addplot[blue,mark=*] coordinates {(8,262.1079)(16,424.8916)(32,626.7884)(64,183.4008)(128,29.7761)};
+\addplot[black,dashed] coordinates {(8,273.8362)(128,273.8362)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\caption{The legend is outside the axes. h16 crosses the IPC line while all three available quality proxies fail to explain that crossing.}
+\end{figure}
+
+\section*{Data-to-insight map}
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}p{0.32\textwidth}X@{}}
+\toprule
+Question & Data pattern & Supported insight \\
+\midrule
+Did h16 beat stride? & IPC $0.37090>0.37016$ ($+0.200\%$). & Yes, on this seed/window; it is an exploratory crossing.\\
+Was h16 more accurate or timely? & Yield $40.42<57.84\%$; coverage $6.74<17.16\%$; late density $424.9>273.8$. & No. Current quality proxies reject that explanation.\\
+Is capacity monotonic? & h16 is best; h32 barely crosses; h64/h128 lose. & No saturation curve or monotonic size benefit is established.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Conclusion and evidence boundary}
+\begin{itemize}
+\item \textbf{Result:} h16 is the first and best measured crossing at $+0.00074$ IPC.
+\item \textbf{Mechanism: unresolved.} Lower coverage and worse late density cannot explain the IPC gain.
+\item \textbf{Needed counters:} accepted/merged/rejected/duplicate requests, unused/evicted prefetched lines, PQ/MSHR occupancy, DRAM traffic, MLP, and lead-time distributions.
+\item \textbf{Confirmation:} freeze h16 and rerun a fresh held-out 602 window plus additional seeds before generalizing.
+\end{itemize}
+
+\section*{Verified provenance}
+Analyzer status \texttt{PASS}; shared canonical content SHA256 prefixes: \texttt{2564c753145a} (train) and \texttt{36ce707c2f27} (evaluation). Live stride is a validated reference (0.37006 IPC), not the primary offline comparator.
 
 \end{document}
