@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_streamer"
 TRACE="602.gcc_s-734B"
-RUN_ID="${RUN_ID:-602_offline_lstm_streamer_sweep_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_streamer_stateful_v2_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -105,6 +105,23 @@ colab_dir() {
   printf '%s/%s' "$COLAB_ROOT" "$1"
 }
 
+assert_stateful_metadata() {
+  python3 - "$1" <<'PY'
+import json, sys
+metadata = json.load(open(sys.argv[1]))
+expected = {
+    "training_state_mode": "chronological_stateful_tbptt",
+    "training_chunks_shuffled": False,
+    "training_state_carried_across_chunks": True,
+    "training_state_detached_between_chunks": True,
+    "experiment_revision": "stateful_tbptt_v2",
+}
+bad = {key: (metadata.get(key), value) for key, value in expected.items() if metadata.get(key) != value}
+if bad:
+    raise SystemExit("not a stateful-v2 Colab output: {}".format(bad))
+PY
+}
+
 assert_live_streamer() {
   local log="$1"
   # The pinned multi-prefetcher registry prints this implementation in lowercase.
@@ -181,6 +198,7 @@ require_colab_outputs() {
       echo "[error] missing Colab output $(colab_dir "$tag")/run_metadata.json" >&2
       exit 2
     }
+    assert_stateful_metadata "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 

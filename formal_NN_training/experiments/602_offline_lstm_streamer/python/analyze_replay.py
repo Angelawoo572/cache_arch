@@ -225,6 +225,20 @@ def main():
             failures.append("{} metadata parse failed: {}".format(tag, exc))
             continue
         metadata_by_tag[tag] = metadata
+        state_contract = {
+            "training_state_mode": "chronological_stateful_tbptt",
+            "training_chunks_shuffled": False,
+            "training_state_carried_across_chunks": True,
+            "training_state_detached_between_chunks": True,
+            "experiment_revision": "stateful_tbptt_v2",
+        }
+        for key, expected in state_contract.items():
+            if metadata.get(key) != expected:
+                failures.append(
+                    "{} metadata {}={!r}; expected {!r}".format(
+                        tag, key, metadata.get(key), expected
+                    )
+                )
         if metadata.get("matched_normal_prefetcher") != "streamer":
             failures.append("{} metadata is not matched to streamer".format(tag))
         if set(current_stream_info) != {"train", "eval"}:
@@ -317,6 +331,10 @@ def main():
             "l2_miss_reduction_vs_no_pref": "(no-prefetch L2 load misses - method L2 load misses) / no-prefetch L2 load misses",
         },
         "model_tags": model_tags,
+        "required_recurrent_state_contract": {
+            "training": "chronological stateful TBPTT; hidden/cell values cross chunks; graph detached at chunk boundaries",
+            "inference": "continuous within the independent evaluation stream",
+        },
         "offline_streamer_list_hashes_by_model_tag": streamer_list_hashes,
         "input_provenance": input_provenance,
         "failures": failures,

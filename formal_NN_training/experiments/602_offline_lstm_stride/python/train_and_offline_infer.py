@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train the tiny 602 LSTM and export offline LSTM and stride replay lists.
+"""Train the 602 stateful LSTM and export offline LSTM and stride replay lists.
 
 Both policies consume exactly the same evaluation PC/address stream.  Neither
 policy reads hit/miss, cycle, queue state, metadata, or future evaluation rows.
@@ -167,29 +167,54 @@ def train_model(model, runtime, candidate, labels, valid, fit_end, device, epoch
     history = []
     model.to(device)
     for epoch in range(1, epochs + 1):
-        generator = torch.Generator().manual_seed(1000 + epoch)
-        order = torch.randperm(len(x), generator=generator)
         total_loss = 0.0
         total_valid = 0
+        optimizer_steps = 0
         model.train()
-        for start in range(0, len(order), batch_chunks):
-            indices = order[start : start + batch_chunks]
-            xb = x[indices].to(device)
-            cb = c[indices].to(device)
-            yb = y[indices].to(device)
-            mb = mask[indices].to(device)
-            optimizer.zero_grad(set_to_none=True)
-            logits, _ = model(xb, cb)
-            if not bool(mb.any()):
-                continue
-            loss = F.binary_cross_entropy_with_logits(logits[mb], yb[mb])
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            count = int(mb.sum().item())
-            total_loss += float(loss.item()) * count
-            total_valid += count
-        row = {"epoch": epoch, "loss": total_loss / max(1, total_valid), "valid_candidates": total_valid}
+
+        # Stateful truncated BPTT: consume chunks in trace order and carry the
+        # numerical hidden/cell state across every boundary. Detaching the
+        # state truncates the graph; it does not reset the recurrent memory.
+        state = None
+        group_loss_sum = None
+        group_valid = 0
+        group_chunks = 0
+        optimizer.zero_grad(set_to_none=True)
+        for chunk_index in range(len(x)):
+            xb = x[chunk_index : chunk_index + 1].to(device)
+            cb = c[chunk_index : chunk_index + 1].to(device)
+            yb = y[chunk_index : chunk_index + 1].to(device)
+            mb = mask[chunk_index : chunk_index + 1].to(device)
+            logits, state = model(xb, cb, state)
+            state = tuple(value.detach() for value in state)
+            if bool(mb.any()):
+                loss_sum = F.binary_cross_entropy_with_logits(
+                    logits[mb], yb[mb], reduction="sum"
+                )
+                group_loss_sum = loss_sum if group_loss_sum is None else group_loss_sum + loss_sum
+                count = int(mb.sum().item())
+                group_valid += count
+                total_valid += count
+                total_loss += float(loss_sum.detach().item())
+            group_chunks += 1
+
+            if group_chunks == batch_chunks or chunk_index + 1 == len(x):
+                if group_loss_sum is not None:
+                    (group_loss_sum / float(group_valid)).backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    optimizer_steps += 1
+                optimizer.zero_grad(set_to_none=True)
+                group_loss_sum = None
+                group_valid = 0
+                group_chunks = 0
+        row = {
+            "epoch": epoch,
+            "loss": total_loss / max(1, total_valid),
+            "valid_candidates": total_valid,
+            "chronological_chunks": len(x),
+            "optimizer_steps": optimizer_steps,
+        }
         history.append(row)
         print("[train] epoch={epoch} loss={loss:.6f} valid={valid_candidates}".format(**row))
     return history
@@ -338,6 +363,15 @@ def main():
         "shared_eval_inputs": ["current_pc", "current_cache_line", "causal_prior_pc_address_history"],
         "forbidden_inputs": ["hit_miss", "cycle", "queue_state", "metadata", "future_evaluation_rows"],
         "training_labels": "future addresses only inside the disjoint 0_to_20M training stream",
+        "training_state_mode": "chronological_stateful_tbptt",
+        "training_chunks_shuffled": False,
+        "training_state_carried_across_chunks": True,
+        "training_state_detached_between_chunks": True,
+        "training_state_reset": "only_at_epoch_start",
+        "training_chunk_len": args.chunk_len,
+        "optimizer_step_every_chunks": args.batch_chunks,
+        "inference_state_mode": "continuous_within_each_independent_stream",
+        "experiment_revision": "stateful_tbptt_v2",
         "evaluation_stream_role": "causal inference only; never used for fitting or threshold calibration",
         "transport": "same keyed PC-line-occ ListReplayer for both primary methods",
         "train_stream_sha256": sha256(args.train_stream),
