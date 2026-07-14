@@ -1,14 +1,12 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.68in]{geometry}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{graphicx}
+\usepackage[margin=0.65in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs,tabularx,array,graphicx,xcolor,enumitem,float}
 \usepackage{hyperref}
-\usepackage{xcolor}
-\usepackage{enumitem}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\setlength{\parindent}{0pt}
 \setlength{\parskip}{3pt}
 \setlist{nosep,leftmargin=*}
 \renewcommand{\arraystretch}{1.08}
@@ -16,95 +14,149 @@
 \begin{document}\small
 \begin{center}
 {\Large\bfseries 602 Offline LSTM Gate vs. Offline Streamer}\\[2pt]
-{\small Verified capacity sweep for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
+{\small Matched-input capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
 \end{center}
 
-\section*{Status and experiment contract}
-\textbf{Status: PASS.} This is a single-trace offline experiment. Colab trains a one-layer LSTM on an earlier no-prefetch training prefix and performs causal sequential inference on a disjoint no-prefetch evaluation stream. It exports keyed PC--line--occurrence replay lists. ChampSim replays both the deterministic offline-streamer list and each offline-LSTM list using the same \texttt{ListReplayer} transport.
-
-The matched normal prefetcher is the pinned implementation of streamer with 64 page trackers and degree 5. Its raw input is the current cache-line address plus causal prior address history. PC is retained only in the replay key; it is not an LSTM input. The LSTM may derive causal page/offset/direction state from that same address stream and only gates the exact streamer candidate set. It receives no hit/miss, cycle, queue, metadata, or future evaluation information.
-
-The primary comparison is \texttt{offline\_streamer} versus \texttt{offline\_lstm\_h<width>}. Live streamer is a validated general reference only. All simulations used the same 25M warmup and 25M measured window (25,000,003 reported instructions). The provenance analyzer passed for every capacity using canonical decompressed-content SHA256 checks.
-
-\section*{Measured comparison}
-\begin{center}
-\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrrr}
+\section*{Experiment contract}
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
-Method & Params & IPC & $\Delta$ vs. streamer & Requests & Useful & Coverage & L2 misses & Late \\
-\midrule
-No prefetch & -- & 0.36800 & -- & 0 & 0 & 0.00\% & 203,131 & 0 \\
-Live streamer reference & -- & 0.43161 & -- & 1,808,879 & 187,663 & 92.39\% & 15,475 & 47 \\
-Offline streamer & -- & \textbf{0.43150} & 0.00000 & 1,622,884 & 187,641 & 92.37\% & 15,497 & 48 \\
-\midrule
-Offline LSTM h8 & 545 & 0.43134 & -0.00016 & 1,621,715 & 187,402 & 92.26\% & 15,736 & 42 \\
-Offline LSTM h16 & 1,729 & 0.43113 & -0.00037 & 1,620,215 & 187,179 & 92.15\% & 15,956 & 45 \\
-Offline LSTM h32 & 6,017 & 0.42917 & -0.00233 & 1,315,021 & 183,413 & 90.29\% & 19,722 & 2 \\
-Offline LSTM h64 & 22,273 & 0.42869 & -0.00281 & 1,242,239 & 182,702 & 89.94\% & 20,433 & 1 \\
-Offline LSTM h128 & 85,505 & 0.42787 & -0.00363 & 1,168,991 & 181,302 & 89.25\% & 21,832 & 1 \\
+Status & \textbf{PASS}; all five capacities passed canonical decompressed-content SHA256 checks.\\
+Primary comparison & \texttt{offline\_streamer} vs. \texttt{offline\_lstm\_h<width>}; identical keyed ListReplayer transport.\\
+Shared information & Current cache-line address and causal prior address history. PC is replay identity only, not a model input.\\
+Forbidden information & Hit/miss, cycle, queues, metadata, and future evaluation rows.\\
+Window & 25M warmup + 25M measured; 25,000,003 reported instructions.\\
+Normal policy & Streamer: 64 page trackers, prefetch degree 5.\\
 \bottomrule
-\end{tabular}}
+\end{tabularx}
 \end{center}
 
-Coverage is useful-prefetch demand hits divided by no-prefetch L2 demand misses (203,131). ``Requests'' is the post-warmup prefetch-request-event count. One keyed replay trigger can contain several candidate targets, so the 335,311 matched streamer trigger keys expand to 1,622,884 replayed requests. Live streamer generated 3,623,513 candidates in total, including warmup; this verifies that the normal prefetcher was active with the intended 64-tracker, degree-5 configuration.
+\section*{Metric definitions}
+Let $R$ be post-warmup prefetch requests, $U$ useful-prefetch demand hits, $L$ late demand misses, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+\[
+\boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
+\qquad
+\boxed{C=100\frac{U}{M_0}}
+\qquad
+\boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
+\]
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l X l@{}}
+\toprule
+Metric & Name & Exact interpretation & Desired direction \\
+\midrule
+$A_{\mathrm{proxy}}$ & Observed useful-hit yield & Useful demand hits per logged request; \emph{not} strict hardware accuracy. & Higher \\
+$C$ & Coverage & Fraction of no-prefetch L2 misses converted into useful prefetched hits. & Higher \\
+$T_{\mathrm{late}}$ & Late density & Late demand misses per 100,000 requests; not a lead-time distribution. & Lower \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Strict accuracy additionally needs accepted/rejected/merged/duplicate and evicted-before-use counts. Strict timeliness needs issue-to-demand lead-time distributions.
 
-\section*{Accuracy, coverage, and timeliness diagnosis}
-The event log does not expose a strict prefetch-accuracy counter. We use \emph{observed useful-hit yield}---useful-prefetch demand hits divided by post-warmup prefetch-request events---as a diagnostic proxy. It is not strict accuracy because requests may be rejected, merged, duplicated, or evicted before use. Coverage is useful hits divided by the 203,131 no-prefetch L2 demand misses. Late/request is a timeliness proxy, not a complete lead-time distribution.
+\section*{Measured data}
+\begin{center}\scriptsize
+\begin{tabular}{lrrrrrr}
+\toprule
+Method & Params & IPC & $\Delta$ IPC & $A_{\rm proxy}$ & Coverage & Late/100k \\
+\midrule
+Offline streamer & -- & \textbf{0.43150} & 0.00000 & 11.562\% & 92.374\% & 2.958 \\
+LSTM h8 & 545 & 0.43134 & -0.00016 & 11.556\% & 92.257\% & 2.590 \\
+LSTM h16 & 1,729 & 0.43113 & -0.00037 & 11.553\% & 92.147\% & 2.777 \\
+LSTM h32 & 6,017 & 0.42917 & -0.00233 & 13.948\% & 90.293\% & 0.152 \\
+LSTM h64 & 22,273 & 0.42869 & -0.00281 & 14.708\% & 89.943\% & 0.081 \\
+LSTM h128 & 85,505 & 0.42787 & -0.00363 & 15.509\% & 89.254\% & 0.086 \\
+\bottomrule
+\end{tabular}
+\end{center}
 
-Offline streamer has an observed useful-hit yield of 11.562\%, coverage of 92.374\%, and 48 late misses (0.00296\% of requests). The closest model, h8, has nearly the same yield (11.556\%) and slightly lower coverage (92.257\%). It removes 1,169 requests but loses 239 useful hits; the same 239 reappear as additional L2 demand misses. It reduces late misses by only six. This is the specific measured reason h8 does not reach the offline-streamer line: its small timeliness improvement does not compensate for lost useful coverage.
+\begin{center}\scriptsize
+\begin{tabularx}{0.92\textwidth}{@{}lrrX@{}}
+\toprule
+h8 relative to offline streamer & Streamer & h8 & Diagnostic meaning \\
+\midrule
+Requests & 1,622,884 & 1,621,715 & $-1{,}169$: almost unchanged traffic.\\
+Useful hits & 187,641 & 187,402 & $-239$: useful candidates were removed.\\
+L2 demand misses & 15,497 & 15,736 & $+239$: exactly mirrors useful-hit loss.\\
+Late misses & 48 & 42 & $-6$: timeliness gain is too small.\\
+IPC & 0.43150 & 0.43134 & $-0.00016$ ($-0.037\%$).\\
+\bottomrule
+\end{tabularx}
+\end{center}
 
-The larger h32--h128 gates illustrate a different trade-off. Their useful-hit yield rises to 13.95--15.51\%, so retained requests are more selective by this proxy, and late misses fall to one or two. However, they remove 19--28\% of requests, lose 2.25--3.38\% of useful hits, and reduce coverage to 90.29--89.25\%. Their higher yield is therefore purchased by excessive coverage loss, and IPC falls. Accuracy-like yield alone is not the objective; useful coverage and timing must be preserved together.
-
-\begin{figure}[ht]
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-  width=0.93\linewidth,
-  height=5.4cm,
-  xmode=log,
-  log basis x=2,
-  xtick={8,16,32,64,128},
-  xticklabels={h8,h16,h32,h64,h128},
-  xlabel={LSTM hidden width},
-  ylabel={IPC},
-  ymin=0.4275,
-  ymax=0.4317,
-  ytick={0.428,0.429,0.430,0.431},
-  yticklabel style={/pgf/number format/fixed,/pgf/number format/fixed zerofill,/pgf/number format/precision=3},
-  grid=major,
-  legend style={at={(0.03,0.97)},anchor=north west,font=\small,draw=none,fill=white},
-]
-\addplot[blue,mark=*] coordinates {
-  (8,0.43134) (16,0.43113) (32,0.42917) (64,0.42869) (128,0.42787)
-};
-\addlegendentry{Offline LSTM gate}
-\addplot[black,dashed] coordinates {(8,0.43150) (128,0.43150)};
-\addlegendentry{Offline streamer}
-\addplot[red,only marks,mark=square*] coordinates {(8,0.43134)};
-\addlegendentry{Closest LSTM: h8}
-\end{axis}
+\clearpage
+\section*{Accuracy--coverage--timeliness diagrams}
+\begin{center}
+\begin{tikzpicture}[baseline=-0.5ex]
+\draw[blue,thick] (0,0)--(0.7,0) node[right,black]{LSTM capacity sweep};
+\draw[black,dashed,thick] (4.0,0)--(4.7,0) node[right,black]{offline streamer baseline};
 \end{tikzpicture}
-\caption{No measured LSTM capacity exceeds offline streamer. h8 is closest; additional capacity reduces IPC.}
+\end{center}
+
+\begin{figure}[H]
+\centering
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Performance: IPC},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=0.4275,ymax=0.4318,ytick={0.428,0.429,0.430,0.431},grid=major,
+yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3}]
+\addplot[blue,mark=*] coordinates {(8,0.43134)(16,0.43113)(32,0.42917)(64,0.42869)(128,0.42787)};
+\addplot[black,dashed] coordinates {(8,0.43150)(128,0.43150)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Accuracy proxy: $A_{\rm proxy}$ (\%)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=11,ymax=16,grid=major]
+\addplot[blue,mark=*] coordinates {(8,11.5558)(16,11.5527)(32,13.9475)(64,14.7075)(128,15.5093)};
+\addplot[black,dashed] coordinates {(8,11.5622)(128,11.5622)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Coverage $C$ (\%)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=88.8,ymax=92.8,grid=major]
+\addplot[blue,mark=*] coordinates {(8,92.2567)(16,92.1469)(32,90.2930)(64,89.9429)(128,89.2537)};
+\addplot[black,dashed] coordinates {(8,92.3744)(128,92.3744)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Timeliness proxy: late/100k (lower is better)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=0,ymax=3.3,grid=major]
+\addplot[blue,mark=*] coordinates {(8,2.5899)(16,2.7774)(32,0.1521)(64,0.0805)(128,0.0855)};
+\addplot[black,dashed] coordinates {(8,2.9577)(128,2.9577)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\caption{The legend is outside the axes. Larger gates improve request-level yield and late density by suppressing traffic, but lose useful coverage and IPC.}
 \end{figure}
 
-\section*{What the data supports}
+\section*{Data-to-insight map}
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}p{0.32\textwidth}X@{}}
+\toprule
+Question & Data pattern & Supported insight \\
+\midrule
+Why does h8 miss the baseline? & $U:-239$, L2 misses:$+239$, late:$-6$. & Lost useful coverage dominates the tiny timeliness gain.\\
+Why does apparent accuracy rise for h32--h128? & $A_{\rm proxy}$ rises to 13.95--15.51\%, while coverage falls to 90.29--89.25\%. & The ratio rises because requests are suppressed; this is not an end-to-end win.\\
+Does more capacity help? & IPC decreases from h8 through h128; no crossing. & Capacity is not the bottleneck for this gate/objective.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Conclusion and evidence boundary}
 \begin{itemize}
-\item \textbf{No LSTM win in this experiment:} h8 is the best LSTM point at 545 parameters and IPC 0.43134, but it is 0.00016 IPC (0.037\%) below offline streamer. Every other tested width is lower. Therefore there is no streamer-matched LSTM capacity to select or confirm as a winner.
-\item \textbf{The primary control is sound:} offline streamer is 0.43150, only 0.00011 below active live streamer (0.43161). The two methods also have essentially equal useful hits, coverage, and L2 miss reduction. The offline replay baseline is therefore a faithful counterpart of the live normal prefetcher.
-\item \textbf{Why h8 is close but loses:} relative to offline streamer, h8 drops only 1,169 request events (0.072\%) and 153 matched trigger keys, but loses 239 useful-prefetch demand hits. Its L2 demand misses increase by exactly 239 (15,736 versus 15,497), producing the small IPC loss. Its six fewer late misses do not compensate for that coverage loss.
-\item \textbf{Increasing capacity is harmful here:} h32--h128 suppress 19--28\% of the streamer's request events, reduce useful hits by 2.3--3.4\%, and increase L2 misses by 4,225--6,335. This is a controlled negative result: adding a larger learned gate to the already-strong streamer's spatial candidate policy is not automatically beneficial.
-\item \textbf{Relation to the completed stride experiment:} h8's absolute IPC (0.43134) is higher than stride h16's 0.37090, but those are different normal candidate mechanisms and traffic levels. It is not evidence that the streamer LSTM is a better neural model. The correct conclusions are: the stride-matched h16 beat stride; the streamer-matched LSTM did not beat streamer.
+\item \textbf{Result:} no tested matched-input LSTM beats offline streamer; h8 is closest at $-0.00016$ IPC.
+\item \textbf{Mechanism supported by current counters:} candidate suppression loses useful coverage faster than it improves late density.
+\item \textbf{Not yet supported:} strict hardware accuracy, exact lead time, pollution, queue pressure, or cross-seed generalization.
+\item \textbf{Next test:} keep the input/candidate contract fixed; optimize coverage-preserving utility and confirm a frozen design on a fresh window and additional seeds.
 \end{itemize}
 
-\section*{Interpretation and next decision}
-Streamer itself is the source of the large performance gain: offline streamer improves IPC by 17.26\% over no prefetch and reduces L2 demand misses by 92.37\%. The LSTM was restricted to selecting from the same streamer candidates, so a gate can only win by removing harmful candidates without deleting useful ones. It did not do that on this window. Do not add capacity or tune solely to overcome the 0.00016 gap: h8 already behaves almost identically to streamer, while larger widths move in the wrong direction.
-
-These counters are sufficient to diagnose the proximate failure: h8 loses 239 useful lines for only six fewer late misses, while larger models trade coverage for higher request-level yield. They are not sufficient to reconstruct exact hardware prefetch accuracy or lead time. That would require accepted/merged/rejected request counts, evicted-before-use lines, duplicate suppression, and a per-request issue-to-demand distance distribution. The negative matched-input conclusion itself is nevertheless supported by the current data.
-
-This is a useful negative control, not a failed provenance result. The next independent matched-input study should use AMPM's different page-access bitmap input contract. Its result must be interpreted separately; no streamer model, list, threshold, or capacity may be selected for AMPM.
-
 \section*{Verified provenance}
-The current evaluation and training gzip files have different container-byte hashes from the earlier stride archive but the same decompressed content hashes. The streamer run records the canonical training content SHA256 prefix \texttt{2564c753145a} and evaluation content SHA256 prefix \texttt{36ce707c2f27}. Every capacity uses the canonical decompressed-content SHA256 validation mode; the final analyzer status is \texttt{PASS} with no failures.
+Analyzer status \texttt{PASS}; canonical content SHA256 prefixes: \texttt{2564c753145a} (train) and \texttt{36ce707c2f27} (evaluation). Live streamer is a validated reference (0.43161 IPC), not the primary offline comparator.
 
 \end{document}
