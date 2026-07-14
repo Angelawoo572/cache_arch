@@ -1,0 +1,101 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.68in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\setlength{\parskip}{4pt}
+\setlist{nosep,leftmargin=*}
+\renewcommand{\arraystretch}{1.08}
+
+\begin{document}
+\begin{center}
+{\Large\bfseries 602 Offline LSTM Gate vs. Offline Streamer}\\[2pt]
+{\small Verified capacity sweep for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
+\end{center}
+
+\section*{Status and experiment contract}
+\textbf{Status: PASS.} This is a single-trace offline experiment. Colab trains a one-layer LSTM on an earlier no-prefetch training prefix and performs causal sequential inference on a disjoint no-prefetch evaluation stream. It exports keyed PC--line--occurrence replay lists. ChampSim replays both the deterministic offline-streamer list and each offline-LSTM list using the same \texttt{ListReplayer} transport.
+
+The matched normal prefetcher is the pinned implementation of streamer with 64 page trackers and degree 5. Its raw input is the current cache-line address plus causal prior address history. PC is retained only in the replay key; it is not an LSTM input. The LSTM may derive causal page/offset/direction state from that same address stream and only gates the exact streamer candidate set. It receives no hit/miss, cycle, queue, metadata, or future evaluation information.
+
+The primary comparison is \texttt{offline\_streamer} versus \texttt{offline\_lstm\_h<width>}. Live streamer is a validated general reference only. All simulations used the same 25M warmup and 25M measured window (25,000,003 reported instructions). The provenance analyzer passed for every capacity using canonical decompressed-content SHA256 checks.
+
+\section*{Measured comparison}
+\begin{center}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrrr}
+\toprule
+Method & Params & IPC & $\Delta$ vs. streamer & Requests & Useful & Coverage & L2 misses & Late \\
+\midrule
+No prefetch & -- & 0.36800 & -- & 0 & 0 & 0.00\% & 203,131 & 0 \\
+Live streamer reference & -- & 0.43161 & -- & 1,808,879 & 187,663 & 92.39\% & 15,475 & 47 \\
+Offline streamer & -- & \textbf{0.43150} & 0.00000 & 1,622,884 & 187,641 & 92.37\% & 15,497 & 48 \\
+\midrule
+Offline LSTM h8 & 545 & 0.43134 & -0.00016 & 1,621,715 & 187,402 & 92.26\% & 15,736 & 42 \\
+Offline LSTM h16 & 1,729 & 0.43113 & -0.00037 & 1,620,215 & 187,179 & 92.15\% & 15,956 & 45 \\
+Offline LSTM h32 & 6,017 & 0.42917 & -0.00233 & 1,315,021 & 183,413 & 90.29\% & 19,722 & 2 \\
+Offline LSTM h64 & 22,273 & 0.42869 & -0.00281 & 1,242,239 & 182,702 & 89.94\% & 20,433 & 1 \\
+Offline LSTM h128 & 85,505 & 0.42787 & -0.00363 & 1,168,991 & 181,302 & 89.25\% & 21,832 & 1 \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+Coverage is useful-prefetch demand hits divided by no-prefetch L2 demand misses (203,131). ``Requests'' is the post-warmup prefetch-request-event count. One keyed replay trigger can contain several candidate targets, so the 335,311 matched streamer trigger keys expand to 1,622,884 replayed requests. Live streamer generated 3,623,513 candidates in total, including warmup; this verifies that the normal prefetcher was active with the intended 64-tracker, degree-5 configuration.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.93\linewidth,
+  height=6.1cm,
+  xmode=log,
+  log basis x=2,
+  xtick={8,16,32,64,128},
+  xticklabels={h8,h16,h32,h64,h128},
+  xlabel={LSTM hidden width},
+  ylabel={IPC},
+  ymin=0.4275,
+  ymax=0.4317,
+  ytick={0.428,0.429,0.430,0.431},
+  yticklabel style={/pgf/number format/fixed,/pgf/number format/fixed zerofill,/pgf/number format/precision=3},
+  grid=major,
+  legend style={at={(0.03,0.97)},anchor=north west,font=\small,draw=none,fill=white},
+]
+\addplot[blue,mark=*] coordinates {
+  (8,0.43134) (16,0.43113) (32,0.42917) (64,0.42869) (128,0.42787)
+};
+\addlegendentry{Offline LSTM gate}
+\addplot[black,dashed] coordinates {(8,0.43150) (128,0.43150)};
+\addlegendentry{Offline streamer}
+\addplot[red,only marks,mark=square*] coordinates {(8,0.43134)};
+\addlegendentry{Closest LSTM: h8}
+\end{axis}
+\end{tikzpicture}
+\caption{No measured LSTM capacity exceeds offline streamer. h8 is closest; additional capacity reduces IPC.}
+\end{figure}
+
+\section*{What the data supports}
+\begin{itemize}
+\item \textbf{No LSTM win in this experiment:} h8 is the best LSTM point at 545 parameters and IPC 0.43134, but it is 0.00016 IPC (0.037\%) below offline streamer. Every other tested width is lower. Therefore there is no streamer-matched LSTM capacity to select or confirm as a winner.
+\item \textbf{The primary control is sound:} offline streamer is 0.43150, only 0.00011 below active live streamer (0.43161). The two methods also have essentially equal useful hits, coverage, and L2 miss reduction. The offline replay baseline is therefore a faithful counterpart of the live normal prefetcher.
+\item \textbf{Why h8 is close but loses:} relative to offline streamer, h8 drops only 1,169 request events (0.072\%) and 153 matched trigger keys, but loses 239 useful-prefetch demand hits. Its L2 demand misses increase by exactly 239 (15,736 versus 15,497), producing the small IPC loss. Its six fewer late misses do not compensate for that coverage loss.
+\item \textbf{Increasing capacity is harmful here:} h32--h128 suppress 19--28\% of the streamer's request events, reduce useful hits by 2.3--3.4\%, and increase L2 misses by 4,225--6,335. This is a controlled negative result: adding a larger learned gate to the already-strong streamer's spatial candidate policy is not automatically beneficial.
+\item \textbf{Relation to the completed stride experiment:} h8's absolute IPC (0.43134) is higher than stride h16's 0.37090, but those are different normal candidate mechanisms and traffic levels. It is not evidence that the streamer LSTM is a better neural model. The correct conclusions are: the stride-matched h16 beat stride; the streamer-matched LSTM did not beat streamer.
+\end{itemize}
+
+\section*{Interpretation and next decision}
+Streamer itself is the source of the large performance gain: offline streamer improves IPC by 17.26\% over no prefetch and reduces L2 demand misses by 92.37\%. The LSTM was restricted to selecting from the same streamer candidates, so a gate can only win by removing harmful candidates without deleting useful ones. It did not do that on this window. Do not add capacity or tune solely to overcome the 0.00016 gap: h8 already behaves almost identically to streamer, while larger widths move in the wrong direction.
+
+This is a useful negative control, not a failed provenance result. The next independent matched-input study should use AMPM's different page-access bitmap input contract. Its result must be interpreted separately; no streamer model, list, threshold, or capacity may be selected for AMPM.
+
+\section*{Verified provenance}
+The current evaluation and training gzip files have different container-byte hashes from the earlier stride archive but the same decompressed content hashes. The streamer run records the canonical training content SHA256 prefix \texttt{2564c753145a} and evaluation content SHA256 prefix \texttt{36ce707c2f27}. Every capacity uses the canonical decompressed-content SHA256 validation mode; the final analyzer status is \texttt{PASS} with no failures.
+
+\end{document}
