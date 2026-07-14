@@ -9,11 +9,11 @@
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
-\setlength{\parskip}{4pt}
+\setlength{\parskip}{3pt}
 \setlist{nosep,leftmargin=*}
 \renewcommand{\arraystretch}{1.08}
 
-\begin{document}
+\begin{document}\small
 \begin{center}
 {\Large\bfseries 602 Offline LSTM Gate vs. Offline Streamer}\\[2pt]
 {\small Verified capacity sweep for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
@@ -49,12 +49,19 @@ Offline LSTM h128 & 85,505 & 0.42787 & -0.00363 & 1,168,991 & 181,302 & 89.25\% 
 
 Coverage is useful-prefetch demand hits divided by no-prefetch L2 demand misses (203,131). ``Requests'' is the post-warmup prefetch-request-event count. One keyed replay trigger can contain several candidate targets, so the 335,311 matched streamer trigger keys expand to 1,622,884 replayed requests. Live streamer generated 3,623,513 candidates in total, including warmup; this verifies that the normal prefetcher was active with the intended 64-tracker, degree-5 configuration.
 
+\section*{Accuracy, coverage, and timeliness diagnosis}
+The event log does not expose a strict prefetch-accuracy counter. We use \emph{observed useful-hit yield}---useful-prefetch demand hits divided by post-warmup prefetch-request events---as a diagnostic proxy. It is not strict accuracy because requests may be rejected, merged, duplicated, or evicted before use. Coverage is useful hits divided by the 203,131 no-prefetch L2 demand misses. Late/request is a timeliness proxy, not a complete lead-time distribution.
+
+Offline streamer has an observed useful-hit yield of 11.562\%, coverage of 92.374\%, and 48 late misses (0.00296\% of requests). The closest model, h8, has nearly the same yield (11.556\%) and slightly lower coverage (92.257\%). It removes 1,169 requests but loses 239 useful hits; the same 239 reappear as additional L2 demand misses. It reduces late misses by only six. This is the specific measured reason h8 does not reach the offline-streamer line: its small timeliness improvement does not compensate for lost useful coverage.
+
+The larger h32--h128 gates illustrate a different trade-off. Their useful-hit yield rises to 13.95--15.51\%, so retained requests are more selective by this proxy, and late misses fall to one or two. However, they remove 19--28\% of requests, lose 2.25--3.38\% of useful hits, and reduce coverage to 90.29--89.25\%. Their higher yield is therefore purchased by excessive coverage loss, and IPC falls. Accuracy-like yield alone is not the objective; useful coverage and timing must be preserved together.
+
 \begin{figure}[ht]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
   width=0.93\linewidth,
-  height=6.1cm,
+  height=5.4cm,
   xmode=log,
   log basis x=2,
   xtick={8,16,32,64,128},
@@ -92,6 +99,8 @@ Coverage is useful-prefetch demand hits divided by no-prefetch L2 demand misses 
 
 \section*{Interpretation and next decision}
 Streamer itself is the source of the large performance gain: offline streamer improves IPC by 17.26\% over no prefetch and reduces L2 demand misses by 92.37\%. The LSTM was restricted to selecting from the same streamer candidates, so a gate can only win by removing harmful candidates without deleting useful ones. It did not do that on this window. Do not add capacity or tune solely to overcome the 0.00016 gap: h8 already behaves almost identically to streamer, while larger widths move in the wrong direction.
+
+These counters are sufficient to diagnose the proximate failure: h8 loses 239 useful lines for only six fewer late misses, while larger models trade coverage for higher request-level yield. They are not sufficient to reconstruct exact hardware prefetch accuracy or lead time. That would require accepted/merged/rejected request counts, evicted-before-use lines, duplicate suppression, and a per-request issue-to-demand distance distribution. The negative matched-input conclusion itself is nevertheless supported by the current data.
 
 This is a useful negative control, not a failed provenance result. The next independent matched-input study should use AMPM's different page-access bitmap input contract. Its result must be interpreted separately; no streamer model, list, threshold, or capacity may be selected for AMPM.
 
