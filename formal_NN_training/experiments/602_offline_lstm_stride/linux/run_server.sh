@@ -104,7 +104,8 @@ colab_dir() {
 
 assert_live_stride() {
   local log="$1"
-  grep -Fq "adding L2C_PREFETCHER: stride" "$log" || {
+  # ChampSim prints the implementation name as "Stride" (capital S).
+  grep -Fqi "adding L2C_PREFETCHER: stride" "$log" || {
     echo "[error] live stride was not registered; refusing an inactive reference" >&2
     exit 3
   }
