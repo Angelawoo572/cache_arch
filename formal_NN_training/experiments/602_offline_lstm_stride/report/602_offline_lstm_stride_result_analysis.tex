@@ -9,11 +9,11 @@
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
-\setlength{\parskip}{4pt}
+\setlength{\parskip}{3pt}
 \setlist{nosep,leftmargin=*}
 \renewcommand{\arraystretch}{1.08}
 
-\begin{document}
+\begin{document}\small
 \begin{center}
 {\Large\bfseries 602 Offline LSTM vs. Offline Stride}\\[2pt]
 {\small Capacity sweep results for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
@@ -49,12 +49,19 @@ Offline LSTM h128 & 85,505 & 0.36886 & -0.00130 & 33,584 & 17,626 & 8.68\% & 10 
 
 \emph{Useful} means a post-warmup L2 demand hit on a line marked as prefetched. L2 miss reduction is relative to the no-prefetch run with 203,131 L2 demand misses. The live-stride reference reports 122,156 post-warmup prefetch request events, while offline stride replays 60,255 keyed target entries; their IPCs differ by only 0.00010. Thus the primary offline-stride control is the appropriate replay comparator, while the live result independently confirms that stride was active with 64 trackers and degree 2.
 
+\section*{Accuracy, coverage, and timeliness diagnosis}
+The available counters do not contain a direct hardware prefetch-accuracy field. We therefore report \emph{observed useful-hit yield}, defined as useful-prefetch demand hits divided by post-warmup prefetch-request events. This is a diagnostic proxy, not strict accuracy: a request can be rejected, merged, duplicated, or evicted before use, and those outcomes are not separately counted here. Coverage is useful hits divided by the 203,131 no-prefetch L2 demand misses. The late/request ratio is also only a timeliness proxy; suppressing requests can reduce the absolute late count without improving the timing of retained requests.
+
+Offline stride has 34,850 useful hits from 60,255 requests, an observed useful-hit yield of 57.84\%, coverage of 17.16\%, and 165 late misses (0.274\% of requests). The measured h16 crossing has 13,700 useful hits from 33,891 requests: its yield is only 40.42\%, coverage is 6.74\%, and its 144 late misses are 0.425\% of requests. It also has 21,151 more L2 demand misses than offline stride (189,432 versus 168,281). Thus the measured accuracy, coverage, and timeliness proxies do \emph{not} explain h16's small IPC advantage.
+
+The correct conclusion is limited: h16 measured 0.00074 higher IPC on this one seed/window, but the current counters cannot attribute that difference to a better prefetch decision. Possible unmeasured mechanisms include cache pollution, duplicate or rejected requests, bandwidth/queue pressure, and memory-level parallelism; ordinary run-to-run or window variation is also not ruled out.
+
 \begin{figure}[ht]
 \centering
 \begin{tikzpicture}
 \begin{axis}[
   width=0.93\linewidth,
-  height=6.1cm,
+  height=5.4cm,
   xmode=log,
   log basis x=2,
   xtick={8,16,32,64,128},
@@ -89,12 +96,14 @@ Offline LSTM h128 & 85,505 & 0.36886 & -0.00130 & 33,584 & 17,626 & 8.68\% & 10 
 \begin{itemize}
 \item \textbf{Best and first measured crossing:} h16 has 1,729 trainable parameters and IPC 0.37090. It exceeds offline stride by 0.00074 IPC, or 0.200\% relative to offline stride, and exceeds no prefetch by 0.788\%.
 \item \textbf{Not a monotonic saturation curve:} h32 is only 0.00017 above stride; h8, h64, and h128 are below stride. Therefore h16 is the current \emph{best measured capacity point}, not proof that more parameters monotonically improve performance or that a final saturation point is known.
-\item \textbf{Counter interpretation:} h16 replayed 33,891 requests, 43.75\% fewer than offline stride's 60,255. It also produced fewer useful-prefetch demand hits (13,700 versus 34,850) and lower miss reduction (6.74\% versus 17.16\%), yet achieved higher IPC. This is consistent with a possible selectivity/timing or cache-pollution trade-off, but counters alone do not establish the causal mechanism.
+\item \textbf{Counter interpretation:} h16 replayed 33,891 requests, 43.75\% fewer than offline stride's 60,255, but its useful-hit yield (40.42\% versus 57.84\%), coverage (6.74\% versus 17.16\%), late/request ratio (0.425\% versus 0.274\%), and L2 demand misses are all worse. Do not describe h16 as more accurate or more timely from these counters. Its IPC crossing is measured but mechanistically unresolved.
 \item \textbf{Transport validation:} offline stride (0.37016) closely matches active live stride (0.37006). The old inactive live-stride row is not used.
 \end{itemize}
 
 \section*{How to interpret and confirm h16}
 The capacity sweep reused one evaluation stream to compare widths. Treat h16 as an \emph{exploratory selection}, not a final general claim. Before reporting LSTM beats stride beyond this sweep, keep h16 fixed and confirm it on a fresh held-out 602 window and at least one additional random seed. The next analysis question is not add more parameters, but why h16's more selective list produces a small IPC gain despite lower useful-hit count.
+
+To explain that mechanism, a confirmation run should add accepted/merged/rejected prefetch counts, filled-but-unused and evicted-before-use lines, duplicate suppression, PQ/MSHR occupancy, DRAM traffic, and a lead-time distribution. The present data are sufficient to report the matched-input IPC crossing and to reject an accuracy/timeliness explanation; they are not sufficient to claim why the crossing occurred or that it generalizes.
 
 \section*{Verified provenance and final status}
 The two gzip containers differ because their container metadata differs, but their normalized stream contents are exact matches:
@@ -109,8 +118,8 @@ Evaluation & \texttt{73ee5e643b08} & \texttt{4c6d110b57b4} & \texttt{36ce707c2f2
 \bottomrule
 \end{tabular}
 \end{center}
-All h8, h16, h32, h64, and h128 outputs were accepted through
-\texttt{legacy\_source\_byte\_hash\_plus\_decompressed\_content\_match}.
+All h8, h16, h32, h64, and h128 outputs were accepted through the legacy
+source-byte-hash plus decompressed-content matching mode.
 The matched-input offline claim is therefore allowed for this measured sweep:
 h16 is the first and best measured capacity above offline stride. This remains
 an exploratory capacity selection because all widths share one evaluation
