@@ -37,6 +37,15 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def gzip_content_sha256(path):
+    """Hash decompressed CSV bytes so gzip timestamps do not affect provenance."""
+    digest = hashlib.sha256()
+    with gzip.open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
 def as_int(value):
     text = str(value).strip()
     return int(text, 16) if text.lower().startswith("0x") else int(float(text))
@@ -333,6 +342,8 @@ def main():
         "transport": "same keyed PC-line-occ ListReplayer for both primary methods",
         "train_stream_sha256": sha256(args.train_stream),
         "eval_stream_sha256": sha256(args.eval_stream),
+        "train_stream_content_sha256": gzip_content_sha256(args.train_stream),
+        "eval_stream_content_sha256": gzip_content_sha256(args.eval_stream),
         "train_rows": len(train_rows),
         "eval_rows": len(eval_rows),
         "threshold": policy["threshold"],
