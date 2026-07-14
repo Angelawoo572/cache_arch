@@ -14,6 +14,9 @@ BUILD="${BUILD:-1}"
 # Each tag must correspond to colab_output/<tag>/run_metadata.json.
 MODEL_TAGS_CSV="${MODEL_TAGS:-h8,h16,h32,h64,h128}"
 BASE_MODEL_TAG="${BASE_MODEL_TAG:-h8}"
+# Optional original colab_input directory for legacy archives whose gzip
+# headers differ even though the normalized CSV stream is identical.
+COLAB_SOURCE_INPUT_DIR="${COLAB_SOURCE_INPUT_DIR:-}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -182,7 +185,15 @@ require_colab_outputs() {
 }
 
 analyze() {
-  python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV" --base-model-tag "$BASE_MODEL_TAG"
+  local cmd=(python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV" --base-model-tag "$BASE_MODEL_TAG")
+  if [[ -n "$COLAB_SOURCE_INPUT_DIR" ]]; then
+    [[ -d "$COLAB_SOURCE_INPUT_DIR" ]] || {
+      echo "[error] COLAB_SOURCE_INPUT_DIR is not a directory: $COLAB_SOURCE_INPUT_DIR" >&2
+      exit 2
+    }
+    cmd+=(--source-input-dir "$COLAB_SOURCE_INPUT_DIR")
+  fi
+  "${cmd[@]}"
 }
 
 replay() {
