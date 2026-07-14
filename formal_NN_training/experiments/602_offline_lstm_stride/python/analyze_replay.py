@@ -28,6 +28,22 @@ def sha256(path):
     return digest.hexdigest()
 
 
+def gzip_content_sha256(path):
+    """Hash decompressed CSV bytes so gzip container metadata is irrelevant."""
+    digest = hashlib.sha256()
+    with gzip.open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def stream_hashes(path):
+    return {
+        "gzip_sha256": sha256(path),
+        "content_sha256": gzip_content_sha256(path),
+    }
+
+
 def parse_log(path):
     result = {"ipc": 0.0, "instructions": 0, "cycles": 0, "emitted": 0, "callbacks": 0, "matched": 0}
     text = path.read_text(errors="ignore")
@@ -100,6 +116,15 @@ def main():
     ap.add_argument("--run-dir", required=True, type=Path)
     ap.add_argument("--model-tags", default="h8,h16,h32,h64,h128")
     ap.add_argument("--base-model-tag", default="h8")
+    ap.add_argument(
+        "--source-input-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Original colab_input directory for legacy Colab outputs that store only "
+            "gzip-byte SHA256 values. Its decompressed streams must match this run."
+        ),
+    )
     args = ap.parse_args()
     model_tags = [x.strip() for x in args.model_tags.split(",") if x.strip()]
     if not model_tags or args.base_model_tag not in model_tags:
@@ -145,24 +170,100 @@ def main():
         failures.append("one or more methods are missing")
     if rows and len({row["instructions"] for row in rows}) != 1:
         failures.append("simulation instruction counts differ")
-    expected_train_stream = args.run_dir / "colab_input" / (TRACE + ".train_stream.csv.gz")
-    expected_eval_stream = args.run_dir / "colab_input" / (TRACE + ".eval_stream.csv.gz")
-    expected_train_sha = sha256(expected_train_stream) if expected_train_stream.is_file() else None
-    expected_eval_sha = sha256(expected_eval_stream) if expected_eval_stream.is_file() else None
-    if expected_train_sha is None or expected_eval_sha is None:
-        failures.append("missing normalized Colab input streams under {}".format(args.run_dir / "colab_input"))
+    current_input_dir = args.run_dir / "colab_input"
+    current_streams = {
+        "train": current_input_dir / (TRACE + ".train_stream.csv.gz"),
+        "eval": current_input_dir / (TRACE + ".eval_stream.csv.gz"),
+    }
+    current_stream_info = {}
+    for role, path in current_streams.items():
+        if not path.is_file():
+            failures.append("missing normalized {} stream {}".format(role, path))
+            continue
+        try:
+            current_stream_info[role] = stream_hashes(path)
+        except (OSError, gzip.BadGzipFile) as exc:
+            failures.append("cannot hash current {} stream {}: {}".format(role, path, exc))
+
+    source_stream_info = {}
+    source_streams = {}
+    if args.source_input_dir is not None:
+        source_streams = {
+            "train": args.source_input_dir / (TRACE + ".train_stream.csv.gz"),
+            "eval": args.source_input_dir / (TRACE + ".eval_stream.csv.gz"),
+        }
+        for role, path in source_streams.items():
+            if not path.is_file():
+                failures.append("missing source {} stream {}".format(role, path))
+                continue
+            try:
+                source_stream_info[role] = stream_hashes(path)
+            except (OSError, gzip.BadGzipFile) as exc:
+                failures.append("cannot hash source {} stream {}: {}".format(role, path, exc))
+
+    input_provenance = {
+        "current_input_dir": str(current_input_dir),
+        "current_streams": current_stream_info,
+        "per_model_tag": {},
+    }
+    if args.source_input_dir is not None:
+        input_provenance["legacy_source_input_dir"] = str(args.source_input_dir)
+        input_provenance["legacy_source_streams"] = source_stream_info
+
+    metadata_by_tag = {}
     for tag in model_tags:
         for name in ("offline_lstm.replay.csv", "model.pt", "run_metadata.json"):
             path = colab_root / tag / name
             if not path.is_file():
                 failures.append("missing Colab output {}".format(path))
         metadata_path = colab_root / tag / "run_metadata.json"
-        if metadata_path.is_file() and expected_train_sha is not None and expected_eval_sha is not None:
+        if not metadata_path.is_file():
+            continue
+        try:
             metadata = json.loads(metadata_path.read_text())
-            if metadata.get("train_stream_sha256") != expected_train_sha:
-                failures.append("{} training-stream SHA256 does not match this run".format(tag))
-            if metadata.get("eval_stream_sha256") != expected_eval_sha:
-                failures.append("{} evaluation-stream SHA256 does not match this run".format(tag))
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append("{} metadata parse failed: {}".format(tag, exc))
+            continue
+        metadata_by_tag[tag] = metadata
+        if set(current_stream_info) != {"train", "eval"}:
+            continue
+
+        canonical_keys = {
+            "train": "train_stream_content_sha256",
+            "eval": "eval_stream_content_sha256",
+        }
+        if all(metadata.get(key) for key in canonical_keys.values()):
+            input_provenance["per_model_tag"][tag] = {
+                "mode": "canonical_decompressed_content_sha256",
+            }
+            for role, key in canonical_keys.items():
+                if metadata.get(key) != current_stream_info[role]["content_sha256"]:
+                    failures.append(
+                        "{} {}-stream content SHA256 does not match this run".format(tag, role)
+                    )
+            continue
+
+        if args.source_input_dir is None:
+            failures.append(
+                "{} has legacy gzip-byte hashes only; rerun analyze with "
+                "--source-input-dir pointing to the Colab input used for this output".format(tag)
+            )
+            continue
+        if set(source_stream_info) != {"train", "eval"}:
+            continue
+        input_provenance["per_model_tag"][tag] = {
+            "mode": "legacy_source_byte_hash_plus_decompressed_content_match",
+        }
+        for role in ("train", "eval"):
+            metadata_key = role + "_stream_sha256"
+            if metadata.get(metadata_key) != source_stream_info[role]["gzip_sha256"]:
+                failures.append(
+                    "{} {}-stream SHA256 does not match supplied source input".format(tag, role)
+                )
+            if current_stream_info[role]["content_sha256"] != source_stream_info[role]["content_sha256"]:
+                failures.append(
+                    "{} {}-stream decompressed content does not match this run".format(tag, role)
+                )
 
     if "no_pref" in by_method:
         no_pref_misses = by_method["no_pref"]["demand_l2_misses"]
@@ -202,6 +303,7 @@ def main():
             "l2_miss_reduction_vs_no_pref": "(no-prefetch L2 load misses - method L2 load misses) / no-prefetch L2 load misses",
         },
         "model_tags": model_tags,
+        "input_provenance": input_provenance,
         "failures": failures,
         "rows": rows,
     }
@@ -211,7 +313,7 @@ def main():
         first_better = None
         for tag in model_tags:
             row = by_method["offline_lstm_" + tag]
-            metadata = json.loads((colab_root / tag / "run_metadata.json").read_text())
+            metadata = metadata_by_tag[tag]
             point = {
                 "model_tag": tag,
                 "hidden_size": metadata["hidden_size"],
