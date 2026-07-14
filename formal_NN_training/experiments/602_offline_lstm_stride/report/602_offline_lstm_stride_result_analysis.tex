@@ -1,0 +1,118 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.68in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.18}
+\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\setlength{\parskip}{4pt}
+\setlist{nosep,leftmargin=*}
+\renewcommand{\arraystretch}{1.08}
+
+\begin{document}
+\begin{center}
+{\Large\bfseries 602 Offline LSTM vs. Offline Stride}\\[2pt]
+{\small Capacity sweep results for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
+\end{center}
+
+\section*{Status and experiment contract}
+This is a single-trace, offline experiment. Colab trains a one-layer LSTM on an earlier no-prefetch training prefix and performs causal sequential inference on a disjoint no-prefetch evaluation stream. It exports keyed PC--line--occurrence replay lists. ChampSim replays both the fixed offline-stride list and each offline-LSTM list using the same \texttt{ListReplayer} transport.
+
+The shared evaluation information is current PC, current cache-line address, and causal prior PC/address history. The model does not receive hit/miss, cycle, queue state, metadata, or future evaluation rows. The primary comparison is \texttt{offline\_stride} versus \texttt{offline\_lstm\_h<width>}. Live stride is a validated general reference only.
+
+All eight simulations completed with the same 25M warmup and 25M measured window (25,000,003 reported instructions). The initial analyzer status was \texttt{FAIL} solely because the copied Colab archive retained a different gzip container byte hash. The replay logs, event logs, and numerical measurements are complete. The accompanying GitHub fix verifies the original source input byte hashes and the decompressed CSV contents, so the existing run only needs a fast \texttt{STAGE=analyze} recheck; it does not need to rerun Colab or ChampSim.
+
+\section*{Measured comparison}
+\begin{center}
+\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{lrrrrrrr}
+\toprule
+Method & Params & IPC & $\Delta$ vs.\ stride & Replayed & Useful & L2 miss reduction & Late \\
+\midrule
+No prefetch & -- & 0.36800 & -- & 0 & 0 & 0.00\% & 0 \\
+Live stride reference & -- & 0.37006 & -- & 0 & 34,854 & 17.16\% & 164 \\
+Offline stride & -- & 0.37016 & 0.00000 & 60,255 & 34,850 & 17.16\% & 165 \\
+\midrule
+Offline LSTM h8 & 545 & 0.36915 & -0.00101 & 34,337 & 18,836 & 9.27\% & 90 \\
+Offline LSTM h16 & 1,729 & \textbf{0.37090} & \textbf{+0.00074} & 33,891 & 13,700 & 6.74\% & 144 \\
+Offline LSTM h32 & 6,017 & 0.37033 & +0.00017 & 36,695 & 16,936 & 8.34\% & 230 \\
+Offline LSTM h64 & 22,273 & 0.36905 & -0.00111 & 34,351 & 18,612 & 9.16\% & 63 \\
+Offline LSTM h128 & 85,505 & 0.36886 & -0.00130 & 33,584 & 17,626 & 8.68\% & 10 \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\emph{Useful} means a post-warmup L2 demand hit on a line marked as prefetched. L2 miss reduction is relative to the no-prefetch run with 203,131 L2 demand misses. The live-stride reference reports 122,156 post-warmup prefetch request events, while offline stride replays 60,255 keyed target entries; their IPCs differ by only 0.00010. Thus the primary offline-stride control is the appropriate replay comparator, while the live result independently confirms that stride was active with 64 trackers and degree 2.
+
+\begin{figure}[ht]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=0.93\linewidth,
+  height=6.1cm,
+  xmode=log,
+  log basis x=2,
+  xtick={8,16,32,64,128},
+  xticklabels={h8,h16,h32,h64,h128},
+  xlabel={LSTM hidden width},
+  ylabel={IPC},
+  ymin=0.3684,
+  ymax=0.3711,
+  ytick={0.3685,0.3690,0.3695,0.3700,0.3705,0.3710},
+  yticklabel style={
+    /pgf/number format/fixed,
+    /pgf/number format/fixed zerofill,
+    /pgf/number format/precision=4
+  },
+  grid=major,
+  legend style={at={(0.03,0.97)},anchor=north west,font=\small,draw=none,fill=white},
+]
+\addplot[blue,mark=*] coordinates {
+  (8,0.36915) (16,0.37090) (32,0.37033) (64,0.36905) (128,0.36886)
+};
+\addlegendentry{Offline LSTM}
+\addplot[black,dashed] coordinates {(8,0.37016) (128,0.37016)};
+\addlegendentry{Offline stride}
+\addplot[red,only marks,mark=square*] coordinates {(16,0.37090)};
+\addlegendentry{Best measured h16}
+\end{axis}
+\end{tikzpicture}
+\caption{Capacity sweep. h16 is the first and highest measured point above offline stride. The response is non-monotonic.}
+\end{figure}
+
+\section*{What the data supports}
+\begin{itemize}
+\item \textbf{Best and first measured crossing:} h16 has 1,729 trainable parameters and IPC 0.37090. It exceeds offline stride by 0.00074 IPC, or 0.200\% relative to offline stride, and exceeds no prefetch by 0.788\%.
+\item \textbf{Not a monotonic saturation curve:} h32 is only 0.00017 above stride; h8, h64, and h128 are below stride. Therefore h16 is the current \emph{best measured capacity point}, not proof that more parameters monotonically improve performance or that a final saturation point is known.
+\item \textbf{Counter interpretation:} h16 replayed 33,891 requests, 43.75\% fewer than offline stride's 60,255. It also produced fewer useful-prefetch demand hits (13,700 versus 34,850) and lower miss reduction (6.74\% versus 17.16\%), yet achieved higher IPC. This is consistent with a possible selectivity/timing or cache-pollution trade-off, but counters alone do not establish the causal mechanism.
+\item \textbf{Transport validation:} offline stride (0.37016) closely matches active live stride (0.37006). The old inactive live-stride row is not used.
+\end{itemize}
+
+\section*{How to interpret and confirm h16}
+The capacity sweep reused one evaluation stream to compare widths. Treat h16 as an \emph{exploratory selection}, not a final general claim. Before reporting LSTM beats stride beyond this sweep, keep h16 fixed and confirm it on a fresh held-out 602 window and at least one additional random seed. The next analysis question is not add more parameters, but why h16's more selective list produces a small IPC gain despite lower useful-hit count.
+
+\section*{Fast provenance recheck}
+Assuming the Colab archive was made from the earlier \texttt{602\_offline\_lstm\_stride\_seed7} input, run:
+\begin{verbatim}
+cd ~/cache
+git pull --ff-only
+export EXP="$HOME/cache/formal_NN_training/experiments/602_offline_lstm_stride"
+export RUN_ID=602_offline_lstm_stride_sweep_seed7
+export COLAB_SOURCE_INPUT_DIR="$EXP/runs/602_offline_lstm_stride_seed7/colab_input"
+
+nohup env RUN_ID="$RUN_ID" STAGE=analyze \
+  COLAB_SOURCE_INPUT_DIR="$COLAB_SOURCE_INPUT_DIR" \
+  bash formal_NN_training/experiments/602_offline_lstm_stride/linux/run_server.sh \
+  > "$EXP/runs/$RUN_ID/analyze.nohup.log" 2>&1 &
+
+tail -f "$EXP/runs/$RUN_ID/analyze.nohup.log"
+\end{verbatim}
+
+This command only recomputes the report JSON/CSV from existing files. It does not build or replay ChampSim. A \texttt{PASS} allows the matched-input offline claim for this measured sweep. If it reports that decompressed content differs, do not bypass the error: the copied archive came from a different input stream and must not be certified as the same run.
+
+\end{document}
