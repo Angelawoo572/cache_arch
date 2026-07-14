@@ -26,6 +26,7 @@ STREAM_DIR="$RUN_DIR/colab_input"
 COLAB_ROOT="$RUN_DIR/colab_output"
 BIN="${BIN:-$CHAMP_DIR/bin/champsim.602_offline_streamer_replay}"
 EXPECTED_LIBBF_HEAD="4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c"
+BUILD_LOCK="${BUILD_LOCK:-$(git -C "$ROOT" rev-parse --absolute-git-dir)/champsim_build.lock}"
 
 PATCH_LOGGER="$EXP/linux/patch_demand_logger.sh"
 BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
@@ -59,9 +60,17 @@ ensure_libbf() {
 }
 
 build() {
-  RESET_PATCH="${RESET_PATCH:-0}" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
-  ensure_libbf
-  CHAMP_DIR="$CHAMP_DIR" OUT="$BIN" bash "$BUILD_REPLAYER"
+  command -v flock >/dev/null 2>&1 || { echo "[error] flock is required for safe ChampSim builds" >&2; exit 2; }
+  mkdir -p "$(dirname "$BUILD_LOCK")"
+  (
+    echo "[build-lock] waiting for $BUILD_LOCK"
+    flock -x 9
+    echo "[build-lock] acquired by streamer run $RUN_ID"
+    RESET_PATCH="${RESET_PATCH:-0}" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
+    ensure_libbf
+    CHAMP_DIR="$CHAMP_DIR" OUT="$BIN" bash "$BUILD_REPLAYER"
+    echo "[build-lock] streamer build complete"
+  ) 9>"$BUILD_LOCK"
 }
 
 run_no_pref_events() {
