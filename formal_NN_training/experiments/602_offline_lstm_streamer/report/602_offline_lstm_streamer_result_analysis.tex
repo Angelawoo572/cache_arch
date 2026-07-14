@@ -1,38 +1,45 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.65in]{geometry}
+\usepackage[margin=0.62in]{geometry}
 \usepackage{amsmath}
-\usepackage{booktabs,tabularx,array,graphicx,xcolor,enumitem,float}
+\usepackage{booktabs,tabularx,array,graphicx,xcolor,enumitem}
 \usepackage{hyperref}
 \usepackage{pgfplots}
+\usepgfplotslibrary{groupplots}
 \pgfplotsset{compat=1.18}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{3pt}
 \setlist{nosep,leftmargin=*}
-\renewcommand{\arraystretch}{1.08}
+\renewcommand{\arraystretch}{1.10}
+\definecolor{lstmblue}{RGB}{25,80,210}
+\definecolor{resultred}{RGB}{190,35,35}
+\definecolor{softgray}{RGB}{245,246,248}
 
 \begin{document}\small
+
 \begin{center}
-{\Large\bfseries 602 Offline LSTM Gate vs. Offline Streamer}\\[2pt]
-{\small Matched-input capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
+{\Large\bfseries 602 Stateful LSTM Gate vs. Offline Streamer}\\[2pt]
+{\small Corrected recurrent-state capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
 \end{center}
 
-\section*{Experiment contract}
+\noindent\colorbox{softgray}{\parbox{0.97\textwidth}{\textbf{Outcome:} \textbf{PASS} provenance and recurrent-state checks. No tested width exceeds offline streamer. h8 is nearly tied: IPC $0.43139$ vs. $0.43150$ ($-0.00011$, or $-0.0255\%$). Wider models increasingly suppress requests and lose useful coverage. Earlier pre-fix values are superseded.}}
+
+\section*{Experiment and recurrent-state contract}
 \begin{center}\scriptsize
-\begin{tabularx}{\textwidth}{@{}lX@{}}
+\begin{tabularx}{\textwidth}{@{}>{\bfseries}lX@{}}
 \toprule
-Status & \textbf{PASS}; all five capacities passed canonical decompressed-content SHA256 checks.\\
-Primary comparison & \texttt{offline\_streamer} vs. \texttt{offline\_lstm\_h<width>}; identical keyed ListReplayer transport.\\
-Shared information & Current cache-line address and causal prior address history. PC is replay identity only, not a model input.\\
-Forbidden information & Hit/miss, cycle, queues, metadata, and future evaluation rows.\\
+Primary comparison & \texttt{offline\_streamer} vs. \texttt{offline\_lstm\_h<width>}; identical causal lists and PC-line-occurrence ListReplayer transport.\\
+Matched input & Current cache-line address plus causal prior address history. PC is replay identity only, not a model input.\\
+Training & Chronological stateful TBPTT; hidden/cell values cross 1024-event chunk boundaries; the graph is detached at each boundary. No chunk shuffle/reset.\\
+Inference & Hidden/cell state is continuous inside the independent evaluation stream.\\
 Window & 25M warmup + 25M measured; 25,000,003 reported instructions.\\
-Normal policy & Streamer: 64 page trackers, prefetch degree 5.\\
+Normal policy & Streamer: 64 page trackers, prefetch degree 5. Live streamer is validated only as a general reference.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\section*{Metric definitions}
-Let $R$ be post-warmup prefetch requests, $U$ useful-prefetch demand hits, $L$ late demand misses, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+\section*{Metrics: formula first}
+Let $R$ be replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
 \[
 \boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
 \qquad
@@ -41,122 +48,125 @@ Let $R$ be post-warmup prefetch requests, $U$ useful-prefetch demand hits, $L$ l
 \boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
 \]
 \begin{center}\scriptsize
-\begin{tabularx}{\textwidth}{@{}l l X l@{}}
+\begin{tabularx}{\textwidth}{@{}lXl@{}}
 \toprule
-Metric & Name & Exact interpretation & Desired direction \\
+Metric & What it measures in this experiment & Direction \\
 \midrule
-$A_{\mathrm{proxy}}$ & Observed useful-hit yield & Useful demand hits per logged request; \emph{not} strict hardware accuracy. & Higher \\
-$C$ & Coverage & Fraction of no-prefetch L2 misses converted into useful prefetched hits. & Higher \\
-$T_{\mathrm{late}}$ & Late density & Late demand misses per 100,000 requests; not a lead-time distribution. & Lower \\
-\bottomrule
-\end{tabularx}
-\end{center}
-Strict accuracy additionally needs accepted/rejected/merged/duplicate and evicted-before-use counts. Strict timeliness needs issue-to-demand lead-time distributions.
-
-\section*{Measured data}
-\begin{center}\scriptsize
-\begin{tabular}{lrrrrrr}
-\toprule
-Method & Params & IPC & $\Delta$ IPC & $A_{\rm proxy}$ & Coverage & Late/100k \\
-\midrule
-Offline streamer & -- & \textbf{0.43150} & 0.00000 & 11.562\% & 92.374\% & 2.958 \\
-LSTM h8 & 545 & 0.43134 & -0.00016 & 11.556\% & 92.257\% & 2.590 \\
-LSTM h16 & 1,729 & 0.43113 & -0.00037 & 11.553\% & 92.147\% & 2.777 \\
-LSTM h32 & 6,017 & 0.42917 & -0.00233 & 13.948\% & 90.293\% & 0.152 \\
-LSTM h64 & 22,273 & 0.42869 & -0.00281 & 14.708\% & 89.943\% & 0.081 \\
-LSTM h128 & 85,505 & 0.42787 & -0.00363 & 15.509\% & 89.254\% & 0.086 \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-\begin{center}\scriptsize
-\begin{tabularx}{0.92\textwidth}{@{}lrrX@{}}
-\toprule
-h8 relative to offline streamer & Streamer & h8 & Diagnostic meaning \\
-\midrule
-Requests & 1,622,884 & 1,621,715 & $-1{,}169$: almost unchanged traffic.\\
-Useful hits & 187,641 & 187,402 & $-239$: useful candidates were removed.\\
-L2 demand misses & 15,497 & 15,736 & $+239$: exactly mirrors useful-hit loss.\\
-Late misses & 48 & 42 & $-6$: timeliness gain is too small.\\
-IPC & 0.43150 & 0.43134 & $-0.00016$ ($-0.037\%$).\\
+$A_{\mathrm{proxy}}$ & Observed useful-hit yield per request event. It is \emph{not} strict hardware accuracy because accepted fills, duplicates, unused lines, and evictions are not separated. & Higher \\
+$C$ & Useful demand hits as a fraction of the no-prefetch miss opportunity. & Higher \\
+$T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density proxy, \emph{not} direct lead time; fewer requests can lower it. & Lower \\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\clearpage
-\section*{Accuracy--coverage--timeliness diagrams}
+\section*{Stateful-v2 measured data}
+\begin{center}\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrrrrr@{}}
+\toprule
+Method & Params & IPC & $\Delta$IPC & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
+\midrule
+Live streamer ref. & -- & 0.43161 & +0.00011 & 1,808,879 & 187,663 & 10.375 & 92.385 & 47 & 2.598 \\
+\textbf{Offline streamer} & -- & \textbf{0.43150} & 0 & 1,622,884 & 187,641 & 11.562 & 92.374 & 48 & 2.958 \\
+LSTM h8 & 545 & 0.43139 & -0.00011 & 1,621,947 & 187,480 & 11.559 & 92.295 & 44 & 2.713 \\
+LSTM h16 & 1,729 & 0.43111 & -0.00039 & 1,620,119 & 187,155 & 11.552 & 92.135 & 45 & 2.778 \\
+LSTM h32 & 6,017 & 0.42921 & -0.00229 & 1,443,342 & 183,496 & 12.713 & 90.334 & 8 & 0.554 \\
+LSTM h64 & 22,273 & 0.42866 & -0.00284 & 1,231,325 & 182,646 & 14.833 & 89.915 & 1 & 0.081 \\
+LSTM h128 & 85,505 & 0.42869 & -0.00281 & 1,243,548 & 182,829 & 14.702 & 90.005 & 2 & 0.161 \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\newpage
 \begin{center}
-\begin{tikzpicture}[baseline=-0.5ex]
-\draw[blue,thick] (0,0)--(0.7,0) node[right,black]{LSTM capacity sweep};
-\draw[black,dashed,thick] (4.0,0)--(4.7,0) node[right,black]{offline streamer baseline};
+{\large\bfseries IPC, accuracy proxy, coverage, and timeliness proxy}
+
+\vspace{2pt}
+\begin{tikzpicture}[font=\scriptsize]
+\draw[lstmblue,thick] (0,0)--(0.65,0); \fill[lstmblue] (0.325,0) circle (2pt);
+\node[anchor=west] at (0.78,0) {Stateful LSTM};
+\draw[black,dashed,thick] (3.25,0)--(3.90,0);
+\node[anchor=west] at (4.03,0) {Offline streamer baseline};
+\fill[resultred] (7.70,0) rectangle +(0.15,0.15);
+\node[anchor=west] at (7.97,0.075) {closest point: h8};
 \end{tikzpicture}
 \end{center}
 
-\begin{figure}[H]
-\centering
-\begin{minipage}{0.49\linewidth}\centering
-\begin{tikzpicture}\begin{axis}[
-width=\linewidth,height=4.15cm,title={Performance: IPC},
-xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
-ymin=0.4275,ymax=0.4318,ytick={0.428,0.429,0.430,0.431},grid=major,
-yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3}]
-\addplot[blue,mark=*] coordinates {(8,0.43134)(16,0.43113)(32,0.42917)(64,0.42869)(128,0.42787)};
-\addplot[black,dashed] coordinates {(8,0.43150)(128,0.43150)};
-\end{axis}\end{tikzpicture}
-\end{minipage}
-\begin{minipage}{0.49\linewidth}\centering
-\begin{tikzpicture}\begin{axis}[
-width=\linewidth,height=4.15cm,title={Accuracy proxy: $A_{\rm proxy}$ (\%)},
-xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
-ymin=11,ymax=16,grid=major]
-\addplot[blue,mark=*] coordinates {(8,11.5558)(16,11.5527)(32,13.9475)(64,14.7075)(128,15.5093)};
-\addplot[black,dashed] coordinates {(8,11.5622)(128,11.5622)};
-\end{axis}\end{tikzpicture}
-\end{minipage}
+\begin{center}
+\begin{tikzpicture}
+\begin{groupplot}[
+ group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.25cm},
+ width=0.44\textwidth,height=5.0cm,
+ xmode=log,log basis x=2,xmin=7,xmax=145,
+ xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ grid=major,grid style={gray!25},tick label style={font=\scriptsize},
+ label style={font=\scriptsize},title style={font=\small\bfseries},
+ every axis plot/.append style={line width=0.9pt},
+]
+\nextgroupplot[title={Performance},ylabel={IPC},ymin=0.4282,ymax=0.43185,
+ yticklabel style={font=\scriptsize,/pgf/number format/fixed,/pgf/number format/precision=5}]
+\addplot[black,dashed,domain=8:128,samples=2] {0.43150};
+\addplot[lstmblue,mark=*] coordinates {(8,0.43139) (16,0.43111) (32,0.42921) (64,0.42866) (128,0.42869)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,0.43139)};
 
-\begin{minipage}{0.49\linewidth}\centering
-\begin{tikzpicture}\begin{axis}[
-width=\linewidth,height=4.15cm,title={Coverage $C$ (\%)},
-xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
-ymin=88.8,ymax=92.8,grid=major]
-\addplot[blue,mark=*] coordinates {(8,92.2567)(16,92.1469)(32,90.2930)(64,89.9429)(128,89.2537)};
-\addplot[black,dashed] coordinates {(8,92.3744)(128,92.3744)};
-\end{axis}\end{tikzpicture}
-\end{minipage}
-\begin{minipage}{0.49\linewidth}\centering
-\begin{tikzpicture}\begin{axis}[
-width=\linewidth,height=4.15cm,title={Timeliness proxy: late/100k (lower is better)},
-xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
-ymin=0,ymax=3.3,grid=major]
-\addplot[blue,mark=*] coordinates {(8,2.5899)(16,2.7774)(32,0.1521)(64,0.0805)(128,0.0855)};
-\addplot[black,dashed] coordinates {(8,2.9577)(128,2.9577)};
-\end{axis}\end{tikzpicture}
-\end{minipage}
-\caption{The legend is outside the axes. Larger gates improve request-level yield and late density by suppressing traffic, but lose useful coverage and IPC.}
-\end{figure}
+\nextgroupplot[title={Accuracy proxy: useful-hit yield},ylabel={$A_{\rm proxy}$ (\%)},ymin=11.0,ymax=15.2]
+\addplot[black,dashed,domain=8:128,samples=2] {11.5622};
+\addplot[lstmblue,mark=*] coordinates {(8,11.5589) (16,11.5519) (32,12.7133) (64,14.8333) (128,14.7022)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,11.5589)};
 
-\section*{Data-to-insight map}
-\begin{center}\small
-\begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}p{0.32\textwidth}X@{}}
+\nextgroupplot[title={Coverage},xlabel={LSTM hidden width},ylabel={$C$ (\%)},ymin=89.2,ymax=92.7]
+\addplot[black,dashed,domain=8:128,samples=2] {92.3744};
+\addplot[lstmblue,mark=*] coordinates {(8,92.2951) (16,92.1351) (32,90.3338) (64,89.9154) (128,90.0055)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,92.2951)};
+
+\nextgroupplot[title={Timeliness proxy: late density},xlabel={LSTM hidden width},ylabel={$T_{\rm late}$ / 100k requests},ymin=0,ymax=3.2]
+\addplot[black,dashed,domain=8:128,samples=2] {2.9577};
+\addplot[lstmblue,mark=*] coordinates {(8,2.7128) (16,2.7776) (32,0.5543) (64,0.0812) (128,0.1608)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,2.7128)};
+\end{groupplot}
+\end{tikzpicture}
+\end{center}
+
+\vspace{-3pt}
+\begin{center}\scriptsize
+All legends and indicators are outside the axes. Dashed lines are the offline streamer primary comparator.
+\end{center}
+
+\newpage
+\section*{Data $\rightarrow$ insight map}
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}p{0.23\textwidth}p{0.35\textwidth}X@{}}
 \toprule
-Question & Data pattern & Supported insight \\
+Question & Direct evidence & Supported insight \\
 \midrule
-Why does h8 miss the baseline? & $U:-239$, L2 misses:$+239$, late:$-6$. & Lost useful coverage dominates the tiny timeliness gain.\\
-Why does apparent accuracy rise for h32--h128? & $A_{\rm proxy}$ rises to 13.95--15.51\%, while coverage falls to 90.29--89.25\%. & The ratio rises because requests are suppressed; this is not an end-to-end win.\\
-Does more capacity help? & IPC decreases from h8 through h128; no crossing. & Capacity is not the bottleneck for this gate/objective.\\
+Why is h8 almost tied? & Relative to streamer, h8 removes only 937 requests (0.058\%), loses 161 useful hits, loses 0.079 coverage points, and improves late density from 2.958 to 2.713. IPC falls only 0.00011. & h8 nearly reproduces the offline streamer list. Its very small gap is consistent with a small useful-service loss, not a broad timing failure.\\
+Why do wider models lose IPC? & h32--h128 reduce requests by 11--24\%; useful coverage falls to 89.9--90.3\%; IPC falls 0.00229--0.00284. & Wider gates over-prune the stream. The lost opportunity/coverage dominates any reduction in request traffic.\\
+Why can $A_{\rm proxy}$ rise while IPC falls? & h64 has the highest $A_{\rm proxy}$ (14.83\%) but lower coverage (89.92\%) and IPC (0.42866). & $U/R$ rewards selective suppression: removing many requests can raise yield while reducing total useful service. Accuracy proxy must be read with coverage.\\
+Did stateful TBPTT close the gap? & h8 improves from pre-fix 0.43134 to 0.43139; h128 improves from 0.42787 to 0.42869. No point crosses 0.43150. & Correct recurrence improves some points, especially h128, but threshold/policy behavior still matters more than width.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\section*{Conclusion and evidence boundary}
-\begin{itemize}
-\item \textbf{Result:} no tested matched-input LSTM beats offline streamer; h8 is closest at $-0.00016$ IPC.
-\item \textbf{Mechanism supported by current counters:} candidate suppression loses useful coverage faster than it improves late density.
-\item \textbf{Not yet supported:} strict hardware accuracy, exact lead time, pollution, queue pressure, or cross-seed generalization.
-\item \textbf{Next test:} keep the input/candidate contract fixed; optimize coverage-preserving utility and confirm a frozen design on a fresh window and additional seeds.
-\end{itemize}
+\section*{Evidence boundary and next counters}
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}lXX@{}}
+\toprule
+Claim type & Supported now & Still required \\
+\midrule
+Performance & Matched replay establishes h8 as within 0.0255\% of offline streamer on this trace/window. & Multiple traces, seeds, and a fresh held-out window before declaring equivalence.\\
+Strict accuracy & $U/R$ gives request-event yield and exposes over-pruning. & Accepted/filled unique prefetches, duplicate rejection, unused eviction, and pollution.\\
+True timeliness & Late merges are already rare for streamer and h8. & Issue/fill/demand cycles and lead-time histograms; one late count cannot measure ``too early.''\\
+Root cause & Wider models lose request volume, useful hits, coverage, and IPC together. & Per-target false-negative/false-positive labels, bandwidth/MSHR pressure, pollution, and critical-miss stall cycles.\\
+\bottomrule
+\end{tabularx}
+\end{center}
 
-\section*{Verified provenance}
-Analyzer status \texttt{PASS}; canonical content SHA256 prefixes: \texttt{2564c753145a} (train) and \texttt{36ce707c2f27} (evaluation). Live streamer is a validated reference (0.43161 IPC), not the primary offline comparator.
+\section*{Reproducibility anchors}
+\begin{itemize}\scriptsize
+\item Run: \texttt{602\_offline\_lstm\_streamer\_stateful\_v2\_seed7}; analyzer status \textbf{PASS}.
+\item Train content SHA256: \texttt{2564c753145acde5a2c7a9f94904366e18aa7ebdd0a10003d2944104c854a594}.
+\item Evaluation content SHA256: \texttt{36ce707c2f27023e400f16c2cc2054c61e20b54d5dc26959c6857ef8e8e87d2f}.
+\item Offline streamer list SHA256: \texttt{d7bf16125c0540feed4f7da7831466a816cde23601aa29b5b613087d4771bd4b}.
+\end{itemize}
 
 \end{document}
