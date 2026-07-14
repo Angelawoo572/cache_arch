@@ -24,7 +24,7 @@ This is a single-trace, offline experiment. Colab trains a one-layer LSTM on an 
 
 The shared evaluation information is current PC, current cache-line address, and causal prior PC/address history. The model does not receive hit/miss, cycle, queue state, metadata, or future evaluation rows. The primary comparison is \texttt{offline\_stride} versus \texttt{offline\_lstm\_h<width>}. Live stride is a validated general reference only.
 
-All eight simulations completed with the same 25M warmup and 25M measured window (25,000,003 reported instructions). The initial analyzer status was \texttt{FAIL} solely because the copied Colab archive retained a different gzip container byte hash. The replay logs, event logs, and numerical measurements are complete. The accompanying GitHub fix verifies the original source input byte hashes and the decompressed CSV contents, so the existing run only needs a fast \texttt{STAGE=analyze} recheck; it does not need to rerun Colab or ChampSim.
+All eight simulations completed with the same 25M warmup and 25M measured window (25,000,003 reported instructions). The final analyzer reports \texttt{PASS}, an empty failure list, and \texttt{fair\_comparison\_claim\_allowed=true}. For every model tag, it verified the original Colab-input gzip hash and then proved that the original and current decompressed CSV contents are identical. No Colab or ChampSim rerun is required.
 
 \section*{Measured comparison}
 \begin{center}
@@ -96,23 +96,24 @@ Offline LSTM h128 & 85,505 & 0.36886 & -0.00130 & 33,584 & 17,626 & 8.68\% & 10 
 \section*{How to interpret and confirm h16}
 The capacity sweep reused one evaluation stream to compare widths. Treat h16 as an \emph{exploratory selection}, not a final general claim. Before reporting LSTM beats stride beyond this sweep, keep h16 fixed and confirm it on a fresh held-out 602 window and at least one additional random seed. The next analysis question is not add more parameters, but why h16's more selective list produces a small IPC gain despite lower useful-hit count.
 
-\section*{Fast provenance recheck}
-Assuming the Colab archive was made from the earlier \texttt{602\_offline\_lstm\_stride\_seed7} input, run:
-\begin{verbatim}
-cd ~/cache
-git pull --ff-only
-export EXP="$HOME/cache/formal_NN_training/experiments/602_offline_lstm_stride"
-export RUN_ID=602_offline_lstm_stride_sweep_seed7
-export COLAB_SOURCE_INPUT_DIR="$EXP/runs/602_offline_lstm_stride_seed7/colab_input"
-
-nohup env RUN_ID="$RUN_ID" STAGE=analyze \
-  COLAB_SOURCE_INPUT_DIR="$COLAB_SOURCE_INPUT_DIR" \
-  bash formal_NN_training/experiments/602_offline_lstm_stride/linux/run_server.sh \
-  > "$EXP/runs/$RUN_ID/analyze.nohup.log" 2>&1 &
-
-tail -f "$EXP/runs/$RUN_ID/analyze.nohup.log"
-\end{verbatim}
-
-This command only recomputes the report JSON/CSV from existing files. It does not build or replay ChampSim. A \texttt{PASS} allows the matched-input offline claim for this measured sweep. If it reports that decompressed content differs, do not bypass the error: the copied archive came from a different input stream and must not be certified as the same run.
+\section*{Verified provenance and final status}
+The two gzip containers differ because their container metadata differs, but their normalized stream contents are exact matches:
+\begin{center}
+\scriptsize
+\begin{tabular}{llll}
+\toprule
+Stream & Current gzip SHA prefix & Original gzip SHA prefix & Shared content SHA prefix \\
+\midrule
+Train & \texttt{83981fdcef8e} & \texttt{2cd771b1ce8c} & \texttt{2564c753145a} \\
+Evaluation & \texttt{73ee5e643b08} & \texttt{4c6d110b57b4} & \texttt{36ce707c2f27} \\
+\bottomrule
+\end{tabular}
+\end{center}
+All h8, h16, h32, h64, and h128 outputs were accepted through
+\texttt{legacy\_source\_byte\_hash\_plus\_decompressed\_content\_match}.
+The matched-input offline claim is therefore allowed for this measured sweep:
+h16 is the first and best measured capacity above offline stride. This remains
+an exploratory capacity selection because all widths share one evaluation
+stream; a fresh held-out confirmation is still required before generalizing.
 
 \end{document}
