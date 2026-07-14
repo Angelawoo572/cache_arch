@@ -158,9 +158,11 @@ require_colab_outputs() {
 
 analyze() {
   local cmd=(python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV" --base-model-tag "$BASE_MODEL_TAG")
+  # This active AMPM workflow verifies canonical decompressed-content hashes
+  # against its own RUN_DIR/colab_input streams. Never inherit the generic
+  # legacy source variable from an earlier stride or streamer experiment.
   if [[ -n "$COLAB_SOURCE_INPUT_DIR" ]]; then
-    [[ -d "$COLAB_SOURCE_INPUT_DIR" ]] || { echo "[error] COLAB_SOURCE_INPUT_DIR is not a directory: $COLAB_SOURCE_INPUT_DIR" >&2; exit 2; }
-    cmd+=(--source-input-dir "$COLAB_SOURCE_INPUT_DIR")
+    echo "[info] ignoring stale COLAB_SOURCE_INPUT_DIR; AMPM provenance uses $STREAM_DIR"
   fi
   "${cmd[@]}"
 }
