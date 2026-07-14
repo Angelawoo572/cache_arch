@@ -103,21 +103,30 @@ def ampm_arrays(rows, state=None):
 
         selected = []
         # AMPM prioritizes positive deltas, each scanned largest to smallest.
+        # The C++ implementation does candidate-pattern discovery first, then
+        # silently drops an address whose final page offset would be out of
+        # range.  Keep scanning after such a drop; do not consume a degree
+        # slot for it.
         for delta in range(MAX_DELTA, 0, -1):
+            if len(selected) >= PRED_DEGREE:
+                break
             one_hop = offset - delta
             two_hop = offset - 2 * delta
             if one_hop >= 0 and two_hop >= 0 and bitmap[one_hop] and bitmap[two_hop]:
-                selected.append(delta)
+                target_offset = offset + delta
+                if target_offset < PAGE_LINES:
+                    selected.append((delta, target_offset))
         for delta in range(MAX_DELTA, 0, -1):
+            if len(selected) >= PRED_DEGREE:
+                break
             one_hop = offset + delta
             two_hop = offset + 2 * delta
             if one_hop < PAGE_LINES and two_hop < PAGE_LINES and bitmap[one_hop] and bitmap[two_hop]:
-                selected.append(-delta)
+                target_offset = offset - delta
+                if target_offset >= 0:
+                    selected.append((-delta, target_offset))
 
-        for slot, signed_delta in enumerate(selected[:PRED_DEGREE]):
-            target_offset = offset + signed_delta
-            if not 0 <= target_offset < PAGE_LINES:
-                raise RuntimeError("AMPM mirror generated cross-page target")
+        for slot, (signed_delta, target_offset) in enumerate(selected):
             valid[index, slot] = True
             target[index, slot] = page * PAGE_LINES + target_offset
             candidate[index, slot] = [
@@ -140,6 +149,12 @@ def self_test_ampm_policy():
     negative_rows = [(1, page + x, 0) for x in (10, 9, 8)]
     _, _, valid, target, _ = ampm_arrays(negative_rows)
     assert target[2][valid[2]].tolist() == [page + 7]
+
+    # A valid two-hop pattern can point outside the current page.  Pinned
+    # AMPM detects that pattern but then drops the final out-of-page address.
+    boundary_rows = [(1, page + x, 0) for x in (18, 34, 50)]
+    _, _, valid, _, _ = ampm_arrays(boundary_rows)
+    assert not bool(valid[2].any())
 
     seed_rows = [(1, page + x, 0) for x in (1, 2, 3)]
     _, _, _, _, state = ampm_arrays(seed_rows)
