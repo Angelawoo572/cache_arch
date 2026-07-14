@@ -39,19 +39,27 @@ Normal policy & AMPM: 64 LRU page trackers, 64-bit accessed-offset bitmap, maxim
 \end{center}
 
 \section*{Metrics: formula first}
-Let $R$ be replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+Let $D=404{,}219$ be post-warmup demand L2 loads, $M$ the method's demand L2 misses, $R$ replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
 \[
+\boxed{\mathrm{MR}_{L2}=100\frac{M}{D}}
+\qquad
 \boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
 \qquad
 \boxed{C=100\frac{U}{M_0}}
 \qquad
 \boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
 \]
+Because $D$ is identical across these matched rows, miss rate and miss reduction contain the same ordering information:
+\[
+\mathrm{MissReduction}=100\frac{M_0-M}{M_0},
+\qquad \mathrm{MR}_{L2,0}=100\frac{M_0}{D}=50.2527\%.
+\]
 \begin{center}\scriptsize
 \begin{tabularx}{\textwidth}{@{}lXl@{}}
 \toprule
 Metric & What it measures in this experiment & Direction \\
 \midrule
+$\mathrm{MR}_{L2}$ & Final demand-miss fraction after all prefetch effects. This is the most direct cache-outcome metric shared by live and replayed methods. & Lower \\
 $A_{\mathrm{proxy}}$ & Observed useful-hit yield per request event. It is \emph{not} strict hardware prefetch accuracy because accepted fills, duplicates, unused lines, and evictions are not separated. & Higher \\
 $C$ & Useful demand hits as a fraction of the no-prefetch miss opportunity. & Higher \\
 $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density proxy, \emph{not} a lead-time distribution; suppressing requests can lower it. & Lower \\
@@ -62,24 +70,24 @@ $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density 
 \section*{Stateful-v2 measured data}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrrrrrrrr@{}}
 \toprule
-Method & Params & IPC & $\Delta$IPC & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
+Method & Params & IPC & $\Delta$IPC & $M$ & $\mathrm{MR}_{L2}$ (\%) & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
 \midrule
-Live AMPM ref. & -- & 0.43069 & +0.00015 & 1,424,170 & 186,100 & 13.068 & 91.616 & 600 & 42.130 \\
-\textbf{Offline AMPM} & -- & \textbf{0.43054} & 0 & 1,271,977 & 186,081 & 14.629 & 91.606 & 594 & 46.699 \\
-LSTM h8 & 2,537 & 0.42916 & -0.00138 & 1,265,713 & 184,347 & 14.565 & 90.753 & 400 & 31.603 \\
-LSTM h16 & 5,713 & 0.42815 & -0.00239 & 1,262,594 & 182,795 & 14.478 & 89.989 & 321 & 25.424 \\
-LSTM h32 & 13,985 & 0.42268 & -0.00786 & 1,225,797 & 170,285 & 13.892 & 83.830 & 100 & 8.158 \\
-LSTM h64 & 38,209 & 0.42325 & -0.00729 & 1,235,137 & 171,760 & 13.906 & 84.556 & 84 & 6.801 \\
-LSTM h128 & 117,377 & 0.41634 & -0.01420 & 1,139,604 & 155,237 & 13.622 & 76.422 & 13 & 1.141 \\
+Live AMPM ref. & -- & 0.43069 & +0.00015 & 17,032 & 4.214 & 1,424,170 & 186,100 & 13.068 & 91.616 & 600 & 42.130 \\
+\textbf{Offline AMPM} & -- & \textbf{0.43054} & 0 & 17,051 & 4.218 & 1,271,977 & 186,081 & 14.629 & 91.606 & 594 & 46.699 \\
+LSTM h8 & 2,537 & 0.42916 & -0.00138 & 18,785 & 4.647 & 1,265,713 & 184,347 & 14.565 & 90.753 & 400 & 31.603 \\
+LSTM h16 & 5,713 & 0.42815 & -0.00239 & 20,338 & 5.031 & 1,262,594 & 182,795 & 14.478 & 89.989 & 321 & 25.424 \\
+LSTM h32 & 13,985 & 0.42268 & -0.00786 & 32,847 & 8.126 & 1,225,797 & 170,285 & 13.892 & 83.830 & 100 & 8.158 \\
+LSTM h64 & 38,209 & 0.42325 & -0.00729 & 31,372 & 7.761 & 1,235,137 & 171,760 & 13.906 & 84.556 & 84 & 6.801 \\
+LSTM h128 & 117,377 & 0.41634 & -0.01420 & 47,894 & 11.849 & 1,139,604 & 155,237 & 13.622 & 76.422 & 13 & 1.141 \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
 \newpage
 \begin{center}
-{\large\bfseries IPC, accuracy proxy, coverage, and timeliness proxy}
+{\large\bfseries IPC, L2 miss rate, accuracy proxy, coverage, and timeliness proxy}
 
 \vspace{2pt}
 \begin{tikzpicture}[font=\scriptsize]
@@ -94,9 +102,29 @@ LSTM h128 & 117,377 & 0.41634 & -0.01420 & 1,139,604 & 155,237 & 13.622 & 76.422
 
 \begin{center}
 \begin{tikzpicture}
+\begin{axis}[
+ title={Direct cache outcome: demand L2 miss rate},
+ width=0.78\textwidth,height=3.8cm,
+ xmode=log,log basis x=2,xmin=7,xmax=145,
+ xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ xlabel={LSTM hidden width},ylabel={$\mathrm{MR}_{L2}$ (\%)},
+ ymin=3.7,ymax=12.4,grid=major,grid style={gray!25},
+ tick label style={font=\scriptsize},label style={font=\scriptsize},
+ title style={font=\small\bfseries},every axis plot/.append style={line width=0.9pt}
+]
+\addplot[black,dashed,domain=8:128,samples=2] {4.2183};
+\addplot[lstmblue,mark=*] coordinates {(8,4.6472) (16,5.0314) (32,8.1260) (64,7.7611) (128,11.8485)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,4.6472)};
+\end{axis}
+\end{tikzpicture}
+\end{center}
+
+\vspace{-5pt}
+\begin{center}
+\begin{tikzpicture}
 \begin{groupplot}[
  group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.25cm},
- width=0.44\textwidth,height=5.0cm,
+ width=0.44\textwidth,height=4.25cm,
  xmode=log,log basis x=2,xmin=7,xmax=145,
  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
  grid=major,grid style={gray!25},tick label style={font=\scriptsize},
@@ -139,7 +167,7 @@ All legends and indicators are outside the axes. Dashed lines are the offline AM
 \toprule
 Question & Direct evidence & Supported insight \\
 \midrule
-Why does h8 miss AMPM? & $U$ falls by 1,734; coverage falls 0.854 percentage points; IPC falls 0.00138. Requests fall only 0.492\%. & The closest gate still removes useful service. Coverage loss, not request-volume reduction, tracks the IPC loss.\\
+Why does h8 miss AMPM? & L2 misses rise by 1,734; $\mathrm{MR}_{L2}$ rises from 4.218\% to 4.647\%; $U$ and coverage fall by the same 1,734 opportunities while IPC falls 0.00138. Requests fall only 0.492\%. & The closest gate still removes useful service. The direct miss-rate increase confirms that coverage loss, not request-volume reduction, tracks the IPC loss.\\
 Is timeliness the limiting factor? & h8 late density improves from 46.699 to 31.603; wider models reduce it as low as 1.141 while IPC gets worse. & \textbf{No.} Lower late density does not compensate for lost useful coverage and can partly reflect request suppression.\\
 Does more LSTM capacity help? & h8 is best; h16--h128 use more parameters but lose 1.62--15.18 coverage points relative to AMPM. & No monotonic capacity saturation is observed. The bottleneck is policy/label/threshold behavior, not insufficient hidden width.\\
 Did stateful TBPTT fix the gap? & Recurrent-state contract is now matched and the run passes, yet no width crosses AMPM. & The previous state mismatch was a real methodology bug, but it was not the cause of the AMPM performance gap.\\

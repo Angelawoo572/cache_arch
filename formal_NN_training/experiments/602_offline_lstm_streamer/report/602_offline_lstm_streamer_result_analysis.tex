@@ -39,19 +39,27 @@ Normal policy & Streamer: 64 page trackers, prefetch degree 5. Live streamer is 
 \end{center}
 
 \section*{Metrics: formula first}
-Let $R$ be replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+Let $D=404{,}219$ be post-warmup demand L2 loads, $M$ the method's demand L2 misses, $R$ replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
 \[
+\boxed{\mathrm{MR}_{L2}=100\frac{M}{D}}
+\qquad
 \boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
 \qquad
 \boxed{C=100\frac{U}{M_0}}
 \qquad
 \boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
 \]
+Because $D$ is identical across these matched rows, miss rate and miss reduction contain the same ordering information:
+\[
+\mathrm{MissReduction}=100\frac{M_0-M}{M_0},
+\qquad \mathrm{MR}_{L2,0}=100\frac{M_0}{D}=50.2527\%.
+\]
 \begin{center}\scriptsize
 \begin{tabularx}{\textwidth}{@{}lXl@{}}
 \toprule
 Metric & What it measures in this experiment & Direction \\
 \midrule
+$\mathrm{MR}_{L2}$ & Final demand-miss fraction after all prefetch effects. This is the most direct cache-outcome metric shared by live and replayed methods. & Lower \\
 $A_{\mathrm{proxy}}$ & Observed useful-hit yield per request event. It is \emph{not} strict hardware accuracy because accepted fills, duplicates, unused lines, and evictions are not separated. & Higher \\
 $C$ & Useful demand hits as a fraction of the no-prefetch miss opportunity. & Higher \\
 $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density proxy, \emph{not} direct lead time; fewer requests can lower it. & Lower \\
@@ -62,24 +70,24 @@ $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density 
 \section*{Stateful-v2 measured data}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrrrrrrrr@{}}
 \toprule
-Method & Params & IPC & $\Delta$IPC & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
+Method & Params & IPC & $\Delta$IPC & $M$ & $\mathrm{MR}_{L2}$ (\%) & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
 \midrule
-Live streamer ref. & -- & 0.43161 & +0.00011 & 1,808,879 & 187,663 & 10.375 & 92.385 & 47 & 2.598 \\
-\textbf{Offline streamer} & -- & \textbf{0.43150} & 0 & 1,622,884 & 187,641 & 11.562 & 92.374 & 48 & 2.958 \\
-LSTM h8 & 545 & 0.43139 & -0.00011 & 1,621,947 & 187,480 & 11.559 & 92.295 & 44 & 2.713 \\
-LSTM h16 & 1,729 & 0.43111 & -0.00039 & 1,620,119 & 187,155 & 11.552 & 92.135 & 45 & 2.778 \\
-LSTM h32 & 6,017 & 0.42921 & -0.00229 & 1,443,342 & 183,496 & 12.713 & 90.334 & 8 & 0.554 \\
-LSTM h64 & 22,273 & 0.42866 & -0.00284 & 1,231,325 & 182,646 & 14.833 & 89.915 & 1 & 0.081 \\
-LSTM h128 & 85,505 & 0.42869 & -0.00281 & 1,243,548 & 182,829 & 14.702 & 90.005 & 2 & 0.161 \\
+Live streamer ref. & -- & 0.43161 & +0.00011 & 15,475 & 3.828 & 1,808,879 & 187,663 & 10.375 & 92.385 & 47 & 2.598 \\
+\textbf{Offline streamer} & -- & \textbf{0.43150} & 0 & 15,497 & 3.834 & 1,622,884 & 187,641 & 11.562 & 92.374 & 48 & 2.958 \\
+LSTM h8 & 545 & 0.43139 & -0.00011 & 15,658 & 3.874 & 1,621,947 & 187,480 & 11.559 & 92.295 & 44 & 2.713 \\
+LSTM h16 & 1,729 & 0.43111 & -0.00039 & 15,980 & 3.953 & 1,620,119 & 187,155 & 11.552 & 92.135 & 45 & 2.778 \\
+LSTM h32 & 6,017 & 0.42921 & -0.00229 & 19,639 & 4.859 & 1,443,342 & 183,496 & 12.713 & 90.334 & 8 & 0.554 \\
+LSTM h64 & 22,273 & 0.42866 & -0.00284 & 20,489 & 5.069 & 1,231,325 & 182,646 & 14.833 & 89.915 & 1 & 0.081 \\
+LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 & 14.702 & 90.005 & 2 & 0.161 \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
 \newpage
 \begin{center}
-{\large\bfseries IPC, accuracy proxy, coverage, and timeliness proxy}
+{\large\bfseries IPC, L2 miss rate, accuracy proxy, coverage, and timeliness proxy}
 
 \vspace{2pt}
 \begin{tikzpicture}[font=\scriptsize]
@@ -94,9 +102,29 @@ LSTM h128 & 85,505 & 0.42869 & -0.00281 & 1,243,548 & 182,829 & 14.702 & 90.005 
 
 \begin{center}
 \begin{tikzpicture}
+\begin{axis}[
+ title={Direct cache outcome: demand L2 miss rate},
+ width=0.78\textwidth,height=3.8cm,
+ xmode=log,log basis x=2,xmin=7,xmax=145,
+ xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ xlabel={LSTM hidden width},ylabel={$\mathrm{MR}_{L2}$ (\%)},
+ ymin=3.65,ymax=5.25,grid=major,grid style={gray!25},
+ tick label style={font=\scriptsize},label style={font=\scriptsize},
+ title style={font=\small\bfseries},every axis plot/.append style={line width=0.9pt}
+]
+\addplot[black,dashed,domain=8:128,samples=2] {3.8338};
+\addplot[lstmblue,mark=*] coordinates {(8,3.8736) (16,3.9533) (32,4.8585) (64,5.0688) (128,5.0235)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,3.8736)};
+\end{axis}
+\end{tikzpicture}
+\end{center}
+
+\vspace{-5pt}
+\begin{center}
+\begin{tikzpicture}
 \begin{groupplot}[
  group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.25cm},
- width=0.44\textwidth,height=5.0cm,
+ width=0.44\textwidth,height=4.25cm,
  xmode=log,log basis x=2,xmin=7,xmax=145,
  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
  grid=major,grid style={gray!25},tick label style={font=\scriptsize},
@@ -139,7 +167,7 @@ All legends and indicators are outside the axes. Dashed lines are the offline st
 \toprule
 Question & Direct evidence & Supported insight \\
 \midrule
-Why is h8 almost tied? & Relative to streamer, h8 removes only 937 requests (0.058\%), loses 161 useful hits, loses 0.079 coverage points, and improves late density from 2.958 to 2.713. IPC falls only 0.00011. & h8 nearly reproduces the offline streamer list. Its very small gap is consistent with a small useful-service loss, not a broad timing failure.\\
+Why is h8 almost tied? & Relative to streamer, h8 removes only 937 requests (0.058\%), adds 161 L2 misses, raises $\mathrm{MR}_{L2}$ from 3.834\% to 3.874\%, loses 161 useful hits, and improves late density. IPC falls only 0.00011. & h8 nearly reproduces the offline streamer list. Its tiny IPC gap and tiny miss-rate gap consistently indicate a small useful-service loss, not a broad timing failure.\\
 Why do wider models lose IPC? & h32--h128 reduce requests by 11--24\%; useful coverage falls to 89.9--90.3\%; IPC falls 0.00229--0.00284. & Wider gates over-prune the stream. The lost opportunity/coverage dominates any reduction in request traffic.\\
 Why can $A_{\rm proxy}$ rise while IPC falls? & h64 has the highest $A_{\rm proxy}$ (14.83\%) but lower coverage (89.92\%) and IPC (0.42866). & $U/R$ rewards selective suppression: removing many requests can raise yield while reducing total useful service. Accuracy proxy must be read with coverage.\\
 Did stateful TBPTT close the gap? & h8 improves from pre-fix 0.43134 to 0.43139; h128 improves from 0.42787 to 0.42869. No point crosses 0.43150. & Correct recurrence improves some points, especially h128, but threshold/policy behavior still matters more than width.\\
@@ -153,7 +181,7 @@ Did stateful TBPTT close the gap? & h8 improves from pre-fix 0.43134 to 0.43139;
 \toprule
 Claim type & Supported now & Still required \\
 \midrule
-Performance & Matched replay establishes h8 as within 0.0255\% of offline streamer on this trace/window. & Multiple traces, seeds, and a fresh held-out window before declaring equivalence.\\
+Performance & Matched replay establishes h8 as within 0.0255\% IPC and 0.040 miss-rate points of offline streamer on this trace/window. & Multiple traces, seeds, and a fresh held-out window before declaring equivalence.\\
 Strict accuracy & $U/R$ gives request-event yield and exposes over-pruning. & Accepted/filled unique prefetches, duplicate rejection, unused eviction, and pollution.\\
 True timeliness & Late merges are already rare for streamer and h8. & Issue/fill/demand cycles and lead-time histograms; one late count cannot measure ``too early.''\\
 Root cause & Wider models lose request volume, useful hits, coverage, and IPC together. & Per-target false-negative/false-positive labels, bandwidth/MSHR pressure, pollution, and critical-miss stall cycles.\\

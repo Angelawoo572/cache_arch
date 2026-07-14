@@ -39,19 +39,27 @@ Normal policy & Stride: 64 PC-indexed trackers, prefetch degree 2. Live stride i
 \end{center}
 
 \section*{Metrics: formula first}
-Let $R$ be replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+Let $D=404{,}219$ be post-warmup demand L2 loads, $M$ the method's demand L2 misses, $R$ replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
 \[
+\boxed{\mathrm{MR}_{L2}=100\frac{M}{D}}
+\qquad
 \boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
 \qquad
 \boxed{C=100\frac{U}{M_0}}
 \qquad
 \boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
 \]
+Because $D$ is identical across these matched rows, miss rate and miss reduction contain the same ordering information:
+\[
+\mathrm{MissReduction}=100\frac{M_0-M}{M_0},
+\qquad \mathrm{MR}_{L2,0}=100\frac{M_0}{D}=50.2527\%.
+\]
 \begin{center}\scriptsize
 \begin{tabularx}{\textwidth}{@{}lXl@{}}
 \toprule
 Metric & What it measures in this experiment & Direction \\
 \midrule
+$\mathrm{MR}_{L2}$ & Final demand-miss fraction after all prefetch effects. This is the most direct cache-outcome metric shared by live and replayed methods. & Lower \\
 $A_{\mathrm{proxy}}$ & Observed useful-hit yield per request event. It is \emph{not} strict hardware accuracy because accepted fills, duplicates, unused lines, and evictions are not separated. & Higher \\
 $C$ & Useful demand hits as a fraction of the no-prefetch miss opportunity. & Higher \\
 $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density proxy, \emph{not} direct prefetch lead time. & Lower \\
@@ -62,24 +70,24 @@ $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density 
 \section*{Stateful-v2 measured data}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrrrrrrrr@{}}
 \toprule
-Method & Params & IPC & $\Delta$IPC & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
+Method & Params & IPC & $\Delta$IPC & $M$ & $\mathrm{MR}_{L2}$ (\%) & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
 \midrule
-Live stride ref. & -- & 0.37006 & -0.00010 & 122,156 & 34,854 & 28.532 & 17.158 & 164 & 134.255 \\
-\textbf{Offline stride} & -- & \textbf{0.37016} & 0 & 60,255 & 34,850 & 57.838 & 17.156 & 165 & 273.836 \\
-LSTM h8 & 545 & 0.36914 & -0.00102 & 34,335 & 18,833 & 54.851 & 9.271 & 88 & 256.298 \\
-\textbf{LSTM h16} & 1,729 & \textbf{0.37100} & \textbf{+0.00084} & 33,874 & 13,305 & 39.278 & 6.550 & 137 & 404.440 \\
-\textbf{LSTM h32} & 6,017 & \textbf{0.37063} & \textbf{+0.00047} & 37,209 & 16,271 & 43.729 & 8.010 & 237 & 636.943 \\
-LSTM h64 & 22,273 & 0.36904 & -0.00112 & 34,275 & 18,544 & 54.104 & 9.129 & 59 & 172.137 \\
-LSTM h128 & 85,505 & 0.36882 & -0.00134 & 33,327 & 17,040 & 51.130 & 8.389 & 4 & 12.002 \\
+Live stride ref. & -- & 0.37006 & -0.00010 & 168,277 & 41.630 & 122,156 & 34,854 & 28.532 & 17.158 & 164 & 134.255 \\
+\textbf{Offline stride} & -- & \textbf{0.37016} & 0 & 168,281 & 41.631 & 60,255 & 34,850 & 57.838 & 17.156 & 165 & 273.836 \\
+LSTM h8 & 545 & 0.36914 & -0.00102 & 184,298 & 45.594 & 34,335 & 18,833 & 54.851 & 9.271 & 88 & 256.298 \\
+\textbf{LSTM h16} & 1,729 & \textbf{0.37100} & \textbf{+0.00084} & 189,827 & 46.961 & 33,874 & 13,305 & 39.278 & 6.550 & 137 & 404.440 \\
+\textbf{LSTM h32} & 6,017 & \textbf{0.37063} & \textbf{+0.00047} & 186,860 & 46.227 & 37,209 & 16,271 & 43.729 & 8.010 & 237 & 636.943 \\
+LSTM h64 & 22,273 & 0.36904 & -0.00112 & 184,587 & 45.665 & 34,275 & 18,544 & 54.104 & 9.129 & 59 & 172.137 \\
+LSTM h128 & 85,505 & 0.36882 & -0.00134 & 186,091 & 46.037 & 33,327 & 17,040 & 51.130 & 8.389 & 4 & 12.002 \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
 \newpage
 \begin{center}
-{\large\bfseries IPC, accuracy proxy, coverage, and timeliness proxy}
+{\large\bfseries IPC, L2 miss rate, accuracy proxy, coverage, and timeliness proxy}
 
 \vspace{2pt}
 \begin{tikzpicture}[font=\scriptsize]
@@ -94,9 +102,29 @@ LSTM h128 & 85,505 & 0.36882 & -0.00134 & 33,327 & 17,040 & 51.130 & 8.389 & 4 &
 
 \begin{center}
 \begin{tikzpicture}
+\begin{axis}[
+ title={Direct cache outcome: demand L2 miss rate},
+ width=0.78\textwidth,height=3.8cm,
+ xmode=log,log basis x=2,xmin=7,xmax=145,
+ xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ xlabel={LSTM hidden width},ylabel={$\mathrm{MR}_{L2}$ (\%)},
+ ymin=40.5,ymax=48.0,grid=major,grid style={gray!25},
+ tick label style={font=\scriptsize},label style={font=\scriptsize},
+ title style={font=\small\bfseries},every axis plot/.append style={line width=0.9pt}
+]
+\addplot[black,dashed,domain=8:128,samples=2] {41.6311};
+\addplot[lstmblue,mark=*] coordinates {(8,45.5936) (16,46.9614) (32,46.2274) (64,45.6651) (128,46.0372)};
+\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,46.9614) (32,46.2274)};
+\end{axis}
+\end{tikzpicture}
+\end{center}
+
+\vspace{-5pt}
+\begin{center}
+\begin{tikzpicture}
 \begin{groupplot}[
  group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.25cm},
- width=0.44\textwidth,height=5.0cm,
+ width=0.44\textwidth,height=4.25cm,
  xmode=log,log basis x=2,xmin=7,xmax=145,
  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
  grid=major,grid style={gray!25},tick label style={font=\scriptsize},
@@ -139,7 +167,7 @@ All legends and crossing indicators are outside the axes. Dashed lines are the o
 \toprule
 Question & Direct evidence & Supported insight \\
 \midrule
-Why does h16 beat stride? & IPC rises 0.00084 while requests fall 43.8\%. However, useful hits fall 61.8\%, coverage falls 10.61 points, $A_{\rm proxy}$ falls 18.56 points, and late density rises. & The crossing is \textbf{not explained by higher measured accuracy, coverage, or timeliness}. Fewer requests may reduce bandwidth/pollution, or the remaining misses may differ in criticality, but those mechanisms are not yet counted.\\
+Why does h16 beat stride? & IPC rises 0.00084 while requests fall 43.8\%. However, misses rise by 21,546 and $\mathrm{MR}_{L2}$ worsens from 41.631\% to 46.961\%; coverage, $A_{\rm proxy}$, and late density also worsen. & The crossing is \textbf{not explained by fewer L2 misses, higher accuracy, coverage, or timeliness}. Fewer requests may reduce bandwidth/pollution, or the remaining misses may be less critical, but those mechanisms are not yet counted.\\
 Is h16 a saturation point? & h16 and h32 cross; h64 and h128 do not. Parameter count grows from 1,729 to 85,505 without monotonic IPC gain. & h16 is the first measured crossing, not a capacity saturation law. Width alone does not control outcome.\\
 Does h128 look timely? & Late density is only 12.0, but IPC is 0.36882 and coverage is 8.39\%. & A very low late proxy can coexist with poor performance when the gate suppresses opportunities. It cannot be read alone.\\
 Did stateful TBPTT matter? & Corrected h16 rises from the pre-fix 0.37090 to 0.37100; h32 rises from 0.37033 to 0.37063. & Correct recurrence slightly strengthens the measured crossing, but the qualitative non-monotonic result remains.\\
@@ -153,7 +181,7 @@ Did stateful TBPTT matter? & Corrected h16 rises from the pre-fix 0.37090 to 0.3
 \toprule
 Claim type & Supported now & Still required \\
 \midrule
-Performance & Matched replay establishes h16/h32 IPC crossings on this trace/window. & Multiple traces, seeds, and a fresh held-out window before selecting a final capacity.\\
+Performance & Matched replay establishes h16/h32 IPC crossings while the direct L2 miss rate becomes worse. & Multiple traces, seeds, critical-miss stall cycles, and a fresh held-out window before selecting a final capacity.\\
 Strict accuracy & $U/R$ gives request-event yield. & Accepted/filled unique prefetches, duplicate rejection, unused eviction, and pollution.\\
 True timeliness & Late merges give one late-failure count. & Issue/fill/demand cycles and lead-time histograms.\\
 Why IPC rises with more misses & The counters rule out ``more coverage'' and ``lower late density'' as explanations for h16/h32. & Bandwidth/MSHR occupancy, eviction/pollution, useful-prefetch lead time, and critical-miss stall cycles.\\
