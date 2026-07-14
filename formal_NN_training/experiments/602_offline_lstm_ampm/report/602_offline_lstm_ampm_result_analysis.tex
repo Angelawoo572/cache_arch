@@ -1,15 +1,12 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.68in]{geometry}
-\usepackage{booktabs}
-\usepackage{array}
-\usepackage{graphicx}
+\usepackage[margin=0.65in]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs,tabularx,array,graphicx,xcolor,enumitem,float}
 \usepackage{hyperref}
-\usepackage{xcolor}
-\usepackage{enumitem}
-\usepackage{float}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\setlength{\parindent}{0pt}
 \setlength{\parskip}{3pt}
 \setlist{nosep,leftmargin=*}
 \renewcommand{\arraystretch}{1.08}
@@ -17,114 +14,149 @@
 \begin{document}\small
 \begin{center}
 {\Large\bfseries 602 Offline LSTM Gate vs. Offline AMPM}\\[2pt]
-{\small Verified capacity sweep for \texttt{602.gcc\_s-734B} \quad | \quad seed 7}
+{\small Matched-input capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
 \end{center}
 
-\section*{Status and experiment contract}
-\textbf{Status: PASS.} This is an isolated, single-trace, matched-input offline experiment. Colab trains a one-layer LSTM on the 0--20M no-prefetch address stream, uses a chronological fit/calibration split, and performs causal offline inference after a disjoint 20M--25M guard stream initializes state. The 25M--50M stream is used only for evaluation-list generation. ChampSim replays both the deterministic offline-AMPM list and each offline-LSTM list with the same keyed PC--line--occurrence \texttt{ListReplayer}, followed by the same 25M warmup and 25M measured window.
-
-The pinned AMPM configuration has 64 LRU page trackers, one 64-bit accessed-offset bitmap per page, maximum delta 16, prediction/prefetch degree 4, and its prefetch buffer disabled. Both policies receive the current cache-line address and causal prior address history. The LSTM derives the equivalent page bitmap/LRU state, current offset, tracker-hit state, and AMPM candidate delta/offset/rank from that same stream. PC is replay identity only; hit/miss, cycle, queue state, metadata, and future evaluation rows are forbidden.
-
-The primary comparison is \texttt{offline\_ampm} versus \texttt{offline\_lstm\_h<width>}. Live AMPM is a validated general reference, not the primary offline comparator. All model tags passed canonical decompressed-content SHA256 provenance checks.
-
-\section*{What ``accuracy'' and ``timeliness'' mean here}
-The event logger does not expose strict hardware prefetch accuracy. We therefore report \emph{observed useful-hit yield}, defined as useful-prefetch demand hits divided by post-warmup prefetch-request events. This is only a diagnostic proxy: a request may be rejected, merged, duplicated, or evicted before use, and those outcomes are not individually counted. Coverage is useful hits divided by the 203,131 no-prefetch L2 demand misses. Late/request is a timeliness proxy; a complete timeliness study would need the issue-to-demand lead-time distribution.
-
-These counters are sufficient to determine whether a gate preserved useful coverage while reducing late requests. They are not sufficient to claim exact physical prefetch accuracy, cache pollution, queue pressure, or inference-cost effects.
-
-\section*{Measured comparison}
-\begin{center}
-\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{lrrrrrrrrr}
+\section*{Experiment contract}
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
-Method & Params & IPC & $\Delta$ vs. AMPM & Requests & Useful & Useful yield & Coverage & L2 misses & Late \\
-\midrule
-No prefetch & -- & 0.36800 & -- & 0 & 0 & -- & 0.00\% & 203,131 & 0 \\
-Live AMPM reference & -- & 0.43069 & -- & 1,424,170 & 186,100 & 13.067\% & 91.616\% & 17,032 & 600 \\
-Offline AMPM & -- & \textbf{0.43054} & 0.00000 & 1,271,977 & 186,081 & 14.629\% & 91.606\% & 17,051 & 594 \\
-\midrule
-Offline LSTM h8 & 2,537 & 0.42917 & -0.00137 & 1,265,758 & 184,363 & 14.565\% & 90.761\% & 18,769 & 399 \\
-Offline LSTM h16 & 5,713 & 0.42833 & -0.00221 & 1,263,006 & 183,102 & 14.497\% & 90.140\% & 20,030 & 336 \\
-Offline LSTM h32 & 13,985 & 0.42196 & -0.00858 & 1,219,521 & 168,394 & 13.808\% & 82.899\% & 34,738 & 69 \\
-Offline LSTM h64 & 38,209 & 0.42400 & -0.00654 & 1,237,993 & 173,414 & 14.008\% & 85.371\% & 29,718 & 92 \\
-Offline LSTM h128 & 117,377 & 0.41605 & -0.01449 & 1,146,403 & 154,548 & 13.481\% & 76.083\% & 48,584 & 12 \\
+Status & \textbf{PASS}; all five capacities passed canonical decompressed-content SHA256 checks.\\
+Primary comparison & \texttt{offline\_ampm} vs. \texttt{offline\_lstm\_h<width>}; identical keyed ListReplayer transport.\\
+Shared information & Current cache-line address, causal prior address history, and equivalent causal 64-page bitmap/LRU state. PC is replay identity only.\\
+Forbidden information & Hit/miss, cycle, queues, metadata, and future evaluation rows.\\
+Data split & 0--20M train, 20--25M guard, 25--50M evaluation; 25M warmup + 25M measured replay.\\
+Normal policy & AMPM: 64 LRU page trackers, 64-bit accessed-offset bitmap, maximum delta 16, degree 4.\\
 \bottomrule
-\end{tabular}}
+\end{tabularx}
 \end{center}
 
-The live/offline control is close: offline AMPM is only 0.00015 IPC below live AMPM, with 19 fewer useful hits and 19 more L2 demand misses. The identical offline-AMPM list SHA256 across all five capacity points confirms that every LSTM width was compared against the same normal-policy list.
+\section*{Metric definitions}
+Let $R$ be post-warmup prefetch requests, $U$ useful-prefetch demand hits, $L$ late demand misses, and $M_0=203{,}131$ no-prefetch L2 demand misses.
+\[
+\boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
+\qquad
+\boxed{C=100\frac{U}{M_0}}
+\qquad
+\boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
+\]
+\begin{center}\scriptsize
+\begin{tabularx}{\textwidth}{@{}l l X l@{}}
+\toprule
+Metric & Name & Exact interpretation & Desired direction \\
+\midrule
+$A_{\mathrm{proxy}}$ & Observed useful-hit yield & Useful demand hits per logged request; \emph{not} strict hardware accuracy. & Higher \\
+$C$ & Coverage & Fraction of no-prefetch L2 misses converted into useful prefetched hits. & Higher \\
+$T_{\mathrm{late}}$ & Late density & Late demand misses per 100,000 requests; not a lead-time distribution. & Lower \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Strict accuracy additionally needs accepted/rejected/merged/duplicate and evicted-before-use counts. Strict timeliness needs issue-to-demand lead-time distributions.
+
+\section*{Measured data}
+\begin{center}\scriptsize
+\begin{tabular}{lrrrrrr}
+\toprule
+Method & Params & IPC & $\Delta$ IPC & $A_{\rm proxy}$ & Coverage & Late/100k \\
+\midrule
+Offline AMPM & -- & \textbf{0.43054} & 0.00000 & 14.629\% & 91.606\% & 46.699 \\
+LSTM h8 & 2,537 & 0.42917 & -0.00137 & 14.565\% & 90.761\% & 31.523 \\
+LSTM h16 & 5,713 & 0.42833 & -0.00221 & 14.497\% & 90.140\% & 26.603 \\
+LSTM h32 & 13,985 & 0.42196 & -0.00858 & 13.808\% & 82.899\% & 5.658 \\
+LSTM h64 & 38,209 & 0.42400 & -0.00654 & 14.008\% & 85.371\% & 7.431 \\
+LSTM h128 & 117,377 & 0.41605 & -0.01449 & 13.481\% & 76.083\% & 1.047 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{center}\scriptsize
+\begin{tabularx}{0.92\textwidth}{@{}lrrX@{}}
+\toprule
+h8 relative to offline AMPM & AMPM & h8 & Diagnostic meaning \\
+\midrule
+Requests & 1,271,977 & 1,265,758 & $-6{,}219$: only 0.489\% traffic removed.\\
+Useful hits & 186,081 & 184,363 & $-1{,}718$: useful candidates were removed.\\
+L2 demand misses & 17,051 & 18,769 & $+1{,}718$: exactly mirrors useful-hit loss.\\
+Late misses & 594 & 399 & $-195$: timeliness improves, but not enough.\\
+IPC & 0.43054 & 0.42917 & $-0.00137$ ($-0.318\%$).\\
+\bottomrule
+\end{tabularx}
+\end{center}
 
 \clearpage
+\section*{Accuracy--coverage--timeliness diagrams}
+\begin{center}
+\begin{tikzpicture}[baseline=-0.5ex]
+\draw[blue,thick] (0,0)--(0.7,0) node[right,black]{LSTM capacity sweep};
+\draw[black,dashed,thick] (4.0,0)--(4.7,0) node[right,black]{offline AMPM baseline};
+\end{tikzpicture}
+\end{center}
 
 \begin{figure}[H]
 \centering
-\begin{minipage}{0.49\linewidth}
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-  width=\linewidth,height=4.7cm,
-  xmode=log,log basis x=2,
-  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
-  xlabel={Hidden width},ylabel={IPC},
-  ymin=0.4145,ymax=0.4320,
-  ytick={0.416,0.420,0.424,0.428,0.432},
-  yticklabel style={/pgf/number format/fixed,/pgf/number format/fixed zerofill,/pgf/number format/precision=3},
-  grid=major,
-  legend style={at={(0.03,0.97)},anchor=north west,font=\scriptsize,draw=none,fill=white},
-]
-\addplot[blue,mark=*] coordinates {(8,0.42917) (16,0.42833) (32,0.42196) (64,0.42400) (128,0.41605)};
-\addlegendentry{Offline LSTM}
-\addplot[black,dashed] coordinates {(8,0.43054) (128,0.43054)};
-\addlegendentry{Offline AMPM}
-\end{axis}
-\end{tikzpicture}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Performance: IPC},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=0.4145,ymax=0.4320,ytick={0.416,0.420,0.424,0.428,0.432},grid=major,
+yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=3}]
+\addplot[blue,mark=*] coordinates {(8,0.42917)(16,0.42833)(32,0.42196)(64,0.42400)(128,0.41605)};
+\addplot[black,dashed] coordinates {(8,0.43054)(128,0.43054)};
+\end{axis}\end{tikzpicture}
 \end{minipage}
-\begin{minipage}{0.49\linewidth}
-\centering
-\begin{tikzpicture}
-\begin{axis}[
-  width=\linewidth,height=4.7cm,
-  xmode=log,log basis x=2,
-  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
-  xlabel={Hidden width},ylabel={Coverage (\%)},
-  ymin=74,ymax=93,
-  grid=major,
-  legend style={at={(0.03,0.08)},anchor=south west,font=\scriptsize,draw=none,fill=white},
-]
-\addplot[orange!85!black,mark=square*] coordinates {(8,90.7606) (16,90.1399) (32,82.8992) (64,85.3705) (128,76.0829)};
-\addlegendentry{Offline LSTM}
-\addplot[black,dashed] coordinates {(8,91.6064) (128,91.6064)};
-\addlegendentry{Offline AMPM}
-\end{axis}
-\end{tikzpicture}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Accuracy proxy: $A_{\rm proxy}$ (\%)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=13.2,ymax=14.9,grid=major]
+\addplot[blue,mark=*] coordinates {(8,14.5654)(16,14.4973)(32,13.8082)(64,14.0077)(128,13.4811)};
+\addplot[black,dashed] coordinates {(8,14.6293)(128,14.6293)};
+\end{axis}\end{tikzpicture}
 \end{minipage}
-\caption{No tested LSTM width reaches AMPM. IPC follows the loss of useful coverage rather than the reduction in late misses.}
+
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Coverage $C$ (\%)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=74,ymax=93,grid=major]
+\addplot[blue,mark=*] coordinates {(8,90.7606)(16,90.1399)(32,82.8992)(64,85.3705)(128,76.0829)};
+\addplot[black,dashed] coordinates {(8,91.6064)(128,91.6064)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\begin{minipage}{0.49\linewidth}\centering
+\begin{tikzpicture}\begin{axis}[
+width=\linewidth,height=4.15cm,title={Timeliness proxy: late/100k (lower is better)},
+xmode=log,log basis x=2,xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
+ymin=0,ymax=50,grid=major]
+\addplot[blue,mark=*] coordinates {(8,31.5226)(16,26.6032)(32,5.6580)(64,7.4314)(128,1.0468)};
+\addplot[black,dashed] coordinates {(8,46.6990)(128,46.6990)};
+\end{axis}\end{tikzpicture}
+\end{minipage}
+\caption{The legend is outside the axes. Lower late density does not compensate for the simultaneous loss of useful-hit yield and coverage.}
 \end{figure}
 
-\section*{Why the closest model still loses}
-The closest point is h8, but it is not a crossing. Relative to offline AMPM, h8:
+\section*{Data-to-insight map}
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}p{0.22\textwidth}p{0.32\textwidth}X@{}}
+\toprule
+Question & Data pattern & Supported insight \\
+\midrule
+Why does h8 miss the baseline? & $U:-1{,}718$, L2 misses:$+1{,}718$, late:$-195$. & Lost useful coverage dominates the timeliness improvement.\\
+Does widening approach a crossing? & Every $\Delta$IPC is negative; h128: $-0.01449$. & No saturation crossing is observed; size alone is not the solution.\\
+Why can fewer late events still lose? & h128 has only 12 late events but coverage falls to 76.08\%. & Suppressing useful requests makes late density look good while harming performance.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section*{Conclusion and evidence boundary}
 \begin{itemize}
-\item removes 6,219 requests (0.489\%);
-\item loses 1,718 useful-prefetch demand hits (0.923\%);
-\item lowers observed useful-hit yield from 14.629\% to 14.565\%;
-\item lowers coverage by 0.846 percentage points;
-\item reduces late misses from 594 to 399, a reduction of 195 (32.8\%);
-\item adds exactly 1,718 L2 demand misses and loses 0.00137 IPC (0.318\%).
+\item \textbf{Result:} no tested matched-input LSTM beats offline AMPM; h8 is closest at $-0.00137$ IPC.
+\item \textbf{Mechanism supported by current counters:} the gate removes useful AMPM candidates; coverage loss exceeds timeliness benefit.
+\item \textbf{Not yet supported:} strict hardware accuracy, exact lead time, pollution, queue pressure, or cross-seed generalization.
+\item \textbf{Next test:} keep AMPM inputs/candidates fixed; train a coverage-preserving utility/ranking objective and calibrate request budget without evaluation-IPC selection.
 \end{itemize}
-The exact useful-hit loss/L2-miss increase correspondence gives a clear proximate explanation: the gate discards useful AMPM candidates. Its 195 fewer late misses are too small to compensate for 1,718 lost useful lines. Thus h8 is neither more accurate by observed useful-hit yield nor better balanced in coverage/timeliness than offline AMPM.
-
-\section*{Capacity behavior}
-Increasing capacity does not approach a saturation crossing. h16 is lower than h8. h32 and h64 are non-monotonic, but both are far below AMPM. h128 removes 9.87\% of requests, loses 16.95\% of useful hits, lowers yield to 13.481\%, lowers coverage by 15.52 percentage points, and adds 31,533 L2 misses. Its late count falls to 12, but IPC falls by 3.37\% relative to offline AMPM. Reducing late events by suppressing useful candidates is not a performance win.
-
-The data therefore reject the hypothesis that widening this candidate gate is enough. A same-input redesign should keep the AMPM candidate set and address-derived state fixed, but change the learning objective toward coverage-preserving utility/ranking and calibrate request budgets without selecting on the evaluation IPC.
-
-\section*{What is established and what remains missing}
-The present data are sufficient to establish a fair negative result on this seed/window: no tested LSTM capacity beats offline AMPM, and the measured deficit is associated with lost useful coverage that dominates improved late counts. They are also sufficient to show that model size alone is not the solution.
-
-They are not sufficient for a general hardware claim or a complete causal decomposition. A later confirmation should add accepted/merged/rejected requests, duplicate suppression, filled-but-unused and evicted-before-use lines, PQ/MSHR occupancy, DRAM traffic, and issue-to-demand lead-time distributions. Any redesigned winner must be fixed before evaluation and then confirmed on a fresh held-out 602 window and additional seeds.
 
 \section*{Verified provenance}
-The analyzer reports \texttt{fair\_comparison\_claim\_allowed=true}, no failures, and canonical decompressed-content validation for h8, h16, h32, h64, and h128. Content SHA256 prefixes are \texttt{2564c753145a} (train), \texttt{729c2c44e2e6} (guard), and \texttt{36ce707c2f27} (evaluation). The primary offline comparison and the live reference are clearly separated.
+Analyzer status \texttt{PASS}; canonical content SHA256 prefixes: \texttt{2564c753145a} (train), \texttt{729c2c44e2e6} (guard), and \texttt{36ce707c2f27} (evaluation). Live AMPM is a validated reference (0.43069 IPC), not the primary offline comparator.
 
 \end{document}
