@@ -145,11 +145,24 @@ def main():
         failures.append("one or more methods are missing")
     if rows and len({row["instructions"] for row in rows}) != 1:
         failures.append("simulation instruction counts differ")
+    expected_train_stream = args.run_dir / "colab_input" / (TRACE + ".train_stream.csv.gz")
+    expected_eval_stream = args.run_dir / "colab_input" / (TRACE + ".eval_stream.csv.gz")
+    expected_train_sha = sha256(expected_train_stream) if expected_train_stream.is_file() else None
+    expected_eval_sha = sha256(expected_eval_stream) if expected_eval_stream.is_file() else None
+    if expected_train_sha is None or expected_eval_sha is None:
+        failures.append("missing normalized Colab input streams under {}".format(args.run_dir / "colab_input"))
     for tag in model_tags:
         for name in ("offline_lstm.replay.csv", "model.pt", "run_metadata.json"):
             path = colab_root / tag / name
             if not path.is_file():
                 failures.append("missing Colab output {}".format(path))
+        metadata_path = colab_root / tag / "run_metadata.json"
+        if metadata_path.is_file() and expected_train_sha is not None and expected_eval_sha is not None:
+            metadata = json.loads(metadata_path.read_text())
+            if metadata.get("train_stream_sha256") != expected_train_sha:
+                failures.append("{} training-stream SHA256 does not match this run".format(tag))
+            if metadata.get("eval_stream_sha256") != expected_eval_sha:
+                failures.append("{} evaluation-stream SHA256 does not match this run".format(tag))
 
     if "no_pref" in by_method:
         no_pref_misses = by_method["no_pref"]["demand_l2_misses"]
