@@ -22,7 +22,7 @@
 {\small Corrected recurrent-state capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
 \end{center}
 
-\noindent\colorbox{softgray}{\parbox{0.97\textwidth}{\textbf{Outcome:} \textbf{PASS} provenance and recurrent-state checks. No tested width exceeds offline streamer. h8 is nearly tied: IPC $0.43139$ vs. $0.43150$ ($-0.00011$, or $-0.0255\%$). Wider models increasingly suppress requests and lose useful coverage. Earlier pre-fix values are superseded.}}
+\noindent\colorbox{softgray}{\parbox{0.97\textwidth}{\textbf{Outcome:} \textbf{PASS} provenance and recurrent-state checks. No tested width exceeds offline streamer. h8 is nearly tied in both IPC ($-0.00011$) and balanced parity (\textbf{99.80/100}). Wider models gain selected-accuracy yield by suppressing requests, but their miss rate and coverage deteriorate; BPI exposes that tradeoff.}}
 
 \section*{Experiment and recurrent-state contract}
 \begin{center}\scriptsize
@@ -43,26 +43,40 @@ Let $D=404{,}219$ be post-warmup demand L2 loads, $M$ the method's demand L2 mis
 \[
 \boxed{\mathrm{MR}_{L2}=100\frac{M}{D}}
 \qquad
-\boxed{A_{\mathrm{proxy}}=100\frac{U}{R}}
+\boxed{A_{\mathrm{sel}}^{*}=100\frac{U}{R}}
 \qquad
 \boxed{C=100\frac{U}{M_0}}
 \qquad
-\boxed{T_{\mathrm{late}}=10^5\frac{L}{R}}
+\boxed{T=100\frac{U}{U+L}}
 \]
 Because $D$ is identical across these matched rows, miss rate and miss reduction contain the same ordering information:
 \[
 \mathrm{MissReduction}=100\frac{M_0-M}{M_0},
 \qquad \mathrm{MR}_{L2,0}=100\frac{M_0}{D}=50.2527\%.
 \]
+For an NN point $x$ and its matched offline normal baseline $N$, convert every component to a capped higher-is-better parity ratio:
+\[
+q_M=\min\!\left(1,\frac{\mathrm{MR}_{L2,N}}{\mathrm{MR}_{L2,x}}\right),\quad
+q_A=\min\!\left(1,\frac{A^{*}_{\mathrm{sel},x}}{A^{*}_{\mathrm{sel},N}}\right),\quad
+q_C=\min\!\left(1,\frac{C_x}{C_N}\right),\quad
+q_T=\min\!\left(1,\frac{T_x}{T_N}\right).
+\]
+Miss rate and coverage are related cache outcomes, so they first form one block rather than receiving two full weights:
+\[
+\boxed{Q_{\mathrm{cache}}=\sqrt{q_Mq_C}},\qquad
+\boxed{\mathrm{BPI}=100\left(Q_{\mathrm{cache}}q_Aq_T\right)^{1/3}}.
+\]
+The offline normal baseline is 100. Capping prevents an improvement in one component from hiding a deficit in another. BPI compares NN parity only against its corresponding normal policy; it does not replace IPC or rank different normal-prefetcher families.
 \begin{center}\scriptsize
 \begin{tabularx}{\textwidth}{@{}lXl@{}}
 \toprule
 Metric & What it measures in this experiment & Direction \\
 \midrule
 $\mathrm{MR}_{L2}$ & Final demand-miss fraction after all prefetch effects. This is the most direct cache-outcome metric shared by live and replayed methods. & Lower \\
-$A_{\mathrm{proxy}}$ & Observed useful-hit yield per request event. It is \emph{not} strict hardware accuracy because accepted fills, duplicates, unused lines, and evictions are not separated. & Higher \\
+$A_{\mathrm{sel}}^{*}$ & Matched replay useful-hit yield per request event: a selected-accuracy and pollution-risk proxy, not a direct harmful-eviction count. & Higher \\
 $C$ & Useful demand hits as a fraction of the no-prefetch miss opportunity. & Higher \\
-$T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density proxy, \emph{not} direct lead time; fewer requests can lower it. & Lower \\
+$T$ & Useful events divided by useful plus late events. The late count $L$ is explicit; this is not a lead-time distribution. & Higher \\
+BPI & Capped geometric parity across cache outcome, selected accuracy, coverage, and timeliness. Normal $=100$. & Higher, max 100 \\
 \bottomrule
 \end{tabularx}
 \end{center}
@@ -70,24 +84,24 @@ $T_{\mathrm{late}}$ & Late merges per 100k request events. It is a late-density 
 \section*{Stateful-v2 measured data}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrrrrrrrrr@{}}
 \toprule
-Method & Params & IPC & $\Delta$IPC & $M$ & $\mathrm{MR}_{L2}$ (\%) & $R$ & $U$ & $A_{\rm proxy}$ (\%) & $C$ (\%) & $L$ & $T_{\rm late}$ \\
+Method & Params & IPC & $\Delta$IPC & $M$ & $\mathrm{MR}_{L2}$ (\%) & $R$ & $U$ & $A_{\rm sel}^{*}$ (\%) & $C$ (\%) & $L$ & $T$ (\%) & BPI \\
 \midrule
-Live streamer ref. & -- & 0.43161 & +0.00011 & 15,475 & 3.828 & 1,808,879 & 187,663 & 10.375 & 92.385 & 47 & 2.598 \\
-\textbf{Offline streamer} & -- & \textbf{0.43150} & 0 & 15,497 & 3.834 & 1,622,884 & 187,641 & 11.562 & 92.374 & 48 & 2.958 \\
-LSTM h8 & 545 & 0.43139 & -0.00011 & 15,658 & 3.874 & 1,621,947 & 187,480 & 11.559 & 92.295 & 44 & 2.713 \\
-LSTM h16 & 1,729 & 0.43111 & -0.00039 & 15,980 & 3.953 & 1,620,119 & 187,155 & 11.552 & 92.135 & 45 & 2.778 \\
-LSTM h32 & 6,017 & 0.42921 & -0.00229 & 19,639 & 4.859 & 1,443,342 & 183,496 & 12.713 & 90.334 & 8 & 0.554 \\
-LSTM h64 & 22,273 & 0.42866 & -0.00284 & 20,489 & 5.069 & 1,231,325 & 182,646 & 14.833 & 89.915 & 1 & 0.081 \\
-LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 & 14.702 & 90.005 & 2 & 0.161 \\
+Live streamer ref. & -- & 0.43161 & +0.00011 & 15,475 & 3.828 & 1,808,879 & 187,663 & 10.375 & 92.385 & 47 & 99.975 & -- \\
+\textbf{Offline streamer} & -- & \textbf{0.43150} & 0 & 15,497 & 3.834 & 1,622,884 & 187,641 & 11.562 & 92.374 & 48 & 99.974 & \textbf{100.00} \\
+\textbf{LSTM h8} & 545 & 0.43139 & -0.00011 & 15,658 & 3.874 & 1,621,947 & 187,480 & 11.559 & 92.295 & 44 & 99.977 & \textbf{99.80} \\
+LSTM h16 & 1,729 & 0.43111 & -0.00039 & 15,980 & 3.953 & 1,620,119 & 187,155 & 11.552 & 92.135 & 45 & 99.976 & 99.42 \\
+LSTM h32 & 6,017 & 0.42921 & -0.00229 & 19,639 & 4.859 & 1,443,342 & 183,496 & 12.713 & 90.334 & 8 & 99.996 & 95.77 \\
+LSTM h64 & 22,273 & 0.42866 & -0.00284 & 20,489 & 5.069 & 1,231,325 & 182,646 & 14.833 & 89.915 & 1 & 99.999 & 95.02 \\
+LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 & 14.702 & 90.005 & 2 & 99.999 & 95.18 \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
 \newpage
 \begin{center}
-{\large\bfseries IPC, L2 miss rate, accuracy proxy, coverage, and timeliness proxy}
+{\large\bfseries IPC and balanced normal-vs.-NN cache-side parity}
 
 \vspace{2pt}
 \begin{tikzpicture}[font=\scriptsize]
@@ -102,20 +116,25 @@ LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 &
 
 \begin{center}
 \begin{tikzpicture}
-\begin{axis}[
- title={Direct cache outcome: demand L2 miss rate},
- width=0.78\textwidth,height=3.8cm,
+\begin{groupplot}[
+ group style={group size=2 by 1,horizontal sep=1.35cm},
+ width=0.44\textwidth,height=3.75cm,
  xmode=log,log basis x=2,xmin=7,xmax=145,
  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
- xlabel={LSTM hidden width},ylabel={$\mathrm{MR}_{L2}$ (\%)},
- ymin=3.65,ymax=5.25,grid=major,grid style={gray!25},
+ xlabel={LSTM hidden width},grid=major,grid style={gray!25},
  tick label style={font=\scriptsize},label style={font=\scriptsize},
  title style={font=\small\bfseries},every axis plot/.append style={line width=0.9pt}
 ]
+\nextgroupplot[title={Balanced Parity Index},ylabel={BPI (normal $=100$)},ymin=94,ymax=101]
+\addplot[black,dashed,domain=8:128,samples=2] {100};
+\addplot[lstmblue,mark=*] coordinates {(8,99.804) (16,99.417) (32,95.772) (64,95.024) (128,95.182)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,99.804)};
+
+\nextgroupplot[title={Demand L2 miss rate},ylabel={$\mathrm{MR}_{L2}$ (\%)},ymin=3.65,ymax=5.25]
 \addplot[black,dashed,domain=8:128,samples=2] {3.8338};
 \addplot[lstmblue,mark=*] coordinates {(8,3.8736) (16,3.9533) (32,4.8585) (64,5.0688) (128,5.0235)};
 \addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,3.8736)};
-\end{axis}
+\end{groupplot}
 \end{tikzpicture}
 \end{center}
 
@@ -124,7 +143,7 @@ LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 &
 \begin{tikzpicture}
 \begin{groupplot}[
  group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.25cm},
- width=0.44\textwidth,height=4.25cm,
+ width=0.44\textwidth,height=4.0cm,
  xmode=log,log basis x=2,xmin=7,xmax=145,
  xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
  grid=major,grid style={gray!25},tick label style={font=\scriptsize},
@@ -137,7 +156,7 @@ LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 &
 \addplot[lstmblue,mark=*] coordinates {(8,0.43139) (16,0.43111) (32,0.42921) (64,0.42866) (128,0.42869)};
 \addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,0.43139)};
 
-\nextgroupplot[title={Accuracy proxy: useful-hit yield},ylabel={$A_{\rm proxy}$ (\%)},ymin=11.0,ymax=15.2]
+\nextgroupplot[title={Selected-accuracy proxy},ylabel={$A_{\rm sel}^{*}$ (\%)},ymin=11.0,ymax=15.2]
 \addplot[black,dashed,domain=8:128,samples=2] {11.5622};
 \addplot[lstmblue,mark=*] coordinates {(8,11.5589) (16,11.5519) (32,12.7133) (64,14.8333) (128,14.7022)};
 \addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,11.5589)};
@@ -147,10 +166,10 @@ LSTM h128 & 85,505 & 0.42869 & -0.00281 & 20,306 & 5.024 & 1,243,548 & 182,829 &
 \addplot[lstmblue,mark=*] coordinates {(8,92.2951) (16,92.1351) (32,90.3338) (64,89.9154) (128,90.0055)};
 \addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,92.2951)};
 
-\nextgroupplot[title={Timeliness proxy: late density},xlabel={LSTM hidden width},ylabel={$T_{\rm late}$ / 100k requests},ymin=0,ymax=3.2]
-\addplot[black,dashed,domain=8:128,samples=2] {2.9577};
-\addplot[lstmblue,mark=*] coordinates {(8,2.7128) (16,2.7776) (32,0.5543) (64,0.0812) (128,0.1608)};
-\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,2.7128)};
+\nextgroupplot[title={Timeliness from late events},xlabel={LSTM hidden width},ylabel={$T=U/(U+L)$ (\%)},ymin=99.965,ymax=100.005]
+\addplot[black,dashed,domain=8:128,samples=2] {99.9744};
+\addplot[lstmblue,mark=*] coordinates {(8,99.9765) (16,99.9760) (32,99.9956) (64,99.9995) (128,99.9989)};
+\addplot[resultred,only marks,mark=square*,mark size=2.4pt] coordinates {(8,99.9765)};
 \end{groupplot}
 \end{tikzpicture}
 \end{center}
@@ -167,9 +186,9 @@ All legends and indicators are outside the axes. Dashed lines are the offline st
 \toprule
 Question & Direct evidence & Supported insight \\
 \midrule
-Why is h8 almost tied? & Relative to streamer, h8 removes only 937 requests (0.058\%), adds 161 L2 misses, raises $\mathrm{MR}_{L2}$ from 3.834\% to 3.874\%, loses 161 useful hits, and improves late density. IPC falls only 0.00011. & h8 nearly reproduces the offline streamer list. Its tiny IPC gap and tiny miss-rate gap consistently indicate a small useful-service loss, not a broad timing failure.\\
-Why do wider models lose IPC? & h32--h128 reduce requests by 11--24\%; useful coverage falls to 89.9--90.3\%; IPC falls 0.00229--0.00284. & Wider gates over-prune the stream. The lost opportunity/coverage dominates any reduction in request traffic.\\
-Why can $A_{\rm proxy}$ rise while IPC falls? & h64 has the highest $A_{\rm proxy}$ (14.83\%) but lower coverage (89.92\%) and IPC (0.42866). & $U/R$ rewards selective suppression: removing many requests can raise yield while reducing total useful service. Accuracy proxy must be read with coverage.\\
+Why is h8 almost tied? & h8 adds only 161 L2 misses, loses 161 useful hits, and reaches BPI 99.80 while IPC falls only 0.00011. & h8 nearly reproduces streamer on every measured cache-side dimension; both BPI and IPC identify it as the closest point.\\
+Why do wider models lose IPC? & h32--h128 improve selected-accuracy yield and timeliness, but miss rate rises to 4.86--5.07\%, coverage falls to 89.9--90.3\%, and BPI falls to about 95. & Wider gates over-prune the stream. Capped surplus accuracy/timeliness cannot conceal the cache-outcome and coverage deficits.\\
+Why can $A_{\rm sel}^{*}$ rise while IPC falls? & h64 has the highest $A_{\rm sel}^{*}$ (14.83\%) but BPI 95.02, coverage 89.92\%, and IPC 0.42866. & $U/R$ rewards selective suppression. BPI forces that apparent accuracy gain to be read alongside lost useful service.\\
 Did stateful TBPTT close the gap? & h8 improves from pre-fix 0.43134 to 0.43139; h128 improves from 0.42787 to 0.42869. No point crosses 0.43150. & Correct recurrence improves some points, especially h128, but threshold/policy behavior still matters more than width.\\
 \bottomrule
 \end{tabularx}
@@ -184,6 +203,7 @@ Claim type & Supported now & Still required \\
 Performance & Matched replay establishes h8 as within 0.0255\% IPC and 0.040 miss-rate points of offline streamer on this trace/window. & Multiple traces, seeds, and a fresh held-out window before declaring equivalence.\\
 Strict accuracy & $U/R$ gives request-event yield and exposes over-pruning. & Accepted/filled unique prefetches, duplicate rejection, unused eviction, and pollution.\\
 True timeliness & Late merges are already rare for streamer and h8. & Issue/fill/demand cycles and lead-time histograms; one late count cannot measure ``too early.''\\
+BPI & h8 retains 99.80\% capped balance parity; wider points retain about 95\%. & Direct harmful-eviction/pollution counters and weight/sensitivity analysis before using BPI as an optimization target.\\
 Root cause & Wider models lose request volume, useful hits, coverage, and IPC together. & Per-target false-negative/false-positive labels, bandwidth/MSHR pressure, pollution, and critical-miss stall cycles.\\
 \bottomrule
 \end{tabularx}
