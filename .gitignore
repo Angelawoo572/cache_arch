@@ -187,4 +187,13 @@ formal_NN_training/results/base_prefetcher_zoo/residual_audit/*
 accuracy_compare_all_traces.csv
 
 
-# Isolated 602 offline experiment run bundles and Colab outputs remain local.\nformal_NN_training/experiments/602_offline_lstm_stride/runs/\n# Colab/PyTorch checkpoints and generated model artifacts.\n*.pt\n*.pth\n*.ckpt\n*.model.txt\n*.build_info.txt\n
+# Isolated experiment run bundles and Colab outputs remain local.
+formal_NN_training/experiments/*/runs/
+
+# Colab/PyTorch checkpoints and generated model artifacts.
+*.pt
+*.pth
+*.ckpt
+*.model.txt
+*.build_info.txt
+
