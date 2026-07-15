@@ -13,7 +13,7 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "stride_sliding_cnn_v1"
+EXPERIMENT_REVISION = "stride_direct_io_sliding_cnn_v3"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -254,13 +254,13 @@ def parse_events(path):
 
 def policy_for_method(method):
     normal = "offline_" + POLICY
-    if method == normal or method.startswith(normal + "_"):
+    if method == normal or method.startswith("offline_direct_" + POLICY + "_"):
         return POLICY
     return ""
 
 
 def model_tag_for_method(method):
-    if method.startswith("offline_" + POLICY + "_"):
+    if method.startswith("offline_direct_" + POLICY + "_"):
         return method[len("offline_"):]
     return ""
 
@@ -394,27 +394,24 @@ def add_comparison_metrics(rows, failures):
 
 
 def validate_metadata(metadata, tag, inputs, failures):
-    policy = tag.split("_", 1)[0]
+    policy = POLICY
     common = {
         "trace": TRACE,
         "model_tag": tag,
         "matched_normal_prefetcher": policy,
-        "model_does_not_use_pc": True,
-        "pc_is_replay_transport_only": True,
-        "normal_candidate_bank_is_fixed": True,
-        "nn_can_only_suppress_normal_candidates": True,
+        "source_decision_effective_external_input": ["pc", "addr"],
+        "same_external_input_contract": True,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "nn_generates_own_target_addresses": True,
         "training_chunks_shuffled": False,
         "causal_no_future_self_test": "PASS",
         "cnn_architecture_self_test": "PASS",
-        "candidate_rank_normalization": (
-            "min(candidate_rank, 32) / 32; fixed before data collection"
-        ),
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
-        "neural_role": "stride_candidate_gate",
-        "normal_policy_private_state_is_not_nn_input": True,
-        "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
+        "neural_role": "standalone_direct_action_prefetcher",
     }
     for key, expected in common.items():
         if metadata.get(key) != expected:
@@ -476,8 +473,8 @@ def main():
     parser.add_argument(
         "--model-tags",
         default=(
-            "stride_lstm_h4,stride_lstm_h8,stride_lstm_h15,"
-            "stride_cnn_c8,stride_cnn_c16,stride_cnn_c32"
+            "direct_stride_lstm_h4,direct_stride_lstm_h8,direct_stride_lstm_h16,"
+            "direct_stride_cnn_c5,direct_stride_cnn_c12,direct_stride_cnn_c29"
         ),
     )
     args = parser.parse_args()
@@ -487,7 +484,7 @@ def main():
     if not model_tags:
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
-        if not (tag.startswith("stride_lstm_") or tag.startswith("stride_cnn_")):
+        if not (tag.startswith("direct_stride_lstm_") or tag.startswith("direct_stride_cnn_")):
             raise SystemExit("invalid model tag {}".format(tag))
 
     methods = [
@@ -574,9 +571,13 @@ def main():
             "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
             "policy": POLICY,
             "independent_matched_track": True,
-            "neural_role": "stride_candidate_gate",
-            "normal_policy_private_state_is_not_nn_input": True,
-            "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
+            "neural_role": "standalone_direct_action_prefetcher",
+            "source_decision_effective_external_input": ["pc", "addr"],
+            "same_external_input_contract": True,
+            "normal_policy_outputs_used_as_model_inputs": False,
+            "normal_policy_candidates_used_as_model_inputs": False,
+            "normal_policy_private_state_used_as_model_inputs": False,
+            "nn_generates_own_target_addresses": True,
             "model_input_excludes_action_outcomes": True,
         }
         for key, expected in expected_manifest.items():
@@ -616,7 +617,7 @@ def main():
     normal_hashes = {policy: {} for policy in POLICIES}
     pairs = defaultdict(list)
     for tag in model_tags:
-        policy = tag.split("_", 1)[0]
+        policy = POLICY
         required = (
             "offline_{}.replay.csv".format(policy),
             "offline_nn.replay.csv",
@@ -666,8 +667,6 @@ def main():
                     failures.append("{} NN-list SHA256 mismatch".format(tag))
                 if metadata.get("offline_nn_entries") != nn_info["entries"]:
                     failures.append("{} NN-list entry count mismatch".format(tag))
-                if nn_info["entries"] > metadata.get("offline_normal_entries", -1):
-                    failures.append("{} gate emitted more actions than stride".format(tag))
             except (OSError, RuntimeError, ValueError) as exc:
                 failures.append("{} invalid NN replay list: {}".format(tag, exc))
 
@@ -805,8 +804,8 @@ def main():
         "primary_comparisons": {
             "stride_track": [
                 "offline_stride",
-                "offline_stride_lstm_<size>",
-                "offline_stride_cnn_<channels>",
+                "offline_direct_stride_lstm_<size>",
+                "offline_direct_stride_cnn_<channels>",
             ],
         },
         "context_reference_only": [
@@ -815,29 +814,28 @@ def main():
         "transport_fidelity": transport_fidelity,
         "warnings": warnings,
         "track_guardrail": (
-            "Every neural point is normalized only to the same fixed offline "
-            "stride candidate bank."
+            "Every neural point sees only the same PC/address stream as Stride; "
+            "captured Stride actions are comparator/budget data only."
         ),
         "transport": (
-            "Each PF candidate is attached by explicit prior trigger_event_id; "
-            "the track then replays its live-stride bank and gated subsets "
-            "through the same PC-line-occ ListReplayer."
+            "Captured Stride actions and independently generated neural targets "
+            "are replayed through the same PC-line-occ ListReplayer."
         ),
-        "candidate_contract": (
-            "The neural model is a stride-candidate gate: it may suppress but "
-            "cannot invent candidates outside captured live stride actions."
+        "direct_action_contract": (
+            "The neural model owns a 64-offset same-page action head, emits at "
+            "most two FILL_L2 targets, and may invent targets absent from Stride."
         ),
         "model_input_guardrail": {
             "normal_stride_private_state": [
                 "PC-indexed tracker table", "confidence", "last stride"
             ],
             "direct_nn_inputs": [
-                "current/prior address-derived demand features",
-                "candidate address and fixed rank features",
+                "current PC and cache-line address encodings",
+                "causal address/PC history represented by the model itself",
             ],
             "not_nn_inputs": [
-                "PC", "cycle", "hit/miss", "queue state", "stride tracker state",
-                "accepted/duplicate", "fill level", "future evaluation rows",
+                "normal Stride candidates", "cycle", "hit/miss", "queue state",
+                "stride tracker state", "accepted/duplicate", "future evaluation rows at inference",
             ],
         },
         "cnn_contract": {
@@ -1028,8 +1026,9 @@ def main():
                 "BPI: useful information extends beyond three events."
             ),
             "both_fail": (
-                "The matched normal candidate bank or future-use target is "
-                "the bottleneck; architecture alone is insufficient."
+                "Both standalone students fail to discover enough useful "
+                "direct actions; the restricted input representation or "
+                "training target is the bottleneck."
             ),
         }
 

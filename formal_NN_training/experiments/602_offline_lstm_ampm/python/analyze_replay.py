@@ -203,7 +203,12 @@ def main():
             "training_chunks_shuffled": False,
             "training_state_carried_across_chunks": True,
             "training_state_detached_between_chunks": True,
-            "experiment_revision": "stateful_tbptt_v2",
+            "experiment_revision": "direct_action_independent_v3",
+            "neural_role": "standalone_direct_action_prefetcher",
+            "same_external_input_contract": True,
+            "normal_policy_candidates_used_as_model_inputs": False,
+            "normal_policy_private_state_used_as_model_inputs": False,
+            "nn_generates_own_target_addresses": True,
         }
         for key, expected in state_contract.items():
             if metadata.get(key) != expected:
@@ -257,9 +262,10 @@ def main():
         "fair_comparison_claim_allowed": not failures,
         "trace": TRACE,
         "primary_comparison": ["offline_ampm", "offline_lstm_<capacity>"],
-        "transport": "both lists are generated causally from the same guard-plus-no-prefetch evaluation address stream and replayed by the same PC-line-occ ListReplayer",
+        "transport": "both policies see the same guard-plus-evaluation address stream and use the same PC-line-occ ListReplayer; the LSTM generates targets independently",
         "live_ampm_role": "validated general reference only; it is not the offline primary comparator",
-        "matched_input_contract": "current cache-line address, causal prior address history, and the equivalent causal 64-page bitmap/LRU state; PC is replay transport identity only and is not a model input",
+        "matched_input_contract": "effective AMPM input only: current cache-line address plus the LSTM's own guard-initialized causal state; PC is replay transport identity only",
+        "neural_contract": "standalone 64-offset direct-action head; no AMPM candidates, bitmap, page buffer, or LRU state enter the model",
         "metric_definitions": {
             "prefetch_useful_demand_hits": "post-warmup L2 load hits on a line marked as prefetched",
             "prefetch_late_demand_misses": "post-warmup L2 load misses merged into an in-flight prefetch MSHR",

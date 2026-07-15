@@ -1,171 +1,18 @@
 {
-  "experiment": "623_offline_lstm_cnn_stride",
-  "experiment_revision": "stride_sliding_cnn_v1",
+  "experiment_revision": "stride_direct_io_sliding_cnn_v3",
   "event_logger_schema": "623_causal_trigger_v5",
-  "trace": "623.xalancbmk_s-700B",
-  "trace_file": "traces/623.xalancbmk_s-700B.champsimtrace.xz",
-  "generated_data_root": "runs/<RUN_ID>/colab_input",
-  "large_generated_data_is_committed": false,
-  "policy": "stride",
-  "neural_role": "stride_candidate_gate",
-  "primary_comparison": [
-    "offline_stride",
-    "offline_stride_lstm_<size>",
-    "offline_stride_cnn_<channels>"
-  ],
-  "stream_columns": [
-    "trace",
-    "demand_idx",
-    "cycle",
-    "pc",
-    "line",
-    "pc_line_occ",
-    "logger_schema"
-  ],
-  "candidate_columns": [
-    "trace",
-    "policy",
-    "demand_idx",
-    "pc",
-    "line",
-    "pc_line_occ",
-    "candidate_rank",
-    "pf_line",
-    "fill_level",
-    "accepted",
-    "duplicate",
-    "trigger_event_id",
-    "pf_event_id",
-    "event_distance",
-    "match_mode",
-    "logger_schema"
-  ],
-  "model_input_contract": {
-    "demand_features": [
-      "current page offset derived from line",
-      "signed line delta from the immediately prior demand",
-      "log absolute line delta from the immediately prior demand",
-      "same-page indicator",
-      "signed page delta from the immediately prior demand"
-    ],
-    "candidate_features": [
-      "signed candidate line delta",
-      "candidate page offset",
-      "candidate rank"
-    ],
-    "transport_only": [
-      "pc",
-      "pc_line_occ",
-      "demand_idx",
-      "trigger_event_id",
-      "pf_event_id",
-      "match_mode",
-      "logger_schema"
-    ],
-    "forbidden": [
-      "cycle",
-      "hit_miss",
-      "queue_state",
-      "accepted",
-      "duplicate",
-      "fill_level",
-      "stride_tracker_state",
-      "future_evaluation_rows"
-    ]
-  },
-  "causal_candidate_attachment": {
-    "mode": "explicit_trigger_event_id",
-    "rule": "write each completed L2 demand before its synchronous prefetcher callback; every PF row carries that exact demand event ID",
-    "address_guess_or_fallback_allowed": false,
-    "future_demand_attachment_allowed": false,
-    "stalled_rq_retry_creates_model_timestep": false,
-    "validated_equalities": [
-      "PF trigger_event_id equals the immediately active prior demand event_id",
-      "PF trigger CPU, PC, line, and cycle equal the demand row",
-      "prefetch_line base line equals the explicit trigger line"
-    ]
-  },
-  "candidate_rank_normalization": {
-    "formula": "min(candidate_rank, 32) / 32",
-    "fixed_before_collection": true,
-    "uses_eval_statistics": false
-  },
-  "windows": {
-    "train": {
-      "warmup_instructions": 0,
-      "simulation_instructions": 20000000,
-      "role": "fit first chronological 80 percent; calibrate final 20 percent"
-    },
-    "guard": {
-      "warmup_instructions": 20000000,
-      "simulation_instructions": 5000000,
-      "role": "initialize LSTM state or provide the two-row CNN left context"
-    },
-    "evaluation": {
-      "warmup_instructions": 25000000,
-      "simulation_instructions": 25000000,
-      "role": "causal inference and keyed replay only"
-    }
-  },
-  "matched_track": {
-    "live_configuration": {
-      "prefetcher": "stride",
-      "num_trackers": 64,
-      "prefetch_degree": 2
-    },
-    "normal_private_state": [
-      "PC-indexed stride tracker table",
-      "last stride",
-      "confidence"
-    ],
-    "normal_private_state_is_direct_nn_input": false,
-    "neural_action_space": "suppress-only over captured causal stride PF requests",
-    "claim_scope": "candidate gating, not a standalone stride reimplementation"
-  },
+  "normal_prefetcher": "stride",
+  "source_decision_effective_external_input": ["pc", "addr"],
+  "neural_role": "standalone_direct_action_prefetcher",
+  "direct_action_space": {"classes": 64, "fill": "L2", "maximum_actions_per_callback": 2, "self_target_allowed": true},
+  "captured_stride_actions_role": "normal replay and training-split request budget only",
+  "normal_candidates_are_model_inputs": false,
+  "normal_private_state_is_model_input": false,
+  "training_target": "future same-page demand reuse",
+  "cnn": {"temporal_convolution_layers": 1, "kernel_size_events": 3, "stride_events": 1, "dilation": 1, "additional_temporal_layers": 0},
   "architecture_pairs": [
-    {
-      "pair_id": "p0k2",
-      "lstm": {
-        "tag_suffix": "lstm_h4",
-        "parameters": 213
-      },
-      "cnn": {
-        "tag_suffix": "cnn_c8",
-        "parameters": 233
-      }
-    },
-    {
-      "pair_id": "p0k6",
-      "lstm": {
-        "tag_suffix": "lstm_h8",
-        "parameters": 585
-      },
-      "cnn": {
-        "tag_suffix": "cnn_c16",
-        "parameters": 593
-      }
-    },
-    {
-      "pair_id": "p1k6",
-      "lstm": {
-        "tag_suffix": "lstm_h15",
-        "parameters": 1621
-      },
-      "cnn": {
-        "tag_suffix": "cnn_c32",
-        "parameters": 1697
-      }
-    }
-  ],
-  "cnn": {
-    "name": "causal sliding-window 1-D CNN",
-    "temporal_convolution_layers": 1,
-    "kernel_size_events": 3,
-    "stride_events": 1,
-    "dilation": 1,
-    "left_padding_events": 2,
-    "receptive_field_events": 3,
-    "chunk_boundary_contract": "two-event left overlap; loss and export exclude overlap rows",
-    "sketch_mapping": "one three-event filter slides down the sequence one event per output"
-  }
+    {"pair_id": "p0", "lstm": {"size": 4, "parameters": 640}, "cnn": {"size": 5, "parameters": 599}},
+    {"pair_id": "p1", "lstm": {"size": 8, "parameters": 1344}, "cnn": {"size": 12, "parameters": 1348}},
+    {"pair_id": "p2", "lstm": {"size": 16, "parameters": 3136}, "cnn": {"size": 29, "parameters": 3167}}
+  ]
 }

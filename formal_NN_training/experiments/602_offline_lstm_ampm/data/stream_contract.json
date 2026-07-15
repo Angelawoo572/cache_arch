@@ -1,0 +1,11 @@
+{
+  "revision": "direct_action_independent_v3",
+  "normal_prefetcher": "ampm",
+  "effective_external_inputs": ["cache_line_address"],
+  "neural_role": "standalone_direct_action_prefetcher",
+  "action_space": {"classes": 64, "meaning": "same-page target offset", "fill": "L2", "degree_cap": 4},
+  "normal_candidates_are_model_inputs": false,
+  "normal_private_state_is_model_input": false,
+  "training_target": "future demand reuse in training stream",
+  "inference_context": "guard initializes neural and normal private state independently"
+}

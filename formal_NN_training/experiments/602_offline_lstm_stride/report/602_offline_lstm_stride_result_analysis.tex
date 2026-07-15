@@ -1,221 +1,34 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.62in]{geometry}
-\usepackage{amsmath}
-\usepackage{booktabs,tabularx,array,graphicx,xcolor,enumitem}
-\usepackage{hyperref}
-\usepackage{pgfplots}
-\usepgfplotslibrary{groupplots}
-\pgfplotsset{compat=1.18}
-\hypersetup{colorlinks=true,urlcolor=blue,linkcolor=blue}
+\usepackage[margin=0.72in]{geometry}
+\usepackage{booktabs,tabularx,xcolor,amsmath}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{3pt}
-\setlist{nosep,leftmargin=*}
-\renewcommand{\arraystretch}{1.10}
-\definecolor{lstmblue}{RGB}{25,80,210}
-\definecolor{crossgreen}{RGB}{20,135,75}
-\definecolor{softgray}{RGB}{245,246,248}
-
-\begin{document}\small
-
+\definecolor{warn}{RGB}{175,25,25}
+\begin{document}
 \begin{center}
-{\Large\bfseries 602 Stateful LSTM Gate vs. Offline Stride}\\[2pt]
-{\small Corrected recurrent-state capacity sweep for \texttt{602.gcc\_s-734B} --- seed 7}
+{\Large\bfseries 602 Direct-Action LSTM vs. Offline Stride}\\[4pt]
+{\color{warn}\bfseries RERUN REQUIRED --- legacy gate results are superseded}
 \end{center}
 
-\noindent\colorbox{softgray}{\parbox{0.97\textwidth}{\textbf{Outcome:} \textbf{PASS} provenance and recurrent-state checks. h16 and h32 exceed offline stride in IPC, but neither reaches cache-side balance parity. The best balanced-parity point is h8 at \textbf{87.34/100}; h16 is only 73.24 despite its $+0.00084$ IPC crossing. This separates final performance from cache-side quality.}}
+The previous PDF measured an LSTM \emph{gate} over Stride-generated
+candidates.  That architecture did not satisfy the intended experiment:
+matching the normal prefetcher's external input while allowing the neural
+prefetcher to generate its own actions.  Its numerical tables and plots must
+not be presented as direct-action results.
 
-\section*{Experiment and recurrent-state contract}
-\begin{center}\scriptsize
-\begin{tabularx}{\textwidth}{@{}>{\bfseries}lX@{}}
+\begin{center}\small
+\begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
-Primary comparison & \texttt{offline\_stride} vs. \texttt{offline\_lstm\_h<width>}; identical causal lists and PC-line-occurrence ListReplayer transport.\\
-Matched input & Current PC/cache-line address and causal prior PC/address history. Hit/miss, cycle, queues, metadata, and future rows are excluded.\\
-Training & Chronological stateful TBPTT; hidden/cell values cross 1024-event chunk boundaries; the graph is detached at each boundary. No chunk shuffle/reset.\\
-Inference & Hidden/cell state is continuous inside the independent evaluation stream.\\
-Window & 25M warmup + 25M measured; 25,000,003 reported instructions.\\
-Normal policy & Stride: 64 PC-indexed trackers, prefetch degree 2. Live stride is validated only as a general reference.\\
+Shared external input & Current PC and cache-line address, with causal prior PC/address history.\\
+Neural policy & Standalone stateful LSTM with a 64-offset direct-action head; at most two same-page L2 actions per callback.\\
+Excluded & Stride candidates, tracker table, last stride, confidence, hit/miss, cycle, queues, and future evaluation rows.\\
+Supervision & Future-demand utility labels formed only inside the training stream.\\
+Comparator use & Captured/mirrored Stride actions are used only for normal replay and the training-split request budget.\\
+Required run & \texttt{602\_offline\_lstm\_stride\_direct\_v3\_seed7}.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-\section*{Metrics: formula first}
-Let $D=404{,}219$ be post-warmup demand L2 loads, $M$ the method's demand L2 misses, $R$ replayed prefetch-request events, $U$ useful-prefetch demand hits, $L$ demand misses merged into an in-flight prefetch, and $M_0=203{,}131$ no-prefetch L2 demand misses.
-\[
-\boxed{\mathrm{MR}_{L2}=100\frac{M}{D}}
-\qquad
-\boxed{A_{\mathrm{sel}}^{*}=100\frac{U}{R}}
-\qquad
-\boxed{C=100\frac{U}{M_0}}
-\qquad
-\boxed{T=100\frac{U}{U+L}}
-\]
-Because $D$ is identical across these matched rows, miss rate and miss reduction contain the same ordering information:
-\[
-\mathrm{MissReduction}=100\frac{M_0-M}{M_0},
-\qquad \mathrm{MR}_{L2,0}=100\frac{M_0}{D}=50.2527\%.
-\]
-For an NN point $x$ and its matched offline normal baseline $N$, convert every component to a capped higher-is-better parity ratio:
-\[
-q_M=\min\!\left(1,\frac{\mathrm{MR}_{L2,N}}{\mathrm{MR}_{L2,x}}\right),\quad
-q_A=\min\!\left(1,\frac{A^{*}_{\mathrm{sel},x}}{A^{*}_{\mathrm{sel},N}}\right),\quad
-q_C=\min\!\left(1,\frac{C_x}{C_N}\right),\quad
-q_T=\min\!\left(1,\frac{T_x}{T_N}\right).
-\]
-Miss rate and coverage are related cache outcomes, so they first form one block rather than receiving two full weights:
-\[
-\boxed{Q_{\mathrm{cache}}=\sqrt{q_Mq_C}},\qquad
-\boxed{\mathrm{BPI}=100\left(Q_{\mathrm{cache}}q_Aq_T\right)^{1/3}}.
-\]
-The offline normal baseline is 100. Capping prevents an improvement in one component from hiding a deficit in another. BPI compares NN parity only against its corresponding normal policy; it does not replace IPC or rank different normal-prefetcher families.
-\begin{center}\scriptsize
-\begin{tabularx}{\textwidth}{@{}lXl@{}}
-\toprule
-Metric & What it measures in this experiment & Direction \\
-\midrule
-$\mathrm{MR}_{L2}$ & Final demand-miss fraction after all prefetch effects. This is the most direct cache-outcome metric shared by live and replayed methods. & Lower \\
-$A_{\mathrm{sel}}^{*}$ & Matched replay useful-hit yield per request event: a selected-accuracy and pollution-risk proxy, not a direct harmful-eviction count. & Higher \\
-$C$ & Useful demand hits as a fraction of the no-prefetch miss opportunity. & Higher \\
-$T$ & Useful events divided by useful plus late events. The late count $L$ is explicit; this is not a lead-time distribution. & Higher \\
-BPI & Capped geometric parity across cache outcome, selected accuracy, coverage, and timeliness. Normal $=100$. & Higher, max 100 \\
-\bottomrule
-\end{tabularx}
-\end{center}
-
-\section*{Stateful-v2 measured data}
-\begin{center}\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrrrrr@{}}
-\toprule
-Method & Params & IPC & $\Delta$IPC & $M$ & $\mathrm{MR}_{L2}$ (\%) & $R$ & $U$ & $A_{\rm sel}^{*}$ (\%) & $C$ (\%) & $L$ & $T$ (\%) & BPI \\
-\midrule
-Live stride ref. & -- & 0.37006 & -0.00010 & 168,277 & 41.630 & 122,156 & 34,854 & 28.532 & 17.158 & 164 & 99.532 & -- \\
-\textbf{Offline stride} & -- & \textbf{0.37016} & 0 & 168,281 & 41.631 & 60,255 & 34,850 & 57.838 & 17.156 & 165 & 99.529 & \textbf{100.00} \\
-\textbf{LSTM h8} & 545 & 0.36914 & -0.00102 & 184,298 & 45.594 & 34,335 & 18,833 & 54.851 & 9.271 & 88 & 99.535 & \textbf{87.34} \\
-\textbf{LSTM h16} & 1,729 & \textbf{0.37100} & \textbf{+0.00084} & 189,827 & 46.961 & 33,874 & 13,305 & 39.278 & 6.550 & 137 & 98.981 & 73.24 \\
-\textbf{LSTM h32} & 6,017 & \textbf{0.37063} & \textbf{+0.00047} & 186,860 & 46.227 & 37,209 & 16,271 & 43.729 & 8.010 & 237 & 98.564 & 78.60 \\
-LSTM h64 & 22,273 & 0.36904 & -0.00112 & 184,587 & 45.665 & 34,275 & 18,544 & 54.104 & 9.129 & 59 & 99.683 & 86.69 \\
-LSTM h128 & 85,505 & 0.36882 & -0.00134 & 186,091 & 46.037 & 33,327 & 17,040 & 51.130 & 8.389 & 4 & 99.977 & 83.77 \\
-\bottomrule
-\end{tabular}}
-\end{center}
-
-\newpage
-\begin{center}
-{\large\bfseries IPC and balanced normal-vs.-NN cache-side parity}
-
-\vspace{2pt}
-\begin{tikzpicture}[font=\scriptsize]
-\draw[lstmblue,thick] (0,0)--(0.65,0); \fill[lstmblue] (0.325,0) circle (2pt);
-\node[anchor=west] at (0.78,0) {Stateful LSTM};
-\draw[black,dashed,thick] (3.25,0)--(3.90,0);
-\node[anchor=west] at (4.03,0) {Offline stride baseline};
-\fill[crossgreen] (7.45,0) rectangle +(0.15,0.15);
-\node[anchor=west] at (7.72,0.075) {IPC crossing: h16, h32};
-\end{tikzpicture}
-\end{center}
-
-\begin{center}
-\begin{tikzpicture}
-\begin{groupplot}[
- group style={group size=2 by 1,horizontal sep=1.35cm},
- width=0.44\textwidth,height=3.75cm,
- xmode=log,log basis x=2,xmin=7,xmax=145,
- xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
- xlabel={LSTM hidden width},grid=major,grid style={gray!25},
- tick label style={font=\scriptsize},label style={font=\scriptsize},
- title style={font=\small\bfseries},every axis plot/.append style={line width=0.9pt}
-]
-\nextgroupplot[title={Balanced Parity Index},ylabel={BPI (normal $=100$)},ymin=70,ymax=102]
-\addplot[black,dashed,domain=8:128,samples=2] {100};
-\addplot[lstmblue,mark=*] coordinates {(8,87.337) (16,73.242) (32,78.595) (64,86.692) (128,83.769)};
-\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,73.242) (32,78.595)};
-
-\nextgroupplot[title={Demand L2 miss rate},ylabel={$\mathrm{MR}_{L2}$ (\%)},ymin=40.5,ymax=48.0]
-\addplot[black,dashed,domain=8:128,samples=2] {41.6311};
-\addplot[lstmblue,mark=*] coordinates {(8,45.5936) (16,46.9614) (32,46.2274) (64,45.6651) (128,46.0372)};
-\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,46.9614) (32,46.2274)};
-\end{groupplot}
-\end{tikzpicture}
-\end{center}
-
-\vspace{-5pt}
-\begin{center}
-\begin{tikzpicture}
-\begin{groupplot}[
- group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.25cm},
- width=0.44\textwidth,height=4.0cm,
- xmode=log,log basis x=2,xmin=7,xmax=145,
- xtick={8,16,32,64,128},xticklabels={h8,h16,h32,h64,h128},
- grid=major,grid style={gray!25},tick label style={font=\scriptsize},
- label style={font=\scriptsize},title style={font=\small\bfseries},
- every axis plot/.append style={line width=0.9pt},
-]
-\nextgroupplot[title={Performance},ylabel={IPC},ymin=0.3684,ymax=0.37135,
- yticklabel style={font=\scriptsize,/pgf/number format/fixed,/pgf/number format/precision=5}]
-\addplot[black,dashed,domain=8:128,samples=2] {0.37016};
-\addplot[lstmblue,mark=*] coordinates {(8,0.36914) (16,0.37100) (32,0.37063) (64,0.36904) (128,0.36882)};
-\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,0.37100) (32,0.37063)};
-
-\nextgroupplot[title={Selected-accuracy proxy},ylabel={$A_{\rm sel}^{*}$ (\%)},ymin=36,ymax=60]
-\addplot[black,dashed,domain=8:128,samples=2] {57.8375};
-\addplot[lstmblue,mark=*] coordinates {(8,54.8507) (16,39.2779) (32,43.7287) (64,54.1036) (128,51.1297)};
-\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,39.2779) (32,43.7287)};
-
-\nextgroupplot[title={Coverage},xlabel={LSTM hidden width},ylabel={$C$ (\%)},ymin=5.5,ymax=18.2]
-\addplot[black,dashed,domain=8:128,samples=2] {17.1564};
-\addplot[lstmblue,mark=*] coordinates {(8,9.2714) (16,6.5500) (32,8.0101) (64,9.1291) (128,8.3887)};
-\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,6.5500) (32,8.0101)};
-
-\nextgroupplot[title={Timeliness from late events},xlabel={LSTM hidden width},ylabel={$T=U/(U+L)$ (\%)},ymin=98.3,ymax=100.1]
-\addplot[black,dashed,domain=8:128,samples=2] {99.5288};
-\addplot[lstmblue,mark=*] coordinates {(8,99.5349) (16,98.9808) (32,98.5643) (64,99.6828) (128,99.9765)};
-\addplot[crossgreen,only marks,mark=square*,mark size=2.4pt] coordinates {(16,98.9808) (32,98.5643)};
-\end{groupplot}
-\end{tikzpicture}
-\end{center}
-
-\vspace{-3pt}
-\begin{center}\scriptsize
-All legends and crossing indicators are outside the axes. Dashed lines are the offline stride primary comparator.
-\end{center}
-
-\newpage
-\section*{Data $\rightarrow$ insight map}
-\begin{center}\scriptsize
-\begin{tabularx}{\textwidth}{@{}p{0.23\textwidth}p{0.35\textwidth}X@{}}
-\toprule
-Question & Direct evidence & Supported insight \\
-\midrule
-Why does h16 beat stride? & IPC rises 0.00084, but BPI is only 73.24: miss rate, coverage, selected accuracy, and timeliness all lose parity. & The crossing is \textbf{not a balanced cache-side improvement}. Fewer requests may reduce bandwidth/pollution, or the remaining misses may be less critical, but those mechanisms are not yet counted.\\
-Which point best preserves stride's balance? & h8 has the highest NN BPI (87.34), driven by 94.84\% selected-accuracy parity but only 54.04\% coverage parity. & h8 is the closest cache-side policy imitation even though h16 has the best IPC. BPI and IPC answer different questions.\\
-Is h16 a saturation point? & h16 and h32 cross; h64 and h128 do not. Parameter count grows from 1,729 to 85,505 without monotonic IPC gain. & h16 is the first measured crossing, not a capacity saturation law. Width alone does not control outcome.\\
-Does h128 look timely? & $T=99.977\%$ exceeds stride, but coverage is only 8.39\% and BPI is 83.77. & High timeliness can coexist with poor coverage when the gate suppresses opportunities. Capping $q_T$ prevents that surplus from hiding the deficit.\\
-Did stateful TBPTT matter? & Corrected h16 rises from the pre-fix 0.37090 to 0.37100; h32 rises from 0.37033 to 0.37063. & Correct recurrence slightly strengthens the measured crossing, but the qualitative non-monotonic result remains.\\
-\bottomrule
-\end{tabularx}
-\end{center}
-
-\section*{Evidence boundary and next counters}
-\begin{center}\scriptsize
-\begin{tabularx}{\textwidth}{@{}lXX@{}}
-\toprule
-Claim type & Supported now & Still required \\
-\midrule
-Performance & Matched replay establishes h16/h32 IPC crossings while the direct L2 miss rate becomes worse. & Multiple traces, seeds, critical-miss stall cycles, and a fresh held-out window before selecting a final capacity.\\
-Strict accuracy & $U/R$ gives request-event yield. & Accepted/filled unique prefetches, duplicate rejection, unused eviction, and pollution.\\
-True timeliness & Late merges give one late-failure count. & Issue/fill/demand cycles and lead-time histograms.\\
-BPI & One matched-normal index summarizes four cache-side dimensions without allowing surplus compensation. & Direct harmful-eviction/pollution counters and sensitivity analysis before treating BPI as a selection objective.\\
-Why IPC rises with more misses & The counters rule out ``more coverage'' and ``better timeliness'' as explanations for h16/h32. & Bandwidth/MSHR occupancy, eviction/pollution, useful-prefetch lead time, and critical-miss stall cycles.\\
-\bottomrule
-\end{tabularx}
-\end{center}
-
-\section*{Reproducibility anchors}
-\begin{itemize}\scriptsize
-\item Run: \texttt{602\_offline\_lstm\_stride\_stateful\_v2\_seed7}; analyzer status \textbf{PASS}.
-\item Train content SHA256: \texttt{2564c753145acde5a2c7a9f94904366e18aa7ebdd0a10003d2944104c854a594}.
-\item Evaluation content SHA256: \texttt{36ce707c2f27023e400f16c2cc2054c61e20b54d5dc26959c6857ef8e8e87d2f}.
-\item Offline stride list SHA256: \texttt{f2440cefff0d476ce12ec715c232579a15ad0e6e6a94767aea6f9e7dd8fd9d9f}.
-\end{itemize}
-
+After the direct-v3 replay passes, regenerate the report with IPC, L2 miss
+rate, selected accuracy, coverage, late-prefetch rate, and the balanced parity
+index.  No old gate number is carried forward.
 \end{document}

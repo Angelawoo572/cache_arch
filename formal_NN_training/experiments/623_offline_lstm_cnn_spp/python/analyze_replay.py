@@ -13,7 +13,7 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v3"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v4_independent_utility"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -420,6 +420,10 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "pc_is_replay_transport_only": True,
         "normal_candidate_bank_is_fixed": False,
         "teacher_actions_are_model_inputs": False,
+        "same_external_input_contract": True,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
         "nn_can_generate_actions_not_emitted_by_teacher": True,
         "model_input_is_causal_address_sequence_only": True,
         "cache_hit_and_type_are_audit_only": True,
@@ -430,14 +434,14 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             "per_target_min_fill_queue_effect"
         ),
         "training_chunks_shuffled": False,
-        "training_labels_are_direct_spp_actions": True,
-        "training_labels_use_future_rows": False,
+        "training_labels_are_direct_spp_actions": False,
+        "training_labels_use_future_rows": True,
         "causal_no_future_self_test": "PASS",
         "cnn_architecture_self_test": "PASS",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
-        "neural_role": "direct_spp_action_predictor",
+        "neural_role": "standalone_direct_action_prefetcher",
         "replay_preserves_explicit_fill_level": True,
         "normal_policy_private_state_is_not_nn_input": True,
         "source_decision_effective_external_input": ["addr"],
@@ -451,27 +455,27 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             )
     if metadata.get("source_contract_sha256") != source_contract_hash:
         failures.append("{} SPP source-contract SHA256 mismatch".format(tag))
-    fidelity = metadata.get("eval_action_fidelity")
-    required_fidelity = (
+    utility = metadata.get("eval_future_use_utility")
+    required_utility = (
         "action_precision", "action_recall", "action_f1", "action_jaccard",
         "target_line_precision", "target_line_recall", "target_line_f1",
         "fill_accuracy_given_matched_target_line", "exact_callback_match_rate",
-        "predicted_self_target_action_rate", "teacher_self_target_action_rate",
+        "predicted_self_target_action_rate", "useful_self_target_label_rate",
     )
-    if not isinstance(fidelity, dict):
-        failures.append("{} lacks eval action-fidelity audit".format(tag))
+    if not isinstance(utility, dict):
+        failures.append("{} lacks eval future-use utility audit".format(tag))
     else:
-        for key in required_fidelity:
-            value = fidelity.get(key)
+        for key in required_utility:
+            value = utility.get(key)
             if not isinstance(value, (int, float)) or value < 0 or value > 1:
-                failures.append("{} invalid action fidelity {}".format(tag, key))
+                failures.append("{} invalid future-use utility {}".format(tag, key))
         for key in (
-            "predicted_self_target_actions", "teacher_self_target_actions"
+            "predicted_self_target_actions", "useful_self_target_labels"
         ):
-            value = fidelity.get(key)
+            value = utility.get(key)
             if not isinstance(value, int) or value < 0:
                 failures.append(
-                    "{} invalid action fidelity {}".format(tag, key)
+                    "{} invalid future-use utility {}".format(tag, key)
                 )
     family = metadata.get("model_family")
     expected_points = {
@@ -661,9 +665,13 @@ def main():
             "event_logger_schema": EVENT_LOGGER_SCHEMA,
             "action_attachment_mode": ACTION_ATTACHMENT_MODE,
             "policy": POLICY,
-            "neural_role": "direct_spp_action_predictor",
+            "neural_role": "standalone_direct_action_prefetcher",
             "model_input_is_causal_address_sequence_only": True,
             "teacher_actions_are_model_inputs": False,
+            "same_external_input_contract": True,
+            "normal_policy_outputs_used_as_model_inputs": False,
+            "normal_policy_candidates_used_as_model_inputs": False,
+            "normal_policy_private_state_used_as_model_inputs": False,
             "normal_candidate_bank_is_fixed": False,
             "nn_can_generate_actions_not_emitted_by_teacher": True,
             "model_does_not_use_pc": True,
@@ -739,11 +747,11 @@ def main():
         validate_metadata(
             metadata, tag, input_info, source_contract_hash, failures
         )
-        fidelity = metadata.get("eval_action_fidelity", {})
+        utility = metadata.get("eval_future_use_utility", {})
         for row in rows:
             if row.get("model_tag") == tag:
-                for key, value in fidelity.items():
-                    row["fidelity_" + key] = value
+                for key, value in utility.items():
+                    row["utility_" + key] = value
         pair_id = metadata.get("architecture_pair_id")
         if not pair_id:
             failures.append("{} lacks architecture_pair_id".format(tag))
@@ -803,22 +811,22 @@ def main():
 
     add_comparison_metrics(rows, failures)
     by_method = {row["method"]: row for row in rows}
-    fidelity_fields = [
-        "fidelity_action_precision", "fidelity_action_recall",
-        "fidelity_action_f1", "fidelity_action_jaccard",
-        "fidelity_target_line_precision", "fidelity_target_line_recall",
-        "fidelity_target_line_f1",
-        "fidelity_fill_accuracy_given_matched_target_line",
-        "fidelity_exact_callback_match_rate",
-        "fidelity_predicted_actions_per_callback",
-        "fidelity_teacher_actions_per_callback",
-        "fidelity_predicted_self_target_actions",
-        "fidelity_teacher_self_target_actions",
-        "fidelity_predicted_self_target_action_rate",
-        "fidelity_teacher_self_target_action_rate",
+    utility_fields = [
+        "utility_action_precision", "utility_action_recall",
+        "utility_action_f1", "utility_action_jaccard",
+        "utility_target_line_precision", "utility_target_line_recall",
+        "utility_target_line_f1",
+        "utility_fill_accuracy_given_matched_target_line",
+        "utility_exact_callback_match_rate",
+        "utility_predicted_actions_per_callback",
+        "utility_useful_labels_per_callback",
+        "utility_predicted_self_target_actions",
+        "utility_useful_self_target_labels",
+        "utility_predicted_self_target_action_rate",
+        "utility_useful_self_target_label_rate",
     ]
     for row in rows:
-        for field in fidelity_fields:
+        for field in utility_fields:
             row.setdefault(field, "")
     fields = [
         "trace", "method", "model_tag", "comparison_policy",
@@ -847,7 +855,7 @@ def main():
         "prefetch_duplicate_events", "prefetch_fill_l2_events",
         "prefetch_fill_llc_events", "event_selected_accuracy_proxy",
         "event_coverage_vs_no_pref_l2_miss", "event_timeliness_proxy",
-        "matched", "emitted", "callbacks", *fidelity_fields,
+        "matched", "emitted", "callbacks", *utility_fields,
         "log", "event_log",
     ]
     with (args.run_dir / "matched_comparison.csv").open(
@@ -868,14 +876,14 @@ def main():
         "pollution_proxy_delta_vs_offline_normal", "pf_requested",
         "prefetch_request_reduction_vs_offline_normal",
         "balanced_parity_index", "parity_bottleneck",
-        "fidelity_action_precision", "fidelity_action_recall",
-        "fidelity_action_f1", "fidelity_action_jaccard",
-        "fidelity_target_line_f1",
-        "fidelity_fill_accuracy_given_matched_target_line",
-        "fidelity_predicted_self_target_actions",
-        "fidelity_teacher_self_target_actions",
-        "fidelity_predicted_self_target_action_rate",
-        "fidelity_teacher_self_target_action_rate",
+        "utility_action_precision", "utility_action_recall",
+        "utility_action_f1", "utility_action_jaccard",
+        "utility_target_line_f1",
+        "utility_fill_accuracy_given_matched_target_line",
+        "utility_predicted_self_target_actions",
+        "utility_useful_self_target_labels",
+        "utility_predicted_self_target_action_rate",
+        "utility_useful_self_target_label_rate",
     ]
     with (args.run_dir / "insight_summary.csv").open(
         "w", newline=""
@@ -956,8 +964,9 @@ def main():
             "trigger_event_id. Normal and independently generated neural "
             "action lists use the same PC-line-occ replayer and preserve "
             "explicit FILL_L2/FILL_LLC actions. Repeated source calls to one "
-            "target are canonicalized with ChampSim's PQ merge rule for both "
-            "the offline normal comparator and neural labels."
+            "target are canonicalized with ChampSim's PQ merge rule for the "
+            "offline normal comparator. Neural labels instead come from "
+            "future demand reuse inside the training stream."
         ),
         "direct_action_contract": {
             "classes": 128,
@@ -1156,14 +1165,14 @@ def main():
                     cnn_row["balanced_parity_index"]
                     - lstm_row["balanced_parity_index"]
                 ),
-                "lstm_action_f1": lstm_meta["eval_action_fidelity"]["action_f1"],
-                "cnn_action_f1": cnn_meta["eval_action_fidelity"]["action_f1"],
-                "cnn_minus_lstm_action_f1": (
-                    cnn_meta["eval_action_fidelity"]["action_f1"]
-                    - lstm_meta["eval_action_fidelity"]["action_f1"]
+                "lstm_future_use_f1": lstm_meta["eval_future_use_utility"]["action_f1"],
+                "cnn_future_use_f1": cnn_meta["eval_future_use_utility"]["action_f1"],
+                "cnn_minus_lstm_future_use_f1": (
+                    cnn_meta["eval_future_use_utility"]["action_f1"]
+                    - lstm_meta["eval_future_use_utility"]["action_f1"]
                 ),
-                "lstm_target_line_f1": lstm_meta["eval_action_fidelity"]["target_line_f1"],
-                "cnn_target_line_f1": cnn_meta["eval_action_fidelity"]["target_line_f1"],
+                "lstm_target_line_f1": lstm_meta["eval_future_use_utility"]["target_line_f1"],
+                "cnn_target_line_f1": cnn_meta["eval_future_use_utility"]["target_line_f1"],
                 "ipc_winner": (
                     "cnn" if cnn_row["ipc"] > lstm_row["ipc"] else "lstm"
                 ),
@@ -1173,10 +1182,10 @@ def main():
                     > lstm_row["balanced_parity_index"]
                     else "lstm"
                 ),
-                "action_fidelity_winner": (
+                "future_use_utility_winner": (
                     "cnn"
-                    if cnn_meta["eval_action_fidelity"]["action_f1"]
-                    > lstm_meta["eval_action_fidelity"]["action_f1"]
+                    if cnn_meta["eval_future_use_utility"]["action_f1"]
+                    > lstm_meta["eval_future_use_utility"]["action_f1"]
                     else "lstm"
                 ),
             })
@@ -1199,7 +1208,7 @@ def main():
                 "BPI: useful information extends beyond three events."
             ),
             "both_fail": (
-                "Both direct students fail to reproduce enough useful SPP "
+                "Both direct students fail to discover enough useful direct "
                 "actions: the restricted address representation or missing "
                 "private SPP feedback is more important than architecture."
             ),

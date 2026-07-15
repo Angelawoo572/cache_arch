@@ -230,7 +230,12 @@ def main():
             "training_chunks_shuffled": False,
             "training_state_carried_across_chunks": True,
             "training_state_detached_between_chunks": True,
-            "experiment_revision": "stateful_tbptt_v2",
+            "experiment_revision": "direct_action_independent_v3",
+            "neural_role": "standalone_direct_action_prefetcher",
+            "same_external_input_contract": True,
+            "normal_policy_candidates_used_as_model_inputs": False,
+            "normal_policy_private_state_used_as_model_inputs": False,
+            "nn_generates_own_target_addresses": True,
         }
         for key, expected in state_contract.items():
             if metadata.get(key) != expected:
@@ -308,7 +313,9 @@ def main():
         "fair_comparison_claim_allowed": not failures,
         "trace": TRACE,
         "primary_comparison": ["offline_stride", "offline_lstm_<capacity>"],
-        "transport": "both lists produced causally from the same no-prefetch evaluation stream and replayed by the same PC-line-occ ListReplayer",
+        "transport": "both policies see the same PC/address evaluation stream and use the same PC-line-occ ListReplayer; the LSTM generates targets independently",
+        "matched_input_contract": "effective Stride inputs only: current PC and cache-line address plus the LSTM's own causal state",
+        "neural_contract": "standalone 64-offset direct-action head; no Stride candidates or tracker state enter the model",
         "live_stride_role": "validated general reference only; it is not the offline primary comparator",
         "metric_definitions": {
             "prefetch_useful_demand_hits": "post-warmup L2 load hits on a line marked as prefetched",

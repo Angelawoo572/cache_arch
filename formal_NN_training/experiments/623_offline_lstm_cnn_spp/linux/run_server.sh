@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_cnn_spp_direct_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_cnn_spp_direct_v4_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -257,12 +257,16 @@ family = metadata.get("model_family")
 common = {
     "trace": "623.xalancbmk_s-700B",
     "matched_normal_prefetcher": "spp",
-    "neural_role": "direct_spp_action_predictor",
+    "neural_role": "standalone_direct_action_prefetcher",
     "model_does_not_use_pc": True,
     "pc_is_replay_transport_only": True,
     "model_input_is_causal_address_sequence_only": True,
     "cache_hit_and_type_are_audit_only": True,
     "teacher_actions_are_model_inputs": False,
+    "same_external_input_contract": True,
+    "normal_policy_outputs_used_as_model_inputs": False,
+    "normal_policy_candidates_used_as_model_inputs": False,
+    "normal_policy_private_state_used_as_model_inputs": False,
     "normal_candidate_bank_is_fixed": False,
     "nn_can_generate_actions_not_emitted_by_teacher": True,
     "direct_action_output_classes": 128,
@@ -270,13 +274,13 @@ common = {
     "self_target_actions_allowed": True,
     "teacher_action_canonicalization": "per_target_min_fill_queue_effect",
     "training_chunks_shuffled": False,
-    "training_labels_are_direct_spp_actions": True,
-    "training_labels_use_future_rows": False,
+    "training_labels_are_direct_spp_actions": False,
+    "training_labels_use_future_rows": True,
     "causal_no_future_self_test": "PASS",
     "cnn_architecture_self_test": "PASS",
     "event_logger_schema": "623_causal_trigger_v5",
     "action_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "spp_direct_io_sliding_cnn_v3",
+    "experiment_revision": "spp_direct_io_sliding_cnn_v4_independent_utility",
     "normal_policy_private_state_is_not_nn_input": True,
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": ["addr"],
@@ -329,20 +333,20 @@ elif metadata.get("source_contract_sha256") != hashlib.sha256(source_contract.re
         metadata.get("source_contract_sha256"),
         hashlib.sha256(source_contract.read_bytes()).hexdigest(),
     )
-fidelity = metadata.get("eval_action_fidelity", {})
+utility = metadata.get("eval_future_use_utility", {})
 for key in (
     "action_precision", "action_recall", "action_f1", "action_jaccard",
     "target_line_precision", "target_line_recall", "target_line_f1",
     "fill_accuracy_given_matched_target_line", "exact_callback_match_rate",
-    "predicted_self_target_action_rate", "teacher_self_target_action_rate",
+    "predicted_self_target_action_rate", "useful_self_target_label_rate",
 ):
-    value = fidelity.get(key)
+    value = utility.get(key)
     if not isinstance(value, (int, float)) or not 0 <= value <= 1:
-        bad["eval_action_fidelity." + key] = (value, "[0,1]")
-for key in ("predicted_self_target_actions", "teacher_self_target_actions"):
-    value = fidelity.get(key)
+        bad["eval_future_use_utility." + key] = (value, "[0,1]")
+for key in ("predicted_self_target_actions", "useful_self_target_labels"):
+    value = utility.get(key)
     if not isinstance(value, int) or value < 0:
-        bad["eval_action_fidelity." + key] = (value, "nonnegative integer")
+        bad["eval_future_use_utility." + key] = (value, "nonnegative integer")
 
 def inspect_replay(path, allow_empty):
     digest = hashlib.sha256(path.read_bytes()).hexdigest()

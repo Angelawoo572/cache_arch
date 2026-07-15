@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Independent matched 623 stride track: normal stride versus LSTM/CNN gates.
+# Independent matched 623 stride track: normal Stride versus direct LSTM/CNN.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_cnn_stride_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_cnn_stride_direct_v3_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-stride_lstm_h4,stride_lstm_h8,stride_lstm_h15,stride_cnn_c8,stride_cnn_c16,stride_cnn_c32}"
-BASE_TAG="${BASE_TAG:-stride_lstm_h4}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-direct_stride_lstm_h4,direct_stride_lstm_h8,direct_stride_lstm_h16,direct_stride_cnn_c5,direct_stride_cnn_c12,direct_stride_cnn_c29}"
+BASE_TAG="${BASE_TAG:-direct_stride_lstm_h4}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -200,25 +200,24 @@ family = metadata.get("model_family")
 common = {
     "trace": "623.xalancbmk_s-700B",
     "matched_normal_prefetcher": policy,
-    "model_does_not_use_pc": True,
-    "pc_is_replay_transport_only": True,
-    "normal_candidate_bank_is_fixed": True,
-    "nn_can_only_suppress_normal_candidates": True,
+    "source_decision_effective_external_input": ["pc", "addr"],
+    "same_external_input_contract": True,
+    "normal_policy_outputs_used_as_model_inputs": False,
+    "normal_policy_candidates_used_as_model_inputs": False,
+    "normal_policy_private_state_used_as_model_inputs": False,
+    "nn_generates_own_target_addresses": True,
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
     "cnn_architecture_self_test": "PASS",
-    "candidate_rank_normalization": "min(candidate_rank, 32) / 32; fixed before data collection",
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "stride_sliding_cnn_v1",
-    "neural_role": "stride_candidate_gate",
-    "normal_policy_private_state_is_not_nn_input": True,
-    "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
+    "experiment_revision": "stride_direct_io_sliding_cnn_v3",
+    "neural_role": "standalone_direct_action_prefetcher",
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
-if not tag.startswith(policy + "_"):
-    bad["model_tag"] = (tag, policy + "_<family>_<size>")
+if not tag.startswith("direct_" + policy + "_"):
+    bad["model_tag"] = (tag, "direct_" + policy + "_<family>_<size>")
 if family == "lstm":
     expected = {
         "training_state_mode": "chronological_stateful_tbptt",
@@ -320,7 +319,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_stride_lstm_*|offline_stride_cnn_*)
+    offline_direct_stride_lstm_*|offline_direct_stride_cnn_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }

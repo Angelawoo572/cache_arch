@@ -14,7 +14,7 @@ POLICY = "stride"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "stride_sliding_cnn_v1"
+EXPERIMENT_REVISION = "stride_direct_io_sliding_cnn_v3"
 
 
 def as_int(value):
@@ -136,6 +136,11 @@ def read_candidates(path, policy, stream_rows):
             fill_level = as_int(row["fill_level"])
             if fill_level != 2:
                 raise RuntimeError("{} stride candidate is not FILL_L2".format(path))
+            pf_line = as_int(row["pf_line"])
+            if pf_line // 64 != line // 64:
+                raise RuntimeError("{} stride action crosses a page".format(path))
+            if counts[demand_idx] > 2:
+                raise RuntimeError("{} stride action count exceeds degree two".format(path))
             fill_counts[fill_level] += 1
             last_pf_event_id = pf_event_id
             total += 1
@@ -158,12 +163,17 @@ def main():
         "candidate_attachment_mode": ATTACHMENT_MODE,
         "policy": POLICY,
         "independent_matched_track": True,
-        "neural_role": "stride_candidate_gate",
+        "neural_role": "standalone_direct_action_prefetcher",
+        "source_decision_effective_external_input": ["pc", "addr"],
+        "same_external_input_contract": True,
         "normal_policy_private_state": [
             "PC_indexed_stride_tracker_table", "last_stride", "confidence",
         ],
-        "normal_policy_private_state_is_not_nn_input": True,
-        "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "nn_generates_own_target_addresses": True,
+        "captured_candidate_files_role": "normal replay and request-budget audit only",
         "model_input_excludes_action_outcomes": True,
         "tracks": {POLICY: {}},
     }

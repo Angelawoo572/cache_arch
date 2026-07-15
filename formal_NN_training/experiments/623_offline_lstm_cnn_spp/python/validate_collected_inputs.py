@@ -14,7 +14,7 @@ POLICY = "spp"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v3"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v4_independent_utility"
 PAGE_LINES = 64
 MAX_ACTIONS = 32
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -202,10 +202,14 @@ def main():
         "experiment_revision": EXPERIMENT_REVISION,
         "event_logger_schema": LOGGER_SCHEMA,
         "action_attachment_mode": ATTACHMENT_MODE,
-        "neural_role": "direct_spp_action_predictor",
+        "neural_role": "standalone_direct_action_prefetcher",
         "source_decision_effective_external_input": ["addr"],
         "model_input_is_causal_address_sequence_only": True,
         "teacher_actions_are_model_inputs": False,
+        "same_external_input_contract": True,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
         "normal_candidate_bank_is_fixed": False,
         "nn_can_generate_actions_not_emitted_by_teacher": True,
         "model_does_not_use_pc": True,

@@ -6,6 +6,7 @@ normal-SPP actions are training labels and an evaluation audit reference; they
 are never passed to either model during scoring.
 """
 import argparse
+import bisect
 import csv
 import gzip
 import hashlib
@@ -34,7 +35,7 @@ PAGE_DELTA_CLIP = 64
 CNN_KERNEL_SIZE = 3
 CNN_STRIDE = 1
 CNN_DILATION = 1
-EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v3"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v4_independent_utility"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -219,12 +220,39 @@ def runtime_array(rows, previous_line=None):
 
 
 def labels_from_actions(actions):
+    """Comparator-only action matrix; never used as neural supervision."""
     labels = np.zeros((len(actions), ACTION_CLASSES), dtype=np.uint8)
     for index, items in enumerate(actions):
         for pf_line, fill in items:
             offset = pf_line % PAGE_LINES
             fill_index = FILL_LEVELS.index(fill)
             labels[index, offset * len(FILL_LEVELS) + fill_index] = 1
+    return labels
+
+
+def future_use_labels(rows, min_lead, max_lead, l2_lead_cutoff):
+    """Independent utility labels from future demand, not normal-SPP actions."""
+    if min_lead < 1 or max_lead < min_lead:
+        raise RuntimeError("invalid future-use lead window")
+    if l2_lead_cutoff < min_lead or l2_lead_cutoff > max_lead:
+        raise RuntimeError("--l2-lead-cutoff must lie inside the lead window")
+    positions = defaultdict(list)
+    for index, (_, _, line, _) in enumerate(rows):
+        positions[line].append(index)
+    labels = np.zeros((len(rows), ACTION_CLASSES), dtype=np.uint8)
+    for index, (_, _, line, _) in enumerate(rows):
+        page_base = (line // PAGE_LINES) * PAGE_LINES
+        lower = index + min_lead
+        upper = index + max_lead
+        for offset in range(PAGE_LINES):
+            values = positions.get(page_base + offset)
+            if not values:
+                continue
+            at = bisect.bisect_left(values, lower)
+            if at < len(values) and values[at] <= upper:
+                lead = values[at] - index
+                fill_index = 0 if lead <= l2_lead_cutoff else 1
+                labels[index, offset * len(FILL_LEVELS) + fill_index] = 1
     return labels
 
 
@@ -308,10 +336,7 @@ def weighted_loss(logits, labels, pos_weight):
     )
 
 
-def optimizer_step(model, optimizer, loss_sum, element_count):
-    if loss_sum is None or element_count <= 0:
-        return 0
-    (loss_sum / float(element_count)).backward()
+def optimizer_step(model, optimizer):
     torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
     optimizer.step()
     return 1
@@ -328,32 +353,26 @@ def train_lstm(
     pos_tensor = torch.tensor(pos_weight, dtype=torch.float32, device=device)
     for epoch in range(1, epochs + 1):
         model.train()
-        optimizer.zero_grad(set_to_none=True)
         state = None
-        group_loss = None
-        group_elements = 0
-        group_chunks = 0
         total_loss = 0.0
         total_elements = 0
         steps = 0
-        for chunk_index, (start, stop) in enumerate(chunks):
-            x = torch.from_numpy(runtime[start:stop]).unsqueeze(0).to(device)
-            y = torch.from_numpy(labels[start:stop].astype(np.float32)).unsqueeze(0).to(device)
-            logits, state = model(x, state)
-            state = tuple(value.detach() for value in state)
-            loss = weighted_loss(logits, y, pos_tensor)
-            elements = y.numel()
-            group_loss = loss if group_loss is None else group_loss + loss
-            group_elements += elements
-            group_chunks += 1
-            total_loss += float(loss.detach().item())
-            total_elements += elements
-            if group_chunks == accumulate_chunks or chunk_index + 1 == len(chunks):
-                steps += optimizer_step(model, optimizer, group_loss, group_elements)
-                optimizer.zero_grad(set_to_none=True)
-                group_loss = None
-                group_elements = 0
-                group_chunks = 0
+        for group_start in range(0, len(chunks), accumulate_chunks):
+            group = chunks[group_start:group_start + accumulate_chunks]
+            group_elements = sum((stop - start) * ACTION_CLASSES for start, stop in group)
+            optimizer.zero_grad(set_to_none=True)
+            for start, stop in group:
+                x = torch.from_numpy(runtime[start:stop]).unsqueeze(0).to(device)
+                y = torch.from_numpy(labels[start:stop].astype(np.float32)).unsqueeze(0).to(device)
+                logits, state = model(x, state)
+                state = tuple(value.detach() for value in state)
+                loss = weighted_loss(logits, y, pos_tensor)
+                # Carry recurrent values, detach the graph, and backpropagate
+                # one chunk at a time so Colab memory is bounded.
+                (loss / float(group_elements)).backward()
+                total_loss += float(loss.detach().item())
+                total_elements += y.numel()
+            steps += optimizer_step(model, optimizer)
         row = {
             "epoch": epoch,
             "weighted_loss_per_action_class": total_loss / max(1, total_elements),
@@ -377,32 +396,24 @@ def train_cnn(
     pos_tensor = torch.tensor(pos_weight, dtype=torch.float32, device=device)
     for epoch in range(1, epochs + 1):
         model.train()
-        optimizer.zero_grad(set_to_none=True)
-        group_loss = None
-        group_elements = 0
-        group_chunks = 0
         total_loss = 0.0
         total_elements = 0
         steps = 0
-        for chunk_index, (start, stop) in enumerate(chunks):
-            context_start = max(0, start - context)
-            offset = start - context_start
-            x = torch.from_numpy(runtime[context_start:stop]).unsqueeze(0).to(device)
-            y = torch.from_numpy(labels[start:stop].astype(np.float32)).unsqueeze(0).to(device)
-            logits = model(x)[:, offset:]
-            loss = weighted_loss(logits, y, pos_tensor)
-            elements = y.numel()
-            group_loss = loss if group_loss is None else group_loss + loss
-            group_elements += elements
-            group_chunks += 1
-            total_loss += float(loss.detach().item())
-            total_elements += elements
-            if group_chunks == accumulate_chunks or chunk_index + 1 == len(chunks):
-                steps += optimizer_step(model, optimizer, group_loss, group_elements)
-                optimizer.zero_grad(set_to_none=True)
-                group_loss = None
-                group_elements = 0
-                group_chunks = 0
+        for group_start in range(0, len(chunks), accumulate_chunks):
+            group = chunks[group_start:group_start + accumulate_chunks]
+            group_elements = sum((stop - start) * ACTION_CLASSES for start, stop in group)
+            optimizer.zero_grad(set_to_none=True)
+            for start, stop in group:
+                context_start = max(0, start - context)
+                offset = start - context_start
+                x = torch.from_numpy(runtime[context_start:stop]).unsqueeze(0).to(device)
+                y = torch.from_numpy(labels[start:stop].astype(np.float32)).unsqueeze(0).to(device)
+                logits = model(x)[:, offset:]
+                loss = weighted_loss(logits, y, pos_tensor)
+                (loss / float(group_elements)).backward()
+                total_loss += float(loss.detach().item())
+                total_elements += y.numel()
+            steps += optimizer_step(model, optimizer)
         row = {
             "epoch": epoch,
             "weighted_loss_per_action_class": total_loss / max(1, total_elements),
@@ -508,41 +519,41 @@ def decode(scores, rows, threshold, max_actions=MAX_ACTIONS_PER_CALLBACK):
     return selected
 
 
-def fidelity(predicted, teacher, rows):
+def future_use_metrics(predicted, useful_labels, rows):
     if len(rows) != len(predicted):
-        raise RuntimeError("fidelity rows do not match action matrices")
-    teacher_bool = teacher.astype(np.bool_)
-    tp = int((predicted & teacher_bool).sum())
-    fp = int((predicted & ~teacher_bool).sum())
-    fn = int((~predicted & teacher_bool).sum())
+        raise RuntimeError("future-use rows do not match action matrices")
+    useful_bool = useful_labels.astype(np.bool_)
+    tp = int((predicted & useful_bool).sum())
+    fp = int((predicted & ~useful_bool).sum())
+    fn = int((~predicted & useful_bool).sum())
     precision = tp / float(tp + fp) if tp + fp else 0.0
     recall = tp / float(tp + fn) if tp + fn else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
     jaccard = tp / float(tp + fp + fn) if tp + fp + fn else 1.0
     pred_lines = predicted.reshape(len(predicted), PAGE_LINES, 2).any(axis=2)
-    teacher_lines = teacher_bool.reshape(len(teacher_bool), PAGE_LINES, 2).any(axis=2)
-    line_tp = int((pred_lines & teacher_lines).sum())
-    line_fp = int((pred_lines & ~teacher_lines).sum())
-    line_fn = int((~pred_lines & teacher_lines).sum())
+    useful_lines = useful_bool.reshape(len(useful_bool), PAGE_LINES, 2).any(axis=2)
+    line_tp = int((pred_lines & useful_lines).sum())
+    line_fp = int((pred_lines & ~useful_lines).sum())
+    line_fn = int((~pred_lines & useful_lines).sum())
     line_precision = line_tp / float(line_tp + line_fp) if line_tp + line_fp else 0.0
     line_recall = line_tp / float(line_tp + line_fn) if line_tp + line_fn else 0.0
     line_f1 = (
         2 * line_precision * line_recall / (line_precision + line_recall)
         if line_precision + line_recall else 0.0
     )
-    exact_events = int(np.all(predicted == teacher_bool, axis=1).sum())
+    exact_events = int(np.all(predicted == useful_bool, axis=1).sum())
     predicted_self = 0
-    teacher_self = 0
+    useful_self = 0
     for index, (_, _, line, _) in enumerate(rows):
         start = (line % PAGE_LINES) * len(FILL_LEVELS)
         stop = start + len(FILL_LEVELS)
         predicted_self += int(predicted[index, start:stop].sum())
-        teacher_self += int(teacher_bool[index, start:stop].sum())
+        useful_self += int(useful_bool[index, start:stop].sum())
     predicted_total = int(predicted.sum())
-    teacher_total = int(teacher_bool.sum())
+    useful_total = int(useful_bool.sum())
     return {
         "predicted_actions": predicted_total,
-        "teacher_actions": teacher_total,
+        "useful_labels": useful_total,
         "true_positive_actions": tp,
         "false_positive_actions": fp,
         "false_negative_actions": fn,
@@ -556,30 +567,30 @@ def fidelity(predicted, teacher, rows):
         "fill_accuracy_given_matched_target_line": tp / float(line_tp) if line_tp else 0.0,
         "exact_callback_match_rate": exact_events / float(len(predicted)),
         "predicted_actions_per_callback": predicted_total / float(len(predicted)),
-        "teacher_actions_per_callback": teacher_total / float(len(predicted)),
+        "useful_labels_per_callback": useful_total / float(len(predicted)),
         "predicted_self_target_actions": predicted_self,
-        "teacher_self_target_actions": teacher_self,
+        "useful_self_target_labels": useful_self,
         "predicted_self_target_action_rate": (
             predicted_self / float(predicted_total) if predicted_total else 0.0
         ),
-        "teacher_self_target_action_rate": (
-            teacher_self / float(teacher_total) if teacher_total else 0.0
+        "useful_self_target_label_rate": (
+            useful_self / float(useful_total) if useful_total else 0.0
         ),
     }
 
 
-def calibrate(scores, labels, rows, start):
+def calibrate(scores, labels, normal_action_labels, rows, start):
     finite = scores[start:].reshape(-1)
     if finite.size == 0:
         raise RuntimeError("empty calibration split")
     thresholds = [0.0, 1.0]
     thresholds.extend(np.linspace(0.05, 0.95, 19).tolist())
     thresholds.extend(float(np.quantile(finite, q)) for q in (0.5, 0.7, 0.8, 0.9, 0.95, 0.98, 0.99, 0.995))
-    teacher_rate = float(labels[start:].sum()) / max(1, len(labels) - start)
+    teacher_rate = float(normal_action_labels[start:].sum()) / max(1, len(labels) - start)
     rows_out = []
     for threshold in sorted(set(round(value, 8) for value in thresholds)):
         selected = decode(scores[start:], rows[start:], threshold)
-        result = fidelity(selected, labels[start:], rows[start:])
+        result = future_use_metrics(selected, labels[start:], rows[start:])
         result.update({
             "threshold": threshold,
             "teacher_action_budget_per_callback": teacher_rate,
@@ -591,7 +602,7 @@ def calibrate(scores, labels, rows, start):
         rows_out.append(result)
     eligible = [row for row in rows_out if row["within_teacher_action_budget"]]
     if not eligible:
-        raise RuntimeError("no calibration threshold satisfies teacher action budget")
+        raise RuntimeError("no calibration threshold satisfies normal-SPP action budget")
     eligible.sort(key=lambda row: (
         -row["action_f1"], -row["action_jaccard"],
         -row["action_precision"], -row["action_recall"],
@@ -669,6 +680,9 @@ def main():
     parser.add_argument("--chunk-len", type=int, default=1024)
     parser.add_argument("--accumulate-chunks", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=0.002)
+    parser.add_argument("--min-lead", type=int, default=4)
+    parser.add_argument("--max-lead", type=int, default=256)
+    parser.add_argument("--l2-lead-cutoff", type=int, default=64)
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
 
@@ -704,10 +718,16 @@ def main():
     train_runtime, _ = runtime_array(rows["train"])
     guard_runtime, guard_last_line = runtime_array(rows["guard"])
     eval_runtime, _ = runtime_array(rows["eval"], previous_line=guard_last_line)
-    labels = labels_from_actions(teacher_actions["train"])
-    eval_labels = labels_from_actions(teacher_actions["eval"])
-    fit_end = int(len(rows["train"]) * 0.8)
-    if fit_end <= 0 or fit_end >= len(rows["train"]):
+    labels = future_use_labels(
+        rows["train"], args.min_lead, args.max_lead, args.l2_lead_cutoff
+    )
+    normal_action_labels = labels_from_actions(teacher_actions["train"])
+    eval_labels = future_use_labels(
+        rows["eval"], args.min_lead, args.max_lead, args.l2_lead_cutoff
+    )
+    calibration_start = int(len(rows["train"]) * 0.8)
+    fit_end = calibration_start - args.max_lead
+    if fit_end <= 0 or calibration_start >= len(rows["train"]):
         raise RuntimeError("training stream too short for fit/calibration split")
     positives = int(labels[:fit_end].sum())
     total = fit_end * ACTION_CLASSES
@@ -731,10 +751,12 @@ def main():
         train_scores = score_cnn(model, train_runtime, device)
         eval_scores = score_cnn(model, eval_runtime, device, prefix_runtime=guard_runtime)
 
-    calibration, sweep = calibrate(train_scores, labels, rows["train"], fit_end)
+    calibration, sweep = calibrate(
+        train_scores, labels, normal_action_labels, rows["train"], calibration_start
+    )
     threshold = calibration["threshold"]
     selected_eval = decode(eval_scores, rows["eval"], threshold)
-    eval_fidelity = fidelity(selected_eval, eval_labels, rows["eval"])
+    eval_utility = future_use_metrics(selected_eval, eval_labels, rows["eval"])
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     normal_path = args.out_dir / "offline_spp.replay.csv"
@@ -760,7 +782,7 @@ def main():
         "trace": TRACE,
         "model_tag": tag,
         "matched_normal_prefetcher": POLICY,
-        "neural_role": "direct_spp_action_predictor",
+        "neural_role": "standalone_direct_action_prefetcher",
         "model_family": args.model_family,
         "model_size": args.model_size,
         "architecture_pair_id": args.pair_id,
@@ -776,7 +798,8 @@ def main():
         "self_target_actions_allowed": True,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "fit_rows": fit_end,
-        "calibration_rows": len(rows["train"]) - fit_end,
+        "calibration_start": calibration_start,
+        "calibration_rows": len(rows["train"]) - calibration_start,
         "guard_rows": len(rows["guard"]),
         "eval_rows": len(rows["eval"]),
         "runtime_feature_count": RUNTIME_FEATURES,
@@ -793,8 +816,12 @@ def main():
         "model_does_not_use_pc": True,
         "pc_is_replay_transport_only": True,
         "cache_hit_and_type_are_audit_only": True,
+        "same_external_input_contract": True,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
         "teacher_actions_are_model_inputs": False,
-        "evaluation_teacher_actions_role": "normal comparator and fidelity audit only",
+        "teacher_actions_role": "normal replay and training-split request budget only",
         "normal_candidate_bank_is_fixed": False,
         "nn_can_generate_actions_not_emitted_by_teacher": True,
         "direct_action_output_classes": ACTION_CLASSES,
@@ -808,8 +835,13 @@ def main():
         "normal_policy_private_state_is_not_nn_input": True,
         "replay_preserves_explicit_fill_level": True,
         "training_chunks_shuffled": False,
-        "training_labels_are_direct_spp_actions": True,
-        "training_labels_use_future_rows": False,
+        "training_labels_are_direct_spp_actions": False,
+        "training_labels": "future same-page demand reuse with lead-derived L2/LLC class; independent of normal SPP actions",
+        "training_labels_use_future_rows": True,
+        "min_lead": args.min_lead,
+        "max_lead": args.max_lead,
+        "l2_lead_cutoff": args.l2_lead_cutoff,
+        "evaluation_future_rows_role": "post-inference utility audit only",
         "causal_no_future_self_test": "PASS",
         "cnn_architecture_self_test": "PASS",
         "experiment_revision": EXPERIMENT_REVISION,
@@ -839,7 +871,7 @@ def main():
         "source_contract_sha256": sha256(args.source_contract),
         "train_history": history,
         "calibration_choice": calibration,
-        "eval_action_fidelity": eval_fidelity,
+        "eval_future_use_utility": eval_utility,
         "python": platform.python_version(),
         "torch": torch.__version__,
         "numpy": np.__version__,
@@ -860,7 +892,7 @@ def main():
         "threshold": threshold,
         "offline_normal_entries": normal_entries,
         "offline_nn_entries": nn_entries,
-        "eval_action_f1": eval_fidelity["action_f1"],
+        "eval_future_use_f1": eval_utility["action_f1"],
     }, indent=2))
 
 
