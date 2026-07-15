@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# Build one binary containing none, live context policies, and keyed ListReplayer.
+# Build one binary containing stride, SPP, none, and keyed ListReplayer.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
-GENERATED="$CHAMP_DIR/prefetcher/offline_623_ampm_temporal_replayer.l2c_pref"
-TEMPLATE="$CHAMP_DIR/prefetcher/.offline_623_ampm_temporal_replayer.tmp"
+GENERATED="$CHAMP_DIR/prefetcher/offline_623_stride_spp_cnn_replayer.l2c_pref"
+TEMPLATE="$CHAMP_DIR/prefetcher/.offline_623_stride_spp_cnn_replayer.tmp"
 HEADER="$CHAMP_DIR/inc/list_replayer.h"
 SOURCE="$CHAMP_DIR/prefetcher/list_replayer.cc"
-BUILT="$CHAMP_DIR/bin/perceptron-no-offline_623_ampm_temporal_replayer-no-ship-1core"
-OUT="${OUT:-$CHAMP_DIR/bin/champsim.623_ampm_temporal_replay}"
+BUILT="$CHAMP_DIR/bin/perceptron-no-offline_623_stride_spp_cnn_replayer-no-ship-1core"
+OUT="${OUT:-$CHAMP_DIR/bin/champsim.623_stride_spp_cnn_replay}"
 
 cleanup() { rm -f "$GENERATED" "$TEMPLATE"; }
 trap cleanup EXIT
@@ -54,8 +54,7 @@ if 'compare("list_replayer")' not in text:
 output.write_text(text)
 PY
 
-( cd "$CHAMP_DIR" && ./build_champsim.sh no offline_623_ampm_temporal_replayer no 1 )
+( cd "$CHAMP_DIR" && ./build_champsim.sh no offline_623_stride_spp_cnn_replayer no 1 )
 [[ -x "$BUILT" ]] || { echo "[error] expected binary missing: $BUILT" >&2; exit 4; }
 cp -f "$BUILT" "$OUT"
 echo "[ok] built $OUT"
-

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Patch local Pythia to emit the raw no-prefetch demand stream required by the
-# matched LSTM/causal-TCN dataset.  This is instrumentation only: it does
+# matched LSTM/sliding-CNN dataset.  This is instrumentation only: it does
 # not create residual labels and does not change prefetch policy behavior.
 #
 # Set RESET_PATCH=1 on the first clean rebuild if cache.cc still contains the
