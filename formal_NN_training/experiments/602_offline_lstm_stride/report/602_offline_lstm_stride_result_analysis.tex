@@ -19,16 +19,17 @@ not be presented as direct-action results.
 \begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
 Shared external input & Current PC and cache-line address, with causal prior PC/address history.\\
-Neural policy & Standalone stateful LSTM; learned count argmax plus learned ranking over all 64 same-page L2 targets.\\
+Neural policy & Standalone stateful LSTM; learned unbounded Poisson count plus autoregressive direct signed cache-line deltas.\\
+Train/infer parity & Identical lossless encoder, field order, normalization, and chronological state contract; decoder feeds back only its own prediction.\\
 Excluded & Stride candidates, tracker table, last stride, confidence, hit/miss, cycle, queues, and future evaluation rows.\\
 Supervision & Mirrored Stride request count and target set; labels only, never inference inputs.\\
 No heuristic decision & No probability threshold, request budget, degree cap, future window, semantic hand features, manual loss weights, or regularizer.\\
-Required run & \texttt{602\_offline\_lstm\_stride\_threshold\_free\_v5\_seed7}.\\
+Required run & \texttt{602\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v7\_seed7}.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-After the threshold-free-v5 replay passes, regenerate the report with IPC, L2 miss
+After the variable-delta-free-running-v7 replay passes, regenerate the report with IPC, L2 miss
 rate, selected accuracy, coverage, late-prefetch rate, and the balanced parity
 index.  No old gate number is carried forward.
 \end{document}
