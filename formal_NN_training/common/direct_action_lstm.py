@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Threshold-free matched-input LSTM experiments for the 602 trace.
+"""Source-input-only LSTM experiments for the 602 trace.
 
 The normal prefetcher and neural policy receive the same effective external
 inputs.  Normal-policy requests are supervised targets and the normal replay
 baseline; they are never neural inputs, gates, thresholds, budgets, or private
-state.  The LSTM learns request count and target ranking directly.
+state.  The LSTM learns an unbounded request count and direct signed
+cache-line deltas with its own autoregressive decoder.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import argparse
 import csv
 import gzip
 import hashlib
+import inspect
 import json
 import platform
 import random
@@ -22,8 +24,10 @@ import numpy as np
 import torch
 
 from formal_NN_training.common.threshold_free_policy import (
-    ADDRESS_BITS, CountRankLSTM, behavior_metrics, build_model, decode,
-    runtime_bits, score_lstm, targets_from_actions, train_lstm,
+    ADDRESS_BITS, CACHE_LINE_BYTES, VariableActionLSTM, behavior_metrics,
+    build_model, decode, runtime_bits, score_lstm,
+    self_test_free_running_decoder, self_test_variable_action_decoder,
+    targets_from_actions, train_lstm,
 )
 from formal_NN_training.common.normal_policy_reference import (
     POLICY_USES_PC, ampm_actions, normal_actions, policy_self_test,
@@ -32,8 +36,7 @@ from formal_NN_training.common.normal_policy_reference import (
 
 
 TRACE = "602.gcc_s-734B"
-PAGE_LINES = 64
-EXPERIMENT_REVISION = "threshold_free_count_rank_v5"
+EXPERIMENT_REVISION = "source_input_variable_delta_free_running_v7"
 
 
 def sha256(path: Path) -> str:
@@ -89,9 +92,24 @@ def load_stream(path: Path):
 def runtime_features(policy, rows):
     return runtime_bits(
         [pc for pc, _, _ in rows],
-        [line for _, line, _ in rows],
+        [line * CACHE_LINE_BYTES for _, line, _ in rows],
         POLICY_USES_PC[policy],
     )
+
+
+def runtime_encoder_sha256(policy):
+    """Hash the complete policy-specific runtime encoder contract."""
+    payload = {
+        "entrypoint_source": inspect.getsource(runtime_features),
+        "primitive_source": inspect.getsource(runtime_bits),
+        "policy": policy,
+        "use_pc": POLICY_USES_PC[policy],
+        "address_bits": ADDRESS_BITS,
+        "cache_line_bytes": CACHE_LINE_BYTES,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True).encode()
+    ).hexdigest()
 
 
 def write_table(path, rows):
@@ -114,30 +132,26 @@ def write_normal_replay(path, rows, actions):
                 triggers += 1
             for target in targets:
                 writer.writerow(
-                    [pc, line, occurrence, "0x{:x}".format(int(target) * 64)]
+                    [pc, line, occurrence,
+                     "0x{:x}".format(int(target) * CACHE_LINE_BYTES)]
                 )
                 entries += 1
     return entries, triggers
 
 
-def write_nn_replay(path, rows, selected, target_logits):
+def write_nn_replay(path, rows, predicted_lines):
     entries = 0
     triggers = 0
     with Path(path).open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["pc", "line", "occ", "prefetch_addr"])
-        for index, (pc, line, occurrence) in enumerate(rows):
-            offsets = np.flatnonzero(selected[index])
-            if offsets.size:
+        for (pc, line, occurrence), targets in zip(rows, predicted_lines):
+            if targets:
                 triggers += 1
-                offsets = offsets[
-                    np.argsort(-target_logits[index, offsets], kind="stable")
-                ]
-            page_base = (line // PAGE_LINES) * PAGE_LINES
-            for offset in offsets:
+            for target in targets:
                 writer.writerow([
                     pc, line, occurrence,
-                    "0x{:x}".format((page_base + int(offset)) * 64),
+                    "0x{:x}".format(int(target) * CACHE_LINE_BYTES),
                 ])
                 entries += 1
     return entries, triggers
@@ -167,6 +181,12 @@ def run_cli(policy: str):
     if args.hidden_size < 1 or args.chunk_len < 1 or args.batch_chunks < 1:
         raise RuntimeError("model/chunk sizes must be positive")
     policy_self_test()
+    self_test_variable_action_decoder(
+        ADDRESS_BITS * (2 if POLICY_USES_PC[policy] else 1), "lstm"
+    )
+    self_test_free_running_decoder(
+        ADDRESS_BITS * (2 if POLICY_USES_PC[policy] else 1), "lstm"
+    )
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
@@ -185,7 +205,7 @@ def run_cli(policy: str):
     guard_rows = load_stream(args.guard_stream) if policy == "ampm" else []
     train_runtime = runtime_features(policy, train_rows)
     train_normal, _ = normal_actions(policy, train_rows)
-    train_counts, train_targets, train_fills = targets_from_actions(
+    train_counts, train_deltas, train_fills = targets_from_actions(
         [line for _, line, _ in train_rows], train_normal
     )
 
@@ -197,7 +217,7 @@ def run_cli(policy: str):
         "lstm", feature_count, args.hidden_size, fill_classes=0
     )
     history = train_lstm(
-        model, train_runtime, train_counts, train_targets, train_fills,
+        model, train_runtime, train_counts, train_deltas, train_fills,
         len(train_rows), device, args.epochs, args.chunk_len,
         args.batch_chunks, args.learning_rate,
     )
@@ -209,17 +229,20 @@ def run_cli(policy: str):
         _, nn_state = score_lstm(model, guard_runtime, device)
         _, normal_state = normal_actions(policy, guard_rows)
     eval_runtime = runtime_features(policy, eval_rows)
+    # Fail closed if either role ever drifts away from the shared encoder.
+    if not np.array_equal(train_runtime, runtime_features(policy, train_rows)):
+        raise RuntimeError("training runtime encoder is not deterministic")
+    if not np.array_equal(eval_runtime, runtime_features(policy, eval_rows)):
+        raise RuntimeError("inference runtime encoder differs from training encoder")
     eval_logits, _ = score_lstm(
         model, eval_runtime, device, initial_state=nn_state
     )
     eval_normal, _ = normal_actions(policy, eval_rows, normal_state)
-    eval_counts, eval_targets, eval_fills = targets_from_actions(
-        [line for _, line, _ in eval_rows], eval_normal
+    predicted_counts, predicted_lines, predicted_fills = decode(
+        model, eval_logits, [line for _, line, _ in eval_rows], device
     )
-    predicted_counts, selected_eval, predicted_fills = decode(eval_logits)
     imitation = behavior_metrics(
-        predicted_counts, selected_eval, predicted_fills,
-        eval_counts, eval_targets, eval_fills,
+        predicted_counts, predicted_lines, predicted_fills, eval_normal,
     )
 
     normal_path = args.out_dir / "offline_{}.replay.csv".format(policy)
@@ -228,7 +251,7 @@ def run_cli(policy: str):
         normal_path, eval_rows, eval_normal
     )
     nn_entries, nn_triggers = write_nn_replay(
-        nn_path, eval_rows, selected_eval, eval_logits[1]
+        nn_path, eval_rows, predicted_lines
     )
 
     torch.save({
@@ -248,15 +271,31 @@ def run_cli(policy: str):
     metadata = {
         "trace": TRACE,
         "matched_normal_prefetcher": policy,
-        "model_family": "LSTM count-rank direct-action",
+        "model_family": "stateful LSTM plus variable direct-delta decoder",
         "neural_role": "standalone_direct_action_prefetcher",
         "parameter_count": parameters,
         "hidden_size": args.hidden_size,
         "runtime_feature_count": feature_count,
-        "runtime_encoding": "lossless_lsb_first_binary_u64",
+        "runtime_encoding": "lossless_lsb_first_binary_uint64_source_values",
         "seed": args.seed,
         "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_free_running_self_test": "PASS",
+        "runtime_encoder_entrypoint": "direct_action_lstm.runtime_features",
+        "runtime_encoder_sha256": runtime_encoder_sha256(policy),
+        "training_runtime_encoder_sha256": runtime_encoder_sha256(policy),
+        "inference_runtime_encoder_sha256": runtime_encoder_sha256(policy),
         "effective_external_inputs": (
+            ["pc", "cache_line_address"]
+            if POLICY_USES_PC[policy] else ["cache_line_address"]
+        ),
+        "training_runtime_fields": (
+            ["pc", "cache_line_address"]
+            if POLICY_USES_PC[policy] else ["cache_line_address"]
+        ),
+        "inference_runtime_fields": (
             ["pc", "cache_line_address"]
             if POLICY_USES_PC[policy] else ["cache_line_address"]
         ),
@@ -267,8 +306,8 @@ def run_cli(policy: str):
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
         "nn_generates_own_target_addresses": True,
-        "complete_action_space": "count 0..64 plus ranking of 64 same-page offsets",
-        "decision_rule": "count_argmax_then_target_top_count",
+        "complete_action_space": "unbounded count plus direct signed cache-line deltas",
+        "decision_rule": "Poisson_mode_then_autoregressive_delta_mixture_modes",
         "probability_threshold_used": False,
         "neural_degree_cap": None,
         "future_label_window_used": False,
@@ -277,10 +316,10 @@ def run_cli(policy: str):
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,
-        "hardware_action_space_constants": {
-            "cache_line_bytes": 64,
-            "page_lines": PAGE_LINES,
-        },
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
+        "address_interface_bits": ADDRESS_BITS,
+        "cache_line_bytes": CACHE_LINE_BYTES,
         "learned_request_count": True,
         "training_labels": "normal emitted request count and target set; supervision only",
         "forbidden_inputs": [
@@ -332,7 +371,7 @@ def run_cli(policy: str):
     }, sort_keys=True))
 
 
-DirectActionLSTM = CountRankLSTM
+DirectActionLSTM = VariableActionLSTM
 
 __all__ = [
     "DirectActionLSTM", "ampm_actions", "normal_actions", "run_cli",
