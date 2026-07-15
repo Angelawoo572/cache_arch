@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Normalize a live stride/SPP event log into causal demand and candidate streams.
+"""Normalize a live 623 stride/SPP log using explicit causal trigger IDs.
 
-Every PF request is attached to the most recent earlier demand callback with
-the same trigger PC and base cache line (falling back to the most recent
-earlier demand with the same base line).  A future demand is never eligible.
-Matching is transport bookkeeping only: the models never receive PC or event
-identifiers.  The normalizer fails closed when a request cannot be assigned.
+The v4 event logger writes each completed L2 demand before invoking the normal
+prefetcher and places that exact demand event ID on every synchronous PF row.
+This normalizer never guesses from a future demand or from base_addr alone.
+It fails closed on stale schemas, noncontiguous events, callback interleaving,
+or any trigger identity mismatch.
 """
 import argparse
-import bisect
 import csv
 import gzip
 from collections import defaultdict
@@ -18,6 +17,8 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICIES = {"stride", "spp"}
 LOG2_BLOCK_SIZE = 6
+LOGGER_SCHEMA = "623_causal_trigger_v4"
+ATTACHMENT_MODE = "explicit_trigger_event_id"
 
 
 def as_int(value):
@@ -25,10 +26,9 @@ def as_int(value):
     return int(value, 16) if value.lower().startswith("0x") else int(float(value))
 
 
-def most_recent_prior(entries, event_id):
-    """Return the latest demand at or before event_id; never use the future."""
-    pos = bisect.bisect_right(entries, (event_id, 1 << 62))
-    return entries[pos - 1] if pos else None
+def fail(message, event_id=None):
+    suffix = "" if event_id is None else " at event {}".format(event_id)
+    raise RuntimeError(message + suffix)
 
 
 def main():
@@ -42,27 +42,67 @@ def main():
 
     opener = gzip.open if str(args.events).endswith(".gz") else open
     demands = []
-    pf_rows = []
+    demand_by_event_id = {}
+    attached = defaultdict(list)
     occurrences = defaultdict(int)
-    exact = defaultdict(list)
-    by_line = defaultdict(list)
+    last_event_id = -1
+    latest_demand_event_id = None
+    pf_count = 0
+    max_event_distance = 0
 
     with opener(args.events, "rt", newline="") as source:
         reader = csv.DictReader(source)
         required = {
-            "event", "event_id", "cache", "op", "cycle", "ip", "line",
-            "base_addr", "pf_line", "accepted", "duplicate",
+            "event", "event_id", "cpu", "cycle", "cache", "op", "ip",
+            "line", "base_addr", "pf_line", "accepted", "duplicate",
+            "trigger_event_id", "trigger_cpu", "trigger_ip", "trigger_line",
+            "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
-            raise RuntimeError("event log missing columns: {}".format(sorted(missing)))
-        for row in reader:
+            raise RuntimeError(
+                "event log has a stale/incomplete schema; missing {}. "
+                "Rebuild collection with RESET_PATCH=1 and FORCE=1.".format(
+                    sorted(missing)
+                )
+            )
+
+        for row_number, row in enumerate(reader, 2):
+            if row["logger_schema"] != LOGGER_SCHEMA:
+                raise RuntimeError(
+                    "event log row {} schema {!r}; expected {!r}".format(
+                        row_number, row["logger_schema"], LOGGER_SCHEMA
+                    )
+                )
             if row["cache"] != "L2C":
-                continue
+                fail("non-L2C row in 623 L2 event log")
+
             event_id = as_int(row["event_id"])
-            if row["event"] == "DEMAND" and row["op"] == "read":
+            if event_id != last_event_id + 1:
+                fail(
+                    "event IDs are not contiguous (previous {})".format(
+                        last_event_id
+                    ),
+                    event_id,
+                )
+            last_event_id = event_id
+            cpu = as_int(row["cpu"])
+            cycle = as_int(row["cycle"])
+            event = row["event"]
+
+            if event == "DEMAND":
+                if row["op"] != "read":
+                    fail("non-read demand row", event_id)
                 pc = as_int(row["ip"])
                 line = as_int(row["line"])
+                trigger_id = as_int(row["trigger_event_id"])
+                trigger_identity = (
+                    as_int(row["trigger_cpu"]),
+                    as_int(row["trigger_ip"]),
+                    as_int(row["trigger_line"]),
+                )
+                if trigger_id != event_id or trigger_identity != (cpu, pc, line):
+                    fail("demand self-trigger identity mismatch", event_id)
                 pair = (pc, line)
                 occ = occurrences[pair]
                 occurrences[pair] += 1
@@ -70,73 +110,88 @@ def main():
                 demand = {
                     "trace": TRACE,
                     "demand_idx": demand_idx,
-                    "cycle": as_int(row["cycle"]),
+                    "cycle": cycle,
                     "pc": pc,
                     "line": line,
                     "pc_line_occ": occ,
+                    "logger_schema": LOGGER_SCHEMA,
                     "_event_id": event_id,
+                    "_cpu": cpu,
                 }
                 demands.append(demand)
-                exact[pair].append((event_id, demand_idx))
-                by_line[line].append((event_id, demand_idx))
-            elif row["event"] == "PF":
-                pf_rows.append({
-                    "event_id": event_id,
-                    "pc": as_int(row["ip"]),
-                    "base_line": as_int(row["base_addr"]) >> LOG2_BLOCK_SIZE,
-                    "pf_line": as_int(row["pf_line"]),
-                    "accepted": as_int(row["accepted"]),
-                    "duplicate": as_int(row["duplicate"]),
-                })
+                demand_by_event_id[event_id] = demand
+                latest_demand_event_id = event_id
+                continue
+
+            if event != "PF":
+                fail("unknown event kind {!r}".format(event), event_id)
+            if latest_demand_event_id is None:
+                fail("PF row precedes the first demand", event_id)
+
+            trigger_id = as_int(row["trigger_event_id"])
+            if trigger_id != latest_demand_event_id:
+                fail(
+                    "PF trigger is not the immediately active demand callback "
+                    "({} != {})".format(trigger_id, latest_demand_event_id),
+                    event_id,
+                )
+            demand = demand_by_event_id.get(trigger_id)
+            if demand is None or trigger_id >= event_id:
+                fail("PF references a missing/future trigger", event_id)
+
+            trigger_identity = (
+                as_int(row["trigger_cpu"]),
+                as_int(row["trigger_ip"]),
+                as_int(row["trigger_line"]),
+            )
+            expected_identity = (demand["_cpu"], demand["pc"], demand["line"])
+            if trigger_identity != expected_identity:
+                fail("PF trigger columns disagree with demand row", event_id)
+            if cpu != demand["_cpu"] or cycle != demand["cycle"]:
+                fail("PF is not synchronous with its demand callback", event_id)
+            if as_int(row["ip"]) != demand["pc"]:
+                fail("PF transport PC differs from trigger PC", event_id)
+            if (as_int(row["base_addr"]) >> LOG2_BLOCK_SIZE) != demand["line"]:
+                fail("PF base line differs from explicit trigger line", event_id)
+
+            accepted = as_int(row["accepted"])
+            duplicate = as_int(row["duplicate"])
+            if accepted not in (0, 1) or duplicate not in (0, 1):
+                fail("PF accepted/duplicate field is not Boolean", event_id)
+            if duplicate and not accepted:
+                fail("rejected PF cannot be marked duplicate", event_id)
+
+            distance = event_id - trigger_id
+            if distance <= 0 or distance > args.max_event_distance:
+                fail(
+                    "PF event distance {} is outside [1, {}]".format(
+                        distance, args.max_event_distance
+                    ),
+                    event_id,
+                )
+            max_event_distance = max(max_event_distance, distance)
+            attached[demand["demand_idx"]].append({
+                "event_id": event_id,
+                "trigger_event_id": trigger_id,
+                "pf_line": as_int(row["pf_line"]),
+                "accepted": accepted,
+                "duplicate": duplicate,
+                "event_distance": distance,
+            })
+            pf_count += 1
 
     if not demands:
-        raise RuntimeError("no post-warmup L2 demand rows were found")
-    if not pf_rows:
+        raise RuntimeError("no post-warmup completed L2 demand callbacks were found")
+    if not pf_count:
         raise RuntimeError("{} emitted no logged PF requests".format(args.policy))
-
-    attached = defaultdict(list)
-    fallback_matches = 0
-    for pf in pf_rows:
-        candidates = exact.get((pf["pc"], pf["base_line"]), ())
-        match = (
-            most_recent_prior(candidates, pf["event_id"])
-            if candidates else None
-        )
-        match_mode = "pc_line_prior"
-        if match is None:
-            match = most_recent_prior(
-                by_line.get(pf["base_line"], ()), pf["event_id"]
-            )
-            match_mode = "line_only_prior"
-            fallback_matches += 1
-        if match is None:
-            raise RuntimeError(
-                "cannot causally attach PF event {} base line {}".format(
-                    pf["event_id"], pf["base_line"]
-                )
-            )
-        distance = abs(match[0] - pf["event_id"])
-        if match[0] > pf["event_id"]:
-            raise RuntimeError("future-demand candidate attachment detected")
-        if distance > args.max_event_distance:
-            raise RuntimeError(
-                "PF event {} is {} events from nearest demand trigger".format(
-                    pf["event_id"], distance
-                )
-            )
-        demand = demands[match[1]]
-        if demand["line"] != pf["base_line"]:
-            raise RuntimeError("candidate base-line transport mismatch")
-        attached[match[1]].append({
-            **pf,
-            "match_mode": match_mode,
-            "event_distance": distance,
-        })
 
     args.stream_out.parent.mkdir(parents=True, exist_ok=True)
     args.candidate_out.parent.mkdir(parents=True, exist_ok=True)
     with gzip.open(args.stream_out, "wt", newline="") as target:
-        fields = ["trace", "demand_idx", "cycle", "pc", "line", "pc_line_occ"]
+        fields = [
+            "trace", "demand_idx", "cycle", "pc", "line", "pc_line_occ",
+            "logger_schema",
+        ]
         writer = csv.DictWriter(target, fieldnames=fields)
         writer.writeheader()
         for demand in demands:
@@ -148,15 +203,13 @@ def main():
         fields = [
             "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
             "candidate_rank", "pf_line", "accepted", "duplicate",
-            "pf_event_id", "event_distance", "match_mode",
+            "trigger_event_id", "pf_event_id", "event_distance", "match_mode",
+            "logger_schema",
         ]
         writer = csv.DictWriter(target, fieldnames=fields)
         writer.writeheader()
         for demand in demands:
-            rows = sorted(
-                attached.get(demand["demand_idx"], ()),
-                key=lambda item: item["event_id"],
-            )
+            rows = attached.get(demand["demand_idx"], ())
             max_candidates = max(max_candidates, len(rows))
             for rank, pf in enumerate(rows, 1):
                 writer.writerow({
@@ -170,20 +223,24 @@ def main():
                     "pf_line": pf["pf_line"],
                     "accepted": pf["accepted"],
                     "duplicate": pf["duplicate"],
+                    "trigger_event_id": pf["trigger_event_id"],
                     "pf_event_id": pf["event_id"],
                     "event_distance": pf["event_distance"],
-                    "match_mode": pf["match_mode"],
+                    "match_mode": ATTACHMENT_MODE,
+                    "logger_schema": LOGGER_SCHEMA,
                 })
                 candidate_count += 1
 
     print(
-        "[ok] policy={} demands={} candidates={} max_per_demand={} "
-        "line_only_transport_matches={} stream={} candidates_file={}".format(
+        "[ok] policy={} schema={} attachment={} demands={} candidates={} "
+        "max_per_demand={} max_event_distance={} stream={} candidates_file={}".format(
             args.policy,
+            LOGGER_SCHEMA,
+            ATTACHMENT_MODE,
             len(demands),
             candidate_count,
             max_candidates,
-            fallback_matches,
+            max_event_distance,
             args.stream_out,
             args.candidate_out,
         )

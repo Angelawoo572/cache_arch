@@ -37,7 +37,9 @@ CANDIDATE_RANK_CAP = 32
 CNN_KERNEL_SIZE = 3
 CNN_STRIDE = 1
 CNN_DILATION = 1
-EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v3"
+EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v4"
+EVENT_LOGGER_SCHEMA = "623_causal_trigger_v4"
+CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 
 
 def sha256(path):
@@ -65,12 +67,19 @@ def load_stream(path):
     rows = []
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
-        required = {"trace", "demand_idx", "pc", "line", "pc_line_occ"}
+        required = {
+            "trace", "demand_idx", "pc", "line", "pc_line_occ",
+            "logger_schema",
+        }
         missing = required.difference(reader.fieldnames or [])
         if missing:
             raise RuntimeError("{} missing {}".format(path, sorted(missing)))
         for index, row in enumerate(reader):
-            if row["trace"] != TRACE or as_int(row["demand_idx"]) != index:
+            if (
+                row["trace"] != TRACE
+                or as_int(row["demand_idx"]) != index
+                or row["logger_schema"] != EVENT_LOGGER_SCHEMA
+            ):
                 raise RuntimeError("stream identity/ordering failure at row {}".format(index))
             rows.append((
                 as_int(row["pc"]),
@@ -84,11 +93,14 @@ def load_stream(path):
 
 def load_candidate_bank(path, policy, rows):
     bank = [[] for _ in rows]
+    last_pf_event_id = -1
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
             "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
-            "candidate_rank", "pf_line",
+            "candidate_rank", "pf_line", "accepted", "duplicate",
+            "trigger_event_id", "pf_event_id", "event_distance", "match_mode",
+            "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
@@ -103,12 +115,37 @@ def load_candidate_bank(path, policy, rows):
                 as_int(row["line"]),
                 as_int(row["pc_line_occ"]),
             )
-            if row["trace"] != TRACE or row["policy"] != policy or observed != (pc, line, occ):
+            if (
+                row["trace"] != TRACE
+                or row["policy"] != policy
+                or observed != (pc, line, occ)
+                or row["logger_schema"] != EVENT_LOGGER_SCHEMA
+                or row["match_mode"] != CANDIDATE_ATTACHMENT_MODE
+            ):
                 raise RuntimeError("candidate transport identity mismatch at {}".format(index))
             rank = as_int(row["candidate_rank"])
             if rank != len(bank[index]) + 1:
                 raise RuntimeError("non-contiguous candidate rank at demand {}".format(index))
+            trigger_event_id = as_int(row["trigger_event_id"])
+            pf_event_id = as_int(row["pf_event_id"])
+            event_distance = as_int(row["event_distance"])
+            if (
+                pf_event_id <= last_pf_event_id
+                or trigger_event_id >= pf_event_id
+                or event_distance != pf_event_id - trigger_event_id
+                or not 1 <= event_distance <= 256
+            ):
+                raise RuntimeError("invalid explicit trigger transport at {}".format(index))
+            accepted = as_int(row["accepted"])
+            duplicate = as_int(row["duplicate"])
+            if (
+                accepted not in (0, 1)
+                or duplicate not in (0, 1)
+                or (duplicate and not accepted)
+            ):
+                raise RuntimeError("invalid candidate outcome bits at {}".format(index))
             bank[index].append(as_int(row["pf_line"]))
+            last_pf_event_id = pf_event_id
     if not any(bank):
         raise RuntimeError("empty {} candidate bank: {}".format(policy, path))
     return bank
@@ -855,6 +892,8 @@ def main():
         "candidate_rank_normalization": (
             "min(candidate_rank, 32) / 32; fixed before data collection"
         ),
+        "event_logger_schema": EVENT_LOGGER_SCHEMA,
+        "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "max_candidates_per_role": max_candidates_by_role,
         "offline_normal_entries": normal_entries,
         "offline_normal_triggers": normal_triggers,

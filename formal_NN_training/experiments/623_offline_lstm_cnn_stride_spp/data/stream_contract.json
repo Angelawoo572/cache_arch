@@ -1,6 +1,7 @@
 {
   "experiment": "623_offline_lstm_cnn_stride_spp",
-  "experiment_revision": "stride_spp_sliding_cnn_v3",
+  "experiment_revision": "stride_spp_sliding_cnn_v4",
+  "event_logger_schema": "623_causal_trigger_v4",
   "trace": "623.xalancbmk_s-700B",
   "trace_file": "traces/623.xalancbmk_s-700B.champsimtrace.xz",
   "generated_data_root": "runs/<RUN_ID>/colab_input",
@@ -27,7 +28,8 @@
     "cycle",
     "pc",
     "line",
-    "pc_line_occ"
+    "pc_line_occ",
+    "logger_schema"
   ],
   "candidate_columns": [
     "trace",
@@ -40,9 +42,11 @@
     "pf_line",
     "accepted",
     "duplicate",
+    "trigger_event_id",
     "pf_event_id",
     "event_distance",
-    "match_mode"
+    "match_mode",
+    "logger_schema"
   ],
   "model_input_contract": {
     "demand_features": [
@@ -61,7 +65,10 @@
       "pc",
       "pc_line_occ",
       "demand_idx",
-      "pf_event_id"
+      "trigger_event_id",
+      "pf_event_id",
+      "match_mode",
+      "logger_schema"
     ],
     "forbidden": [
       "cycle",
@@ -73,8 +80,16 @@
     ]
   },
   "causal_candidate_attachment": {
-    "rule": "each PF request attaches only to the most recent earlier demand with matching PC/base-line, then earlier base-line-only fallback",
-    "future_demand_attachment_allowed": false
+    "mode": "explicit_trigger_event_id",
+    "rule": "write each completed L2 demand before its synchronous prefetcher callback; every PF row carries that exact demand event ID",
+    "address_guess_or_fallback_allowed": false,
+    "future_demand_attachment_allowed": false,
+    "stalled_rq_retry_creates_model_timestep": false,
+    "validated_equalities": [
+      "PF trigger_event_id equals the immediately active prior demand event_id",
+      "PF trigger CPU, PC, line, and cycle equal the demand row",
+      "prefetch_line base line equals the explicit trigger line"
+    ]
   },
   "candidate_rank_normalization": {
     "formula": "min(candidate_rank, 32) / 32",
@@ -99,6 +114,7 @@
     }
   },
   "matched_tracks": {
+    "cross_policy_rule": "stride and SPP are independent matched tracks; cross-policy demand identity is diagnostic only",
     "stride": {
       "live_configuration": {
         "prefetcher": "stride",

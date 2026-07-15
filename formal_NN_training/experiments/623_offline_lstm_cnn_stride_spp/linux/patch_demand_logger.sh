@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Patch local Pythia to emit the raw no-prefetch demand stream required by the
-# matched LSTM/sliding-CNN dataset.  This is instrumentation only: it does
-# not create residual labels and does not change prefetch policy behavior.
+# Patch local ChampSim/Pythia to emit a causally keyed L2 demand/PF log for
+# the matched 623 stride/SPP experiment.  Instrumentation only: it does not
+# alter either prefetch policy or create labels.
 #
-# Set RESET_PATCH=1 on the first clean rebuild if cache.cc still contains the
-# previous experimental logger patch.
+# The v4 schema records the exact demand event whose synchronous L2 callback
+# issued each prefetch.  This avoids guessing from prefetch_line(base_addr).
+# Set RESET_PATCH=1 once when upgrading an already patched cache.cc.
 set -euo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -24,21 +25,34 @@ import sys
 
 p = Path(sys.argv[1])
 s = p.read_text(errors="ignore")
-if "DEMAND_EVENT_LOG" in s and "demand_event_log_demand" in s:
-    print("[skip] demand logger already present", p)
+revision_marker = "DEMAND_EVENT_LOG_SCHEMA_623_V4"
+if revision_marker in s:
+    print("[skip] 623 v4 causal demand logger already present", p)
     raise SystemExit(0)
-if "RESIDUAL_AUDIT_LOG" in s:
-    raise SystemExit("[error] old logger patch detected; rerun with RESET_PATCH=1")
+if "DEMAND_EVENT_LOG" in s or "demand_event_log_demand" in s or "RESIDUAL_AUDIT_LOG" in s:
+    raise SystemExit(
+        "[error] stale/foreign cache.cc logger detected; rerun this stage with RESET_PATCH=1"
+    )
 
-s = s.replace('#include <algorithm>\n#include "cache.h"', '#include <algorithm>\n#include <cstdlib>\n#include <fstream>\n#include "cache.h"')
+s = s.replace(
+    '#include <algorithm>\n#include "cache.h"',
+    '#include <algorithm>\n#include <cstdlib>\n#include <fstream>\n#include "cache.h"',
+)
 helper = r'''
+// DEMAND_EVENT_LOG_SCHEMA_623_V4
 // -----------------------------------------------------------------------------
-// Raw demand-event logger for standalone NN datasets.
-// Enabled only when DEMAND_EVENT_LOG is set.
+// Causally keyed raw L2 demand/PF logger for the matched 623 experiment.
+// Enabled only when DEMAND_EVENT_LOG is set.  Single-core experiment only.
 // -----------------------------------------------------------------------------
 static std::ofstream demand_event_log;
 static bool demand_event_log_ready = false;
 static uint64_t demand_event_id = 0;
+static const uint64_t demand_event_no_trigger = uint64_t(-1);
+static const char demand_event_logger_schema[] = "623_causal_trigger_v4";
+static uint64_t demand_event_active_trigger_id = demand_event_no_trigger;
+static uint32_t demand_event_active_trigger_cpu = 0;
+static uint64_t demand_event_active_trigger_ip = 0;
+static uint64_t demand_event_active_trigger_line = 0;
 
 static void demand_event_open_once()
 {
@@ -49,24 +63,44 @@ static void demand_event_open_once()
     if (path && path[0] != 0) {
         demand_event_log.open(path);
         if (demand_event_log.is_open())
-            demand_event_log << "event,event_id,cpu,cycle,cache,op,type,ip,addr,line,hit,was_prefetch,late,accepted,duplicate,base_addr,pf_addr,pf_line,fill_level,pq_occ,pq_size,mshr_occ,mshr_size" << std::endl;
+            demand_event_log << "event,event_id,cpu,cycle,cache,op,type,ip,addr,line,hit,was_prefetch,late,accepted,duplicate,base_addr,pf_addr,pf_line,fill_level,pq_occ,pq_size,mshr_occ,mshr_size,trigger_event_id,trigger_cpu,trigger_ip,trigger_line,logger_schema" << std::endl;
     }
 }
 
-static void demand_event_log_demand(const CACHE* cache, uint32_t cpu, uint64_t cycle, const char* op, uint32_t type,
-                                    uint64_t ip, uint64_t full_addr, uint64_t line_addr, uint32_t hit,
-                                    uint32_t was_prefetch, uint32_t late)
+static uint64_t demand_event_log_demand(const CACHE* cache, uint32_t cpu, uint64_t cycle, const char* op, uint32_t type,
+                                        uint64_t ip, uint64_t full_addr, uint64_t line_addr, uint32_t hit,
+                                        uint32_t was_prefetch, uint32_t late)
 {
     demand_event_open_once();
     if (!demand_event_log.is_open())
-        return;
+        return demand_event_no_trigger;
+    const uint64_t this_event_id = demand_event_id++;
     demand_event_log << "DEMAND"
-                     << ',' << demand_event_id++ << ',' << cpu << ',' << cycle << ',' << cache->NAME
+                     << ',' << this_event_id << ',' << cpu << ',' << cycle << ',' << cache->NAME
                      << ',' << op << ',' << type << ',' << ip << ',' << full_addr << ',' << line_addr
                      << ',' << hit << ',' << was_prefetch << ',' << late
                      << ',' << 0 << ',' << 0 << ',' << 0 << ',' << 0 << ',' << 0 << ',' << 0
                      << ',' << cache->PQ.occupancy << ',' << cache->PQ.SIZE
-                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE << std::endl;
+                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE
+                     << ',' << this_event_id << ',' << cpu << ',' << ip << ',' << line_addr
+                     << ',' << demand_event_logger_schema << std::endl;
+    return this_event_id;
+}
+
+static void demand_event_begin_trigger(uint64_t event_id, uint32_t cpu, uint64_t ip, uint64_t line)
+{
+    demand_event_active_trigger_id = event_id;
+    demand_event_active_trigger_cpu = cpu;
+    demand_event_active_trigger_ip = ip;
+    demand_event_active_trigger_line = line;
+}
+
+static void demand_event_end_trigger()
+{
+    demand_event_active_trigger_id = demand_event_no_trigger;
+    demand_event_active_trigger_cpu = 0;
+    demand_event_active_trigger_ip = 0;
+    demand_event_active_trigger_line = 0;
 }
 
 static void demand_event_log_pf(const CACHE* cache, uint32_t cpu, uint64_t cycle, uint64_t ip,
@@ -83,7 +117,12 @@ static void demand_event_log_pf(const CACHE* cache, uint32_t cpu, uint64_t cycle
                      << ',' << accepted << ',' << duplicate << ',' << base_addr << ',' << pf_addr
                      << ',' << (pf_addr >> LOG2_BLOCK_SIZE) << ',' << fill_level
                      << ',' << cache->PQ.occupancy << ',' << cache->PQ.SIZE
-                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE << std::endl;
+                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE
+                     << ',' << demand_event_active_trigger_id
+                     << ',' << demand_event_active_trigger_cpu
+                     << ',' << demand_event_active_trigger_ip
+                     << ',' << demand_event_active_trigger_line
+                     << ',' << demand_event_logger_schema << std::endl;
 }
 '''
 marker = 'uint64_t l2pf_access = 0;\n'
@@ -91,39 +130,93 @@ if marker not in s:
     raise SystemExit('[error] could not find l2pf_access marker')
 s = s.replace(marker, marker + helper + '\n', 1)
 
-hit_needle = '''                // update prefetch stats and reset prefetch bit
-                if (block[set][way].prefetch)
-                {
-                    pf_useful++;'''
-hit_insert = '''                // update prefetch stats and reset prefetch bit
+index_needle = '''            int index = RQ.head;
+
+            // access cache'''
+index_insert = '''            int index = RQ.head;
+            uint64_t demand_logger_trigger_id = demand_event_no_trigger;
+
+            // access cache'''
+if index_needle not in s:
+    raise SystemExit('[error] could not find L2 read index marker')
+s = s.replace(index_needle, index_insert, 1)
+
+hit_needle = '''                // update prefetcher on load instruction
+                if (RQ.entry[index].type == LOAD)'''
+hit_insert = '''                // Log the demand before invoking L2 prefetcher callbacks so every
+                // synchronous PF row follows, and explicitly names, its trigger.
                 if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
-                    demand_event_log_demand(this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
-                                             RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
-                                             1, block[set][way].prefetch ? 1 : 0, 0);
+                    demand_logger_trigger_id = demand_event_log_demand(
+                        this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
+                        RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
+                        1, block[set][way].prefetch ? 1 : 0, 0);
                 }
-                if (block[set][way].prefetch)
-                {
-                    pf_useful++;'''
+
+                // update prefetcher on load instruction
+                if (RQ.entry[index].type == LOAD)'''
 if hit_needle not in s:
-    raise SystemExit('[error] could not find read-hit marker')
+    raise SystemExit('[error] could not find read-hit prefetcher marker')
 s = s.replace(hit_needle, hit_insert, 1)
 
-miss_needle = '''                int mshr_index = check_mshr(&RQ.entry[index]);
+hit_operate_needle = '''                    else if (cache_type == IS_L2C)
+                        l2c_prefetcher_operate(block[set][way].address<<LOG2_BLOCK_SIZE, RQ.entry[index].ip, 1, RQ.entry[index].type, 0);'''
+hit_operate_insert = '''                    else if (cache_type == IS_L2C)
+                    {
+                        demand_event_begin_trigger(demand_logger_trigger_id, read_cpu,
+                                                   RQ.entry[index].ip, RQ.entry[index].address);
+                        l2c_prefetcher_operate(block[set][way].address<<LOG2_BLOCK_SIZE, RQ.entry[index].ip, 1, RQ.entry[index].type, 0);
+                        demand_event_end_trigger();
+                    }'''
+if hit_operate_needle not in s:
+    raise SystemExit('[error] could not find read-hit L2 prefetcher call')
+s = s.replace(hit_operate_needle, hit_operate_insert, 1)
+
+late_needle = '''                int mshr_index = check_mshr(&RQ.entry[index]);
 
                 if ((mshr_index == -1) && (MSHR.occupancy < MSHR_SIZE)) // this is a new miss'''
-miss_insert = '''                int mshr_index = check_mshr(&RQ.entry[index]);
-
-                if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
-                    uint32_t demand_late = (mshr_index != -1 && MSHR.entry[mshr_index].type == PREFETCH) ? 1 : 0;
-                    demand_event_log_demand(this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
-                                             RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
-                                             0, 0, demand_late);
-                }
+late_insert = '''                int mshr_index = check_mshr(&RQ.entry[index]);
+                // Snapshot lateness before merge handling can replace the PREFETCH MSHR entry.
+                uint32_t demand_logger_late =
+                    (mshr_index != -1 && MSHR.entry[mshr_index].type == PREFETCH) ? 1 : 0;
 
                 if ((mshr_index == -1) && (MSHR.occupancy < MSHR_SIZE)) // this is a new miss'''
-if miss_needle not in s:
-    raise SystemExit('[error] could not find read-miss marker')
-s = s.replace(miss_needle, miss_insert, 1)
+if late_needle not in s:
+    raise SystemExit('[error] could not find pre-merge lateness marker')
+s = s.replace(late_needle, late_insert, 1)
+
+miss_handled_needle = '''                if (miss_handled) 
+                {
+                    // update prefetcher on load instruction'''
+miss_handled_insert = '''                if (miss_handled) 
+                {
+                    // Log only a completed demand callback.  A stalled RQ retry must
+                    // not create a second model timestep for the same load.
+                    if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
+                        demand_logger_trigger_id = demand_event_log_demand(
+                            this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
+                            RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
+                            0, 0, demand_logger_late);
+                    }
+
+                    // update prefetcher on load instruction'''
+if miss_handled_needle not in s:
+    raise SystemExit('[error] could not find handled read-miss marker')
+s = s.replace(miss_handled_needle, miss_handled_insert, 1)
+
+miss_operate_needle = '''                        if (cache_type == IS_L2C)
+                        {
+                            l2c_prefetcher_operate(RQ.entry[index].address<<LOG2_BLOCK_SIZE, RQ.entry[index].ip, 0, RQ.entry[index].type, 0);
+                        }'''
+miss_operate_insert = '''                        if (cache_type == IS_L2C)
+                        {
+                            demand_event_begin_trigger(demand_logger_trigger_id, read_cpu,
+                                                       RQ.entry[index].ip, RQ.entry[index].address);
+                            l2c_prefetcher_operate(RQ.entry[index].address<<LOG2_BLOCK_SIZE, RQ.entry[index].ip, 0, RQ.entry[index].type, 0);
+                            demand_event_end_trigger();
+                        }'''
+if miss_operate_needle not in s:
+    raise SystemExit('[error] could not find read-miss L2 prefetcher call')
+s = s.replace(miss_operate_needle, miss_operate_insert, 1)
 
 pf_needle = '''        // give a dummy 0 as the IP of a prefetch
         add_pq(&pf_packet);
@@ -142,10 +235,9 @@ pf_insert = '''        // give a dummy 0 as the IP of a prefetch
 if pf_needle not in s:
     raise SystemExit('[error] could not find prefetch marker')
 s = s.replace(pf_needle, pf_insert, 1)
+
 p.write_text(s)
 print('[patched]', p)
 PY
 
-grep -n "DEMAND_EVENT_LOG\|demand_event_log_demand" "$CACHE_CC" || true
-
-
+grep -n "DEMAND_EVENT_LOG_SCHEMA_623_V4\|demand_event_begin_trigger" "$CACHE_CC" || true

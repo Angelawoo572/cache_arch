@@ -31,6 +31,7 @@ nohup env \
   FORCE="${FORCE:-1}" \
   BUILD="${BUILD:-1}" \
   JOBS="${JOBS:-8}" \
+  RESET_PATCH="${RESET_PATCH:-0}" \
   bash "$EXP/linux/run_server.sh" \
   > "$LOG" 2>&1 < /dev/null &
 pid=$!

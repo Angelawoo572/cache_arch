@@ -27,7 +27,9 @@ BUILD_LOCK="${BUILD_LOCK:-$(git -C "$ROOT" rev-parse --absolute-git-dir)/champsi
 PATCH_LOGGER="$EXP/linux/patch_demand_logger.sh"
 BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
 NORMALIZE="$EXP/python/normalize_events.py"
+VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
+COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 
 IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
@@ -145,6 +147,37 @@ run_policy_events() {
   gzip -t "$gz"
 }
 
+assert_collection_count() {
+  local policy="$1" role="$2"
+  local log="$LOG_DIR/$TRACE.$policy.$role.collect.log"
+  local stream="$STREAM_DIR/$TRACE.$policy.${role}_stream.csv.gz"
+  python3 - "$log" "$stream" "$policy" "$role" <<'PY'
+import csv
+import gzip
+import re
+import sys
+
+log_path, stream_path, policy, role = sys.argv[1:]
+matches = re.findall(
+    r"^Core_0_L2C_loads\s+(\d+)\s*$",
+    open(log_path, errors="ignore").read(),
+    flags=re.MULTILINE,
+)
+if not matches:
+    raise SystemExit("missing Core_0_L2C_loads in {}".format(log_path))
+expected = int(matches[-1])
+with gzip.open(stream_path, "rt", newline="") as handle:
+    observed = sum(1 for _ in csv.DictReader(handle))
+if observed != expected:
+    raise SystemExit(
+        "{} {} completed demand callbacks {} != simulator L2 loads {}".format(
+            policy, role, observed, expected
+        )
+    )
+print("[PASS] {} {} demand callbacks={}".format(policy, role, observed))
+PY
+}
+
 collect() {
   [[ -s "$TRACE_FILE" ]] || {
     echo "[error] missing trace $TRACE_FILE" >&2
@@ -166,12 +199,17 @@ collect() {
         --policy "$policy" \
         --stream-out "$STREAM_DIR/$TRACE.$policy.${role}_stream.csv.gz" \
         --candidate-out "$STREAM_DIR/$TRACE.$policy.${role}_candidates.csv.gz"
+      assert_collection_count "$policy" "$role"
       input_files+=(
         "$TRACE.$policy.${role}_stream.csv.gz"
         "$TRACE.$policy.${role}_candidates.csv.gz"
       )
     done
   done
+  python3 "$VALIDATE_INPUTS" \
+    --input-dir "$STREAM_DIR" \
+    --manifest-out "$COLLECTION_MANIFEST"
+  input_files+=("collection_manifest.json")
   (
     cd "$STREAM_DIR"
     sha256sum "${input_files[@]}" > SHA256SUMS
@@ -205,7 +243,9 @@ common = {
     "candidate_rank_normalization": (
         "min(candidate_rank, 32) / 32; fixed before data collection"
     ),
-    "experiment_revision": "stride_spp_sliding_cnn_v3",
+    "event_logger_schema": "623_causal_trigger_v4",
+    "candidate_attachment_mode": "explicit_trigger_event_id",
+    "experiment_revision": "stride_spp_sliding_cnn_v4",
 }
 bad = {
     key: (metadata.get(key), expected)
@@ -321,6 +361,9 @@ run_method() {
 
 require_colab_outputs() {
   local tag policy
+  python3 "$VALIDATE_INPUTS" \
+    --input-dir "$STREAM_DIR" \
+    --manifest-out "$COLLECTION_MANIFEST"
   for tag in "${MODEL_TAGS[@]}"; do
     policy="${tag%%_*}"
     for name in run_metadata.json "offline_${policy}.replay.csv" \
@@ -335,6 +378,9 @@ require_colab_outputs() {
 }
 
 analyze() {
+  python3 "$VALIDATE_INPUTS" \
+    --input-dir "$STREAM_DIR" \
+    --manifest-out "$COLLECTION_MANIFEST"
   python3 "$ANALYZE" \
     --run-dir "$RUN_DIR" \
     --model-tags "$MODEL_TAGS_CSV"

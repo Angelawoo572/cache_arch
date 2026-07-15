@@ -47,8 +47,11 @@ The fixed input vectors are:
 
 Candidate rank uses the predeclared transform
 `min(candidate_rank, 32) / 32`; it is not scaled from evaluation statistics.
-Every PF request is attached only to a preceding trigger demand. A future
-demand can never be used during normalization.
+The `623_causal_trigger_v4` logger writes each completed L2 demand before its
+synchronous normal-prefetcher callback. Every PF row carries that exact
+`trigger_event_id`; normalization also checks trigger CPU, PC, line, cycle,
+and `base_addr`. There is no future-demand or address-only fallback. A stalled
+RQ retry is not allowed to create a second model timestep.
 
 Each policy is collected separately. Its offline normal list and all gated
 neural lists use the same captured candidate bank. A neural model may suppress
@@ -69,7 +72,7 @@ export RUN_ID=623_offline_lstm_cnn_stride_spp_seed7
 export EXP="$HOME/cache/formal_NN_training/experiments/623_offline_lstm_cnn_stride_spp"
 export RUN_DIR="$EXP/runs/$RUN_ID"
 
-FORCE=1 BUILD=1 bash "$EXP/linux/launch_server.sh" collect
+RESET_PATCH=1 FORCE=1 BUILD=1 bash "$EXP/linux/launch_server.sh" collect
 
 tail -f "$RUN_DIR/collect.nohup.log"
 ```
@@ -83,7 +86,7 @@ mkdir -p "$RUN_DIR/colab_output"
 tar -xzf "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
   -C "$RUN_DIR/colab_output"
 
-FORCE=1 BUILD=1 bash "$EXP/linux/launch_server.sh" replay
+RESET_PATCH=1 FORCE=1 BUILD=1 bash "$EXP/linux/launch_server.sh" replay
 
 tail -f "$RUN_DIR/replay.nohup.log"
 ```
@@ -95,6 +98,12 @@ track's own offline normal policy. It also emits:
 - `matched_comparison.csv/json`: complete counters and provenance;
 - `insight_summary.csv`: compact normal-vs-NN metric gaps and bottleneck;
 - `architecture_pair_summary.csv`: CNN-minus-LSTM deltas at matched size.
+
+Collection also emits `colab_input/collection_manifest.json`. It must report
+`PASS`, schema `623_causal_trigger_v4`, and explicit trigger attachment for all
+six policy/window files. It records stride/SPP demand-identity equality as a
+diagnostic, not a fairness requirement: stride and SPP remain independent
+matched tracks and may perturb callback timing/order differently.
 
 The live stride/SPP rows are validation references. The primary claims use
 the matched offline normal list and its NN-suppressed subsets through the same

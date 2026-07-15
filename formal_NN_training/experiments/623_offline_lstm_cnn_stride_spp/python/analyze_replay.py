@@ -13,7 +13,9 @@ from pathlib import Path
 
 TRACE = "623.xalancbmk_s-700B"
 POLICIES = ("stride", "spp")
-EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v3"
+EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v4"
+EVENT_LOGGER_SCHEMA = "623_causal_trigger_v4"
+CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED = re.compile(
     r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+"
@@ -131,10 +133,16 @@ def parse_events(path):
         "prefetch_accepted_events": 0,
         "prefetch_duplicate_events": 0,
     }
+    last_event_id = -1
+    latest_demand_event_id = None
+    latest_demand_identity = None
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
-            "event", "hit", "was_prefetch", "late", "accepted", "duplicate"
+            "event", "event_id", "cpu", "cycle", "cache", "ip", "line",
+            "hit", "was_prefetch", "late", "accepted", "duplicate",
+            "base_addr", "trigger_event_id", "trigger_cpu", "trigger_ip",
+            "trigger_line", "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
@@ -142,13 +150,49 @@ def parse_events(path):
                 "{} missing event columns {}".format(path, sorted(missing))
             )
         for row in reader:
+            event_id = int(row["event_id"])
+            if event_id != last_event_id + 1:
+                raise RuntimeError("noncontiguous event IDs at {}".format(event_id))
+            last_event_id = event_id
+            if row["cache"] != "L2C" or row["logger_schema"] != EVENT_LOGGER_SCHEMA:
+                raise RuntimeError("stale/non-L2 623 event logger row")
             if row["event"] == "PF":
+                trigger_event_id = int(row["trigger_event_id"])
+                if (
+                    latest_demand_event_id is None
+                    or trigger_event_id != latest_demand_event_id
+                    or trigger_event_id >= event_id
+                ):
+                    raise RuntimeError("PF has invalid explicit trigger event")
+                trigger_identity = (
+                    int(row["trigger_cpu"]), int(row["trigger_ip"]),
+                    int(row["trigger_line"]), int(row["cycle"]),
+                )
+                if trigger_identity != latest_demand_identity:
+                    raise RuntimeError("PF trigger identity/cycle mismatch")
+                if (int(row["base_addr"]) >> 6) != int(row["trigger_line"]):
+                    raise RuntimeError("PF base line differs from trigger line")
                 result["prefetch_request_events"] += 1
                 result["prefetch_accepted_events"] += int(row["accepted"])
                 result["prefetch_duplicate_events"] += int(row["duplicate"])
                 continue
             if row["event"] != "DEMAND":
                 continue
+            demand_identity = (
+                int(row["cpu"]), int(row["ip"]), int(row["line"]),
+                int(row["cycle"]),
+            )
+            trigger_identity = (
+                int(row["trigger_cpu"]), int(row["trigger_ip"]),
+                int(row["trigger_line"]), int(row["cycle"]),
+            )
+            if (
+                int(row["trigger_event_id"]) != event_id
+                or trigger_identity != demand_identity
+            ):
+                raise RuntimeError("demand self-trigger event mismatch")
+            latest_demand_event_id = event_id
+            latest_demand_identity = demand_identity
             result["demand_l2_loads"] += 1
             if int(row["hit"]):
                 result["demand_l2_hits"] += 1
@@ -331,6 +375,8 @@ def validate_metadata(metadata, tag, inputs, failures):
         "candidate_rank_normalization": (
             "min(candidate_rank, 32) / 32; fixed before data collection"
         ),
+        "event_logger_schema": EVENT_LOGGER_SCHEMA,
+        "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
     }
     for key, expected in common.items():
@@ -458,6 +504,12 @@ def main():
             )
         if row["l2_loads"] <= 0 or row["l2_load_miss"] <= 0:
             failures.append("{} lacks L2 load counters".format(method))
+        if row.get("demand_l2_loads") != row["l2_loads"]:
+            failures.append(
+                "{} logger demand callbacks {} != simulator L2 loads {}".format(
+                    method, row.get("demand_l2_loads"), row["l2_loads"]
+                )
+            )
         if (
             method in {"live_stride_reference", "live_spp_reference"}
             and row["pf_requested"] <= 0
@@ -473,6 +525,30 @@ def main():
         failures.append("simulation instruction counts differ")
 
     input_dir = args.run_dir / "colab_input"
+    collection_manifest = {}
+    collection_manifest_path = input_dir / "collection_manifest.json"
+    if not collection_manifest_path.is_file():
+        failures.append("missing {}".format(collection_manifest_path))
+    else:
+        try:
+            collection_manifest = json.loads(collection_manifest_path.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append("invalid collection manifest: {}".format(exc))
+        expected_manifest = {
+            "status": "PASS",
+            "trace": TRACE,
+            "experiment_revision": EXPERIMENT_REVISION,
+            "event_logger_schema": EVENT_LOGGER_SCHEMA,
+            "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
+            "cross_policy_identity_required_for_fair_claim": False,
+        }
+        for key, expected in expected_manifest.items():
+            if collection_manifest.get(key) != expected:
+                failures.append(
+                    "collection manifest {}={!r}; expected {!r}".format(
+                        key, collection_manifest.get(key), expected
+                    )
+                )
     input_info = {}
     for policy in POLICIES:
         input_info[policy] = {}
@@ -690,8 +766,9 @@ def main():
             "SPP-gated models are normalized only to offline SPP."
         ),
         "transport": (
-            "Each track replays its live-policy candidate bank and gated "
-            "subsets through the same PC-line-occ ListReplayer."
+            "Each PF candidate is attached by explicit prior trigger_event_id; "
+            "each track then replays its live-policy bank and gated subsets "
+            "through the same PC-line-occ ListReplayer."
         ),
         "candidate_contract": (
             "Each neural model can suppress but cannot invent candidates "
@@ -741,6 +818,7 @@ def main():
         ),
         "input_provenance": {
             "current_input_dir": str(input_dir),
+            "collection_manifest": collection_manifest,
             "policy_inputs": input_info,
         },
         "offline_normal_list_hashes_by_model_tag": normal_hashes,
