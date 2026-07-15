@@ -1,5 +1,5 @@
 {
-  "experiment_revision": "spp_threshold_free_fill_feedback_split_v9",
+  "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
   "event_logger_schema": "623_causal_trigger_fill_v6",
   "normal_prefetcher": "spp",
   "source_decision_effective_external_input": [
@@ -7,39 +7,43 @@
     "invoke_prefetcher.addr",
     "cache_fill.evicted_addr"
   ],
-  "runtime_encoding": "lossless 64-bit line-aligned callback address plus one DEMAND/FILL kind bit",
+  "runtime_encoding": "lossless aligned uint64 callback address plus one DEMAND/FILL kind bit",
+  "training_inference_input_encoder_identical": true,
+  "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+  "decoder_previous_teacher_action_used_as_input": false,
+  "training_runtime_fields": ["callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"],
+  "inference_runtime_fields": ["callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"],
   "neural_role": "standalone_direct_action_prefetcher",
   "track_model_family": "lstm",
-  "complete_action_space": {
-    "count_classes": 65,
-    "target_offsets": 64,
+  "neural_action_decoder": {
+    "request_count": "learned Poisson distribution with unbounded non-negative support",
+    "targets": "free-running autoregressive learned mixture over direct signed cache-line deltas",
     "fill_classes": ["FILL_L2", "FILL_LLC"],
-    "self_target_allowed": true
+    "fixed_page_offset_classes": null,
+    "same_page_rule": false,
+    "normal_degree_cap": null,
+    "probability_threshold": null
   },
-  "decision": "count argmax, target top-count, and fill argmax",
   "captured_spp_actions_role": "fill-preserving normal replay and supervised labels only",
   "teacher_actions_are_model_inputs": false,
   "normal_private_state_is_model_input": false,
   "normal_request_rate_is_neural_budget": false,
-  "normal_degree_is_neural_cap": false,
-  "probability_threshold": null,
   "future_label_window": null,
   "fill_lead_cutoff": null,
   "handcrafted_semantic_features": false,
   "manual_loss_weights": false,
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
-  "threshold_related_hardcodes_used": false,
-  "hardware_action_space_constants_are_not_thresholds": true,
-  "training_target": "canonicalized source-SPP request count, target set, and source fill class",
+  "training_target": "canonicalized source-SPP count, direct targets, and fill class as supervision only",
   "lstm": {
-    "architecture": "single-layer stateful LSTM with independent count, target-ranking, and fill heads",
-    "stateful_training": "chronological TBPTT; hidden/cell values cross chunks and the graph is detached at chunk boundaries",
+    "architecture": "single-layer stateful LSTM plus free-running autoregressive variable-cardinality direct-delta/fill decoder",
+    "stateful_training": "chronological TBPTT; hidden/cell values cross chunks and graph history is detached at chunk boundaries",
     "inference_history": "fresh state followed by complete train, guard, and evaluation chronology"
   },
   "architecture_pairs": [
-    {"pair_id": "p0", "lstm": {"size": 8, "parameters": 4713}, "cnn": {"size": 8, "parameters": 4665}},
-    {"pair_id": "p1", "lstm": {"size": 16, "parameters": 9681}, "cnn": {"size": 13, "parameters": 9240}},
-    {"pair_id": "p2", "lstm": {"size": 32, "parameters": 21153}, "cnn": {"size": 22, "parameters": 21003}}
-  ]
+    {"pair_id": "p0", "lstm_size": 12, "cnn_size": 10},
+    {"pair_id": "p1", "lstm_size": 16, "cnn_size": 12},
+    {"pair_id": "p2", "lstm_size": 32, "cnn_size": 20}
+  ],
+  "parameter_counts": "measured and reported; never thresholded"
 }
