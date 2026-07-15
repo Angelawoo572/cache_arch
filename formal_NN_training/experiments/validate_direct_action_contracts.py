@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Static, dependency-free audit for all source-input-fair neural tracks."""
-from __future__ import annotations
-
 import ast
 import json
 from pathlib import Path
@@ -63,15 +61,15 @@ TRACKS = (
 )
 
 
-def fail(message: str) -> None:
+def fail(message):
     raise RuntimeError(message)
 
 
-def parse_python(path: Path) -> None:
+def parse_python(path):
     ast.parse(path.read_text(), filename=str(path))
 
 
-def notebook_source(path: Path) -> str:
+def notebook_source(path):
     notebook = json.loads(path.read_text())
     if notebook.get("nbformat") != 4:
         fail("{} is not a v4 notebook".format(path))
@@ -89,7 +87,7 @@ def notebook_source(path: Path) -> str:
     return "\n".join(chunks)
 
 
-def contract_fields(contract: dict) -> tuple[list[str], list[str]]:
+def contract_fields(contract):
     if "training_runtime_fields" in contract:
         return (
             contract["training_runtime_fields"],
@@ -101,7 +99,7 @@ def contract_fields(contract: dict) -> tuple[list[str], list[str]]:
     )
 
 
-def main() -> None:
+def main():
     if (EXPERIMENTS / "623_offline_lstm_cnn_stride_spp").exists():
         fail("obsolete combined 623 directory still exists")
 
