@@ -52,6 +52,14 @@ for path in (source_path, header_path, contract_path):
         raise SystemExit("missing SPP source-audit file {}".format(path))
 source = source_path.read_text(errors="ignore")
 contract = json.loads(contract_path.read_text())
+if (
+    contract.get("self_target_action_semantics")
+    != "allowed_by_source_lookahead_and_replayed"
+    or contract.get("queue_effect_canonicalization")
+    != "per_target_min_fill_queue_effect"
+    or contract.get("source_max_raw_action_calls_per_callback") != 32
+):
+    raise SystemExit("unexpected direct-SPP self-target/queue contract")
 missing = [marker for marker in contract["required_markers"] if marker not in source]
 if missing:
     raise SystemExit("SPP source contract markers missing: {}".format(missing))
@@ -195,7 +203,12 @@ PY
 
 collect() {
   [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
-  build
+  if [[ "$BUILD" == 1 || ! -x "$BIN" ]]; then
+    build
+  else
+    audit_spp_source
+    echo "[reuse] existing direct-SPP binary and raw event logs when present"
+  fi
   local role warmup simulation
   local input_files=()
   for role in train guard eval; do
@@ -253,6 +266,9 @@ common = {
     "normal_candidate_bank_is_fixed": False,
     "nn_can_generate_actions_not_emitted_by_teacher": True,
     "direct_action_output_classes": 128,
+    "max_actions_per_callback": 32,
+    "self_target_actions_allowed": True,
+    "teacher_action_canonicalization": "per_target_min_fill_queue_effect",
     "training_chunks_shuffled": False,
     "training_labels_are_direct_spp_actions": True,
     "training_labels_use_future_rows": False,
@@ -260,7 +276,7 @@ common = {
     "cnn_architecture_self_test": "PASS",
     "event_logger_schema": "623_causal_trigger_v5",
     "action_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "spp_direct_io_sliding_cnn_v2",
+    "experiment_revision": "spp_direct_io_sliding_cnn_v3",
     "normal_policy_private_state_is_not_nn_input": True,
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": ["addr"],
@@ -318,10 +334,15 @@ for key in (
     "action_precision", "action_recall", "action_f1", "action_jaccard",
     "target_line_precision", "target_line_recall", "target_line_f1",
     "fill_accuracy_given_matched_target_line", "exact_callback_match_rate",
+    "predicted_self_target_action_rate", "teacher_self_target_action_rate",
 ):
     value = fidelity.get(key)
     if not isinstance(value, (int, float)) or not 0 <= value <= 1:
         bad["eval_action_fidelity." + key] = (value, "[0,1]")
+for key in ("predicted_self_target_actions", "teacher_self_target_actions"):
+    value = fidelity.get(key)
+    if not isinstance(value, int) or value < 0:
+        bad["eval_action_fidelity." + key] = (value, "nonnegative integer")
 
 def inspect_replay(path, allow_empty):
     digest = hashlib.sha256(path.read_bytes()).hexdigest()

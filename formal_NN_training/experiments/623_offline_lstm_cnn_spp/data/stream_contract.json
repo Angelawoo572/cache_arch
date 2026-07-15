@@ -1,6 +1,6 @@
 {
   "experiment": "623_offline_lstm_cnn_spp",
-  "experiment_revision": "spp_direct_io_sliding_cnn_v2",
+  "experiment_revision": "spp_direct_io_sliding_cnn_v3",
   "event_logger_schema": "623_causal_trigger_v5",
   "trace": "623.xalancbmk_s-700B",
   "trace_file": "traces/623.xalancbmk_s-700B.champsimtrace.xz",
@@ -25,7 +25,7 @@
       "prefetch filter (FILTER)",
       "cache_fill eviction feedback"
     ],
-    "direct_output": "zero or more same-page (pf_addr, FILL_L2/FILL_LLC) actions"
+    "direct_output": "zero or more same-page (pf_addr, FILL_L2/FILL_LLC) actions; multi-step lookahead may legally return pf_addr to the trigger line"
   },
   "stream_columns": [
     "trace", "demand_idx", "cycle", "pc", "address", "line",
@@ -35,7 +35,9 @@
     "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
     "action_rank", "pf_line", "target_page_offset", "fill_level",
     "accepted", "duplicate", "trigger_event_id", "pf_event_id",
-    "event_distance", "match_mode", "logger_schema"
+    "event_distance", "raw_action_count", "source_first_pf_event_id",
+    "source_last_pf_event_id", "is_self_target", "canonicalization",
+    "match_mode", "logger_schema"
   ],
   "model_input_contract": {
     "feature_count": 9,
@@ -66,7 +68,11 @@
     "encoding": "target_page_offset * 2 + fill_index",
     "target_page_offsets": 64,
     "fill_levels": [2, 4],
-    "maximum_actions_per_callback": 16,
+    "maximum_actions_per_callback": 32,
+    "self_target_actions_allowed": true,
+    "self_target_semantics": "source-legal actions are retained in normal labels, neural decoding, and replay",
+    "teacher_action_canonicalization": "per_target_min_fill_queue_effect",
+    "canonicalization_reason": "CACHE::add_pq merges repeated target lines and upgrades to the minimum numeric fill level; FILL_L2=2 dominates FILL_LLC=4",
     "same_target_offset_fill_conflict": "retain the higher-scoring fill level",
     "nn_can_generate_action_absent_from_teacher_callback": true,
     "teacher_actions_are_model_inputs": false
@@ -80,7 +86,8 @@
       "PF trigger event is the immediately active prior demand",
       "PF trigger CPU, PC, line, and cycle equal the demand row",
       "prefetch_line base line equals the explicit trigger line",
-      "SPP target remains in the trigger's 4 KiB page"
+      "SPP target remains in the trigger's 4 KiB page",
+      "a target equal to the trigger line is retained rather than rejected"
     ]
   },
   "windows": {

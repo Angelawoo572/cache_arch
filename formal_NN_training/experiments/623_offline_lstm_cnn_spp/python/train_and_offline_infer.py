@@ -28,15 +28,16 @@ PAGE_LINES = 64
 FILL_LEVELS = (2, 4)
 RUNTIME_FEATURES = 9
 ACTION_CLASSES = PAGE_LINES * len(FILL_LEVELS)
-MAX_ACTIONS_PER_CALLBACK = 16
+MAX_ACTIONS_PER_CALLBACK = 32
 LINE_DELTA_CLIP = 256
 PAGE_DELTA_CLIP = 64
 CNN_KERNEL_SIZE = 3
 CNN_STRIDE = 1
 CNN_DILATION = 1
-EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v2"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v3"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
+CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
 PAIR_SPECS = {
     ("lstm", 4): ("p0", 880),
     ("cnn", 5): ("p0", 908),
@@ -114,7 +115,10 @@ def load_teacher_actions(path, rows):
             "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
             "action_rank", "pf_line", "target_page_offset", "fill_level",
             "accepted", "duplicate", "trigger_event_id", "pf_event_id",
-            "event_distance", "match_mode", "logger_schema",
+            "event_distance", "raw_action_count",
+            "source_first_pf_event_id", "source_last_pf_event_id",
+            "is_self_target", "canonicalization", "match_mode",
+            "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
@@ -152,13 +156,21 @@ def load_teacher_actions(path, rows):
             pf_line = as_int(row["pf_line"])
             offset = as_int(row["target_page_offset"])
             fill = as_int(row["fill_level"])
+            raw_action_count = as_int(row["raw_action_count"])
+            source_first = as_int(row["source_first_pf_event_id"])
+            source_last = as_int(row["source_last_pf_event_id"])
+            is_self_target = as_int(row["is_self_target"])
             if (
                 pf_line // PAGE_LINES != line // PAGE_LINES
-                or pf_line == line
                 or offset != pf_line % PAGE_LINES
                 or fill not in FILL_LEVELS
                 or as_int(row["accepted"]) != 1
                 or as_int(row["duplicate"]) not in (0, 1)
+                or raw_action_count < 1
+                or source_first != pf_event
+                or source_last < source_first
+                or is_self_target != int(pf_line == line)
+                or row["canonicalization"] != CANONICALIZATION_MODE
             ):
                 raise RuntimeError("invalid direct SPP action at {}".format(index))
             action = (pf_line, fill)
@@ -488,7 +500,6 @@ def decode(scores, rows, threshold, max_actions=MAX_ACTIONS_PER_CALLBACK):
     selected = np.zeros(scores.shape, dtype=np.bool_)
     for index, (_, _, line, _) in enumerate(rows):
         eligible = np.flatnonzero(best_score[index] >= threshold)
-        eligible = eligible[eligible != line % PAGE_LINES]
         if len(eligible) > max_actions:
             order = np.argsort(-best_score[index, eligible], kind="stable")
             eligible = eligible[order[:max_actions]]
@@ -497,7 +508,9 @@ def decode(scores, rows, threshold, max_actions=MAX_ACTIONS_PER_CALLBACK):
     return selected
 
 
-def fidelity(predicted, teacher):
+def fidelity(predicted, teacher, rows):
+    if len(rows) != len(predicted):
+        raise RuntimeError("fidelity rows do not match action matrices")
     teacher_bool = teacher.astype(np.bool_)
     tp = int((predicted & teacher_bool).sum())
     fp = int((predicted & ~teacher_bool).sum())
@@ -518,9 +531,18 @@ def fidelity(predicted, teacher):
         if line_precision + line_recall else 0.0
     )
     exact_events = int(np.all(predicted == teacher_bool, axis=1).sum())
+    predicted_self = 0
+    teacher_self = 0
+    for index, (_, _, line, _) in enumerate(rows):
+        start = (line % PAGE_LINES) * len(FILL_LEVELS)
+        stop = start + len(FILL_LEVELS)
+        predicted_self += int(predicted[index, start:stop].sum())
+        teacher_self += int(teacher_bool[index, start:stop].sum())
+    predicted_total = int(predicted.sum())
+    teacher_total = int(teacher_bool.sum())
     return {
-        "predicted_actions": int(predicted.sum()),
-        "teacher_actions": int(teacher_bool.sum()),
+        "predicted_actions": predicted_total,
+        "teacher_actions": teacher_total,
         "true_positive_actions": tp,
         "false_positive_actions": fp,
         "false_negative_actions": fn,
@@ -533,8 +555,16 @@ def fidelity(predicted, teacher):
         "target_line_f1": line_f1,
         "fill_accuracy_given_matched_target_line": tp / float(line_tp) if line_tp else 0.0,
         "exact_callback_match_rate": exact_events / float(len(predicted)),
-        "predicted_actions_per_callback": int(predicted.sum()) / float(len(predicted)),
-        "teacher_actions_per_callback": int(teacher_bool.sum()) / float(len(predicted)),
+        "predicted_actions_per_callback": predicted_total / float(len(predicted)),
+        "teacher_actions_per_callback": teacher_total / float(len(predicted)),
+        "predicted_self_target_actions": predicted_self,
+        "teacher_self_target_actions": teacher_self,
+        "predicted_self_target_action_rate": (
+            predicted_self / float(predicted_total) if predicted_total else 0.0
+        ),
+        "teacher_self_target_action_rate": (
+            teacher_self / float(teacher_total) if teacher_total else 0.0
+        ),
     }
 
 
@@ -549,7 +579,7 @@ def calibrate(scores, labels, rows, start):
     rows_out = []
     for threshold in sorted(set(round(value, 8) for value in thresholds)):
         selected = decode(scores[start:], rows[start:], threshold)
-        result = fidelity(selected, labels[start:])
+        result = fidelity(selected, labels[start:], rows[start:])
         result.update({
             "threshold": threshold,
             "teacher_action_budget_per_callback": teacher_rate,
@@ -646,6 +676,8 @@ def main():
     if (
         source_contract.get("decision_effective_external_input") != ["addr"]
         or source_contract.get("output_action") != ["same-page pf_addr", "FILL_L2 or FILL_LLC"]
+        or source_contract.get("self_target_action_semantics")
+        != "allowed_by_source_lookahead_and_replayed"
     ):
         raise RuntimeError("unexpected SPP source contract")
     if args.model_size <= 0 or args.epochs <= 0 or args.chunk_len <= 0:
@@ -702,7 +734,7 @@ def main():
     calibration, sweep = calibrate(train_scores, labels, rows["train"], fit_end)
     threshold = calibration["threshold"]
     selected_eval = decode(eval_scores, rows["eval"], threshold)
-    eval_fidelity = fidelity(selected_eval, eval_labels)
+    eval_fidelity = fidelity(selected_eval, eval_labels, rows["eval"])
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     normal_path = args.out_dir / "offline_spp.replay.csv"
@@ -741,6 +773,8 @@ def main():
         "positive_class_weight": positive_weight,
         "threshold": threshold,
         "max_actions_per_callback": MAX_ACTIONS_PER_CALLBACK,
+        "self_target_actions_allowed": True,
+        "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "fit_rows": fit_end,
         "calibration_rows": len(rows["train"]) - fit_end,
         "guard_rows": len(rows["guard"]),

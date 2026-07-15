@@ -23,6 +23,18 @@ emit.  The captured SPP actions are teacher labels during training, the normal
 offline comparator during evaluation, and an action-fidelity reference only.
 They are never evaluation-time model inputs.
 
+All 64 offsets are real output classes, including the trigger's own offset.
+The audited source can return to that line after multiple lookahead deltas and
+contains no `pf_addr != addr` guard.  Such self-target calls are therefore
+retained for normal SPP, neural decoding, and replay; removing them would make
+the comparator cleaner than the source policy and bias the fidelity metrics.
+
+If source SPP calls `prefetch_line` repeatedly for the same target during one
+callback, normalization applies ChampSim's queue-visible rule: one canonical
+target is retained and the minimum fill level wins (`FILL_L2=2` dominates
+`FILL_LLC=4`).  Raw-call, collapsed-call, and self-target counts remain in the
+collection manifest for diagnosis.
+
 ## Source-derived input contract
 
 The checked `SPP_dev2::invoke_prefetcher(ip, addr, cache_hit, type, ...)` source
@@ -71,7 +83,9 @@ window initializes recurrent state before evaluation; it is not training data.
 
 Normal SPP is pinned to `spp_dev2`, fill threshold 90, and PF threshold 40.
 Collection fails on an incomplete logger schema, noncausal action attachment,
-cross-page SPP output, invalid fill level, or dropped prefetch requests.
+cross-page SPP output, invalid fill level, more than the audited 32 raw actions
+per callback, or dropped prefetch requests.  A source-legal self target is not
+an error.
 
 ## Run
 
@@ -83,6 +97,10 @@ export RUN_DIR="$EXP/runs/$RUN_ID"
 FORCE=1 BUILD=1 bash "$EXP/linux/launch_server.sh" collect
 tail -f "$RUN_DIR/collect.nohup.log"
 ```
+
+When raw event logs already exist and only normalization changed, use
+`FORCE=0 BUILD=0`; this reuses the three validated event logs without rerunning
+ChampSim.
 
 Upload `$RUN_DIR/$RUN_ID.colab_input.tar.gz` and run
 `colab/623_offline_lstm_cnn_spp_A100.ipynb`.  Return the output archive, then:

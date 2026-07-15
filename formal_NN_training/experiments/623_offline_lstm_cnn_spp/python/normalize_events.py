@@ -18,6 +18,8 @@ LOG2_BLOCK_SIZE = 6
 PAGE_LINES = 64
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
+CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
+SOURCE_MAX_RAW_ACTIONS_PER_CALLBACK = 32
 
 
 def as_int(value):
@@ -28,6 +30,43 @@ def as_int(value):
 def fail(message, event_id=None):
     suffix = "" if event_id is None else " at event {}".format(event_id)
     raise RuntimeError(message + suffix)
+
+
+def canonicalize_actions(raw_actions, demand_line):
+    """Collapse repeated SPP calls to the effective per-target PQ action.
+
+    SPP_dev2 can revisit the trigger line (or another target) through a
+    multi-step lookahead path.  CACHE::add_pq merges repeated target lines and
+    upgrades the queued fill level when the new numeric fill level is smaller,
+    so FILL_L2 (2) dominates FILL_LLC (4).  Preserve first-target order while
+    applying exactly that queue-visible rule.
+    """
+    canonical = []
+    by_line = {}
+    for raw in raw_actions:
+        pf_line = raw["pf_line"]
+        current = by_line.get(pf_line)
+        if current is None:
+            current = dict(raw)
+            current.update({
+                "raw_action_count": 1,
+                "source_first_pf_event_id": raw["pf_event_id"],
+                "source_last_pf_event_id": raw["pf_event_id"],
+                "is_self_target": int(pf_line == demand_line),
+                "canonicalization": CANONICALIZATION_MODE,
+            })
+            by_line[pf_line] = current
+            canonical.append(current)
+            continue
+
+        current["raw_action_count"] += 1
+        current["source_last_pf_event_id"] = raw["pf_event_id"]
+        current["accepted"] = max(current["accepted"], raw["accepted"])
+        current["duplicate"] = max(current["duplicate"], raw["duplicate"])
+        current["fill_level"] = min(
+            current["fill_level"], raw["fill_level"]
+        )
+    return canonical
 
 
 def main():
@@ -171,8 +210,6 @@ def main():
                 fail("rejected PF cannot be a queue duplicate", event_id)
             if pf_line // PAGE_LINES != demand["line"] // PAGE_LINES:
                 fail("SPP emitted a cross-page action", event_id)
-            if pf_line == demand["line"]:
-                fail("SPP emitted a self-prefetch action", event_id)
 
             distance = event_id - trigger_id
             if distance < 1 or distance > args.max_event_distance:
@@ -184,8 +221,6 @@ def main():
                 )
             max_event_distance = max(max_event_distance, distance)
             actions = actions_by_demand[demand["demand_idx"]]
-            if any(item["pf_line"] == pf_line for item in actions):
-                fail("SPP emitted two fill choices for one target", event_id)
             actions.append({
                 "pf_event_id": event_id,
                 "trigger_event_id": trigger_id,
@@ -196,12 +231,26 @@ def main():
                 "duplicate": duplicate,
                 "event_distance": distance,
             })
+            if len(actions) > SOURCE_MAX_RAW_ACTIONS_PER_CALLBACK:
+                fail(
+                    "SPP raw action count exceeds audited 32-entry queue",
+                    event_id,
+                )
 
     if not demands:
         raise RuntimeError("no completed post-warmup L2 demand callbacks")
-    action_count = sum(len(items) for items in actions_by_demand.values())
-    if action_count == 0:
+    raw_action_count = sum(len(items) for items in actions_by_demand.values())
+    if raw_action_count == 0:
         raise RuntimeError("SPP emitted no direct teacher actions")
+    canonical_actions_by_demand = {
+        demand["demand_idx"]: canonicalize_actions(
+            actions_by_demand.get(demand["demand_idx"], ()), demand["line"]
+        )
+        for demand in demands
+    }
+    action_count = sum(
+        len(items) for items in canonical_actions_by_demand.values()
+    )
 
     args.stream_out.parent.mkdir(parents=True, exist_ok=True)
     args.teacher_actions_out.parent.mkdir(parents=True, exist_ok=True)
@@ -219,18 +268,29 @@ def main():
         "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
         "action_rank", "pf_line", "target_page_offset", "fill_level",
         "accepted", "duplicate", "trigger_event_id", "pf_event_id",
-        "event_distance", "match_mode", "logger_schema",
+        "event_distance", "raw_action_count", "source_first_pf_event_id",
+        "source_last_pf_event_id", "is_self_target", "canonicalization",
+        "match_mode", "logger_schema",
     ]
     max_actions = 0
+    max_raw_actions = 0
     fill_counts = {2: 0, 4: 0}
+    self_target_actions = 0
+    collapsed_source_calls = 0
     with gzip.open(args.teacher_actions_out, "wt", newline="") as target:
         writer = csv.DictWriter(target, fieldnames=action_fields)
         writer.writeheader()
         for demand in demands:
-            actions = actions_by_demand.get(demand["demand_idx"], ())
+            raw_actions = actions_by_demand.get(demand["demand_idx"], ())
+            actions = canonical_actions_by_demand.get(
+                demand["demand_idx"], ()
+            )
+            max_raw_actions = max(max_raw_actions, len(raw_actions))
             max_actions = max(max_actions, len(actions))
             for rank, action in enumerate(actions, 1):
                 fill_counts[action["fill_level"]] += 1
+                self_target_actions += action["is_self_target"]
+                collapsed_source_calls += action["raw_action_count"] - 1
                 writer.writerow({
                     "trace": TRACE,
                     "policy": POLICY,
@@ -247,16 +307,24 @@ def main():
                     "trigger_event_id": action["trigger_event_id"],
                     "pf_event_id": action["pf_event_id"],
                     "event_distance": action["event_distance"],
+                    "raw_action_count": action["raw_action_count"],
+                    "source_first_pf_event_id": action["source_first_pf_event_id"],
+                    "source_last_pf_event_id": action["source_last_pf_event_id"],
+                    "is_self_target": action["is_self_target"],
+                    "canonicalization": action["canonicalization"],
                     "match_mode": ATTACHMENT_MODE,
                     "logger_schema": LOGGER_SCHEMA,
                 })
 
     print(
-        "[ok] policy={} schema={} demands={} direct_actions={} "
-        "max_actions_per_demand={} fill_l2={} fill_llc={} "
-        "max_event_distance={}".format(
-            POLICY, LOGGER_SCHEMA, len(demands), action_count, max_actions,
-            fill_counts[2], fill_counts[4], max_event_distance,
+        "[ok] policy={} schema={} demands={} raw_source_calls={} "
+        "canonical_actions={} collapsed_source_calls={} self_targets={} "
+        "max_raw_actions_per_demand={} max_canonical_actions_per_demand={} "
+        "fill_l2={} fill_llc={} max_event_distance={}".format(
+            POLICY, LOGGER_SCHEMA, len(demands), raw_action_count,
+            action_count, collapsed_source_calls, self_target_actions,
+            max_raw_actions, max_actions, fill_counts[2], fill_counts[4],
+            max_event_distance,
         )
     )
 

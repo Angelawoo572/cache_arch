@@ -13,7 +13,7 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v2"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v3"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -424,6 +424,11 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "model_input_is_causal_address_sequence_only": True,
         "cache_hit_and_type_are_audit_only": True,
         "direct_action_output_classes": 128,
+        "max_actions_per_callback": 32,
+        "self_target_actions_allowed": True,
+        "teacher_action_canonicalization": (
+            "per_target_min_fill_queue_effect"
+        ),
         "training_chunks_shuffled": False,
         "training_labels_are_direct_spp_actions": True,
         "training_labels_use_future_rows": False,
@@ -451,6 +456,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "action_precision", "action_recall", "action_f1", "action_jaccard",
         "target_line_precision", "target_line_recall", "target_line_f1",
         "fill_accuracy_given_matched_target_line", "exact_callback_match_rate",
+        "predicted_self_target_action_rate", "teacher_self_target_action_rate",
     )
     if not isinstance(fidelity, dict):
         failures.append("{} lacks eval action-fidelity audit".format(tag))
@@ -459,6 +465,14 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             value = fidelity.get(key)
             if not isinstance(value, (int, float)) or value < 0 or value > 1:
                 failures.append("{} invalid action fidelity {}".format(tag, key))
+        for key in (
+            "predicted_self_target_actions", "teacher_self_target_actions"
+        ):
+            value = fidelity.get(key)
+            if not isinstance(value, int) or value < 0:
+                failures.append(
+                    "{} invalid action fidelity {}".format(tag, key)
+                )
     family = metadata.get("model_family")
     expected_points = {
         ("lstm", 4): ("p0", 880), ("cnn", 5): ("p0", 908),
@@ -621,6 +635,13 @@ def main():
             source_contract = json.loads(source_contract_path.read_text())
             if source_contract.get("decision_effective_external_input") != ["addr"]:
                 failures.append("SPP source contract external input mismatch")
+            if (
+                source_contract.get("self_target_action_semantics")
+                != "allowed_by_source_lookahead_and_replayed"
+                or source_contract.get("queue_effect_canonicalization")
+                != "per_target_min_fill_queue_effect"
+            ):
+                failures.append("SPP self-target/queue contract mismatch")
             source_contract_hash = sha256(source_contract_path)
         except (OSError, json.JSONDecodeError) as exc:
             failures.append("invalid SPP source contract: {}".format(exc))
@@ -648,6 +669,11 @@ def main():
             "model_does_not_use_pc": True,
             "cache_hit_and_type_are_audit_only": True,
             "direct_action_classes": 128,
+            "maximum_actions_per_callback": 32,
+            "self_target_actions_allowed": True,
+            "teacher_action_canonicalization": (
+                "per_target_min_fill_queue_effect"
+            ),
             "spp_source_contract_sha256": source_contract_hash,
         }
         for key, expected in expected_manifest.items():
@@ -786,6 +812,10 @@ def main():
         "fidelity_exact_callback_match_rate",
         "fidelity_predicted_actions_per_callback",
         "fidelity_teacher_actions_per_callback",
+        "fidelity_predicted_self_target_actions",
+        "fidelity_teacher_self_target_actions",
+        "fidelity_predicted_self_target_action_rate",
+        "fidelity_teacher_self_target_action_rate",
     ]
     for row in rows:
         for field in fidelity_fields:
@@ -842,6 +872,10 @@ def main():
         "fidelity_action_f1", "fidelity_action_jaccard",
         "fidelity_target_line_f1",
         "fidelity_fill_accuracy_given_matched_target_line",
+        "fidelity_predicted_self_target_actions",
+        "fidelity_teacher_self_target_actions",
+        "fidelity_predicted_self_target_action_rate",
+        "fidelity_teacher_self_target_action_rate",
     ]
     with (args.run_dir / "insight_summary.csv").open(
         "w", newline=""
@@ -913,19 +947,26 @@ def main():
         "warnings": warnings,
         "track_guardrail": (
             "Every neural point directly predicts the same 64-offset by "
-            "two-fill-level action space from the same causal address stream. "
+            "two-fill-level action space, including the source-legal trigger "
+            "offset, from the same causal address stream. "
             "No captured SPP action is an inference input."
         ),
         "transport": (
             "Each normal SPP action is attached by explicit prior "
             "trigger_event_id. Normal and independently generated neural "
             "action lists use the same PC-line-occ replayer and preserve "
-            "explicit FILL_L2/FILL_LLC actions."
+            "explicit FILL_L2/FILL_LLC actions. Repeated source calls to one "
+            "target are canonicalized with ChampSim's PQ merge rule for both "
+            "the offline normal comparator and neural labels."
         ),
         "direct_action_contract": {
             "classes": 128,
             "encoding": "64 same-page offsets times FILL_L2/FILL_LLC",
-            "maximum_actions_per_callback": 16,
+            "maximum_actions_per_callback": 32,
+            "self_target_actions_allowed": True,
+            "teacher_action_canonicalization": (
+                "per_target_min_fill_queue_effect"
+            ),
             "teacher_actions_are_model_inputs": False,
             "nn_can_generate_actions_not_emitted_by_teacher": True,
         },

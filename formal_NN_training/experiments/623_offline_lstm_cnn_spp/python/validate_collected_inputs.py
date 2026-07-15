@@ -14,9 +14,10 @@ POLICY = "spp"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v2"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v3"
 PAGE_LINES = 64
-MAX_ACTIONS = 16
+MAX_ACTIONS = 32
+CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
 
 
 def as_int(value):
@@ -95,13 +96,18 @@ def read_teacher_actions(path, stream_rows):
     fill_counts = {"FILL_L2": 0, "FILL_LLC": 0}
     last_pf_event = -1
     total = 0
+    raw_total = 0
+    self_target_total = 0
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
             "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
             "action_rank", "pf_line", "target_page_offset", "fill_level",
             "accepted", "duplicate", "trigger_event_id", "pf_event_id",
-            "event_distance", "match_mode", "logger_schema",
+            "event_distance", "raw_action_count",
+            "source_first_pf_event_id", "source_last_pf_event_id",
+            "is_self_target", "canonicalization", "match_mode",
+            "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
@@ -139,23 +145,47 @@ def read_teacher_actions(path, stream_rows):
             fill = as_int(row["fill_level"])
             accepted = as_int(row["accepted"])
             duplicate = as_int(row["duplicate"])
+            raw_action_count = as_int(row["raw_action_count"])
+            source_first = as_int(row["source_first_pf_event_id"])
+            source_last = as_int(row["source_last_pf_event_id"])
+            is_self_target = as_int(row["is_self_target"])
             if offset != pf_line % PAGE_LINES or offset < 0 or offset >= PAGE_LINES:
                 raise RuntimeError("{} target offset mismatch".format(path))
-            if pf_line // PAGE_LINES != line // PAGE_LINES or pf_line == line:
-                raise RuntimeError("{} cross-page/self SPP action".format(path))
+            if pf_line // PAGE_LINES != line // PAGE_LINES:
+                raise RuntimeError("{} cross-page SPP action".format(path))
             if fill not in (2, 4):
                 raise RuntimeError("{} invalid fill level".format(path))
             if accepted != 1 or duplicate not in (0, 1):
                 raise RuntimeError("{} incomplete/invalid teacher action".format(path))
+            if (
+                raw_action_count < 1
+                or source_first != pf_event
+                or source_last < source_first
+                or is_self_target != int(pf_line == line)
+                or row["canonicalization"] != CANONICALIZATION_MODE
+            ):
+                raise RuntimeError(
+                    "{} invalid queue-effect canonicalization".format(path)
+                )
             if pf_line in seen[demand_idx]:
-                raise RuntimeError("{} has two fill choices for one target".format(path))
+                raise RuntimeError("{} has two canonical actions for one target".format(path))
             seen[demand_idx].add(pf_line)
             fill_counts["FILL_L2" if fill == 2 else "FILL_LLC"] += 1
             total += 1
+            raw_total += raw_action_count
+            self_target_total += is_self_target
             last_pf_event = pf_event
     if total == 0:
         raise RuntimeError("empty teacher action stream {}".format(path))
-    return total, max(counts.values()), fill_counts
+    return {
+        "teacher_actions": total,
+        "raw_source_prefetch_calls": raw_total,
+        "collapsed_source_calls": raw_total - total,
+        "self_target_actions": self_target_total,
+        "self_target_action_rate": self_target_total / float(total),
+        "max_actions_per_callback": max(counts.values()),
+        "teacher_fill_level_counts": fill_counts,
+    }
 
 
 def main():
@@ -181,6 +211,9 @@ def main():
         "model_does_not_use_pc": True,
         "cache_hit_and_type_are_audit_only": True,
         "direct_action_classes": 128,
+        "maximum_actions_per_callback": MAX_ACTIONS,
+        "self_target_actions_allowed": True,
+        "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "tracks": {POLICY: {}},
     }
     if args.source_contract is not None:
@@ -199,14 +232,12 @@ def main():
         if not stream_path.is_file() or not action_path.is_file():
             raise RuntimeError("missing normalized SPP {} inputs".format(role))
         stream_rows = read_stream(stream_path)
-        action_count, max_actions, fill_counts = read_teacher_actions(
+        action_stats = read_teacher_actions(
             action_path, stream_rows
         )
         manifest["tracks"][POLICY][role] = {
             "demand_callbacks": len(stream_rows),
-            "teacher_actions": action_count,
-            "max_actions_per_callback": max_actions,
-            "teacher_fill_level_counts": fill_counts,
+            **action_stats,
             "demand_identity_sha256": identity_sha256(stream_rows),
             "stream_gzip_sha256": sha256(stream_path),
             "stream_content_sha256": gzip_content_sha256(stream_path),
