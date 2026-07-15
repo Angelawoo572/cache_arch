@@ -4,7 +4,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_stride"
 RUN_ID="${RUN_ID:-602_offline_lstm_stride_variable_delta_free_running_v7_seed7}"
 STAGE="${1:-${STAGE:-replay}}"
-RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
+CANONICAL_RUN_DIR="$EXP/runs/$RUN_ID"
+if [[ -n "${RUN_DIR:-}" && "$RUN_DIR" != "$CANONICAL_RUN_DIR" ]]; then
+  echo "[isolation] ignoring foreign RUN_DIR=$RUN_DIR" >&2
+fi
+RUN_DIR="$CANONICAL_RUN_DIR"
 mkdir -p "$RUN_DIR"
 LOG="$RUN_DIR/$STAGE.nohup.log"; PID_FILE="$RUN_DIR/$STAGE.pid"
 case "$STAGE" in build|collect|replay|analyze) ;; *) echo "[error] invalid stage $STAGE" >&2; exit 2;; esac
