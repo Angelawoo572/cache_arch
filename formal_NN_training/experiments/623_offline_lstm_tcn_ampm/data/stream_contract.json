@@ -1,0 +1,78 @@
+{
+  "experiment": "623_offline_lstm_tcn_ampm",
+  "trace": "623.xalancbmk_s-700B",
+  "trace_file": "traces/623.xalancbmk_s-700B.champsimtrace.xz",
+  "generated_data_root": "runs/<RUN_ID>/colab_input",
+  "large_generated_data_is_committed": false,
+  "stream_columns": [
+    "trace",
+    "demand_idx",
+    "cycle",
+    "pc",
+    "line",
+    "pc_line_occ"
+  ],
+  "model_input_columns": [
+    "line"
+  ],
+  "transport_only_columns": [
+    "pc",
+    "pc_line_occ"
+  ],
+  "forbidden_model_inputs": [
+    "cycle",
+    "hit_miss",
+    "queue_state",
+    "future_rows"
+  ],
+  "windows": {
+    "train": {
+      "warmup_instructions": 0,
+      "simulation_instructions": 20000000,
+      "role": "fit first chronological 80 percent; calibrate threshold on final 20 percent"
+    },
+    "guard": {
+      "warmup_instructions": 20000000,
+      "simulation_instructions": 5000000,
+      "role": "initialize recurrent state or finite TCN left context only"
+    },
+    "evaluation": {
+      "warmup_instructions": 25000000,
+      "simulation_instructions": 25000000,
+      "role": "causal inference and keyed replay only"
+    }
+  },
+  "matched_policy": {
+    "normal_prefetcher": "ampm",
+    "page_trackers": 64,
+    "page_lines": 64,
+    "max_delta_lines": 16,
+    "degree": 4,
+    "prefetch_buffer_enabled": false,
+    "neural_action_space": "suppress-only over the identical AMPM candidate bank"
+  },
+  "architecture_pairs": [
+    {
+      "pair_id": "p2k",
+      "lstm": {"tag": "lstm_h8", "parameters": 2537},
+      "tcn": {"tag": "tcn_c10", "parameters": 2681}
+    },
+    {
+      "pair_id": "p6k",
+      "lstm": {"tag": "lstm_h16", "parameters": 5713},
+      "tcn": {"tag": "tcn_c16", "parameters": 6113}
+    },
+    {
+      "pair_id": "p13k",
+      "lstm": {"tag": "lstm_h32", "parameters": 13985},
+      "tcn": {"tag": "tcn_c24", "parameters": 12817}
+    }
+  ],
+  "tcn": {
+    "kernel_size": 3,
+    "dilations": [1, 2, 4, 8, 16, 32],
+    "receptive_field_events": 127,
+    "padding": "left-only",
+    "chunk_boundary_contract": "126-event left overlap; loss and export exclude overlap rows"
+  }
+}
