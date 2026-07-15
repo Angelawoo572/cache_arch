@@ -17,7 +17,7 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 LOG2_BLOCK_SIZE = 6
-PAGE_LINES = 64
+SOURCE_SPP_PAGE_LINES = 64
 LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -268,7 +268,7 @@ def main():
                 fail("teacher collection contains a dropped SPP request", event_id)
             if duplicate and not accepted:
                 fail("rejected PF cannot be a queue duplicate", event_id)
-            if pf_line // PAGE_LINES != demand["line"] // PAGE_LINES:
+            if pf_line // SOURCE_SPP_PAGE_LINES != demand["line"] // SOURCE_SPP_PAGE_LINES:
                 fail("SPP emitted a cross-page action", event_id)
 
             distance = event_id - trigger_id
@@ -279,7 +279,6 @@ def main():
                 "pf_event_id": event_id,
                 "trigger_event_id": trigger_id,
                 "pf_line": pf_line,
-                "target_page_offset": pf_line % PAGE_LINES,
                 "fill_level": fill_level,
                 "accepted": accepted,
                 "duplicate": duplicate,
@@ -317,7 +316,7 @@ def main():
 
     action_fields = [
         "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
-        "action_rank", "pf_line", "target_page_offset", "fill_level",
+        "action_rank", "pf_line", "fill_level",
         "accepted", "duplicate", "trigger_event_id", "pf_event_id",
         "event_distance", "raw_action_count", "source_first_pf_event_id",
         "source_last_pf_event_id", "is_self_target", "canonicalization",
@@ -349,7 +348,6 @@ def main():
                     "pc_line_occ": demand["pc_line_occ"],
                     "action_rank": rank,
                     "pf_line": action["pf_line"],
-                    "target_page_offset": action["target_page_offset"],
                     "fill_level": action["fill_level"],
                     "accepted": action["accepted"],
                     "duplicate": action["duplicate"],
