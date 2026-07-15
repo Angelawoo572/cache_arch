@@ -222,6 +222,22 @@ def main():
         validator = (spp / "python" / "validate_collected_inputs.py").read_text()
         if "target_page_offset" in normalize or "target_page_offset" in validator:
             fail("{} SPP teacher schema still exposes page offsets".format(family))
+        for token in (
+            '"complete_neural_action_space": True',
+            '"neural_degree_cap": None',
+            '"fixed_page_offset_classes": None',
+            '"nn_can_generate_actions_not_emitted_by_teacher": True',
+        ):
+            if token not in validator:
+                fail("{} SPP manifest generator missing {}".format(family, token))
+        spp_analyzer = (spp / "python" / "analyze_replay.py").read_text()
+        if '"complete_neural_action_space": True' not in spp_analyzer:
+            fail("{} SPP analyzer omits complete action-space check".format(family))
+        if (
+            "behavior_fields = sorted({" not in spp_analyzer
+            or 'if key.startswith("behavior_")' not in spp_analyzer
+        ):
+            fail("{} SPP analyzer has a fixed behavior CSV schema".format(family))
         for path in (spp / "python").glob("*.py"):
             parse_python(path)
 
