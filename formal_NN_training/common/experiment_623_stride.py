@@ -5,8 +5,6 @@ The LSTM and CNN live in separate experiment directories but intentionally
 share this loader, target conversion, decoder, and metadata contract.  This
 prevents architecture-specific input drift.
 """
-from __future__ import annotations
-
 import argparse
 import csv
 import gzip
