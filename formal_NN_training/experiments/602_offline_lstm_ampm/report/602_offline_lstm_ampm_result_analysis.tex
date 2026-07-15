@@ -18,16 +18,17 @@ plots must not be presented as standalone-NN results.
 \begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
 Shared external input & Current cache-line address and causal prior address history; PC remains replay identity only.\\
-Neural policy & Standalone stateful LSTM with a 64-offset direct-action head; at most four same-page L2 actions per callback.\\
+Neural policy & Standalone stateful LSTM; learned count argmax plus learned ranking over all 64 same-page L2 targets.\\
 Excluded & AMPM candidates, 64-page bitmap/LRU state, hit/miss, cycle, queues, and future evaluation rows.\\
-Supervision & Future-demand utility labels formed only inside the training stream.\\
+Supervision & Mirrored AMPM request count and target set; labels only, never inference inputs.\\
+No heuristic decision & No probability threshold, request budget, degree cap, future window, semantic hand features, manual loss weights, or regularizer.\\
 Guard & The guard initializes AMPM and LSTM state independently; neither state is shared.\\
-Required run & \texttt{602\_offline\_lstm\_ampm\_direct\_v3\_seed7}.\\
+Required run & \texttt{602\_offline\_lstm\_ampm\_threshold\_free\_v5\_seed7}.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-After the direct-v3 replay passes, regenerate the report with IPC, L2 miss
+After the threshold-free-v5 replay passes, regenerate the report with IPC, L2 miss
 rate, selected accuracy, coverage, late-prefetch rate, and balanced parity.
 No old mirror/gate number is carried forward.
 \end{document}

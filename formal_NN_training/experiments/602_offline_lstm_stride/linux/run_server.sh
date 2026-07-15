@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_stride"
 TRACE="602.gcc_s-734B"
-RUN_ID="${RUN_ID:-602_offline_lstm_stride_direct_v3_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_stride_threshold_free_v5_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -123,11 +123,22 @@ expected = {
     "training_chunks_shuffled": False,
     "training_state_carried_across_chunks": True,
     "training_state_detached_between_chunks": True,
-    "experiment_revision": "direct_action_independent_v3",
+    "experiment_revision": "threshold_free_count_rank_v5",
     "neural_role": "standalone_direct_action_prefetcher",
     "same_external_input_contract": True,
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
+    "normal_policy_outputs_used_as_training_targets": True,
+    "normal_policy_request_rate_used_as_budget": False,
+    "normal_policy_constants_used_by_neural_inference": False,
+    "probability_threshold_used": False,
+    "neural_degree_cap": None,
+    "future_label_window_used": False,
+    "handcrafted_semantic_features_used": False,
+    "manual_loss_weights_used": False,
+    "training_regularization_used": False,
+    "inference_policy_hardcodes_used": False,
+    "learned_request_count": True,
     "nn_generates_own_target_addresses": True,
 }
 bad = {key: (metadata.get(key), value) for key, value in expected.items() if metadata.get(key) != value}

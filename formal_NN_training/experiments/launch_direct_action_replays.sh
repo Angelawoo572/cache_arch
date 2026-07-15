@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Start all independent direct-action replay/analyze pipelines concurrently.
+# Start all threshold-free neural replay/analyze pipelines concurrently.
 # Each per-experiment launcher uses nohup.  ChampSim builds remain serialized by
 # the repository-wide build lock; completed builds then replay concurrently.
 
@@ -23,15 +23,18 @@ launch() {
 }
 
 launch 602_offline_lstm_stride \
-  602_offline_lstm_stride_direct_v3_seed7
+  602_offline_lstm_stride_threshold_free_v5_seed7
 launch 602_offline_lstm_streamer \
-  602_offline_lstm_streamer_direct_v3_seed7
+  602_offline_lstm_streamer_threshold_free_v5_seed7
 launch 602_offline_lstm_ampm \
-  602_offline_lstm_ampm_direct_v3_seed7
-launch 623_offline_lstm_cnn_stride \
-  623_offline_lstm_cnn_stride_direct_v3_seed7
-launch 623_offline_lstm_cnn_spp \
-  623_offline_lstm_cnn_spp_direct_v4_seed7
+  602_offline_lstm_ampm_threshold_free_v5_seed7
+launch 623_offline_lstm_stride \
+  623_offline_lstm_stride_threshold_free_v7_seed7
+launch 623_offline_cnn_stride \
+  623_offline_cnn_stride_threshold_free_v7_seed7
+launch 623_offline_lstm_spp \
+  623_offline_lstm_spp_threshold_free_v9_seed7
+launch 623_offline_cnn_spp \
+  623_offline_cnn_spp_threshold_free_v9_seed7
 
-echo "[started] five nohup pipelines; inspect each RUN_DIR/<stage>.nohup.log"
-
+echo "[started] seven nohup pipelines; inspect each RUN_DIR/<stage>.nohup.log"

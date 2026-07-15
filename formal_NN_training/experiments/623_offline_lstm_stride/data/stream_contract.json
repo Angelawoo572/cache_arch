@@ -1,0 +1,40 @@
+{
+  "experiment_revision": "stride_threshold_free_split_v7",
+  "event_logger_schema": "623_causal_trigger_v5",
+  "normal_prefetcher": "stride",
+  "source_decision_effective_external_input": ["pc", "addr"],
+  "runtime_encoding": "lossless 64-bit PC plus lossless 64-bit cache-line address",
+  "neural_role": "standalone_direct_action_prefetcher",
+  "track_model_family": "lstm",
+  "complete_action_space": {
+    "count_classes": 65,
+    "target_offsets": 64,
+    "fill": "FILL_L2",
+    "self_target_allowed": true
+  },
+  "decision": "count argmax followed by top-count learned target ranks",
+  "captured_stride_actions_role": "normal replay and supervised labels only",
+  "normal_actions_are_model_inputs": false,
+  "normal_private_state_is_model_input": false,
+  "normal_request_rate_is_neural_budget": false,
+  "normal_degree_is_neural_cap": false,
+  "probability_threshold": null,
+  "future_label_window": null,
+  "handcrafted_semantic_features": false,
+  "manual_loss_weights": false,
+  "training_regularization": false,
+  "inference_policy_hardcodes_used": false,
+  "threshold_related_hardcodes_used": false,
+  "hardware_action_space_constants_are_not_thresholds": true,
+  "training_target": "captured Stride request count and same-page target set",
+  "lstm": {
+    "architecture": "single-layer stateful LSTM with independent count and target-ranking heads",
+    "stateful_training": "chronological TBPTT; hidden/cell values cross chunks and the graph is detached at chunk boundaries",
+    "inference_history": "fresh state followed by complete train, guard, and evaluation chronology"
+  },
+  "architecture_pairs": [
+    {"pair_id": "p0", "lstm": {"size": 8, "parameters": 5577}, "cnn": {"size": 10, "parameters": 5549}},
+    {"pair_id": "p1", "lstm": {"size": 16, "parameters": 11537}, "cnn": {"size": 16, "parameters": 11489}},
+    {"pair_id": "p2", "lstm": {"size": 32, "parameters": 24993}, "cnn": {"size": 25, "parameters": 24179}}
+  ]
+}

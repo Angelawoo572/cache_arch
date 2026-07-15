@@ -1,0 +1,34 @@
+{
+  "audited_source": "external/ChampSim/prefetcher/spp_dev2.cc",
+  "audited_header": "external/ChampSim/inc/spp_dev2.h",
+  "required_markers": [
+    "SPP_dev2::invoke_prefetcher",
+    "ST.read_and_update_sig(page, page_offset, last_sig, curr_sig, delta, GHR)",
+    "FILTER.check(addr, L2C_DEMAND, GHR)",
+    "PT.read_pattern(curr_sig",
+    "base_addr += (PT.delta[set][lookahead_way] << LOG2_BLOCK_SIZE)",
+    "m_parent_cache->prefetch_line(ip, addr, pf_addr",
+    "SPP_dev2::cache_fill",
+    "FILTER.check(evicted_addr, L2C_EVICT, GHR)"
+  ],
+  "decision_effective_external_input": [
+    "callback_kind",
+    "invoke_prefetcher.addr",
+    "cache_fill.evicted_addr"
+  ],
+  "transport_only": ["ip"],
+  "signature_arguments_not_read_by_prediction_body": ["cache_hit", "type"],
+  "normal_private_state": ["ST", "PT", "GHR", "FILTER"],
+  "normal_feedback_callback": "cache_fill(evicted_addr) updates FILTER/GHR state; the raw evicted_addr callback is therefore a shared external input, while FILTER/GHR contents remain private",
+  "output_action": ["same-page pf_addr", "FILL_L2 or FILL_LLC"],
+  "self_target_action_semantics": "allowed_by_source_lookahead_and_replayed",
+  "self_target_source_reason": "multi-step lookahead updates base_addr, so a later signed delta can return pf_addr to the callback trigger line; the source has no pf_addr != addr guard",
+  "queue_effect_canonicalization": "per_target_min_fill_queue_effect",
+  "queue_effect_rule": "CACHE::add_pq merges repeated target lines and the minimum numeric fill wins, so FILL_L2=2 dominates FILL_LLC=4",
+  "source_normal_configuration_only": {
+    "fill_threshold": 90,
+    "prefetch_threshold": 40,
+    "used_by_neural_inference": false
+  },
+  "student_contract": "learned count/rank/fill policy over the complete same-page action interface from the chronological DEMAND(addr) and CACHE_FILL(evicted_addr) callback stream; no normal SPP action, threshold, degree, request budget, or private table state is an inference input"
+}

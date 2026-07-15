@@ -60,3 +60,4 @@ PY
 [[ -x "$BUILT" ]] || { echo "[error] expected binary missing: $BUILT" >&2; exit 4; }
 cp -f "$BUILT" "$OUT"
 echo "[ok] built $OUT"
+

@@ -1,32 +1,50 @@
-# Independent direct-action rerun
+# Same-input, threshold-free neural rerun
 
-This revision fixes the boundary between the normal prefetcher and the neural
-prefetcher.  A fair pair shares only the effective external inputs read by the
-audited normal source.  The neural model owns its feature extractor, temporal
-state, target generation, and confidence scores.
+A fair pair shares the effective external inputs read by the audited normal
+source.  The normal policy's emitted actions are supervised labels and its
+offline baseline replay.  They are never neural inference inputs, gates,
+request budgets, degree caps, or private state.
 
-| Experiment | Shared external input | Independent neural output | Normal data excluded from tensors/labels |
-|---|---|---|---|
-| 602 Stride | PC + cache-line address | LSTM, 64 same-page offsets, degree 2 | tracker table, last stride, candidates |
-| 602 Streamer | cache-line address | LSTM, 64 same-page offsets, degree 5 | page trackers, direction, candidates |
-| 602 AMPM | cache-line address | LSTM, 64 same-page offsets, degree 4 | bitmap/LRU state, AMPM candidates |
-| 623 Stride | PC + cache-line address | LSTM or one-layer causal CNN, 64 offsets | tracker state and captured candidates |
-| 623 SPP | cache-line address | LSTM or one-layer causal CNN, 64 offsets x L2/LLC | ST/PT/GHR/filter state and SPP actions |
+| Experiment | Shared external input | Learned neural decision |
+|---|---|---|
+| 602 Stride | PC + cache-line address | LSTM count argmax + ranking of 64 same-page L2 targets |
+| 602 Streamer | cache-line address | LSTM count argmax + ranking of 64 same-page L2 targets |
+| 602 AMPM | cache-line address | LSTM count argmax + ranking of 64 same-page L2 targets |
+| 623 Stride | PC + cache-line address | LSTM or causal CNN count argmax + 64-target ranking |
+| 623 SPP | chronological callback kind + demand address or cache-fill evicted address | LSTM or causal CNN count argmax + 64-target ranking + L2/LLC fill argmax |
 
-Normal request files remain necessary only to replay the normal baseline and
-to set a training-split traffic budget.  They are never model inputs and never
-supervision.  Neural labels are future-demand utility labels created strictly
-inside the training stream.  Evaluation future rows are used only after
-inference for an audit metric.
+The model uses lossless binary encodings rather than semantic hand features.
+There is no probability threshold, future-use label window, fill-distance
+cutoff, manual class/loss weight, weight decay, gradient clipping, normal
+request-rate budget, or normal degree cap.  The 64 page offsets and SPP's two
+fill levels define the complete hardware action interface, not tuned policy
+limits.  Learning rate, epoch count, model width, kernel size, and dilation
+schedule remain explicit training/architecture hyperparameters; they never
+decide whether a particular prefetch is emitted.
 
-The CNN is intentionally small: exactly one causal `Conv1d`, kernel size 3,
-stride 1, dilation 1, followed by a linear direct-action head.  Its receptive
-field is the current callback and the previous two callbacks.  Runtime tests
-reject future dependence, receptive fields longer than three, and chunked vs.
-continuous inference disagreement.
+The CNN is a causal residual TCN over the complete chronological stream.  It
+has one 1x1 input projection and only four kernel-7, stride-1 temporal blocks
+with dilations 1, 6, 36, and 216, followed by learned count/rank heads (and an
+SPP fill head).  Kernel 7 is only each local filter, not the input-window
+length; the stacked receptive field is a contiguous 1,555 callbacks.  Chunked
+computation carries exactly 1,554 prior events into the next chunk, so a chunk
+boundary does not reset declared TCN history.  Runtime tests reject future
+dependence, temporal holes, and any input older than that receptive field. The
+LSTM uses chronological stateful TBPTT and carries hidden/cell values across
+chunks while detaching the graph at chunk boundaries.
 
-Use `stage_direct_action_inputs.sh` to copy an existing run's collected input
-bytes into the new run ID and regenerate only metadata/checksum containers.
-Use `launch_direct_action_replays.sh` after all Colab output archives have been
-extracted into their corresponding `colab_output` directories.
+This is behavior cloning under a strict same-input contract.  It tests whether
+an independently structured NN can reproduce or improve the normal policy's
+system effect; it is not end-to-end IPC reinforcement learning.
 
+Use `stage_threshold_free_inputs.sh` to copy the existing collected `.csv.gz`
+bytes for 602 Stride/Streamer/AMPM.  Collect 623 Stride once in
+`623_offline_lstm_stride` and strict SPP once in `623_offline_lstm_spp`, then
+run `stage_623_split_inputs.sh` for each policy.  The stager validates and
+copies every normalized input byte into the corresponding standalone CNN
+directory, producing independent LSTM/CNN archives with identical model-input
+and teacher-label files.  New Colab training is required because the
+architecture, loss, and output decoder have changed.  After extracting all
+seven output archives, use
+`launch_direct_action_replays.sh replay`; its per-run `nohup` launchers start
+concurrently while the repository build lock serializes ChampSim builds.

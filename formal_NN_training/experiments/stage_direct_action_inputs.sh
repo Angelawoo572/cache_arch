@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Repackage already-collected streams for the independent direct-action runs.
+# Repackage already-collected streams for the threshold-free neural runs.
 # Every .csv.gz file is copied byte-for-byte and checked with cmp.  Only the
 # generated manifest/SHA256SUMS and archive container are new.
 
@@ -10,12 +10,16 @@ usage() {
 usage: stage_direct_action_inputs.sh MODE SOURCE_RUN NEW_RUN
 
 MODE is one of:
-  602-stride  602-streamer  602-ampm  623-stride  623-spp
+  602-stride  602-streamer  602-ampm
+
+The split 623 tracks intentionally do not reuse the old combined inputs.
+Collect once in each standalone LSTM policy directory, then use
+stage_623_split_inputs.sh to create the byte-identical CNN input archive.
 
 Example:
   bash formal_NN_training/experiments/stage_direct_action_inputs.sh \
     602-stride 602_offline_lstm_stride_stateful_v2_seed7 \
-    602_offline_lstm_stride_direct_v3_seed7
+    602_offline_lstm_stride_threshold_free_v5_seed7
 EOF
 }
 
@@ -46,20 +50,6 @@ case "$MODE" in
     POLICY=""
     ROLES=(train guard eval)
     KIND="602"
-    ;;
-  623-stride)
-    EXP_NAME="623_offline_lstm_cnn_stride"
-    TRACE="623.xalancbmk_s-700B"
-    POLICY="stride"
-    ROLES=(train guard eval)
-    KIND="623-stride"
-    ;;
-  623-spp)
-    EXP_NAME="623_offline_lstm_cnn_spp"
-    TRACE="623.xalancbmk_s-700B"
-    POLICY="spp"
-    ROLES=(train guard eval)
-    KIND="623-spp"
     ;;
   *)
     echo "[error] unknown MODE: $MODE" >&2
@@ -97,37 +87,9 @@ copy_exact() {
   echo "[unchanged] $(sha256sum "$destination")"
 }
 
-if [[ "$KIND" == "602" ]]; then
-  for role in "${ROLES[@]}"; do
-    copy_exact "$TRACE.${role}_stream.csv.gz"
-  done
-elif [[ "$KIND" == "623-stride" ]]; then
-  for role in "${ROLES[@]}"; do
-    copy_exact "$TRACE.$POLICY.${role}_stream.csv.gz"
-    copy_exact "$TRACE.$POLICY.${role}_candidates.csv.gz"
-  done
-  python3 "$EXP/python/validate_collected_inputs.py" \
-    --input-dir "$DEST_DIR" \
-    --manifest-out "$DEST_DIR/collection_manifest.json"
-  FILES+=(collection_manifest.json)
-else
-  for role in "${ROLES[@]}"; do
-    copy_exact "$TRACE.$POLICY.${role}_stream.csv.gz"
-    copy_exact "$TRACE.$POLICY.${role}_teacher_actions.csv.gz"
-  done
-  if [[ -s "$SOURCE_DIR/spp_source_contract.json" ]]; then
-    copy_exact spp_source_contract.json
-  else
-    cp -f "$EXP/data/spp_source_contract.json" "$DEST_DIR/spp_source_contract.json"
-    FILES+=(spp_source_contract.json)
-    echo "[metadata] installed audited SPP source contract"
-  fi
-  python3 "$EXP/python/validate_collected_inputs.py" \
-    --input-dir "$DEST_DIR" \
-    --manifest-out "$DEST_DIR/collection_manifest.json" \
-    --source-contract "$DEST_DIR/spp_source_contract.json"
-  FILES+=(collection_manifest.json)
-fi
+for role in "${ROLES[@]}"; do
+  copy_exact "$TRACE.${role}_stream.csv.gz"
+done
 
 (
   cd "$DEST_DIR"
@@ -137,5 +99,4 @@ fi
 ARCHIVE="$RUN_DIR/$NEW_RUN.colab_input.tar.gz"
 tar -C "$DEST_DIR" -czf "$ARCHIVE" "${FILES[@]}" SHA256SUMS
 echo "[READY] $ARCHIVE"
-echo "[contract] all collected .csv.gz bytes are unchanged; no recollection required"
-
+echo "[contract] supported-track .csv.gz bytes are unchanged"

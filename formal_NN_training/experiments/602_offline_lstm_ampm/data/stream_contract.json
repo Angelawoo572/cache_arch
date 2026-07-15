@@ -1,11 +1,23 @@
 {
-  "revision": "direct_action_independent_v3",
+  "revision": "threshold_free_count_rank_v5",
   "normal_prefetcher": "ampm",
   "effective_external_inputs": ["cache_line_address"],
+  "runtime_encoding": "lossless binary u64 cache-line address",
   "neural_role": "standalone_direct_action_prefetcher",
-  "action_space": {"classes": 64, "meaning": "same-page target offset", "fill": "L2", "degree_cap": 4},
+  "action_space": {"count_classes": 65, "target_offsets": 64, "fill": "L2"},
+  "decision": "count argmax followed by top-count learned target ranks",
+  "probability_threshold": null,
+  "neural_degree_cap": null,
+  "normal_request_rate_budget": null,
+  "normal_policy_constants_used_by_neural_inference": false,
+  "handcrafted_semantic_features": false,
+  "manual_loss_weights": false,
+  "training_regularization": false,
+  "inference_policy_hardcodes_used": false,
+  "threshold_related_hardcodes_used": false,
+  "hardware_action_space_constants_are_not_thresholds": true,
   "normal_candidates_are_model_inputs": false,
   "normal_private_state_is_model_input": false,
-  "training_target": "future demand reuse in training stream",
-  "inference_context": "guard initializes neural and normal private state independently"
+  "training_target": "normal emitted request count and target set; supervision only",
+  "inference_context": "guard initializes neural and normal state independently"
 }

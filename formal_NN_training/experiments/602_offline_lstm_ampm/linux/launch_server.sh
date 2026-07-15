@@ -2,7 +2,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_ampm"
-RUN_ID="${RUN_ID:-602_offline_lstm_ampm_direct_v3_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_ampm_threshold_free_v5_seed7}"
 STAGE="${1:-${STAGE:-replay}}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
 mkdir -p "$RUN_DIR"
