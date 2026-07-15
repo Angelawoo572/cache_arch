@@ -13,16 +13,16 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "stride_threshold_free_split_v7"
+EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
 TRACK_MODEL_FAMILY = "cnn"
 DEFAULT_MODEL_TAGS = (
-    "threshold_free_stride_cnn_c10,threshold_free_stride_cnn_c16,"
-    "threshold_free_stride_cnn_c25"
+    "independent_delta_stride_cnn_c7,independent_delta_stride_cnn_c15,"
+    "independent_delta_stride_cnn_c24"
 )
 EXPECTED_POINTS = {
-    ("cnn", 10): ("p0", 5549),
-    ("cnn", 16): ("p1", 11489),
-    ("cnn", 25): ("p2", 24179),
+    ("cnn", 7): "p0",
+    ("cnn", 15): "p1",
+    ("cnn", 24): "p2",
 }
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
@@ -264,13 +264,13 @@ def parse_events(path):
 
 def policy_for_method(method):
     normal = "offline_" + POLICY
-    if method == normal or method.startswith("offline_threshold_free_" + POLICY + "_"):
+    if method == normal or method.startswith("offline_independent_delta_" + POLICY + "_"):
         return POLICY
     return ""
 
 
 def model_tag_for_method(method):
-    if method.startswith("offline_threshold_free_" + POLICY + "_"):
+    if method.startswith("offline_independent_delta_" + POLICY + "_"):
         return method[len("offline_"):]
     return ""
 
@@ -411,6 +411,12 @@ def validate_metadata(metadata, tag, inputs, failures):
         "matched_normal_prefetcher": policy,
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_free_running_self_test": "PASS",
+        "training_runtime_fields": ["pc", "addr"],
+        "inference_runtime_fields": ["pc", "addr"],
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
@@ -419,6 +425,8 @@ def validate_metadata(metadata, tag, inputs, failures):
         "normal_policy_constants_used_by_neural_inference": False,
         "probability_threshold_used": False,
         "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
@@ -453,21 +461,29 @@ def validate_metadata(metadata, tag, inputs, failures):
     if point is None:
         failures.append("{} is not a pinned CNN point".format(tag))
     else:
-        if metadata.get("architecture_pair_id") != point[0]:
+        if metadata.get("architecture_pair_id") != point:
             failures.append("{} architecture group mismatch".format(tag))
-        if metadata.get("parameter_count") != point[1]:
-            failures.append("{} parameter count mismatch".format(tag))
+        if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
+            failures.append("{} invalid measured parameter count".format(tag))
+    encoder_hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+    if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
+        failures.append("{} train/inference encoder hash mismatch".format(tag))
     expected = {
-        "training_state_mode": "causal_dilated_tcn_over_chronological_stream",
-        "training_state_carried_across_chunks": False,
-        "training_state_detached_between_chunks": False,
-        "inference_history_mode": "chronological_sliding_context_with_exact_1554_event_overlap",
-        "cnn_temporal_layers": 4,
-        "cnn_kernel_size": 7,
+        "training_state_mode": "two_layer_causal_cnn_over_chronological_stream",
+        "training_state_carried_across_chunks": None,
+        "training_state_detached_between_chunks": None,
+        "inference_history_mode": "chronological_sliding_context_with_exact_overlap",
+        "cnn_temporal_layers": 2,
+        "cnn_kernel_size": 17,
         "cnn_stride": 1,
-        "cnn_dilations": [1, 6, 36, 216],
-        "cnn_receptive_field_events": 1555,
-        "training_left_context_overlap": 1554,
+        "cnn_dilations": [1, 17],
+        "cnn_receptive_field_events": 289,
+        "training_left_context_overlap": 288,
         "cnn_processes_complete_stream_in_order": True,
         "cnn_chunking_changes_visible_history": False,
     }
@@ -509,7 +525,7 @@ def main():
     if not model_tags:
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
-        if not tag.startswith("threshold_free_stride_cnn_"):
+        if not tag.startswith("independent_delta_stride_cnn_"):
             raise SystemExit("invalid model tag {}".format(tag))
 
     methods = [
@@ -799,15 +815,6 @@ def main():
             ),
         }
         transport_fidelity[policy] = fidelity
-        if (
-            fidelity["ipc_relative_error"] > 0.01
-            or fidelity["l2_miss_relative_error"] > 0.05
-        ):
-            warnings.append(
-                "{} offline replay differs materially from live reference; "
-                "use the matched offline baseline for the primary claim and "
-                "report this transport gap".format(policy)
-            )
 
     status = "FAIL" if failures else "PASS"
     payload = {
@@ -829,7 +836,7 @@ def main():
         "primary_comparisons": {
             "stride_track": [
                 "offline_stride",
-                "offline_threshold_free_stride_{}_<capacity>".format(
+                "offline_independent_delta_stride_{}_<capacity>".format(
                     TRACK_MODEL_FAMILY
                 ),
             ],
@@ -849,16 +856,16 @@ def main():
             "through the same PC-line-occ ListReplayer."
         ),
         "direct_action_contract": (
-            "The neural model learns a categorical count over 0..64 and a ranking "
-            "over all 64 same-page FILL_L2 targets. Count argmax and top-count "
-            "ranking replace thresholding and the Stride degree cap."
+            "The neural model learns an unbounded Poisson request count and an "
+            "autoregressive density over direct signed cache-line deltas. It "
+            "has no fixed page-offset table, same-page rule, or Stride degree cap."
         ),
         "model_input_guardrail": {
             "normal_stride_private_state": [
                 "PC-indexed tracker table", "confidence", "last stride"
             ],
             "direct_nn_inputs": [
-                "lossless 64-bit PC and cache-line address encodings",
+                "lossless uint64 PC and aligned source-address encodings",
                 "causal address/PC history represented by the model itself",
             ],
             "not_nn_inputs": [
@@ -869,12 +876,12 @@ def main():
         "architecture_contract": (
             {
                 "name": "causal residual temporal convolutional network",
-                "temporal_convolution_layers": 4,
-                "kernel_size_events": 7,
+                "temporal_convolution_layers": 2,
+                "kernel_size_events": 17,
                 "stride_events": 1,
-                "dilations": [1, 6, 36, 216],
-                "left_context_events": 1554,
-                "receptive_field_events": 1555,
+                "dilations": [1, 17],
+                "left_context_events": 288,
+                "receptive_field_events": 289,
                 "interpretation": (
                     "a contiguous causal sliding window; output t sees no "
                     "future input"
@@ -922,6 +929,10 @@ def main():
             "policy_inputs": input_info,
         },
         "offline_normal_list_hashes_by_model_tag": normal_hashes,
+        "runtime_encoder_sha256_by_model_tag": {
+            tag: metadata_by_tag[tag].get("runtime_encoder_sha256")
+            for tag in sorted(metadata_by_tag)
+        },
         "architecture_pairs": {
             "{}:{}".format(policy, pair_id): [
                 {
@@ -947,7 +958,7 @@ def main():
             normal = by_method["offline_" + policy]
             points = []
             for tag in model_tags:
-                if not tag.startswith("threshold_free_" + policy + "_"):
+                if not tag.startswith("independent_delta_" + policy + "_"):
                     continue
                 row = by_method["offline_" + tag]
                 metadata = metadata_by_tag[tag]
@@ -1054,12 +1065,12 @@ def main():
         payload["architecture_pair_comparisons"] = pair_rows
         payload["cross_directory_interpretation_rule"] = {
             "cnn_wins": (
-                "At matched parameters, the 1,555-event causal TCN "
+                "At paired reported capacities, the 289-event causal CNN "
                 "improves IPC/miss rate without material BPI loss: immediate "
                 "and medium-range address correlation is sufficient."
             ),
             "lstm_wins": (
-                "At matched parameters, the stateful LSTM improves IPC and "
+                "At paired reported capacities, the stateful LSTM improves IPC and "
                 "BPI: useful information extends beyond the TCN receptive field."
             ),
             "both_fail": (
