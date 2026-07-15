@@ -16,15 +16,15 @@ stage() {
 
 stage 602-stride \
   "${SRC_602_STRIDE:-602_offline_lstm_stride_stateful_v2_seed7}" \
-  602_offline_lstm_stride_threshold_free_v5_seed7
+  602_offline_lstm_stride_variable_delta_free_running_v7_seed7
 
 stage 602-streamer \
   "${SRC_602_STREAMER:-602_offline_lstm_streamer_stateful_v2_seed7}" \
-  602_offline_lstm_streamer_threshold_free_v5_seed7
+  602_offline_lstm_streamer_variable_delta_free_running_v7_seed7
 
 stage 602-ampm \
   "${SRC_602_AMPM:-602_offline_lstm_ampm_stateful_v2_seed7}" \
-  602_offline_lstm_ampm_threshold_free_v5_seed7
+  602_offline_lstm_ampm_variable_delta_free_running_v7_seed7
 
 echo "[READY] three unchanged-input 602 Colab archives"
 echo "[NEXT] collect 623 Stride and SPP once in the standalone LSTM tracks"
