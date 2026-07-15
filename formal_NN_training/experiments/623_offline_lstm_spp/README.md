@@ -1,20 +1,24 @@
-# 623 threshold-free LSTM versus source SPP
+# 623 SPP — independent LSTM
 
-This directory runs only the LSTM student against the fill-preserving offline
-SPP comparator. The audited source-effective input is the chronological union
-of `DEMAND(addr)` and `CACHE_FILL(evicted_addr)` callbacks. Both methods receive
-that same information; SPP private signature/pattern/GHR/filter state and SPP
-actions are never neural inputs.
+This track compares normal SPP with a standalone stateful LSTM on
+`623.xalancbmk_s-700B`.
 
-The LSTM carries hidden/cell state through complete train, guard, and evaluation
-history. It learns a categorical count, all 64 same-page target ranks, and an
-L2/LLC fill class. Inference uses argmax and top-count only—no probability
-threshold, request budget, degree cap, fill cutoff, future-use window, or copied
-SPP constant.
+The audited SPP source input is the chronological callback sequence
+`DEMAND(addr)` plus `CACHE_FILL(evicted_addr)`. PC is replay transport only;
+cache-hit/type and SPP private ST/PT/GHR/FILTER state are not NN inputs.
+Training and inference call the same lossless callback encoder and validators
+require identical encoder hashes. Captured SPP actions/fill levels are labels
+and the fill-preserving normal comparator only.
 
-This track is separate from `623_offline_cnn_spp`. SPP is collected once here;
-every strict input file is copied byte-for-byte into a separately named CNN
-archive before its Colab run.
+The NN uses one chronological stateful LSTM plus a learned Poisson count and
+free-running autoregressive direct signed-delta/fill decoder. Teacher actions
+compute loss but are not decoder inputs. It has no SPP thresholds,
+degree, fixed page-offset classes, same-page rule, candidate list, or private
+SPP state. Eviction feedback is included here because normal SPP reads that raw
+external callback; it is not added to tracks whose normal source cannot see it.
 
-Revision: `spp_threshold_free_fill_feedback_split_v9`.
-Default run: `623_offline_lstm_spp_threshold_free_v9_seed7`.
+Revision: `spp_source_input_variable_delta_fill_feedback_free_running_v11`  
+Default run: `623_offline_lstm_spp_variable_delta_free_running_v11_seed7`
+
+Use `linux/launch_server.sh collect` on the server, the A100 notebook for
+training, and `linux/launch_server.sh replay` after returning the output.
