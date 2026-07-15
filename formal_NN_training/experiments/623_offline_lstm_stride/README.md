@@ -1,20 +1,22 @@
-# 623 threshold-free LSTM versus Stride
+# 623 Stride — independent LSTM
 
-This directory runs only the LSTM student against the offline Stride
-comparator. Both receive the same source-effective external information:
-chronological PC and cache-line address. The lossless input encoding contains
-no Stride candidate, confidence, tracker state, request outcome, or future row.
+This track compares normal Stride with a standalone stateful LSTM on
+`623.xalancbmk_s-700B`.
 
-The LSTM carries hidden/cell state through the complete train stream, then the
-guard stream, then evaluation. It learns a categorical request count over
-0..64 and a ranking of all 64 same-page L2 targets. Inference is count argmax
-plus top-count ranking: no probability threshold, normal request-rate budget,
-normal degree cap, future-use cutoff, handcrafted semantic feature, or copied
-normal-policy constant is used.
+Fair input is exact: both policies receive only the current `pc` and aligned
+`addr`. Training and inference call the same lossless runtime encoder; its
+source hash is recorded three times and validators require equality. Captured
+Stride requests are labels and the offline normal comparator, never NN input.
 
-This track is separate from `623_offline_cnn_stride`. The two run-specific
-archives contain byte-identical input files and share parameter groups
-p0/p1/p2, so results are merged only after both independent analyses pass.
+The NN is not a neural copy of Stride. One chronological stateful LSTM feeds a
+learned Poisson request-count model and an autoregressive mixture over direct
+signed cache-line deltas. Training and inference both feed back the model's
+own previous action; teacher actions only compute loss. It has no tracker table, candidate list, threshold,
+degree cap, fixed page-offset classes, or same-page rule. Hidden sizes are
+ordinary model configurations, not normal-prefetcher constants.
 
-Revision: `stride_threshold_free_split_v7`.
-Default run: `623_offline_lstm_stride_threshold_free_v7_seed7`.
+Revision: `stride_source_input_variable_delta_free_running_v9`  
+Default run: `623_offline_lstm_stride_variable_delta_free_running_v9_seed7`
+
+Use `linux/launch_server.sh collect` on the server, the A100 notebook for
+training, and `linux/launch_server.sh replay` after returning the output.
