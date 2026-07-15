@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Independent matched 623 SPP track: normal SPP versus LSTM/CNN gates.
+# Independent 623 track: normal SPP versus direct SPP-interface LSTM/CNN students.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_cnn_spp_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_cnn_spp_direct_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-spp_lstm_h4,spp_lstm_h8,spp_lstm_h15,spp_cnn_c8,spp_cnn_c16,spp_cnn_c32}"
-BASE_TAG="${BASE_TAG:-spp_lstm_h4}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-direct_spp_lstm_h4,direct_spp_lstm_h8,direct_spp_lstm_h16,direct_spp_cnn_c5,direct_spp_cnn_c10,direct_spp_cnn_c24}"
+BASE_TAG="${BASE_TAG:-direct_spp_lstm_h4}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -20,7 +20,7 @@ LOG_DIR="$RUN_DIR/logs"
 EVENT_DIR="$RUN_DIR/events"
 STREAM_DIR="$RUN_DIR/colab_input"
 COLAB_ROOT="$RUN_DIR/colab_output"
-BIN="${BIN:-$CHAMP_DIR/bin/champsim.623_spp_cnn_replay}"
+BIN="${BIN:-$CHAMP_DIR/bin/champsim.623_direct_spp_replay}"
 EXPECTED_LIBBF_HEAD="4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c"
 BUILD_LOCK="${BUILD_LOCK:-$(git -C "$ROOT" rev-parse --absolute-git-dir)/champsim_build.lock}"
 
@@ -30,10 +30,51 @@ NORMALIZE="$EXP/python/normalize_events.py"
 VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
+SOURCE_CONTRACT_REPO="$EXP/data/spp_source_contract.json"
+SOURCE_CONTRACT_INPUT="$STREAM_DIR/spp_source_contract.json"
 
 IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
+
+audit_spp_source() {
+  python3 - "$CHAMP_DIR/prefetcher/spp_dev2.cc" \
+    "$CHAMP_DIR/inc/spp_dev2.h" "$SOURCE_CONTRACT_REPO" <<'PY'
+import hashlib
+import json
+import re
+import sys
+from pathlib import Path
+
+source_path, header_path, contract_path = map(Path, sys.argv[1:])
+for path in (source_path, header_path, contract_path):
+    if not path.is_file():
+        raise SystemExit("missing SPP source-audit file {}".format(path))
+source = source_path.read_text(errors="ignore")
+contract = json.loads(contract_path.read_text())
+missing = [marker for marker in contract["required_markers"] if marker not in source]
+if missing:
+    raise SystemExit("SPP source contract markers missing: {}".format(missing))
+match = re.search(
+    r"void\s+SPP_dev2::invoke_prefetcher\s*\([^)]*\)\s*\{(.*?)\n\}",
+    source,
+    flags=re.S,
+)
+if not match:
+    raise SystemExit("cannot isolate SPP_dev2::invoke_prefetcher body")
+signature_and_body = source[source.find("void SPP_dev2::invoke_prefetcher"):match.end()]
+for unused in ("cache_hit", "type"):
+    if len(re.findall(r"\b{}\b".format(unused), signature_and_body)) != 1:
+        raise SystemExit(
+            "SPP {} is no longer signature-only; revisit neural input contract".format(unused)
+        )
+if not re.search(r"\baddr\b", match.group(1)):
+    raise SystemExit("SPP invoke body no longer consumes addr")
+print("[PASS] audited SPP source sha256={}".format(
+    hashlib.sha256(source.encode()).hexdigest()
+))
+PY
+}
 
 ensure_libbf() {
   if [[ -e "$CHAMP_DIR/libbf" && ! -d "$CHAMP_DIR/libbf/.git" ]]; then
@@ -66,11 +107,12 @@ build() {
     echo "[build-lock] waiting for $BUILD_LOCK"
     flock -x 9
     echo "[build-lock] acquired by 623 SPP run $RUN_ID"
+    audit_spp_source
     RUN_DIR="$RUN_DIR" RESET_PATCH="${RESET_PATCH:-0}" \
       CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
     ensure_libbf
     CHAMP_DIR="$CHAMP_DIR" OUT="$BIN" bash "$BUILD_REPLAYER"
-    echo "[build-lock] 623 SPP build complete"
+    echo "[build-lock] 623 direct-SPP build complete"
   ) 9>"$BUILD_LOCK"
 }
 
@@ -89,11 +131,11 @@ assert_live_policy() {
     exit 3
   }
   grep -Eq '^Core_0_L2C_prefetch_requested [1-9][0-9]*$' "$log" || {
-    echo "[error] SPP generated zero candidates" >&2
+    echo "[error] SPP generated zero direct actions" >&2
     exit 3
   }
   grep -Eq '^Core_0_L2C_prefetch_dropped 0$' "$log" || {
-    echo "[error] SPP dropped requests; captured candidate bank is incomplete" >&2
+    echo "[error] SPP dropped requests; captured teacher action stream is incomplete" >&2
     exit 3
   }
 }
@@ -167,16 +209,18 @@ collect() {
       --events "$EVENT_DIR/$TRACE.$POLICY.$role.events.csv.gz" \
       --policy "$POLICY" \
       --stream-out "$STREAM_DIR/$TRACE.$POLICY.${role}_stream.csv.gz" \
-      --candidate-out "$STREAM_DIR/$TRACE.$POLICY.${role}_candidates.csv.gz"
+      --teacher-actions-out "$STREAM_DIR/$TRACE.$POLICY.${role}_teacher_actions.csv.gz"
     assert_collection_count "$role"
     input_files+=(
       "$TRACE.$POLICY.${role}_stream.csv.gz"
-      "$TRACE.$POLICY.${role}_candidates.csv.gz"
+      "$TRACE.$POLICY.${role}_teacher_actions.csv.gz"
     )
   done
+  cp -f "$SOURCE_CONTRACT_REPO" "$SOURCE_CONTRACT_INPUT"
   python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
-  input_files+=("collection_manifest.json")
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
+    --source-contract "$SOURCE_CONTRACT_INPUT"
+  input_files+=("spp_source_contract.json" "collection_manifest.json")
   ( cd "$STREAM_DIR" && sha256sum "${input_files[@]}" > SHA256SUMS )
   tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
     "${input_files[@]}" SHA256SUMS
@@ -186,7 +230,7 @@ collect() {
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
 assert_model_metadata() {
-  python3 - "$1" "$POLICY" <<'PY'
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" <<'PY'
 import csv
 import hashlib
 import json
@@ -194,32 +238,50 @@ import sys
 from pathlib import Path
 
 metadata = json.load(open(sys.argv[1]))
-policy = sys.argv[2]
+source_contract = Path(sys.argv[2])
 tag = metadata.get("model_tag", "")
 family = metadata.get("model_family")
 common = {
     "trace": "623.xalancbmk_s-700B",
-    "matched_normal_prefetcher": policy,
+    "matched_normal_prefetcher": "spp",
+    "neural_role": "direct_spp_action_predictor",
     "model_does_not_use_pc": True,
     "pc_is_replay_transport_only": True,
-    "normal_candidate_bank_is_fixed": True,
-    "nn_can_only_suppress_normal_candidates": True,
+    "model_input_is_causal_address_sequence_only": True,
+    "cache_hit_and_type_are_audit_only": True,
+    "teacher_actions_are_model_inputs": False,
+    "normal_candidate_bank_is_fixed": False,
+    "nn_can_generate_actions_not_emitted_by_teacher": True,
+    "direct_action_output_classes": 128,
     "training_chunks_shuffled": False,
+    "training_labels_are_direct_spp_actions": True,
+    "training_labels_use_future_rows": False,
     "causal_no_future_self_test": "PASS",
     "cnn_architecture_self_test": "PASS",
-    "candidate_rank_normalization": "min(candidate_rank, 32) / 32; fixed before data collection",
     "event_logger_schema": "623_causal_trigger_v5",
-    "candidate_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "spp_gate_sliding_cnn_v1",
-    "neural_role": "spp_candidate_gate",
+    "action_attachment_mode": "explicit_trigger_event_id",
+    "experiment_revision": "spp_direct_io_sliding_cnn_v2",
     "normal_policy_private_state_is_not_nn_input": True,
-    "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
-    "replay_preserves_captured_fill_level": True,
+    "replay_preserves_explicit_fill_level": True,
+    "source_decision_effective_external_input": ["addr"],
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
-if not tag.startswith(policy + "_"):
-    bad["model_tag"] = (tag, policy + "_<family>_<size>")
+if not (tag.startswith("direct_spp_lstm_") or tag.startswith("direct_spp_cnn_")):
+    bad["model_tag"] = (tag, "direct_spp_<family>_<size>")
+expected_points = {
+    ("lstm", 4): ("p0", 880), ("cnn", 5): ("p0", 908),
+    ("lstm", 8): ("p1", 1760), ("cnn", 10): ("p1", 1688),
+    ("lstm", 16): ("p2", 3904), ("cnn", 24): ("p2", 3872),
+}
+point = expected_points.get((family, metadata.get("model_size")))
+if point is None:
+    bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
+else:
+    if metadata.get("architecture_pair_id") != point[0]:
+        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point[0])
+    if metadata.get("parameter_count") != point[1]:
+        bad["parameter_count"] = (metadata.get("parameter_count"), point[1])
 if family == "lstm":
     expected = {
         "training_state_mode": "chronological_stateful_tbptt",
@@ -244,6 +306,22 @@ else:
 for key, value in expected.items():
     if metadata.get(key) != value:
         bad[key] = (metadata.get(key), value)
+if not source_contract.is_file():
+    bad["source_contract"] = ("missing", str(source_contract))
+elif metadata.get("source_contract_sha256") != hashlib.sha256(source_contract.read_bytes()).hexdigest():
+    bad["source_contract_sha256"] = (
+        metadata.get("source_contract_sha256"),
+        hashlib.sha256(source_contract.read_bytes()).hexdigest(),
+    )
+fidelity = metadata.get("eval_action_fidelity", {})
+for key in (
+    "action_precision", "action_recall", "action_f1", "action_jaccard",
+    "target_line_precision", "target_line_recall", "target_line_f1",
+    "fill_accuracy_given_matched_target_line", "exact_callback_match_rate",
+):
+    value = fidelity.get(key)
+    if not isinstance(value, (int, float)) or not 0 <= value <= 1:
+        bad["eval_action_fidelity." + key] = (value, "[0,1]")
 
 def inspect_replay(path, allow_empty):
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -276,15 +354,15 @@ def inspect_replay(path, allow_empty):
     return count, digest, fill_counts
 
 root = Path(sys.argv[1]).parent
-for name, count_key, hash_key, fill_key, allow_empty in (
-    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
-    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
+for name, count_key, hash_key, fill_key in (
+    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts"),
+    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts"),
 ):
     path = root / name
     if not path.is_file():
         bad[name] = ("missing", "nonempty validated replay list")
         continue
-    count, digest, fill_counts = inspect_replay(path, allow_empty)
+    count, digest, fill_counts = inspect_replay(path, False)
     if metadata.get(count_key) != count:
         bad[count_key] = (metadata.get(count_key), count)
     if metadata.get(hash_key) != digest:
@@ -328,7 +406,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_spp_lstm_*|offline_spp_cnn_*)
+    offline_direct_spp_lstm_*|offline_direct_spp_cnn_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -348,7 +426,8 @@ run_method() {
 require_colab_outputs() {
   local tag
   python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
+    --source-contract "$SOURCE_CONTRACT_INPUT"
   for tag in "${MODEL_TAGS[@]}"; do
     for name in run_metadata.json offline_spp.replay.csv \
       offline_nn.replay.csv model.pt policy_sweep.csv; do
@@ -363,7 +442,8 @@ require_colab_outputs() {
 
 analyze() {
   python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
+    --source-contract "$SOURCE_CONTRACT_INPUT"
   python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV"
 }
 

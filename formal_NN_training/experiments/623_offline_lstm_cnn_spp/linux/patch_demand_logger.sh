@@ -15,23 +15,53 @@ CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 CACHE_CC="$CHAMP_DIR/src/cache.cc"
 
 [[ -f "$CACHE_CC" ]] || { echo "[error] missing $CACHE_CC" >&2; exit 2; }
+CACHE_CC_CLEAN_RESTORED=0
+
+restore_clean_cache_cc() {
+  local reason="$1"
+  local save_dir="${RUN_DIR:-/tmp}"
+  local commit=""
+  local tmp=""
+
+  mkdir -p "$save_dir"
+  cp -f "$CACHE_CC" "$save_dir/cache.cc.before_623_reset.cc"
+  git -C "$CHAMP_DIR" diff -- src/cache.cc \
+    > "$save_dir/cache.cc.before_623_reset.patch" || true
+
+  # HEAD itself can contain an older experiment's logger.  Restore the newest
+  # historical cache.cc blob with no known instrumentation marker instead of
+  # trusting `git checkout -- src/cache.cc`.
+  tmp="$(mktemp "$save_dir/cache.cc.clean.XXXXXX")"
+  while IFS= read -r commit; do
+    [[ -n "$commit" ]] || continue
+    git -C "$CHAMP_DIR" show "$commit:src/cache.cc" > "$tmp"
+    if ! grep -Eq 'DEMAND_EVENT_LOG_SCHEMA_623_|demand_event_log_demand|RESIDUAL_AUDIT_LOG' "$tmp"; then
+      mv -f "$tmp" "$CACHE_CC"
+      CACHE_CC_CLEAN_RESTORED=1
+      printf '%s\n' "$commit" > "$save_dir/cache.cc.clean_source_commit"
+      echo "[clean-restore] $reason"
+      echo "[clean-restore] restored src/cache.cc from $commit"
+      echo "[clean-restore] original file: $save_dir/cache.cc.before_623_reset.cc"
+      return 0
+    fi
+  done < <(git -C "$CHAMP_DIR" log --format=%H -- src/cache.cc)
+
+  rm -f "$tmp"
+  echo "[error] no logger-free src/cache.cc blob exists in ChampSim history" >&2
+  echo "[hint] inspect: git -C \"$CHAMP_DIR\" log --oneline -- src/cache.cc" >&2
+  return 2
+}
 
 if [[ "${RESET_PATCH:-0}" == "1" ]]; then
-  mkdir -p "${RUN_DIR:-/tmp}"
-  git -C "$CHAMP_DIR" diff -- src/cache.cc \
-    > "${RUN_DIR:-/tmp}/cache.cc.before_explicit_reset.patch" || true
-  git -C "$CHAMP_DIR" checkout -- src/cache.cc
+  restore_clean_cache_cc "RESET_PATCH=1 requested"
 elif ! grep -Fq "DEMAND_EVENT_LOG_SCHEMA_623_V5" "$CACHE_CC" \
     && grep -Eq 'DEMAND_EVENT_LOG_SCHEMA_623_|demand_event_log_demand|RESIDUAL_AUDIT_LOG' "$CACHE_CC"; then
-  backup="${RUN_DIR:-/tmp}/cache.cc.before_623_auto_reset.patch"
-  mkdir -p "$(dirname "$backup")"
-  git -C "$CHAMP_DIR" diff -- src/cache.cc > "$backup" || true
   echo "[auto-reset] known older experimental cache.cc logger detected"
-  echo "[auto-reset] prior diff saved to $backup"
-  git -C "$CHAMP_DIR" checkout -- src/cache.cc
+  restore_clean_cache_cc "replacing stale/foreign experimental logger"
 fi
 
-if ! grep -Fq "DEMAND_EVENT_LOG_SCHEMA_623_V5" "$CACHE_CC" \
+if [[ "$CACHE_CC_CLEAN_RESTORED" != "1" ]] \
+    && ! grep -Fq "DEMAND_EVENT_LOG_SCHEMA_623_V5" "$CACHE_CC" \
     && ! git -C "$CHAMP_DIR" diff --quiet -- src/cache.cc; then
   echo "[error] cache.cc has unknown local edits; refusing to overwrite it" >&2
   echo "[hint] inspect: git -C \"$CHAMP_DIR\" diff -- src/cache.cc" >&2
@@ -259,4 +289,22 @@ p.write_text(s)
 print('[patched]', p)
 PY
 
-grep -n "DEMAND_EVENT_LOG_SCHEMA_623_V5\|demand_event_begin_trigger" "$CACHE_CC" || true
+python3 - "$CACHE_CC" <<'PY'
+from pathlib import Path
+import sys
+
+text = Path(sys.argv[1]).read_text(errors="ignore")
+expected = {
+    "DEMAND_EVENT_LOG_SCHEMA_623_V5": 1,
+    '"623_causal_trigger_v5"': 1,
+    "demand_event_log_demand(": 3,
+    "demand_event_begin_trigger(": 3,
+    "demand_event_end_trigger(": 3,
+    "demand_event_log_pf(": 2,
+}
+bad = {marker: (text.count(marker), count) for marker, count in expected.items()
+       if text.count(marker) != count}
+if bad:
+    raise SystemExit("[error] installed 623 v5 logger structural audit failed: {}".format(bad))
+print("[PASS] installed 623 v5 logger structural audit")
+PY

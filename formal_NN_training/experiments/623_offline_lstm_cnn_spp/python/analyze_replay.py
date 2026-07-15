@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed analysis for the matched 623 SPP-gate LSTM-versus-CNN track."""
+"""Fail-closed analysis for direct 623 SPP-interface LSTM/CNN students."""
 import argparse
 import csv
 import gzip
@@ -13,16 +13,16 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "spp_gate_sliding_cnn_v1"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v2"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
-CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
+ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED = re.compile(
     r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+"
     r"cumulative IPC:\s+([-+0-9.eE]+)"
 )
 REPLAYER = re.compile(
-    r"emitted\s+(\d+)\s+candidates over\s+(\d+)\s+runtime ROI L2 LOAD "
+    r"emitted\s+(\d+)\s+(?:candidates|actions) over\s+(\d+)\s+runtime ROI L2 LOAD "
     r"accesses \((\d+)\s+matched PC-line-occ triggers"
 )
 
@@ -271,14 +271,13 @@ def parse_events(path):
 
 
 def policy_for_method(method):
-    normal = "offline_" + POLICY
-    if method == normal or method.startswith(normal + "_"):
+    if method == "offline_" + POLICY or method.startswith("offline_direct_spp_"):
         return POLICY
     return ""
 
 
 def model_tag_for_method(method):
-    if method.startswith("offline_" + POLICY + "_"):
+    if method.startswith("offline_direct_spp_"):
         return method[len("offline_"):]
     return ""
 
@@ -411,29 +410,32 @@ def add_comparison_metrics(rows, failures):
             )
 
 
-def validate_metadata(metadata, tag, inputs, failures):
-    policy = tag.split("_", 1)[0]
+def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
+    policy = POLICY
     common = {
         "trace": TRACE,
         "model_tag": tag,
         "matched_normal_prefetcher": policy,
         "model_does_not_use_pc": True,
         "pc_is_replay_transport_only": True,
-        "normal_candidate_bank_is_fixed": True,
-        "nn_can_only_suppress_normal_candidates": True,
+        "normal_candidate_bank_is_fixed": False,
+        "teacher_actions_are_model_inputs": False,
+        "nn_can_generate_actions_not_emitted_by_teacher": True,
+        "model_input_is_causal_address_sequence_only": True,
+        "cache_hit_and_type_are_audit_only": True,
+        "direct_action_output_classes": 128,
         "training_chunks_shuffled": False,
+        "training_labels_are_direct_spp_actions": True,
+        "training_labels_use_future_rows": False,
         "causal_no_future_self_test": "PASS",
         "cnn_architecture_self_test": "PASS",
-        "candidate_rank_normalization": (
-            "min(candidate_rank, 32) / 32; fixed before data collection"
-        ),
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
-        "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
+        "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
-        "neural_role": "spp_candidate_gate",
-        "replay_preserves_captured_fill_level": True,
+        "neural_role": "direct_spp_action_predictor",
+        "replay_preserves_explicit_fill_level": True,
         "normal_policy_private_state_is_not_nn_input": True,
-        "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
+        "source_decision_effective_external_input": ["addr"],
     }
     for key, expected in common.items():
         if metadata.get(key) != expected:
@@ -442,7 +444,35 @@ def validate_metadata(metadata, tag, inputs, failures):
                     tag, key, metadata.get(key), expected
                 )
             )
+    if metadata.get("source_contract_sha256") != source_contract_hash:
+        failures.append("{} SPP source-contract SHA256 mismatch".format(tag))
+    fidelity = metadata.get("eval_action_fidelity")
+    required_fidelity = (
+        "action_precision", "action_recall", "action_f1", "action_jaccard",
+        "target_line_precision", "target_line_recall", "target_line_f1",
+        "fill_accuracy_given_matched_target_line", "exact_callback_match_rate",
+    )
+    if not isinstance(fidelity, dict):
+        failures.append("{} lacks eval action-fidelity audit".format(tag))
+    else:
+        for key in required_fidelity:
+            value = fidelity.get(key)
+            if not isinstance(value, (int, float)) or value < 0 or value > 1:
+                failures.append("{} invalid action fidelity {}".format(tag, key))
     family = metadata.get("model_family")
+    expected_points = {
+        ("lstm", 4): ("p0", 880), ("cnn", 5): ("p0", 908),
+        ("lstm", 8): ("p1", 1760), ("cnn", 10): ("p1", 1688),
+        ("lstm", 16): ("p2", 3904), ("cnn", 24): ("p2", 3872),
+    }
+    point = expected_points.get((family, metadata.get("model_size")))
+    if point is None:
+        failures.append("{} is not a pinned matched architecture point".format(tag))
+    else:
+        if metadata.get("architecture_pair_id") != point[0]:
+            failures.append("{} architecture pair mismatch".format(tag))
+        if metadata.get("parameter_count") != point[1]:
+            failures.append("{} parameter count mismatch".format(tag))
     if family == "lstm":
         expected = {
             "training_state_mode": "chronological_stateful_tbptt",
@@ -473,7 +503,7 @@ def validate_metadata(metadata, tag, inputs, failures):
                 )
             )
     for role in ("train", "guard", "eval"):
-        for kind in ("stream", "candidate"):
+        for kind in ("stream", "teacher_actions"):
             key = role + "_" + kind + "_content_sha256"
             expected_hash = (
                 inputs.get(policy, {})
@@ -495,8 +525,8 @@ def main():
     parser.add_argument(
         "--model-tags",
         default=(
-            "spp_lstm_h4,spp_lstm_h8,spp_lstm_h15,"
-            "spp_cnn_c8,spp_cnn_c16,spp_cnn_c32"
+            "direct_spp_lstm_h4,direct_spp_lstm_h8,direct_spp_lstm_h16,"
+            "direct_spp_cnn_c5,direct_spp_cnn_c10,direct_spp_cnn_c24"
         ),
     )
     args = parser.parse_args()
@@ -506,7 +536,7 @@ def main():
     if not model_tags:
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
-        if not (tag.startswith("spp_lstm_") or tag.startswith("spp_cnn_")):
+        if not (tag.startswith("direct_spp_lstm_") or tag.startswith("direct_spp_cnn_")):
             raise SystemExit("invalid model tag {}".format(tag))
 
     methods = [
@@ -530,7 +560,7 @@ def main():
         if not event_path.is_file():
             failures.append("missing event log {}".format(event_path))
             continue
-        if method.startswith("offline_spp"):
+        if method == "offline_spp" or method.startswith("offline_direct_spp_"):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
                 failures.append(
@@ -582,6 +612,18 @@ def main():
         failures.append("simulation instruction counts differ")
 
     input_dir = args.run_dir / "colab_input"
+    source_contract_path = input_dir / "spp_source_contract.json"
+    source_contract_hash = ""
+    if not source_contract_path.is_file():
+        failures.append("missing {}".format(source_contract_path))
+    else:
+        try:
+            source_contract = json.loads(source_contract_path.read_text())
+            if source_contract.get("decision_effective_external_input") != ["addr"]:
+                failures.append("SPP source contract external input mismatch")
+            source_contract_hash = sha256(source_contract_path)
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append("invalid SPP source contract: {}".format(exc))
     collection_manifest = {}
     collection_manifest_path = input_dir / "collection_manifest.json"
     if not collection_manifest_path.is_file():
@@ -596,13 +638,17 @@ def main():
             "trace": TRACE,
             "experiment_revision": EXPERIMENT_REVISION,
             "event_logger_schema": EVENT_LOGGER_SCHEMA,
-            "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
+            "action_attachment_mode": ACTION_ATTACHMENT_MODE,
             "policy": POLICY,
-            "independent_matched_track": True,
-            "neural_role": "spp_candidate_gate",
-            "normal_policy_private_state_is_not_nn_input": True,
-            "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
-            "model_input_excludes_action_outcomes": True,
+            "neural_role": "direct_spp_action_predictor",
+            "model_input_is_causal_address_sequence_only": True,
+            "teacher_actions_are_model_inputs": False,
+            "normal_candidate_bank_is_fixed": False,
+            "nn_can_generate_actions_not_emitted_by_teacher": True,
+            "model_does_not_use_pc": True,
+            "cache_hit_and_type_are_audit_only": True,
+            "direct_action_classes": 128,
+            "spp_source_contract_sha256": source_contract_hash,
         }
         for key, expected in expected_manifest.items():
             if collection_manifest.get(key) != expected:
@@ -622,8 +668,8 @@ def main():
                 "stream": input_dir / (
                     TRACE + "." + policy + "." + role + "_stream.csv.gz"
                 ),
-                "candidate": input_dir / (
-                    TRACE + "." + policy + "." + role + "_candidates.csv.gz"
+                "teacher_actions": input_dir / (
+                    TRACE + "." + policy + "." + role + "_teacher_actions.csv.gz"
                 ),
             }
             for kind, path in paths.items():
@@ -641,7 +687,7 @@ def main():
     normal_hashes = {policy: {} for policy in POLICIES}
     pairs = defaultdict(list)
     for tag in model_tags:
-        policy = tag.split("_", 1)[0]
+        policy = POLICY
         required = (
             "offline_{}.replay.csv".format(policy),
             "offline_nn.replay.csv",
@@ -664,7 +710,14 @@ def main():
             )
             continue
         metadata_by_tag[tag] = metadata
-        validate_metadata(metadata, tag, input_info, failures)
+        validate_metadata(
+            metadata, tag, input_info, source_contract_hash, failures
+        )
+        fidelity = metadata.get("eval_action_fidelity", {})
+        for row in rows:
+            if row.get("model_tag") == tag:
+                for key, value in fidelity.items():
+                    row["fidelity_" + key] = value
         pair_id = metadata.get("architecture_pair_id")
         if not pair_id:
             failures.append("{} lacks architecture_pair_id".format(tag))
@@ -695,8 +748,6 @@ def main():
                     failures.append("{} NN-list entry count mismatch".format(tag))
                 if metadata.get("offline_nn_fill_level_counts") != nn_info["fill_counts"]:
                     failures.append("{} NN-list fill counts mismatch".format(tag))
-                if nn_info["entries"] > metadata.get("offline_normal_entries", -1):
-                    failures.append("{} gate emitted more actions than SPP".format(tag))
             except (OSError, RuntimeError, ValueError) as exc:
                 failures.append("{} invalid NN replay list: {}".format(tag, exc))
 
@@ -726,6 +777,19 @@ def main():
 
     add_comparison_metrics(rows, failures)
     by_method = {row["method"]: row for row in rows}
+    fidelity_fields = [
+        "fidelity_action_precision", "fidelity_action_recall",
+        "fidelity_action_f1", "fidelity_action_jaccard",
+        "fidelity_target_line_precision", "fidelity_target_line_recall",
+        "fidelity_target_line_f1",
+        "fidelity_fill_accuracy_given_matched_target_line",
+        "fidelity_exact_callback_match_rate",
+        "fidelity_predicted_actions_per_callback",
+        "fidelity_teacher_actions_per_callback",
+    ]
+    for row in rows:
+        for field in fidelity_fields:
+            row.setdefault(field, "")
     fields = [
         "trace", "method", "model_tag", "comparison_policy",
         "matched_primary_comparison", "ipc", "speedup_vs_no_pref",
@@ -753,7 +817,8 @@ def main():
         "prefetch_duplicate_events", "prefetch_fill_l2_events",
         "prefetch_fill_llc_events", "event_selected_accuracy_proxy",
         "event_coverage_vs_no_pref_l2_miss", "event_timeliness_proxy",
-        "matched", "emitted", "callbacks", "log", "event_log",
+        "matched", "emitted", "callbacks", *fidelity_fields,
+        "log", "event_log",
     ]
     with (args.run_dir / "matched_comparison.csv").open(
         "w", newline=""
@@ -773,6 +838,10 @@ def main():
         "pollution_proxy_delta_vs_offline_normal", "pf_requested",
         "prefetch_request_reduction_vs_offline_normal",
         "balanced_parity_index", "parity_bottleneck",
+        "fidelity_action_precision", "fidelity_action_recall",
+        "fidelity_action_f1", "fidelity_action_jaccard",
+        "fidelity_target_line_f1",
+        "fidelity_fill_accuracy_given_matched_target_line",
     ]
     with (args.run_dir / "insight_summary.csv").open(
         "w", newline=""
@@ -833,8 +902,8 @@ def main():
         "primary_comparisons": {
             "spp_track": [
                 "offline_spp",
-                "offline_spp_lstm_<size>",
-                "offline_spp_cnn_<channels>",
+                "offline_direct_spp_lstm_<size>",
+                "offline_direct_spp_cnn_<channels>",
             ],
         },
         "context_reference_only": [
@@ -843,37 +912,47 @@ def main():
         "transport_fidelity": transport_fidelity,
         "warnings": warnings,
         "track_guardrail": (
-            "Every neural point is normalized only to the same fixed offline "
-            "SPP candidate bank. This is a suppress-only SPP gate, not a "
-            "standalone neural reimplementation of SPP."
+            "Every neural point directly predicts the same 64-offset by "
+            "two-fill-level action space from the same causal address stream. "
+            "No captured SPP action is an inference input."
         ),
         "transport": (
-            "Each PF candidate is attached by explicit prior trigger_event_id; "
-            "the track then replays its live-SPP bank and gated subsets "
-            "through the same PC-line-occ replayer while preserving each "
-            "captured FILL_L2/FILL_LLC action."
+            "Each normal SPP action is attached by explicit prior "
+            "trigger_event_id. Normal and independently generated neural "
+            "action lists use the same PC-line-occ replayer and preserve "
+            "explicit FILL_L2/FILL_LLC actions."
         ),
-        "candidate_contract": (
-            "The neural model is an SPP-candidate gate: it may suppress but "
-            "cannot invent candidates outside captured live SPP actions."
-        ),
+        "direct_action_contract": {
+            "classes": 128,
+            "encoding": "64 same-page offsets times FILL_L2/FILL_LLC",
+            "maximum_actions_per_callback": 16,
+            "teacher_actions_are_model_inputs": False,
+            "nn_can_generate_actions_not_emitted_by_teacher": True,
+        },
         "spp_input_guardrail": {
+            "audited_source_entry": (
+                "SPP_dev2::invoke_prefetcher(ip, addr, cache_hit, type, ...)"
+            ),
+            "decision_effective_external_input": ["addr"],
+            "signature_fields_audit_or_transport_only": [
+                "ip", "cache_hit", "type"
+            ],
             "normal_spp_private_causal_state": [
                 "signature_table", "pattern_table", "GHR", "confidence",
                 "prefetch_filter_usefulness_feedback",
             ],
             "direct_nn_inputs": [
-                "current/prior address-derived demand features",
-                "candidate address and fixed rank features",
+                "nine fixed features derived only from current/prior addr",
             ],
             "not_nn_inputs": [
                 "PC", "cycle", "hit/miss", "queue state", "SPP confidence",
                 "SPP private tables/GHR/filter feedback", "accepted/duplicate",
-                "fill level", "future evaluation rows",
+                "teacher actions", "future evaluation rows",
             ],
             "interpretation": (
-                "SPP private state causally generates the fixed action bank; "
-                "the NN sees only the shared restricted gate inputs."
+                "The LSTM state or three-event CNN approximates history from "
+                "the source-effective address sequence; it does not clone or "
+                "observe normal SPP's private state."
             ),
         },
         "cnn_contract": {
@@ -921,6 +1000,7 @@ def main():
         "input_provenance": {
             "current_input_dir": str(input_dir),
             "collection_manifest": collection_manifest,
+            "spp_source_contract_sha256": source_contract_hash,
             "policy_inputs": input_info,
         },
         "offline_normal_list_hashes_by_model_tag": normal_hashes,
@@ -949,7 +1029,7 @@ def main():
             normal = by_method["offline_" + policy]
             points = []
             for tag in model_tags:
-                if not tag.startswith(policy + "_"):
+                if not tag.startswith("direct_" + policy + "_"):
                     continue
                 row = by_method["offline_" + tag]
                 metadata = metadata_by_tag[tag]
@@ -1035,6 +1115,14 @@ def main():
                     cnn_row["balanced_parity_index"]
                     - lstm_row["balanced_parity_index"]
                 ),
+                "lstm_action_f1": lstm_meta["eval_action_fidelity"]["action_f1"],
+                "cnn_action_f1": cnn_meta["eval_action_fidelity"]["action_f1"],
+                "cnn_minus_lstm_action_f1": (
+                    cnn_meta["eval_action_fidelity"]["action_f1"]
+                    - lstm_meta["eval_action_fidelity"]["action_f1"]
+                ),
+                "lstm_target_line_f1": lstm_meta["eval_action_fidelity"]["target_line_f1"],
+                "cnn_target_line_f1": cnn_meta["eval_action_fidelity"]["target_line_f1"],
                 "ipc_winner": (
                     "cnn" if cnn_row["ipc"] > lstm_row["ipc"] else "lstm"
                 ),
@@ -1042,6 +1130,12 @@ def main():
                     "cnn"
                     if cnn_row["balanced_parity_index"]
                     > lstm_row["balanced_parity_index"]
+                    else "lstm"
+                ),
+                "action_fidelity_winner": (
+                    "cnn"
+                    if cnn_meta["eval_action_fidelity"]["action_f1"]
+                    > lstm_meta["eval_action_fidelity"]["action_f1"]
                     else "lstm"
                 ),
             })
@@ -1064,8 +1158,9 @@ def main():
                 "BPI: useful information extends beyond three events."
             ),
             "both_fail": (
-                "The matched normal candidate bank or future-use target is "
-                "the bottleneck; architecture alone is insufficient."
+                "Both direct students fail to reproduce enough useful SPP "
+                "actions: the restricted address representation or missing "
+                "private SPP feedback is more important than architecture."
             ),
         }
 

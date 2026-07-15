@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed validation for the independent 623 SPP-gating track."""
+"""Fail-closed validation for the direct 623 SPP I/O student track."""
 import argparse
 import csv
 import gzip
@@ -14,7 +14,9 @@ POLICY = "spp"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "spp_gate_sliding_cnn_v1"
+EXPERIMENT_REVISION = "spp_direct_io_sliding_cnn_v2"
+PAGE_LINES = 64
+MAX_ACTIONS = 16
 
 
 def as_int(value):
@@ -41,7 +43,7 @@ def gzip_content_sha256(path):
 def identity_sha256(rows):
     digest = hashlib.sha256()
     for row in rows:
-        digest.update(("{},{},{},{}\n".format(*row)).encode())
+        digest.update((",".join(str(value) for value in row) + "\n").encode())
     return digest.hexdigest()
 
 
@@ -52,8 +54,8 @@ def read_stream(path):
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
-            "trace", "demand_idx", "cycle", "pc", "line", "pc_line_occ",
-            "logger_schema",
+            "trace", "demand_idx", "cycle", "pc", "address", "line",
+            "cache_hit", "access_type", "pc_line_occ", "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
@@ -61,136 +63,155 @@ def read_stream(path):
         for index, row in enumerate(reader):
             cycle = as_int(row["cycle"])
             pc = as_int(row["pc"])
+            address = as_int(row["address"])
             line = as_int(row["line"])
-            occ = as_int(row["pc_line_occ"])
-            pair = (pc, line)
-            expected_occ = occurrences[pair]
-            occurrences[pair] += 1
+            hit = as_int(row["cache_hit"])
+            access_type = as_int(row["access_type"])
+            occurrence = as_int(row["pc_line_occ"])
+            expected_occurrence = occurrences[(pc, line)]
+            occurrences[(pc, line)] += 1
             if row["trace"] != TRACE or as_int(row["demand_idx"]) != index:
-                raise RuntimeError("{} identity/order failure at demand {}".format(path, index))
+                raise RuntimeError("{} identity/order failure at {}".format(path, index))
             if row["logger_schema"] != LOGGER_SCHEMA:
                 raise RuntimeError("{} contains stale logger schema".format(path))
             if cycle < last_cycle:
-                raise RuntimeError("{} cycle order regressed at demand {}".format(path, index))
-            if occ != expected_occ:
-                raise RuntimeError("{} occurrence mismatch at demand {}".format(path, index))
-            rows.append((index, pc, line, occ))
+                raise RuntimeError("{} cycle order regressed at {}".format(path, index))
+            if address != line << 6:
+                raise RuntimeError("{} address is not canonical line-aligned addr".format(path))
+            if hit not in (0, 1) or access_type < 0:
+                raise RuntimeError("{} invalid callback audit fields".format(path))
+            if occurrence != expected_occurrence:
+                raise RuntimeError("{} occurrence mismatch at {}".format(path, index))
+            rows.append((index, pc, address, line, occurrence))
             last_cycle = cycle
     if not rows:
         raise RuntimeError("empty demand stream {}".format(path))
     return rows
 
 
-def read_candidates(path, policy, stream_rows):
+def read_teacher_actions(path, stream_rows):
     counts = defaultdict(int)
-    fill_counts = defaultdict(int)
+    seen = defaultdict(set)
+    fill_counts = {"FILL_L2": 0, "FILL_LLC": 0}
+    last_pf_event = -1
     total = 0
-    last_pf_event_id = -1
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
             "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
-            "candidate_rank", "pf_line", "fill_level", "accepted", "duplicate",
-            "trigger_event_id", "pf_event_id", "event_distance", "match_mode",
-            "logger_schema",
+            "action_rank", "pf_line", "target_page_offset", "fill_level",
+            "accepted", "duplicate", "trigger_event_id", "pf_event_id",
+            "event_distance", "match_mode", "logger_schema",
         }
         missing = required.difference(reader.fieldnames or [])
         if missing:
-            raise RuntimeError("{} missing candidate columns {}".format(path, sorted(missing)))
+            raise RuntimeError("{} missing action columns {}".format(path, sorted(missing)))
         for row in reader:
             demand_idx = as_int(row["demand_idx"])
             if demand_idx < 0 or demand_idx >= len(stream_rows):
-                raise RuntimeError("{} demand_idx out of range".format(path))
-            index, pc, line, occ = stream_rows[demand_idx]
-            observed = (
-                as_int(row["demand_idx"]),
-                as_int(row["pc"]),
-                as_int(row["line"]),
+                raise RuntimeError("{} action demand_idx out of range".format(path))
+            index, pc, _, line, occurrence = stream_rows[demand_idx]
+            identity = (
+                demand_idx, as_int(row["pc"]), as_int(row["line"]),
                 as_int(row["pc_line_occ"]),
             )
-            if observed != (index, pc, line, occ):
-                raise RuntimeError("{} transport identity mismatch".format(path))
-            if row["trace"] != TRACE or row["policy"] != policy:
+            if identity != (index, pc, line, occurrence):
+                raise RuntimeError("{} action transport identity mismatch".format(path))
+            if row["trace"] != TRACE or row["policy"] != POLICY:
                 raise RuntimeError("{} trace/policy mismatch".format(path))
-            if row["logger_schema"] != LOGGER_SCHEMA:
-                raise RuntimeError("{} contains stale logger schema".format(path))
-            if row["match_mode"] != ATTACHMENT_MODE:
-                raise RuntimeError("{} contains non-explicit candidate attachment".format(path))
-
+            if row["logger_schema"] != LOGGER_SCHEMA or row["match_mode"] != ATTACHMENT_MODE:
+                raise RuntimeError("{} stale/noncausal action attachment".format(path))
             counts[demand_idx] += 1
-            if as_int(row["candidate_rank"]) != counts[demand_idx]:
-                raise RuntimeError("{} candidate ranks are not contiguous".format(path))
-            trigger_id = as_int(row["trigger_event_id"])
-            pf_event_id = as_int(row["pf_event_id"])
+            if as_int(row["action_rank"]) != counts[demand_idx]:
+                raise RuntimeError("{} action ranks are not contiguous".format(path))
+            if counts[demand_idx] > MAX_ACTIONS:
+                raise RuntimeError("{} exceeds source action bound {}".format(path, MAX_ACTIONS))
+
+            trigger = as_int(row["trigger_event_id"])
+            pf_event = as_int(row["pf_event_id"])
             distance = as_int(row["event_distance"])
-            if pf_event_id <= last_pf_event_id:
-                raise RuntimeError("{} PF event IDs are not increasing".format(path))
-            if trigger_id >= pf_event_id or distance != pf_event_id - trigger_id:
-                raise RuntimeError("{} explicit trigger distance mismatch".format(path))
+            if pf_event <= last_pf_event or trigger >= pf_event or distance != pf_event - trigger:
+                raise RuntimeError("{} invalid explicit trigger ordering".format(path))
             if distance < 1 or distance > 256:
-                raise RuntimeError("{} trigger distance outside validated bound".format(path))
+                raise RuntimeError("{} trigger distance outside bound".format(path))
+            pf_line = as_int(row["pf_line"])
+            offset = as_int(row["target_page_offset"])
+            fill = as_int(row["fill_level"])
             accepted = as_int(row["accepted"])
             duplicate = as_int(row["duplicate"])
-            if accepted not in (0, 1) or duplicate not in (0, 1) or (duplicate and not accepted):
-                raise RuntimeError("{} invalid candidate outcome bits".format(path))
-            fill_level = as_int(row["fill_level"])
-            if fill_level not in (2, 4):
-                raise RuntimeError("{} SPP candidate has invalid fill level".format(path))
-            fill_counts[fill_level] += 1
-            last_pf_event_id = pf_event_id
+            if offset != pf_line % PAGE_LINES or offset < 0 or offset >= PAGE_LINES:
+                raise RuntimeError("{} target offset mismatch".format(path))
+            if pf_line // PAGE_LINES != line // PAGE_LINES or pf_line == line:
+                raise RuntimeError("{} cross-page/self SPP action".format(path))
+            if fill not in (2, 4):
+                raise RuntimeError("{} invalid fill level".format(path))
+            if accepted != 1 or duplicate not in (0, 1):
+                raise RuntimeError("{} incomplete/invalid teacher action".format(path))
+            if pf_line in seen[demand_idx]:
+                raise RuntimeError("{} has two fill choices for one target".format(path))
+            seen[demand_idx].add(pf_line)
+            fill_counts["FILL_L2" if fill == 2 else "FILL_LLC"] += 1
             total += 1
+            last_pf_event = pf_event
     if total == 0:
-        raise RuntimeError("empty candidate bank {}".format(path))
-    return total, max(counts.values()), dict(sorted(fill_counts.items()))
+        raise RuntimeError("empty teacher action stream {}".format(path))
+    return total, max(counts.values()), fill_counts
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--input-dir", required=True, type=Path)
     parser.add_argument("--manifest-out", required=True, type=Path)
+    parser.add_argument("--source-contract", type=Path)
     args = parser.parse_args()
 
     manifest = {
         "status": "PASS",
         "trace": TRACE,
+        "policy": POLICY,
         "experiment_revision": EXPERIMENT_REVISION,
         "event_logger_schema": LOGGER_SCHEMA,
-        "candidate_attachment_mode": ATTACHMENT_MODE,
-        "policy": POLICY,
-        "independent_matched_track": True,
-        "neural_role": "spp_candidate_gate",
-        "normal_policy_private_state": [
-            "signature_table", "pattern_table", "GHR",
-            "confidence", "prefetch_filter_usefulness_feedback",
-        ],
-        "normal_policy_private_state_is_not_nn_input": True,
-        "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
-        "model_input_excludes_action_outcomes": True,
+        "action_attachment_mode": ATTACHMENT_MODE,
+        "neural_role": "direct_spp_action_predictor",
+        "source_decision_effective_external_input": ["addr"],
+        "model_input_is_causal_address_sequence_only": True,
+        "teacher_actions_are_model_inputs": False,
+        "normal_candidate_bank_is_fixed": False,
+        "nn_can_generate_actions_not_emitted_by_teacher": True,
+        "model_does_not_use_pc": True,
+        "cache_hit_and_type_are_audit_only": True,
+        "direct_action_classes": 128,
         "tracks": {POLICY: {}},
     }
+    if args.source_contract is not None:
+        contract = json.loads(args.source_contract.read_text())
+        if contract.get("decision_effective_external_input") != ["addr"]:
+            raise RuntimeError("SPP source contract has unexpected external input")
+        manifest["spp_source_contract_sha256"] = sha256(args.source_contract)
+
     for role in ROLES:
         stream_path = args.input_dir / "{}.{}.{}_stream.csv.gz".format(
             TRACE, POLICY, role
         )
-        candidate_path = args.input_dir / "{}.{}.{}_candidates.csv.gz".format(
+        action_path = args.input_dir / "{}.{}.{}_teacher_actions.csv.gz".format(
             TRACE, POLICY, role
         )
-        if not stream_path.is_file() or not candidate_path.is_file():
-            raise RuntimeError("missing normalized {} {} inputs".format(POLICY, role))
+        if not stream_path.is_file() or not action_path.is_file():
+            raise RuntimeError("missing normalized SPP {} inputs".format(role))
         stream_rows = read_stream(stream_path)
-        candidate_count, max_candidates, fill_counts = read_candidates(
-            candidate_path, POLICY, stream_rows
+        action_count, max_actions, fill_counts = read_teacher_actions(
+            action_path, stream_rows
         )
         manifest["tracks"][POLICY][role] = {
             "demand_callbacks": len(stream_rows),
-            "candidate_requests": candidate_count,
-            "max_candidates_per_demand": max_candidates,
-            "candidate_fill_level_counts": fill_counts,
+            "teacher_actions": action_count,
+            "max_actions_per_callback": max_actions,
+            "teacher_fill_level_counts": fill_counts,
             "demand_identity_sha256": identity_sha256(stream_rows),
             "stream_gzip_sha256": sha256(stream_path),
             "stream_content_sha256": gzip_content_sha256(stream_path),
-            "candidate_gzip_sha256": sha256(candidate_path),
-            "candidate_content_sha256": gzip_content_sha256(candidate_path),
+            "teacher_actions_gzip_sha256": sha256(action_path),
+            "teacher_actions_content_sha256": gzip_content_sha256(action_path),
         }
 
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)

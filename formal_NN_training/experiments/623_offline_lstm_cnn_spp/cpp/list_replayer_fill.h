@@ -11,11 +11,11 @@
 
 class CACHE;
 
-// Replays an SPP candidate action without changing its cache destination.
+// Replays either a captured normal-SPP action or a direct-NN action without
+// changing its requested cache destination.
 // PFETCH_LIST_PATH format:
 //   pc,line,occ,prefetch_addr,fill_level
-// `fill_level` is the captured ChampSim action (FILL_L2=2 or FILL_LLC=4).
-// It is replay metadata only and is never exposed to the neural model.
+// `fill_level` is an explicit ChampSim action (FILL_L2=2 or FILL_LLC=4).
 class ListReplayerFill : public Prefetcher
 {
 public:

@@ -69,7 +69,9 @@ tail -f "$RUN_DIR/collect.nohup.log"
 
 The launcher creates `RUN_DIR` before redirecting. Under the shared ChampSim
 build lock, a recognized older experiment logger is backed up and automatically
-replaced; unknown `cache.cc` edits still fail closed.
+replaced from the newest logger-free `src/cache.cc` blob in Git history. This
+also works when the stale logger was committed into the local ChampSim HEAD;
+unknown `cache.cc` edits still fail closed.
 
 Upload `$RUN_DIR/$RUN_ID.colab_input.tar.gz` and run
 `colab/623_offline_lstm_cnn_stride_A100.ipynb`. Copy the downloaded output

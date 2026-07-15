@@ -100,7 +100,7 @@ void ListReplayerFill::load_table()
             "[list_replayer_fill] replay list has no valid header " + path_
         );
     }
-    cerr << "[list_replayer_fill] loaded " << loaded_ << " SPP actions across "
+    cerr << "[list_replayer_fill] loaded " << loaded_ << " direct actions across "
          << table_.size() << " PC-line-occ triggers from " << path_ << endl;
 }
 
@@ -136,7 +136,7 @@ void ListReplayerFill::dump_stats()
 {
     if (stats_dumped_) return;
     stats_dumped_ = true;
-    cerr << "[list_replayer_fill] emitted " << emitted_ << " candidates over "
+    cerr << "[list_replayer_fill] emitted " << emitted_ << " actions over "
          << callbacks_ << " runtime ROI L2 LOAD accesses (" << matched_
          << " matched PC-line-occ triggers; " << table_.size()
          << " loaded trigger keys; key=pc_line_occ; fill_l2=" << emitted_l2_

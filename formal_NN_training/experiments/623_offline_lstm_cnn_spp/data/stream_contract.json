@@ -1,178 +1,113 @@
 {
   "experiment": "623_offline_lstm_cnn_spp",
-  "experiment_revision": "spp_gate_sliding_cnn_v1",
+  "experiment_revision": "spp_direct_io_sliding_cnn_v2",
   "event_logger_schema": "623_causal_trigger_v5",
   "trace": "623.xalancbmk_s-700B",
   "trace_file": "traces/623.xalancbmk_s-700B.champsimtrace.xz",
   "generated_data_root": "runs/<RUN_ID>/colab_input",
   "large_generated_data_is_committed": false,
   "policy": "spp",
-  "neural_role": "spp_candidate_gate",
+  "neural_role": "direct_spp_action_predictor",
   "primary_comparison": [
     "offline_spp",
-    "offline_spp_lstm_<size>",
-    "offline_spp_cnn_<channels>"
+    "offline_direct_spp_lstm_<size>",
+    "offline_direct_spp_cnn_<channels>"
   ],
+  "source_callback_audit": {
+    "entry": "SPP_dev2::invoke_prefetcher(uint64_t ip, uint64_t addr, uint8_t cache_hit, uint8_t type, ...)",
+    "decision_effective_external_input": ["addr"],
+    "transport_only": ["ip"],
+    "signature_present_but_unused_by_prediction_path": ["cache_hit", "type"],
+    "private_causal_state": [
+      "signature table (ST)",
+      "pattern table (PT)",
+      "global history register (GHR)",
+      "prefetch filter (FILTER)",
+      "cache_fill eviction feedback"
+    ],
+    "direct_output": "zero or more same-page (pf_addr, FILL_L2/FILL_LLC) actions"
+  },
   "stream_columns": [
-    "trace",
-    "demand_idx",
-    "cycle",
-    "pc",
-    "line",
-    "pc_line_occ",
-    "logger_schema"
+    "trace", "demand_idx", "cycle", "pc", "address", "line",
+    "cache_hit", "access_type", "pc_line_occ", "logger_schema"
   ],
-  "candidate_columns": [
-    "trace",
-    "policy",
-    "demand_idx",
-    "pc",
-    "line",
-    "pc_line_occ",
-    "candidate_rank",
-    "pf_line",
-    "fill_level",
-    "accepted",
-    "duplicate",
-    "trigger_event_id",
-    "pf_event_id",
-    "event_distance",
-    "match_mode",
-    "logger_schema"
+  "teacher_action_columns": [
+    "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
+    "action_rank", "pf_line", "target_page_offset", "fill_level",
+    "accepted", "duplicate", "trigger_event_id", "pf_event_id",
+    "event_distance", "match_mode", "logger_schema"
   ],
   "model_input_contract": {
-    "demand_features": [
-      "current page offset derived from line",
-      "signed line delta from the immediately prior demand",
-      "log absolute line delta from the immediately prior demand",
+    "feature_count": 9,
+    "address_features": [
+      "current page offset",
+      "page-number bits 0--15",
+      "page-number bits 16--31",
+      "page-number bits 32--47",
+      "page-number bits 48--63",
+      "signed line delta from prior callback",
+      "log absolute line delta from prior callback",
       "same-page indicator",
-      "signed page delta from the immediately prior demand"
+      "signed page delta from prior callback"
     ],
-    "candidate_features": [
-      "signed candidate line delta",
-      "candidate page offset",
-      "candidate rank"
-    ],
-    "transport_only": [
-      "pc",
-      "pc_line_occ",
-      "demand_idx",
-      "trigger_event_id",
-      "pf_event_id",
-      "match_mode",
-      "logger_schema"
+    "transport_or_audit_only": [
+      "pc", "pc_line_occ", "demand_idx", "cycle", "cache_hit",
+      "access_type", "trigger_event_id", "pf_event_id", "logger_schema"
     ],
     "forbidden": [
-      "cycle",
-      "hit_miss",
-      "queue_state",
-      "accepted",
-      "duplicate",
-      "fill_level",
-      "SPP confidence",
-      "SPP signature table",
-      "SPP pattern table",
-      "SPP GHR",
-      "SPP prefetch-filter feedback",
-      "future_evaluation_rows"
+      "teacher action or candidate bank", "accepted", "duplicate",
+      "fill level", "future evaluation rows", "SPP confidence",
+      "SPP signature table", "SPP pattern table", "SPP GHR",
+      "SPP prefetch-filter feedback", "queue state"
     ]
   },
-  "causal_candidate_attachment": {
+  "direct_action_space": {
+    "classes": 128,
+    "encoding": "target_page_offset * 2 + fill_index",
+    "target_page_offsets": 64,
+    "fill_levels": [2, 4],
+    "maximum_actions_per_callback": 16,
+    "same_target_offset_fill_conflict": "retain the higher-scoring fill level",
+    "nn_can_generate_action_absent_from_teacher_callback": true,
+    "teacher_actions_are_model_inputs": false
+  },
+  "causal_action_attachment": {
     "mode": "explicit_trigger_event_id",
-    "rule": "write each completed L2 demand before its synchronous prefetcher callback; every PF row carries that exact demand event ID",
     "address_guess_or_fallback_allowed": false,
     "future_demand_attachment_allowed": false,
     "stalled_rq_retry_creates_model_timestep": false,
     "validated_equalities": [
-      "PF trigger_event_id equals the immediately active prior demand event_id",
+      "PF trigger event is the immediately active prior demand",
       "PF trigger CPU, PC, line, and cycle equal the demand row",
-      "prefetch_line base line equals the explicit trigger line"
+      "prefetch_line base line equals the explicit trigger line",
+      "SPP target remains in the trigger's 4 KiB page"
     ]
   },
-  "candidate_rank_normalization": {
-    "formula": "min(candidate_rank, 32) / 32",
-    "fixed_before_collection": true,
-    "uses_eval_statistics": false
-  },
   "windows": {
-    "train": {
-      "warmup_instructions": 0,
-      "simulation_instructions": 20000000,
-      "role": "fit first chronological 80 percent; calibrate final 20 percent"
-    },
-    "guard": {
-      "warmup_instructions": 20000000,
-      "simulation_instructions": 5000000,
-      "role": "initialize LSTM state or provide the two-row CNN left context"
-    },
-    "evaluation": {
-      "warmup_instructions": 25000000,
-      "simulation_instructions": 25000000,
-      "role": "causal inference and keyed replay only"
-    }
+    "train": {"warmup_instructions": 0, "simulation_instructions": 20000000, "role": "chronological 80% fit / 20% calibration"},
+    "guard": {"warmup_instructions": 20000000, "simulation_instructions": 5000000, "role": "inference state/context only"},
+    "evaluation": {"warmup_instructions": 25000000, "simulation_instructions": 25000000, "role": "direct inference, fidelity audit, and replay"}
   },
   "matched_track": {
-    "live_configuration": {
-      "prefetcher": "spp_dev2",
-      "fill_threshold": 90,
-      "prefetch_threshold": 40
-    },
-    "normal_private_causal_state": [
-      "signature table",
-      "pattern table",
-      "GHR",
-      "confidence",
-      "prefetch-filter usefulness feedback"
-    ],
-    "normal_private_state_is_direct_nn_input": false,
-    "neural_action_space": "suppress-only over captured causal SPP PF actions",
-    "fill_level_contract": "capture and replay FILL_L2/FILL_LLC exactly; never expose it to the NN",
-    "claim_scope": "SPP candidate gating, not a standalone SPP reimplementation"
+    "live_configuration": {"prefetcher": "spp_dev2", "fill_threshold": 90, "prefetch_threshold": 40},
+    "normal_output": "captured direct SPP action list",
+    "neural_output": "independently decoded direct action list",
+    "fill_level_contract": "both normal and neural lists preserve explicit FILL_L2/FILL_LLC",
+    "claim_scope": "source-interface direct I/O student; not bit-identical reconstruction of SPP private tables"
   },
   "architecture_pairs": [
-    {
-      "pair_id": "p0k2",
-      "lstm": {
-        "tag_suffix": "lstm_h4",
-        "parameters": 213
-      },
-      "cnn": {
-        "tag_suffix": "cnn_c8",
-        "parameters": 233
-      }
-    },
-    {
-      "pair_id": "p0k6",
-      "lstm": {
-        "tag_suffix": "lstm_h8",
-        "parameters": 585
-      },
-      "cnn": {
-        "tag_suffix": "cnn_c16",
-        "parameters": 593
-      }
-    },
-    {
-      "pair_id": "p1k6",
-      "lstm": {
-        "tag_suffix": "lstm_h15",
-        "parameters": 1621
-      },
-      "cnn": {
-        "tag_suffix": "cnn_c32",
-        "parameters": 1697
-      }
-    }
+    {"pair_id": "p0", "lstm": {"tag_suffix": "direct_spp_lstm_h4", "parameters": 880}, "cnn": {"tag_suffix": "direct_spp_cnn_c5", "parameters": 908}},
+    {"pair_id": "p1", "lstm": {"tag_suffix": "direct_spp_lstm_h8", "parameters": 1760}, "cnn": {"tag_suffix": "direct_spp_cnn_c10", "parameters": 1688}},
+    {"pair_id": "p2", "lstm": {"tag_suffix": "direct_spp_lstm_h16", "parameters": 3904}, "cnn": {"tag_suffix": "direct_spp_cnn_c24", "parameters": 3872}}
   ],
   "cnn": {
-    "name": "causal sliding-window 1-D CNN",
+    "name": "single causal three-event sliding Conv1d",
     "temporal_convolution_layers": 1,
     "kernel_size_events": 3,
     "stride_events": 1,
     "dilation": 1,
     "left_padding_events": 2,
     "receptive_field_events": 3,
-    "chunk_boundary_contract": "two-event left overlap; loss and export exclude overlap rows",
-    "sketch_mapping": "one three-event filter slides down the sequence one event per output"
+    "additional_temporal_layers": 0
   }
 }

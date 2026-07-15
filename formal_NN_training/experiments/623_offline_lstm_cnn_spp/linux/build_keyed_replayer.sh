@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Build SPP plus a PC-line-occ replayer that preserves captured fill level.
+# Build SPP plus a PC-line-occ replayer for normal or direct-NN actions.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_spp"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
-GENERATED="$CHAMP_DIR/prefetcher/offline_623_spp_cnn_replayer.l2c_pref"
-TEMPLATE="$CHAMP_DIR/prefetcher/.offline_623_spp_cnn_replayer.tmp"
+GENERATED="$CHAMP_DIR/prefetcher/offline_623_direct_spp_replayer.l2c_pref"
+TEMPLATE="$CHAMP_DIR/prefetcher/.offline_623_direct_spp_replayer.tmp"
 HEADER="$CHAMP_DIR/inc/list_replayer_fill.h"
 SOURCE="$CHAMP_DIR/prefetcher/list_replayer_fill.cc"
-BUILT="$CHAMP_DIR/bin/perceptron-no-offline_623_spp_cnn_replayer-no-ship-1core"
-OUT="${OUT:-$CHAMP_DIR/bin/champsim.623_spp_cnn_replay}"
+BUILT="$CHAMP_DIR/bin/perceptron-no-offline_623_direct_spp_replayer-no-ship-1core"
+OUT="${OUT:-$CHAMP_DIR/bin/champsim.623_direct_spp_replay}"
 
 cleanup() {
   rm -f "$GENERATED" "$TEMPLATE" "$HEADER" "$SOURCE"
@@ -77,7 +77,7 @@ if 'compare("list_replayer_fill")' not in text:
 output.write_text(text)
 PY
 
-( cd "$CHAMP_DIR" && ./build_champsim.sh no offline_623_spp_cnn_replayer no 1 )
+( cd "$CHAMP_DIR" && ./build_champsim.sh no offline_623_direct_spp_replayer no 1 )
 [[ -x "$BUILT" ]] || { echo "[error] expected binary missing: $BUILT" >&2; exit 4; }
 cp -f "$BUILT" "$OUT"
-echo "[ok] built fill-preserving SPP replayer $OUT"
+echo "[ok] built fill-preserving direct-SPP replayer $OUT"
