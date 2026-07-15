@@ -230,9 +230,15 @@ def main():
             "training_chunks_shuffled": False,
             "training_state_carried_across_chunks": True,
             "training_state_detached_between_chunks": True,
-            "experiment_revision": "threshold_free_count_rank_v5",
+            "experiment_revision": "source_input_variable_delta_free_running_v7",
             "neural_role": "standalone_direct_action_prefetcher",
             "same_external_input_contract": True,
+            "training_inference_input_encoder_identical": True,
+            "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+            "decoder_previous_teacher_action_used_as_input": False,
+            "decoder_free_running_self_test": "PASS",
+            "training_runtime_fields": ["pc", "cache_line_address"],
+            "inference_runtime_fields": ["pc", "cache_line_address"],
             "normal_policy_candidates_used_as_model_inputs": False,
             "normal_policy_private_state_used_as_model_inputs": False,
             "normal_policy_outputs_used_as_training_targets": True,
@@ -240,6 +246,8 @@ def main():
             "normal_policy_constants_used_by_neural_inference": False,
             "probability_threshold_used": False,
             "neural_degree_cap": None,
+            "fixed_page_offset_classes": None,
+            "same_page_rule_used_by_neural_inference": False,
             "future_label_window_used": False,
             "handcrafted_semantic_features_used": False,
             "manual_loss_weights_used": False,
@@ -255,6 +263,10 @@ def main():
                         tag, key, metadata.get(key), expected
                     )
                 )
+        encoder_hashes = {metadata.get("runtime_encoder_sha256"), metadata.get("training_runtime_encoder_sha256"), metadata.get("inference_runtime_encoder_sha256")}
+        encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+        if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
+            failures.append("{} train/inference encoder hash mismatch".format(tag))
         if set(current_stream_info) != {"train", "eval"}:
             continue
 
@@ -326,7 +338,7 @@ def main():
         "primary_comparison": ["offline_stride", "offline_lstm_<capacity>"],
         "transport": "both policies see the same PC/address evaluation stream and use the same PC-line-occ ListReplayer; the LSTM generates targets independently",
         "matched_input_contract": "effective Stride inputs only: current PC and cache-line address plus the LSTM's own causal state",
-        "neural_contract": "standalone 64-offset direct-action head; no Stride candidates or tracker state enter the model",
+        "neural_contract": "unbounded learned count plus autoregressive direct cache-line deltas; no Stride candidates, page-offset table, degree, or tracker state enter inference",
         "live_stride_role": "validated general reference only; it is not the offline primary comparator",
         "metric_definitions": {
             "prefetch_useful_demand_hits": "post-warmup L2 load hits on a line marked as prefetched",
