@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
-# Linux stages for matched 623 stride/SPP LSTM-versus-sliding-CNN tracks.
+# Independent matched 623 stride track: normal stride versus LSTM/CNN gates.
 set -euo pipefail
 
-echo "[error] deprecated combined 623 track" >&2
-echo "[hint] use experiments/623_offline_lstm_cnn_stride or experiments/623_offline_lstm_cnn_spp" >&2
-exit 2
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_stride_spp"
+EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_stride"
 TRACE="623.xalancbmk_s-700B"
-RUN_ID="${RUN_ID:-623_offline_lstm_cnn_stride_spp_seed7}"
+POLICY="stride"
+RUN_ID="${RUN_ID:-623_offline_lstm_cnn_stride_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-stride_lstm_h4,stride_lstm_h8,stride_lstm_h15,stride_cnn_c8,stride_cnn_c16,stride_cnn_c32,spp_lstm_h4,spp_lstm_h8,spp_lstm_h15,spp_cnn_c8,spp_cnn_c16,spp_cnn_c32}"
-STRIDE_BASE_TAG="${STRIDE_BASE_TAG:-stride_lstm_h4}"
-SPP_BASE_TAG="${SPP_BASE_TAG:-spp_lstm_h4}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-stride_lstm_h4,stride_lstm_h8,stride_lstm_h15,stride_cnn_c8,stride_cnn_c16,stride_cnn_c32}"
+BASE_TAG="${BASE_TAG:-stride_lstm_h4}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -24,7 +20,7 @@ LOG_DIR="$RUN_DIR/logs"
 EVENT_DIR="$RUN_DIR/events"
 STREAM_DIR="$RUN_DIR/colab_input"
 COLAB_ROOT="$RUN_DIR/colab_output"
-BIN="${BIN:-$CHAMP_DIR/bin/champsim.623_stride_spp_cnn_replay}"
+BIN="${BIN:-$CHAMP_DIR/bin/champsim.623_stride_cnn_replay}"
 EXPECTED_LIBBF_HEAD="4c9efc1a4db7ed1ccf54cf0bd3a3641ce579206c"
 BUILD_LOCK="${BUILD_LOCK:-$(git -C "$ROOT" rev-parse --absolute-git-dir)/champsim_build.lock}"
 
@@ -69,25 +65,26 @@ build() {
   (
     echo "[build-lock] waiting for $BUILD_LOCK"
     flock -x 9
-    echo "[build-lock] acquired by 623 stride/SPP run $RUN_ID"
-    RESET_PATCH="${RESET_PATCH:-0}" CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
+    echo "[build-lock] acquired by 623 stride run $RUN_ID"
+    RUN_DIR="$RUN_DIR" RESET_PATCH="${RESET_PATCH:-0}" \
+      CHAMP_DIR="$CHAMP_DIR" bash "$PATCH_LOGGER"
     ensure_libbf
     CHAMP_DIR="$CHAMP_DIR" OUT="$BIN" bash "$BUILD_REPLAYER"
-    echo "[build-lock] 623 stride/SPP build complete"
+    echo "[build-lock] 623 stride build complete"
   ) 9>"$BUILD_LOCK"
 }
 
-assert_live_stride() {
+assert_live_policy() {
   local log="$1"
   grep -Eiq 'adding L2C_PREFETCHER:.*stride' "$log" || {
     echo "[error] live stride was not registered" >&2
     exit 3
   }
-  grep -Fq "stride_num_trackers 64" "$log" || {
+  grep -Fq 'stride_num_trackers 64' "$log" || {
     echo "[error] stride did not use 64 trackers" >&2
     exit 3
   }
-  grep -Fq "stride_pref_degree 2" "$log" || {
+  grep -Fq 'stride_pref_degree 2' "$log" || {
     echo "[error] stride did not use degree 2" >&2
     exit 3
   }
@@ -95,73 +92,45 @@ assert_live_stride() {
     echo "[error] stride generated zero candidates" >&2
     exit 3
   }
-}
-
-assert_live_spp() {
-  local log="$1"
-  grep -Eiq 'adding L2C_PREFETCHER:.*spp' "$log" || {
-    echo "[error] live SPP was not registered" >&2
-    exit 3
-  }
-  grep -Eq '^Core_0_L2C_prefetch_requested [1-9][0-9]*$' "$log" || {
-    echo "[error] SPP generated zero candidates" >&2
+  grep -Eq '^Core_0_L2C_prefetch_dropped 0$' "$log" || {
+    echo "[error] stride dropped requests; captured candidate bank is incomplete" >&2
     exit 3
   }
 }
 
 run_policy_events() {
-  local policy="$1" role="$2" warmup="$3" simulation="$4"
-  local raw="$EVENT_DIR/$TRACE.$policy.$role.events.csv"
+  local role="$1" warmup="$2" simulation="$3"
+  local raw="$EVENT_DIR/$TRACE.$POLICY.$role.events.csv"
   local gz="$raw.gz"
-  local log="$LOG_DIR/$TRACE.$policy.$role.collect.log"
+  local log="$LOG_DIR/$TRACE.$POLICY.$role.collect.log"
   if [[ "$FORCE" != 1 && -s "$gz" && -s "$log" ]] && gzip -t "$gz"; then
-    echo "[skip] $policy $role"
+    echo "[skip] $POLICY $role"
     return
   fi
   rm -f "$raw" "$gz"
-  case "$policy" in
-    stride)
-      DEMAND_EVENT_LOG="$raw" "$BIN" \
-        --l2c_prefetcher_types=stride \
-        --stride_num_trackers=64 --stride_pref_degree=2 \
-        --warmup_instructions="$warmup" \
-        --simulation_instructions="$simulation" \
-        -traces "$TRACE_FILE" > "$log" 2>&1
-      assert_live_stride "$log"
-      ;;
-    spp)
-      DEMAND_EVENT_LOG="$raw" "$BIN" \
-        --l2c_prefetcher_types=spp_dev2 \
-        --spp_dev2_fill_threshold=90 --spp_dev2_pf_threshold=40 \
-        --warmup_instructions="$warmup" \
-        --simulation_instructions="$simulation" \
-        -traces "$TRACE_FILE" > "$log" 2>&1
-      assert_live_spp "$log"
-      ;;
-    *)
-      echo "[error] unknown collection policy $policy" >&2
-      exit 2
-      ;;
-  esac
-  [[ -s "$raw" ]] || {
-    echo "[error] missing event output for $policy $role" >&2
-    exit 3
-  }
+  DEMAND_EVENT_LOG="$raw" "$BIN" \
+    --l2c_prefetcher_types=stride \
+    --stride_num_trackers=64 --stride_pref_degree=2 \
+    --warmup_instructions="$warmup" \
+    --simulation_instructions="$simulation" \
+    -traces "$TRACE_FILE" > "$log" 2>&1
+  assert_live_policy "$log"
+  [[ -s "$raw" ]] || { echo "[error] missing event output for $role" >&2; exit 3; }
   gzip -f "$raw"
   gzip -t "$gz"
 }
 
 assert_collection_count() {
-  local policy="$1" role="$2"
-  local log="$LOG_DIR/$TRACE.$policy.$role.collect.log"
-  local stream="$STREAM_DIR/$TRACE.$policy.${role}_stream.csv.gz"
-  python3 - "$log" "$stream" "$policy" "$role" <<'PY'
+  local role="$1"
+  local log="$LOG_DIR/$TRACE.$POLICY.$role.collect.log"
+  local stream="$STREAM_DIR/$TRACE.$POLICY.${role}_stream.csv.gz"
+  python3 - "$log" "$stream" "$role" <<'PY'
 import csv
 import gzip
 import re
 import sys
 
-log_path, stream_path, policy, role = sys.argv[1:]
+log_path, stream_path, role = sys.argv[1:]
 matches = re.findall(
     r"^Core_0_L2C_loads\s+(\d+)\s*$",
     open(log_path, errors="ignore").read(),
@@ -174,50 +143,41 @@ with gzip.open(stream_path, "rt", newline="") as handle:
     observed = sum(1 for _ in csv.DictReader(handle))
 if observed != expected:
     raise SystemExit(
-        "{} {} completed demand callbacks {} != simulator L2 loads {}".format(
-            policy, role, observed, expected
+        "stride {} completed demand callbacks {} != simulator L2 loads {}".format(
+            role, observed, expected
         )
     )
-print("[PASS] {} {} demand callbacks={}".format(policy, role, observed))
+print("[PASS] stride {} demand callbacks={}".format(role, observed))
 PY
 }
 
 collect() {
-  [[ -s "$TRACE_FILE" ]] || {
-    echo "[error] missing trace $TRACE_FILE" >&2
-    exit 2
-  }
+  [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
   build
-  local policy role warmup simulation
+  local role warmup simulation
   local input_files=()
-  for policy in stride spp; do
-    for role in train guard eval; do
-      case "$role" in
-        train) warmup=0; simulation=20000000 ;;
-        guard) warmup=20000000; simulation=5000000 ;;
-        eval) warmup=25000000; simulation=25000000 ;;
-      esac
-      run_policy_events "$policy" "$role" "$warmup" "$simulation"
-      python3 "$NORMALIZE" \
-        --events "$EVENT_DIR/$TRACE.$policy.$role.events.csv.gz" \
-        --policy "$policy" \
-        --stream-out "$STREAM_DIR/$TRACE.$policy.${role}_stream.csv.gz" \
-        --candidate-out "$STREAM_DIR/$TRACE.$policy.${role}_candidates.csv.gz"
-      assert_collection_count "$policy" "$role"
-      input_files+=(
-        "$TRACE.$policy.${role}_stream.csv.gz"
-        "$TRACE.$policy.${role}_candidates.csv.gz"
-      )
-    done
+  for role in train guard eval; do
+    case "$role" in
+      train) warmup=0; simulation=20000000 ;;
+      guard) warmup=20000000; simulation=5000000 ;;
+      eval) warmup=25000000; simulation=25000000 ;;
+    esac
+    run_policy_events "$role" "$warmup" "$simulation"
+    python3 "$NORMALIZE" \
+      --events "$EVENT_DIR/$TRACE.$POLICY.$role.events.csv.gz" \
+      --policy "$POLICY" \
+      --stream-out "$STREAM_DIR/$TRACE.$POLICY.${role}_stream.csv.gz" \
+      --candidate-out "$STREAM_DIR/$TRACE.$POLICY.${role}_candidates.csv.gz"
+    assert_collection_count "$role"
+    input_files+=(
+      "$TRACE.$POLICY.${role}_stream.csv.gz"
+      "$TRACE.$POLICY.${role}_candidates.csv.gz"
+    )
   done
   python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" \
-    --manifest-out "$COLLECTION_MANIFEST"
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
   input_files+=("collection_manifest.json")
-  (
-    cd "$STREAM_DIR"
-    sha256sum "${input_files[@]}" > SHA256SUMS
-  )
+  ( cd "$STREAM_DIR" && sha256sum "${input_files[@]}" > SHA256SUMS )
   tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
     "${input_files[@]}" SHA256SUMS
   echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
@@ -226,13 +186,16 @@ collect() {
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
 assert_model_metadata() {
-  python3 - "$1" <<'PY'
+  python3 - "$1" "$POLICY" <<'PY'
+import csv
+import hashlib
 import json
 import sys
+from pathlib import Path
 
 metadata = json.load(open(sys.argv[1]))
+policy = sys.argv[2]
 tag = metadata.get("model_tag", "")
-policy = tag.split("_", 1)[0]
 family = metadata.get("model_family")
 common = {
     "trace": "623.xalancbmk_s-700B",
@@ -244,20 +207,18 @@ common = {
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
     "cnn_architecture_self_test": "PASS",
-    "candidate_rank_normalization": (
-        "min(candidate_rank, 32) / 32; fixed before data collection"
-    ),
-    "event_logger_schema": "623_causal_trigger_v4",
+    "candidate_rank_normalization": "min(candidate_rank, 32) / 32; fixed before data collection",
+    "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "stride_spp_sliding_cnn_v4",
+    "experiment_revision": "stride_sliding_cnn_v1",
+    "neural_role": "stride_candidate_gate",
+    "normal_policy_private_state_is_not_nn_input": True,
+    "captured_fill_level_is_replay_action_metadata_not_nn_input": True,
 }
-bad = {
-    key: (metadata.get(key), expected)
-    for key, expected in common.items()
-    if metadata.get(key) != expected
-}
-if policy not in {"stride", "spp"}:
-    bad["policy_from_tag"] = (policy, "stride_or_spp")
+bad = {key: (metadata.get(key), expected) for key, expected in common.items()
+       if metadata.get(key) != expected}
+if not tag.startswith(policy + "_"):
+    bad["model_tag"] = (tag, policy + "_<family>_<size>")
 if family == "lstm":
     expected = {
         "training_state_mode": "chronological_stateful_tbptt",
@@ -282,8 +243,48 @@ else:
 for key, value in expected.items():
     if metadata.get(key) != value:
         bad[key] = (metadata.get(key), value)
+
+def inspect_replay(path, allow_empty):
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    count = 0
+    with path.open(newline="") as handle:
+        reader = csv.reader(handle)
+        header = next(reader, None)
+        if header != ["pc", "line", "occ", "prefetch_addr"]:
+            raise SystemExit("invalid stride replay header in {}".format(path))
+        for line_number, fields in enumerate(reader, 2):
+            if len(fields) != 4:
+                raise SystemExit("invalid stride replay row {} in {}".format(line_number, path))
+            try:
+                pc = int(fields[0], 0)
+                line = int(fields[1], 0)
+                occ = int(fields[2], 10)
+                address = int(fields[3], 0)
+            except ValueError as exc:
+                raise SystemExit("invalid stride replay integer at {}: {}".format(line_number, exc))
+            if min(pc, line, occ, address) < 0 or address % 64:
+                raise SystemExit("unaligned/negative stride replay row {}".format(line_number))
+            count += 1
+    if count <= 0 and not allow_empty:
+        raise SystemExit("empty stride replay list {}".format(path))
+    return count, digest
+
+root = Path(sys.argv[1]).parent
+for name, count_key, hash_key, allow_empty in (
+    ("offline_stride.replay.csv", "offline_normal_entries", "normal_list_sha256", False),
+    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", True),
+):
+    path = root / name
+    if not path.is_file():
+        bad[name] = ("missing", "nonempty validated replay list")
+        continue
+    count, digest = inspect_replay(path, allow_empty)
+    if metadata.get(count_key) != count:
+        bad[count_key] = (metadata.get(count_key), count)
+    if metadata.get(hash_key) != digest:
+        bad[hash_key] = (metadata.get(hash_key), digest)
 if bad:
-    raise SystemExit("invalid 623 stride/SPP metadata: {}".format(bad))
+    raise SystemExit("invalid 623 stride metadata: {}".format(bad))
 PY
 }
 
@@ -300,44 +301,26 @@ run_method() {
   rm -f "$raw" "$gz"
   case "$method" in
     no_pref)
-      DEMAND_EVENT_LOG="$raw" "$BIN" \
-        --l2c_prefetcher_types=none \
+      DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=none \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     live_stride_reference)
-      DEMAND_EVENT_LOG="$raw" "$BIN" \
-        --l2c_prefetcher_types=stride \
+      DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=stride \
         --stride_num_trackers=64 --stride_pref_degree=2 \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
-      assert_live_stride "$log"
-      ;;
-    live_spp_reference)
-      DEMAND_EVENT_LOG="$raw" "$BIN" \
-        --l2c_prefetcher_types=spp_dev2 \
-        --spp_dev2_fill_threshold=90 --spp_dev2_pf_threshold=40 \
-        --warmup_instructions=25000000 --simulation_instructions=25000000 \
-        -traces "$TRACE_FILE" > "$log" 2>&1
-      assert_live_spp "$log"
+      assert_live_policy "$log"
       ;;
     offline_stride)
-      local list="$(colab_dir "$STRIDE_BASE_TAG")/offline_stride.replay.csv"
+      local list="$(colab_dir "$BASE_TAG")/offline_stride.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
       DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" \
         --l2c_prefetcher_types=list_replayer \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_spp)
-      local list="$(colab_dir "$SPP_BASE_TAG")/offline_spp.replay.csv"
-      [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
-      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" \
-        --l2c_prefetcher_types=list_replayer \
-        --warmup_instructions=25000000 --simulation_instructions=25000000 \
-        -traces "$TRACE_FILE" > "$log" 2>&1
-      ;;
-    offline_stride_lstm_*|offline_stride_cnn_*|offline_spp_lstm_*|offline_spp_cnn_*)
+    offline_stride_lstm_*|offline_stride_cnn_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -346,31 +329,20 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    *)
-      echo "[error] unknown method $method" >&2
-      exit 2
-      ;;
+    *) echo "[error] unknown method $method" >&2; exit 2 ;;
   esac
-  grep -q '^Core_0_IPC ' "$log" || {
-    echo "[error] missing final IPC for $method" >&2
-    exit 3
-  }
-  [[ -s "$raw" ]] || {
-    echo "[error] missing event output for $method" >&2
-    exit 3
-  }
+  grep -q '^Core_0_IPC ' "$log" || { echo "[error] missing final IPC for $method" >&2; exit 3; }
+  [[ -s "$raw" ]] || { echo "[error] missing event output for $method" >&2; exit 3; }
   gzip -f "$raw"
   gzip -t "$gz"
 }
 
 require_colab_outputs() {
-  local tag policy
+  local tag
   python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" \
-    --manifest-out "$COLLECTION_MANIFEST"
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
   for tag in "${MODEL_TAGS[@]}"; do
-    policy="${tag%%_*}"
-    for name in run_metadata.json "offline_${policy}.replay.csv" \
+    for name in run_metadata.json offline_stride.replay.csv \
       offline_nn.replay.csv model.pt policy_sweep.csv; do
       [[ -s "$(colab_dir "$tag")/$name" ]] || {
         echo "[error] missing Colab output $(colab_dir "$tag")/$name" >&2
@@ -383,29 +355,19 @@ require_colab_outputs() {
 
 analyze() {
   python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" \
-    --manifest-out "$COLLECTION_MANIFEST"
-  python3 "$ANALYZE" \
-    --run-dir "$RUN_DIR" \
-    --model-tags "$MODEL_TAGS_CSV"
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
+  python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV"
 }
 
 replay() {
-  [[ -s "$TRACE_FILE" ]] || {
-    echo "[error] missing trace $TRACE_FILE" >&2
-    exit 2
-  }
+  [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
   if [[ "$BUILD" == 1 || ! -x "$BIN" ]]; then build; fi
   require_colab_outputs
   run_method no_pref
   run_method live_stride_reference
-  run_method live_spp_reference
   run_method offline_stride
-  run_method offline_spp
   local tag
-  for tag in "${MODEL_TAGS[@]}"; do
-    run_method "offline_$tag"
-  done
+  for tag in "${MODEL_TAGS[@]}"; do run_method "offline_$tag"; done
   analyze
 }
 

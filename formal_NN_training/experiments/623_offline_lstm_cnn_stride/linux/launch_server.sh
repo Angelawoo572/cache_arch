@@ -2,13 +2,9 @@
 # Safe nohup launcher.  It creates RUN_DIR before the shell opens the log.
 set -euo pipefail
 
-echo "[error] deprecated combined 623 track" >&2
-echo "[hint] use experiments/623_offline_lstm_cnn_stride or experiments/623_offline_lstm_cnn_spp" >&2
-exit 2
-
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
-EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_stride_spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_cnn_stride_spp_seed7}"
+EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_cnn_stride"
+RUN_ID="${RUN_ID:-623_offline_lstm_cnn_stride_seed7}"
 STAGE="${1:-${STAGE:-collect}}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
 LOG="$RUN_DIR/$STAGE.nohup.log"
