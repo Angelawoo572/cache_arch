@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Normalize a live stride/SPP event log into causal demand and candidate streams.
 
-Every PF request is attached to the nearest demand callback with the same
-trigger PC and base cache line (falling back to base line only).  Matching is
-transport bookkeeping only: the models never receive PC or event identifiers.
-The normalizer fails closed when a request cannot be assigned unambiguously.
+Every PF request is attached to the most recent earlier demand callback with
+the same trigger PC and base cache line (falling back to the most recent
+earlier demand with the same base line).  A future demand is never eligible.
+Matching is transport bookkeeping only: the models never receive PC or event
+identifiers.  The normalizer fails closed when a request cannot be assigned.
 """
 import argparse
 import bisect
@@ -24,17 +25,10 @@ def as_int(value):
     return int(value, 16) if value.lower().startswith("0x") else int(float(value))
 
 
-def nearest(entries, event_id):
-    """Return the nearest (event_id, demand_idx) entry, preferring the past."""
+def most_recent_prior(entries, event_id):
+    """Return the latest demand at or before event_id; never use the future."""
     pos = bisect.bisect_right(entries, (event_id, 1 << 62))
-    choices = []
-    if pos:
-        choices.append(entries[pos - 1])
-    if pos < len(entries):
-        choices.append(entries[pos])
-    if not choices:
-        return None
-    return min(choices, key=lambda item: (abs(item[0] - event_id), item[0] > event_id))
+    return entries[pos - 1] if pos else None
 
 
 def main():
@@ -104,19 +98,26 @@ def main():
     fallback_matches = 0
     for pf in pf_rows:
         candidates = exact.get((pf["pc"], pf["base_line"]), ())
-        match = nearest(candidates, pf["event_id"]) if candidates else None
-        match_mode = "pc_line"
+        match = (
+            most_recent_prior(candidates, pf["event_id"])
+            if candidates else None
+        )
+        match_mode = "pc_line_prior"
         if match is None:
-            match = nearest(by_line.get(pf["base_line"], ()), pf["event_id"])
-            match_mode = "line_only"
+            match = most_recent_prior(
+                by_line.get(pf["base_line"], ()), pf["event_id"]
+            )
+            match_mode = "line_only_prior"
             fallback_matches += 1
         if match is None:
             raise RuntimeError(
-                "cannot attach PF event {} base line {}".format(
+                "cannot causally attach PF event {} base line {}".format(
                     pf["event_id"], pf["base_line"]
                 )
             )
         distance = abs(match[0] - pf["event_id"])
+        if match[0] > pf["event_id"]:
+            raise RuntimeError("future-demand candidate attachment detected")
         if distance > args.max_event_distance:
             raise RuntimeError(
                 "PF event {} is {} events from nearest demand trigger".format(

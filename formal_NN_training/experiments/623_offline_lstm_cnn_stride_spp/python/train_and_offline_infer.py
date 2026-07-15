@@ -33,10 +33,11 @@ CANDIDATE_FEATURES = 3
 LINE_DELTA_CLIP = 256
 PAGE_DELTA_CLIP = 64
 CANDIDATE_DELTA_CLIP = 512
+CANDIDATE_RANK_CAP = 32
 CNN_KERNEL_SIZE = 3
 CNN_STRIDE = 1
 CNN_DILATION = 1
-EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v2"
+EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v3"
 
 
 def sha256(path):
@@ -138,7 +139,10 @@ def runtime_arrays(rows, previous_line=None):
     return runtime, prev
 
 
-def candidate_arrays(rows, bank, max_candidates):
+def candidate_arrays(rows, bank):
+    max_candidates = max(len(items) for items in bank)
+    if max_candidates <= 0:
+        raise RuntimeError("candidate bank has no entries")
     candidate = np.zeros(
         (len(rows), max_candidates, CANDIDATE_FEATURES), dtype=np.float32
     )
@@ -156,7 +160,8 @@ def candidate_arrays(rows, bank, max_candidates):
                     delta, -CANDIDATE_DELTA_CLIP, CANDIDATE_DELTA_CLIP
                 ) / float(CANDIDATE_DELTA_CLIP),
                 (pf_line % PAGE_LINES) / float(PAGE_LINES - 1),
-                (slot + 1) / float(max_candidates),
+                min(slot + 1, CANDIDATE_RANK_CAP)
+                / float(CANDIDATE_RANK_CAP),
             ]
     return candidate, valid, target
 
@@ -420,24 +425,25 @@ def score_lstm(
 
 def score_cnn(
     model, runtime, candidate, device,
-    prefix_runtime=None, prefix_candidate=None, chunk_len=8192,
+    prefix_runtime=None, chunk_len=8192,
 ):
     model.eval()
     context = model.receptive_field - 1
     if prefix_runtime is None:
         prefix_count = 0
         all_runtime = runtime
-        all_candidate = candidate
     else:
-        if prefix_candidate is None or len(prefix_runtime) != len(prefix_candidate):
-            raise RuntimeError("CNN prefix runtime/candidate mismatch")
         prefix_count = min(context, len(prefix_runtime))
         all_runtime = np.concatenate(
             [prefix_runtime[-prefix_count:], runtime], axis=0
         )
-        all_candidate = np.concatenate(
-            [prefix_candidate[-prefix_count:], candidate], axis=0
-        )
+    prefix_candidates = np.zeros(
+        (prefix_count, candidate.shape[1], candidate.shape[2]),
+        dtype=candidate.dtype,
+    )
+    all_candidate = np.concatenate(
+        [prefix_candidates, candidate], axis=0
+    )
     scores = np.zeros(candidate.shape[:2], dtype=np.float32)
     with torch.no_grad():
         for start, stop in iter_chunks(len(runtime), chunk_len):
@@ -459,6 +465,20 @@ def score_cnn(
 def self_test_cnn_causality():
     torch.manual_seed(123)
     model = CausalSlidingCNN(4).eval()
+    conv_layers = [
+        module for module in model.modules()
+        if isinstance(module, nn.Conv1d)
+    ]
+    if len(conv_layers) != 1:
+        raise RuntimeError("CNN must contain exactly one temporal convolution")
+    conv = conv_layers[0]
+    if (
+        conv.kernel_size != (3,)
+        or conv.stride != (1,)
+        or conv.dilation != (1,)
+        or conv.padding != (0,)
+    ):
+        raise RuntimeError("CNN filter geometry does not match the 3-step sketch")
     runtime = torch.randn(1, 17, RUNTIME_FEATURES)
     candidate = torch.randn(1, 17, 5, CANDIDATE_FEATURES)
     pivot = 7
@@ -477,6 +497,18 @@ def self_test_cnn_causality():
     ):
         raise RuntimeError("CNN future-input causality self-test failed")
 
+    changed_old_history = runtime.clone()
+    changed_old_history[:, pivot - 3] += 1000.0
+    with torch.no_grad():
+        old_history_output = model(changed_old_history, candidate)
+    if not torch.allclose(
+        original[:, pivot],
+        old_history_output[:, pivot],
+        atol=1e-6,
+        rtol=1e-6,
+    ):
+        raise RuntimeError("CNN receptive field exceeds three demand events")
+
     runtime_np = runtime[0].numpy().astype(np.float32)
     candidate_np = candidate[0].numpy().astype(np.float32)
     with torch.no_grad():
@@ -486,6 +518,16 @@ def self_test_cnn_causality():
     )
     if not np.allclose(full, chunked, atol=1e-6, rtol=1e-6):
         raise RuntimeError("CNN overlap/chunk equivalence self-test failed")
+    prefixed = score_cnn(
+        model,
+        runtime_np[5:],
+        candidate_np[5:],
+        torch.device("cpu"),
+        prefix_runtime=runtime_np[:5],
+        chunk_len=4,
+    )
+    if not np.allclose(full[5:], prefixed, atol=1e-6, rtol=1e-6):
+        raise RuntimeError("CNN guard-prefix equivalence self-test failed")
 
 
 def metrics(selected, labels, valid):
@@ -631,14 +673,6 @@ def main():
         )
         for role in ("train", "guard", "eval")
     }
-    max_candidates = max(
-        len(candidates)
-        for role in ("train", "guard", "eval")
-        for candidates in banks[role]
-    )
-    if max_candidates <= 0:
-        raise RuntimeError("candidate bank has no entries")
-
     train_runtime, _ = runtime_arrays(rows["train"])
     guard_runtime, guard_last_line = runtime_arrays(rows["guard"])
     eval_runtime, _ = runtime_arrays(
@@ -652,10 +686,12 @@ def main():
     candidate = {}
     valid = {}
     target = {}
+    max_candidates_by_role = {}
     for role in ("train", "guard", "eval"):
         candidate[role], valid[role], target[role] = candidate_arrays(
-            rows[role], banks[role], max_candidates
+            rows[role], banks[role]
         )
+        max_candidates_by_role[role] = int(candidate[role].shape[1])
 
     fit_end = int(len(rows["train"]) * 0.8)
     if fit_end <= 0 or fit_end >= len(rows["train"]):
@@ -711,7 +747,6 @@ def main():
             candidate["eval"],
             device,
             prefix_runtime=runtime["guard"],
-            prefix_candidate=candidate["guard"],
         )
 
     best, sweep = calibrate(
@@ -748,7 +783,8 @@ def main():
             "policy": args.policy,
             "runtime_features": RUNTIME_FEATURES,
             "candidate_features": CANDIDATE_FEATURES,
-            "max_candidates_per_event": max_candidates,
+            "max_candidates_per_role": max_candidates_by_role,
+            "candidate_rank_cap": CANDIDATE_RANK_CAP,
         },
         args.out_dir / "model.pt",
     )
@@ -797,6 +833,7 @@ def main():
         "training_chunks_shuffled": False,
         "training_labels_use_future_only_offline": True,
         "causal_no_future_self_test": "PASS",
+        "cnn_architecture_self_test": "PASS",
         "experiment_revision": EXPERIMENT_REVISION,
         "training_state_mode": (
             "chronological_stateful_tbptt"
@@ -815,7 +852,10 @@ def main():
         "training_left_context_overlap": (
             CNN_KERNEL_SIZE - 1 if args.model_family == "cnn" else 0
         ),
-        "max_candidates_per_event": max_candidates,
+        "candidate_rank_normalization": (
+            "min(candidate_rank, 32) / 32; fixed before data collection"
+        ),
+        "max_candidates_per_role": max_candidates_by_role,
         "offline_normal_entries": normal_entries,
         "offline_normal_triggers": normal_triggers,
         "offline_nn_entries": nn_entries,

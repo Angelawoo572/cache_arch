@@ -32,7 +32,6 @@ ANALYZE="$EXP/python/analyze_replay.py"
 IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
-[[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
 
 ensure_libbf() {
   if [[ -e "$CHAMP_DIR/libbf" && ! -d "$CHAMP_DIR/libbf/.git" ]]; then
@@ -116,11 +115,21 @@ run_policy_events() {
   rm -f "$raw" "$gz"
   case "$policy" in
     stride)
-      DEMAND_EVENT_LOG="$raw" "$BIN" +        --l2c_prefetcher_types=stride +        --stride_num_trackers=64 --stride_pref_degree=2 +        --warmup_instructions="$warmup" +        --simulation_instructions="$simulation" +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" "$BIN" \
+        --l2c_prefetcher_types=stride \
+        --stride_num_trackers=64 --stride_pref_degree=2 \
+        --warmup_instructions="$warmup" \
+        --simulation_instructions="$simulation" \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       assert_live_stride "$log"
       ;;
     spp)
-      DEMAND_EVENT_LOG="$raw" "$BIN" +        --l2c_prefetcher_types=spp_dev2 +        --spp_dev2_fill_threshold=90 --spp_dev2_pf_threshold=40 +        --warmup_instructions="$warmup" +        --simulation_instructions="$simulation" +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" "$BIN" \
+        --l2c_prefetcher_types=spp_dev2 \
+        --spp_dev2_fill_threshold=90 --spp_dev2_pf_threshold=40 \
+        --warmup_instructions="$warmup" \
+        --simulation_instructions="$simulation" \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       assert_live_spp "$log"
       ;;
     *)
@@ -137,6 +146,10 @@ run_policy_events() {
 }
 
 collect() {
+  [[ -s "$TRACE_FILE" ]] || {
+    echo "[error] missing trace $TRACE_FILE" >&2
+    exit 2
+  }
   build
   local policy role warmup simulation
   local input_files=()
@@ -148,7 +161,11 @@ collect() {
         eval) warmup=25000000; simulation=25000000 ;;
       esac
       run_policy_events "$policy" "$role" "$warmup" "$simulation"
-      python3 "$NORMALIZE" +        --events "$EVENT_DIR/$TRACE.$policy.$role.events.csv.gz" +        --policy "$policy" +        --stream-out "$STREAM_DIR/$TRACE.$policy.${role}_stream.csv.gz" +        --candidate-out "$STREAM_DIR/$TRACE.$policy.${role}_candidates.csv.gz"
+      python3 "$NORMALIZE" \
+        --events "$EVENT_DIR/$TRACE.$policy.$role.events.csv.gz" \
+        --policy "$policy" \
+        --stream-out "$STREAM_DIR/$TRACE.$policy.${role}_stream.csv.gz" \
+        --candidate-out "$STREAM_DIR/$TRACE.$policy.${role}_candidates.csv.gz"
       input_files+=(
         "$TRACE.$policy.${role}_stream.csv.gz"
         "$TRACE.$policy.${role}_candidates.csv.gz"
@@ -159,7 +176,8 @@ collect() {
     cd "$STREAM_DIR"
     sha256sum "${input_files[@]}" > SHA256SUMS
   )
-  tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" +    "${input_files[@]}" SHA256SUMS
+  tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
+    "${input_files[@]}" SHA256SUMS
   echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
 }
 
@@ -183,7 +201,11 @@ common = {
     "nn_can_only_suppress_normal_candidates": True,
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
-    "experiment_revision": "stride_spp_sliding_cnn_v2",
+    "cnn_architecture_self_test": "PASS",
+    "candidate_rank_normalization": (
+        "min(candidate_rank, 32) / 32; fixed before data collection"
+    ),
+    "experiment_revision": "stride_spp_sliding_cnn_v3",
 }
 bad = {
     key: (metadata.get(key), expected)
@@ -226,38 +248,59 @@ run_method() {
   local log="$LOG_DIR/$TRACE.$method.log"
   local raw="$EVENT_DIR/$TRACE.$method.events.csv"
   local gz="$raw.gz"
-  if [[ "$FORCE" != 1 && -s "$log" && -s "$gz" ]] +      && grep -q '^Core_0_IPC ' "$log" && gzip -t "$gz"; then
+  if [[ "$FORCE" != 1 && -s "$log" && -s "$gz" ]] \
+      && grep -q '^Core_0_IPC ' "$log" && gzip -t "$gz"; then
     echo "[skip] $method"
     return
   fi
   rm -f "$raw" "$gz"
   case "$method" in
     no_pref)
-      DEMAND_EVENT_LOG="$raw" "$BIN" --l2c_prefetcher_types=none +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" "$BIN" \
+        --l2c_prefetcher_types=none \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     live_stride_reference)
-      DEMAND_EVENT_LOG="$raw" "$BIN" +        --l2c_prefetcher_types=stride +        --stride_num_trackers=64 --stride_pref_degree=2 +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" "$BIN" \
+        --l2c_prefetcher_types=stride \
+        --stride_num_trackers=64 --stride_pref_degree=2 \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       assert_live_stride "$log"
       ;;
     live_spp_reference)
-      DEMAND_EVENT_LOG="$raw" "$BIN" +        --l2c_prefetcher_types=spp_dev2 +        --spp_dev2_fill_threshold=90 --spp_dev2_pf_threshold=40 +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" "$BIN" \
+        --l2c_prefetcher_types=spp_dev2 \
+        --spp_dev2_fill_threshold=90 --spp_dev2_pf_threshold=40 \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       assert_live_spp "$log"
       ;;
     offline_stride)
       local list="$(colab_dir "$STRIDE_BASE_TAG")/offline_stride.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
-      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" +        --l2c_prefetcher_types=list_replayer +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" \
+        --l2c_prefetcher_types=list_replayer \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     offline_spp)
       local list="$(colab_dir "$SPP_BASE_TAG")/offline_spp.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
-      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" +        --l2c_prefetcher_types=list_replayer +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" \
+        --l2c_prefetcher_types=list_replayer \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     offline_stride_lstm_*|offline_stride_cnn_*|offline_spp_lstm_*|offline_spp_cnn_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
-      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" +        --l2c_prefetcher_types=list_replayer +        --warmup_instructions=25000000 --simulation_instructions=25000000 +        -traces "$TRACE_FILE" > "$log" 2>&1
+      DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" \
+        --l2c_prefetcher_types=list_replayer \
+        --warmup_instructions=25000000 --simulation_instructions=25000000 \
+        -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
     *)
       echo "[error] unknown method $method" >&2
@@ -280,7 +323,8 @@ require_colab_outputs() {
   local tag policy
   for tag in "${MODEL_TAGS[@]}"; do
     policy="${tag%%_*}"
-    for name in run_metadata.json "offline_${policy}.replay.csv" +      offline_nn.replay.csv model.pt policy_sweep.csv; do
+    for name in run_metadata.json "offline_${policy}.replay.csv" \
+      offline_nn.replay.csv model.pt policy_sweep.csv; do
       [[ -s "$(colab_dir "$tag")/$name" ]] || {
         echo "[error] missing Colab output $(colab_dir "$tag")/$name" >&2
         exit 2
@@ -291,10 +335,16 @@ require_colab_outputs() {
 }
 
 analyze() {
-  python3 "$ANALYZE" +    --run-dir "$RUN_DIR" +    --model-tags "$MODEL_TAGS_CSV"
+  python3 "$ANALYZE" \
+    --run-dir "$RUN_DIR" \
+    --model-tags "$MODEL_TAGS_CSV"
 }
 
 replay() {
+  [[ -s "$TRACE_FILE" ]] || {
+    echo "[error] missing trace $TRACE_FILE" >&2
+    exit 2
+  }
   if [[ "$BUILD" == 1 || ! -x "$BIN" ]]; then build; fi
   require_colab_outputs
   run_method no_pref

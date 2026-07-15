@@ -13,7 +13,7 @@ from pathlib import Path
 
 TRACE = "623.xalancbmk_s-700B"
 POLICIES = ("stride", "spp")
-EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v2"
+EXPERIMENT_REVISION = "stride_spp_sliding_cnn_v3"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED = re.compile(
     r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+"
@@ -218,6 +218,16 @@ def add_comparison_metrics(rows, failures):
         row["parity_selected_accuracy"] = ""
         row["parity_coverage"] = ""
         row["parity_timeliness"] = ""
+        row["parity_bottleneck"] = ""
+        row["ipc_delta_vs_offline_normal"] = ""
+        row["ipc_pct_vs_offline_normal"] = ""
+        row["l2_miss_rate_delta_vs_offline_normal"] = ""
+        row["selected_accuracy_delta_vs_offline_normal"] = ""
+        row["coverage_delta_vs_offline_normal"] = ""
+        row["timeliness_delta_vs_offline_normal"] = ""
+        row["prefetch_request_ratio_vs_offline_normal"] = ""
+        row["prefetch_request_reduction_vs_offline_normal"] = ""
+        row["pollution_proxy_delta_vs_offline_normal"] = ""
 
     for policy in POLICIES:
         baseline = by_method.get("offline_" + policy)
@@ -262,6 +272,47 @@ def add_comparison_metrics(rows, failures):
             row["parity_selected_accuracy"] = q_accuracy
             row["parity_coverage"] = q_coverage
             row["parity_timeliness"] = q_timeliness
+            parity = {
+                "miss_rate": q_miss,
+                "selected_accuracy": q_accuracy,
+                "coverage": q_coverage,
+                "timeliness": q_timeliness,
+            }
+            row["parity_bottleneck"] = min(
+                parity, key=lambda name: parity[name]
+            )
+            row["ipc_delta_vs_offline_normal"] = (
+                row["ipc"] - baseline["ipc"]
+            )
+            row["ipc_pct_vs_offline_normal"] = div(
+                row["ipc"] - baseline["ipc"], baseline["ipc"]
+            )
+            row["l2_miss_rate_delta_vs_offline_normal"] = (
+                row["l2_load_miss_rate"]
+                - baseline["l2_load_miss_rate"]
+            )
+            row["selected_accuracy_delta_vs_offline_normal"] = (
+                row["selected_accuracy"]
+                - baseline["selected_accuracy"]
+            )
+            row["coverage_delta_vs_offline_normal"] = (
+                row["coverage_vs_no_pref_l2_miss"]
+                - baseline["coverage_vs_no_pref_l2_miss"]
+            )
+            row["timeliness_delta_vs_offline_normal"] = (
+                row["timeliness"] - baseline["timeliness"]
+            )
+            request_ratio = div(
+                row["pf_requested"], baseline["pf_requested"]
+            )
+            row["prefetch_request_ratio_vs_offline_normal"] = request_ratio
+            row["prefetch_request_reduction_vs_offline_normal"] = (
+                1.0 - request_ratio
+            )
+            row["pollution_proxy_delta_vs_offline_normal"] = (
+                row["pollution_risk_proxy"]
+                - baseline["pollution_risk_proxy"]
+            )
 
 
 def validate_metadata(metadata, tag, inputs, failures):
@@ -276,6 +327,10 @@ def validate_metadata(metadata, tag, inputs, failures):
         "nn_can_only_suppress_normal_candidates": True,
         "training_chunks_shuffled": False,
         "causal_no_future_self_test": "PASS",
+        "cnn_architecture_self_test": "PASS",
+        "candidate_rank_normalization": (
+            "min(candidate_rank, 32) / 32; fixed before data collection"
+        ),
         "experiment_revision": EXPERIMENT_REVISION,
     }
     for key, expected in common.items():
@@ -519,6 +574,15 @@ def main():
         "drop_rate", "useless_per_issued", "pollution_risk_proxy",
         "balanced_parity_index", "parity_miss_rate",
         "parity_selected_accuracy", "parity_coverage", "parity_timeliness",
+        "parity_bottleneck", "ipc_delta_vs_offline_normal",
+        "ipc_pct_vs_offline_normal",
+        "l2_miss_rate_delta_vs_offline_normal",
+        "selected_accuracy_delta_vs_offline_normal",
+        "coverage_delta_vs_offline_normal",
+        "timeliness_delta_vs_offline_normal",
+        "prefetch_request_ratio_vs_offline_normal",
+        "prefetch_request_reduction_vs_offline_normal",
+        "pollution_proxy_delta_vs_offline_normal",
         "demand_l2_loads", "demand_l2_hits", "demand_l2_misses",
         "prefetch_useful_demand_hits", "prefetch_late_demand_misses",
         "prefetch_request_events", "prefetch_accepted_events",
@@ -532,6 +596,59 @@ def main():
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+
+    insight_fields = [
+        "comparison_policy", "method", "model_tag", "ipc",
+        "ipc_delta_vs_offline_normal", "ipc_pct_vs_offline_normal",
+        "l2_load_miss_rate", "l2_miss_rate_delta_vs_offline_normal",
+        "selected_accuracy", "selected_accuracy_delta_vs_offline_normal",
+        "coverage_vs_no_pref_l2_miss",
+        "coverage_delta_vs_offline_normal", "timeliness",
+        "timeliness_delta_vs_offline_normal", "pollution_risk_proxy",
+        "pollution_proxy_delta_vs_offline_normal", "pf_requested",
+        "prefetch_request_reduction_vs_offline_normal",
+        "balanced_parity_index", "parity_bottleneck",
+    ]
+    with (args.run_dir / "insight_summary.csv").open(
+        "w", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=insight_fields)
+        writer.writeheader()
+        writer.writerows(
+            {key: row.get(key, "") for key in insight_fields}
+            for row in rows if row["comparison_policy"]
+        )
+
+    warnings = []
+    transport_fidelity = {}
+    for policy in POLICIES:
+        live = by_method.get("live_{}_reference".format(policy))
+        offline = by_method.get("offline_" + policy)
+        if live is None or offline is None:
+            continue
+        fidelity = {
+            "offline_minus_live_ipc": offline["ipc"] - live["ipc"],
+            "ipc_relative_error": abs(div(
+                offline["ipc"] - live["ipc"], live["ipc"]
+            )),
+            "l2_miss_relative_error": abs(div(
+                offline["l2_load_miss"] - live["l2_load_miss"],
+                live["l2_load_miss"],
+            )),
+            "request_count_ratio": div(
+                offline["pf_requested"], live["pf_requested"]
+            ),
+        }
+        transport_fidelity[policy] = fidelity
+        if (
+            fidelity["ipc_relative_error"] > 0.01
+            or fidelity["l2_miss_relative_error"] > 0.05
+        ):
+            warnings.append(
+                "{} offline replay differs materially from live reference; "
+                "use the matched offline baseline for the primary claim and "
+                "report this transport gap".format(policy)
+            )
 
     status = "FAIL" if failures else "PASS"
     payload = {
@@ -566,6 +683,8 @@ def main():
         "context_reference_only": [
             "no_pref", "live_stride_reference", "live_spp_reference"
         ],
+        "transport_fidelity": transport_fidelity,
+        "warnings": warnings,
         "cross_track_guardrail": (
             "Stride-gated models are normalized only to offline stride; "
             "SPP-gated models are normalized only to offline SPP."
@@ -673,9 +792,14 @@ def main():
                         row["coverage_vs_no_pref_l2_miss"]
                     ),
                     "timeliness": row["timeliness"],
+                    "pollution_risk_proxy": row["pollution_risk_proxy"],
+                    "prefetch_request_reduction_vs_offline_normal": (
+                        row["prefetch_request_reduction_vs_offline_normal"]
+                    ),
                     "balanced_parity_index": (
                         row["balanced_parity_index"]
                     ),
+                    "parity_bottleneck": row["parity_bottleneck"],
                 })
             tracks[policy] = {
                 "offline_normal_ipc": normal["ipc"],
@@ -693,6 +817,62 @@ def main():
             }
         payload["no_pref_ipc"] = no_pref["ipc"]
         payload["tracks"] = tracks
+        pair_rows = []
+        for (policy, pair_id), members in sorted(pairs.items()):
+            by_family = {
+                member["model_family"]: member for member in members
+            }
+            if set(by_family) != {"lstm", "cnn"}:
+                continue
+            lstm_meta = by_family["lstm"]
+            cnn_meta = by_family["cnn"]
+            lstm_row = by_method["offline_" + lstm_meta["model_tag"]]
+            cnn_row = by_method["offline_" + cnn_meta["model_tag"]]
+            pair_rows.append({
+                "comparison_policy": policy,
+                "architecture_pair_id": pair_id,
+                "lstm_tag": lstm_meta["model_tag"],
+                "cnn_tag": cnn_meta["model_tag"],
+                "lstm_parameters": lstm_meta["parameter_count"],
+                "cnn_parameters": cnn_meta["parameter_count"],
+                "cnn_minus_lstm_ipc": cnn_row["ipc"] - lstm_row["ipc"],
+                "cnn_minus_lstm_l2_miss_rate": (
+                    cnn_row["l2_load_miss_rate"]
+                    - lstm_row["l2_load_miss_rate"]
+                ),
+                "cnn_minus_lstm_selected_accuracy": (
+                    cnn_row["selected_accuracy"]
+                    - lstm_row["selected_accuracy"]
+                ),
+                "cnn_minus_lstm_coverage": (
+                    cnn_row["coverage_vs_no_pref_l2_miss"]
+                    - lstm_row["coverage_vs_no_pref_l2_miss"]
+                ),
+                "cnn_minus_lstm_timeliness": (
+                    cnn_row["timeliness"] - lstm_row["timeliness"]
+                ),
+                "cnn_minus_lstm_balanced_parity": (
+                    cnn_row["balanced_parity_index"]
+                    - lstm_row["balanced_parity_index"]
+                ),
+                "ipc_winner": (
+                    "cnn" if cnn_row["ipc"] > lstm_row["ipc"] else "lstm"
+                ),
+                "balanced_parity_winner": (
+                    "cnn"
+                    if cnn_row["balanced_parity_index"]
+                    > lstm_row["balanced_parity_index"]
+                    else "lstm"
+                ),
+            })
+        pair_fields = list(pair_rows[0].keys())
+        with (args.run_dir / "architecture_pair_summary.csv").open(
+            "w", newline=""
+        ) as handle:
+            writer = csv.DictWriter(handle, fieldnames=pair_fields)
+            writer.writeheader()
+            writer.writerows(pair_rows)
+        payload["architecture_pair_comparisons"] = pair_rows
         payload["presentation_decision_rule"] = {
             "cnn_wins": (
                 "At matched parameters, the one-layer three-event CNN "

@@ -1,6 +1,6 @@
 {
   "experiment": "623_offline_lstm_cnn_stride_spp",
-  "experiment_revision": "stride_spp_sliding_cnn_v2",
+  "experiment_revision": "stride_spp_sliding_cnn_v3",
   "trace": "623.xalancbmk_s-700B",
   "trace_file": "traces/623.xalancbmk_s-700B.champsimtrace.xz",
   "generated_data_root": "runs/<RUN_ID>/colab_input",
@@ -71,6 +71,15 @@
       "duplicate",
       "future_evaluation_rows"
     ]
+  },
+  "causal_candidate_attachment": {
+    "rule": "each PF request attaches only to the most recent earlier demand with matching PC/base-line, then earlier base-line-only fallback",
+    "future_demand_attachment_allowed": false
+  },
+  "candidate_rank_normalization": {
+    "formula": "min(candidate_rank, 32) / 32",
+    "fixed_before_collection": true,
+    "uses_eval_statistics": false
   },
   "windows": {
     "train": {
