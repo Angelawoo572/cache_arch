@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Repackage already-collected streams for the threshold-free neural runs.
+# Repackage already-collected streams for the source-input-fair neural runs.
 # Every .csv.gz file is copied byte-for-byte and checked with cmp.  Only the
 # generated manifest/SHA256SUMS and archive container are new.
 
@@ -19,7 +19,7 @@ stage_623_split_inputs.sh to create the byte-identical CNN input archive.
 Example:
   bash formal_NN_training/experiments/stage_direct_action_inputs.sh \
     602-stride 602_offline_lstm_stride_stateful_v2_seed7 \
-    602_offline_lstm_stride_threshold_free_v5_seed7
+    602_offline_lstm_stride_variable_delta_free_running_v7_seed7
 EOF
 }
 
