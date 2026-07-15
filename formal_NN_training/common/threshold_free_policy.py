@@ -11,8 +11,6 @@ inputs.  The neural policy independently learns
 There is no probability threshold, request budget, fixed degree, page-offset
 table, same-page rule, or comparator candidate list in neural inference.
 """
-from __future__ import annotations
-
 import math
 from collections import Counter
 
