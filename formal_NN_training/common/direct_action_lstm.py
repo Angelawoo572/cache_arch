@@ -7,8 +7,6 @@ baseline; they are never neural inputs, gates, thresholds, budgets, or private
 state.  The LSTM learns an unbounded request count and direct signed
 cache-line deltas with its own autoregressive decoder.
 """
-from __future__ import annotations
-
 import argparse
 import csv
 import gzip
