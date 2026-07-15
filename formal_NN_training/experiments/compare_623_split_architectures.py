@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 """Fail-closed cross-directory comparison for standalone 623 LSTM/CNN runs."""
-from __future__ import annotations
-
 import argparse
 import csv
 import json
