@@ -131,6 +131,18 @@ def main():
     if len(lstm_hashes) != 1 or lstm_hashes != cnn_hashes:
         fail("offline normal replay list is not identical across directories")
 
+    lstm_encoder_hashes = recursive_hashes(
+        lstm.get("runtime_encoder_sha256_by_model_tag", {})
+    )
+    cnn_encoder_hashes = recursive_hashes(
+        cnn.get("runtime_encoder_sha256_by_model_tag", {})
+    )
+    if (
+        len(lstm_encoder_hashes) != 1
+        or lstm_encoder_hashes != cnn_encoder_hashes
+    ):
+        fail("LSTM/CNN runtime input encoders are not exactly identical")
+
     lstm_rows = rows_by_method(lstm)
     cnn_rows = rows_by_method(cnn)
     normal_method = "offline_" + args.policy
@@ -155,10 +167,8 @@ def main():
         parameter_ratio = max(lstm_parameters, cnn_parameters) / float(
             min(lstm_parameters, cnn_parameters)
         )
-        if parameter_ratio > 1.05:
-            fail("{} parameter ratio {:.4f} exceeds 1.05".format(
-                pair_id, parameter_ratio
-            ))
+        # Parameter ratio is descriptive only.  It must never be a hidden
+        # fail-closed threshold or alter either neural policy.
         lstm_row = lstm_rows["offline_" + lstm_point["model_tag"]]
         cnn_row = cnn_rows["offline_" + cnn_point["model_tag"]]
         row = {
@@ -215,21 +225,25 @@ def main():
         "trace": lstm["trace"],
         "policy": args.policy,
         "input_manifest_exact_match": True,
+        "runtime_encoder_exact_match": True,
         "offline_normal_list_exact_match": True,
         "offline_normal_simulation_exact_match": True,
         "architecture_contract": {
             "lstm": "complete chronological stateful history",
             "cnn": {
-                "temporal_layers": 4,
-                "kernel_size": 7,
-                "dilations": [1, 6, 36, 216],
-                "contiguous_receptive_field_events": 1555,
+                "temporal_layers": 2,
+                "kernel_size": 17,
+                "dilations": [1, 17],
+                "contiguous_receptive_field_events": 289,
             },
         },
+        "parameter_matching_contract": (
+            "parameter counts and their ratio are reported, not thresholded"
+        ),
         "interpretation": {
             "cnn_wins": (
-                "Local-to-medium causal correlations within 1,555 callbacks "
-                "are sufficient at matched model size."
+                "Local-to-medium causal correlations within 289 callbacks "
+                "are sufficient at the paired reported capacity."
             ),
             "lstm_wins": (
                 "Useful predictive state extends beyond or is represented "

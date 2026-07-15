@@ -14,7 +14,8 @@ POLICY = "stride"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "stride_threshold_free_split_v7"
+EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
+SOURCE_STRIDE_PAGE_LINES = 64
 
 
 def as_int(value):
@@ -137,10 +138,10 @@ def read_candidates(path, policy, stream_rows):
             if fill_level != 2:
                 raise RuntimeError("{} stride candidate is not FILL_L2".format(path))
             pf_line = as_int(row["pf_line"])
-            if pf_line // 64 != line // 64:
+            if pf_line // SOURCE_STRIDE_PAGE_LINES != line // SOURCE_STRIDE_PAGE_LINES:
                 raise RuntimeError("{} stride action crosses a page".format(path))
-            if counts[demand_idx] > 64:
-                raise RuntimeError("{} exceeds the complete page action space".format(path))
+            if counts[demand_idx] > SOURCE_STRIDE_PAGE_LINES:
+                raise RuntimeError("{} violates the audited source Stride page topology".format(path))
             fill_counts[fill_level] += 1
             last_pf_event_id = pf_event_id
             total += 1
@@ -166,6 +167,11 @@ def main():
         "neural_role": "standalone_direct_action_prefetcher",
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "training_runtime_fields": ["pc", "addr"],
+        "inference_runtime_fields": ["pc", "addr"],
         "normal_policy_private_state": [
             "PC_indexed_stride_tracker_table", "last_stride", "confidence",
         ],
@@ -175,8 +181,11 @@ def main():
         "normal_policy_outputs_used_as_training_targets": True,
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
+        "teacher_source_page_lines": SOURCE_STRIDE_PAGE_LINES,
         "probability_threshold_used": False,
         "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,

@@ -24,16 +24,16 @@ case "$POLICY" in
   stride)
     LSTM_EXP_NAME="623_offline_lstm_stride"
     CNN_EXP_NAME="623_offline_cnn_stride"
-    LSTM_RUN_ID="${LSTM_RUN_ID:-623_offline_lstm_stride_threshold_free_v7_seed7}"
-    CNN_RUN_ID="${CNN_RUN_ID:-623_offline_cnn_stride_threshold_free_v7_seed7}"
+    LSTM_RUN_ID="${LSTM_RUN_ID:-623_offline_lstm_stride_variable_delta_free_running_v9_seed7}"
+    CNN_RUN_ID="${CNN_RUN_ID:-623_offline_cnn_stride_variable_delta_free_running_v9_seed7}"
     SUFFIX="candidates"
     EXTRA_FILES=()
     ;;
   spp)
     LSTM_EXP_NAME="623_offline_lstm_spp"
     CNN_EXP_NAME="623_offline_cnn_spp"
-    LSTM_RUN_ID="${LSTM_RUN_ID:-623_offline_lstm_spp_threshold_free_v9_seed7}"
-    CNN_RUN_ID="${CNN_RUN_ID:-623_offline_cnn_spp_threshold_free_v9_seed7}"
+    LSTM_RUN_ID="${LSTM_RUN_ID:-623_offline_lstm_spp_variable_delta_free_running_v11_seed7}"
+    CNN_RUN_ID="${CNN_RUN_ID:-623_offline_cnn_spp_variable_delta_free_running_v11_seed7}"
     SUFFIX="teacher_actions"
     EXTRA_FILES=(spp_source_contract.json)
     ;;

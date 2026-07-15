@@ -335,18 +335,17 @@ wq_statement_end = s.index(';', wq_start) + 1
 line_start = s.rfind('\n', 0, wq_start) + 1
 indent = s[line_start:wq_start]
 wq_statement = s[wq_start:wq_statement_end]
-wq_replacement = '''{
-{}    if (warmup_complete[writeback_cpu]) {{
-{}        demand_event_log_fill(
-{}            this, writeback_cpu, current_core_cycle[writeback_cpu],
-{}            WQ.entry[index].type,
-{}            WQ.entry[index].address << LOG2_BLOCK_SIZE,
-{}            block[set][way].address << LOG2_BLOCK_SIZE, 0);
-{}    }}
-{}    {}
-{}}}'''.format(
-    indent, indent, indent, indent, indent, indent, indent, indent,
-    wq_statement, indent,
+wq_replacement = (
+    "{\n"
+    + indent + "    if (warmup_complete[writeback_cpu]) {\n"
+    + indent + "        demand_event_log_fill(\n"
+    + indent + "            this, writeback_cpu, current_core_cycle[writeback_cpu],\n"
+    + indent + "            WQ.entry[index].type,\n"
+    + indent + "            WQ.entry[index].address << LOG2_BLOCK_SIZE,\n"
+    + indent + "            block[set][way].address << LOG2_BLOCK_SIZE, 0);\n"
+    + indent + "    }\n"
+    + indent + "    " + wq_statement + "\n"
+    + indent + "}"
 )
 s = s[:line_start] + indent + wq_replacement + s[wq_statement_end:]
 

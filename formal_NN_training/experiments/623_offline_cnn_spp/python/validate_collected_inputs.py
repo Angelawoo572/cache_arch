@@ -14,8 +14,8 @@ POLICY = "spp"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "spp_threshold_free_fill_feedback_split_v9"
-PAGE_LINES = 64
+EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
+SOURCE_SPP_PAGE_LINES = 64
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
 SOURCE_INPUTS = [
     "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
@@ -153,7 +153,7 @@ def read_teacher_actions(path, demand_rows):
         reader = csv.DictReader(handle)
         required = {
             "trace", "policy", "demand_idx", "pc", "line", "pc_line_occ",
-            "action_rank", "pf_line", "target_page_offset", "fill_level",
+            "action_rank", "pf_line", "fill_level",
             "accepted", "duplicate", "trigger_event_id", "pf_event_id",
             "event_distance", "raw_action_count",
             "source_first_pf_event_id", "source_last_pf_event_id",
@@ -186,7 +186,7 @@ def read_teacher_actions(path, demand_rows):
             counts[demand_idx] += 1
             if as_int(row["action_rank"]) != counts[demand_idx]:
                 raise RuntimeError("{} action ranks are not contiguous".format(path))
-            if counts[demand_idx] > PAGE_LINES:
+            if counts[demand_idx] > SOURCE_SPP_PAGE_LINES:
                 raise RuntimeError(
                     "{} exceeds the complete page action space".format(path)
                 )
@@ -200,7 +200,6 @@ def read_teacher_actions(path, demand_rows):
             ):
                 raise RuntimeError("{} invalid explicit trigger ordering".format(path))
             pf_line = as_int(row["pf_line"])
-            offset = as_int(row["target_page_offset"])
             fill = as_int(row["fill_level"])
             accepted = as_int(row["accepted"])
             duplicate = as_int(row["duplicate"])
@@ -208,9 +207,7 @@ def read_teacher_actions(path, demand_rows):
             source_first = as_int(row["source_first_pf_event_id"])
             source_last = as_int(row["source_last_pf_event_id"])
             is_self_target = as_int(row["is_self_target"])
-            if offset != pf_line % PAGE_LINES or offset < 0 or offset >= PAGE_LINES:
-                raise RuntimeError("{} target offset mismatch".format(path))
-            if pf_line // PAGE_LINES != line // PAGE_LINES:
+            if pf_line // SOURCE_SPP_PAGE_LINES != line // SOURCE_SPP_PAGE_LINES:
                 raise RuntimeError("{} cross-page SPP action".format(path))
             if fill not in (2, 4):
                 raise RuntimeError("{} invalid fill level".format(path))
@@ -270,6 +267,11 @@ def main():
         "cache_fill_private_state_used_as_model_input": False,
         "teacher_actions_are_model_inputs": False,
         "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "training_runtime_fields": SOURCE_INPUTS,
+        "inference_runtime_fields": SOURCE_INPUTS,
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
@@ -278,6 +280,8 @@ def main():
         "normal_policy_constants_used_by_neural_inference": False,
         "probability_threshold_used": False,
         "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
         "fill_lead_cutoff_used": False,
         "inference_policy_hardcodes_used": False,
@@ -286,10 +290,9 @@ def main():
         "nn_can_generate_actions_not_emitted_by_teacher": True,
         "model_does_not_use_pc": True,
         "cache_hit_and_type_are_audit_only": True,
-        "action_count_classes": PAGE_LINES + 1,
-        "target_offset_classes": PAGE_LINES,
+        "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
-        "complete_neural_action_space": True,
+        "neural_action_decoder": "unbounded count plus direct signed cache-line deltas",
         "self_target_actions_allowed": True,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "tracks": {POLICY: {}},

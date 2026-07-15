@@ -18,17 +18,18 @@ plots must not be presented as standalone-NN results.
 \begin{tabularx}{\textwidth}{@{}lX@{}}
 \toprule
 Shared external input & Current cache-line address and causal prior address history; PC remains replay identity only.\\
-Neural policy & Standalone stateful LSTM; learned count argmax plus learned ranking over all 64 same-page L2 targets.\\
-Excluded & AMPM candidates, 64-page bitmap/LRU state, hit/miss, cycle, queues, and future evaluation rows.\\
+Neural policy & Standalone stateful LSTM; learned unbounded Poisson count plus autoregressive direct signed cache-line deltas.\\
+Train/infer parity & Identical lossless encoder, field order, normalization, and chronological state contract; decoder feeds back only its own prediction.\\
+Excluded & AMPM candidates, 64-entry page bitmap/LRU state, hit/miss, cycle, queues, and future evaluation rows.\\
 Supervision & Mirrored AMPM request count and target set; labels only, never inference inputs.\\
 No heuristic decision & No probability threshold, request budget, degree cap, future window, semantic hand features, manual loss weights, or regularizer.\\
 Guard & The guard initializes AMPM and LSTM state independently; neither state is shared.\\
-Required run & \texttt{602\_offline\_lstm\_ampm\_threshold\_free\_v5\_seed7}.\\
+Required run & \texttt{602\_offline\_lstm\_ampm\_variable\_delta\_free\_running\_v7\_seed7}.\\
 \bottomrule
 \end{tabularx}
 \end{center}
 
-After the threshold-free-v5 replay passes, regenerate the report with IPC, L2 miss
+After the variable-delta-free-running-v7 replay passes, regenerate the report with IPC, L2 miss
 rate, selected accuracy, coverage, late-prefetch rate, and balanced parity.
 No old mirror/gate number is carried forward.
 \end{document}

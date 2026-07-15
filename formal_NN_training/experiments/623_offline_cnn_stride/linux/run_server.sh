@@ -6,13 +6,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_cnn_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_cnn_stride_threshold_free_v7_seed7}"
+RUN_ID="${RUN_ID:-623_offline_cnn_stride_variable_delta_free_running_v9_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-threshold_free_stride_cnn_c10,threshold_free_stride_cnn_c16,threshold_free_stride_cnn_c25}"
-BASE_TAG="${BASE_TAG:-threshold_free_stride_cnn_c10}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-independent_delta_stride_cnn_c7,independent_delta_stride_cnn_c15,independent_delta_stride_cnn_c24}"
+BASE_TAG="${BASE_TAG:-independent_delta_stride_cnn_c7}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -202,6 +202,12 @@ common = {
     "matched_normal_prefetcher": policy,
     "source_decision_effective_external_input": ["pc", "addr"],
     "same_external_input_contract": True,
+    "training_inference_input_encoder_identical": True,
+    "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+    "decoder_previous_teacher_action_used_as_input": False,
+    "decoder_free_running_self_test": "PASS",
+    "training_runtime_fields": ["pc", "addr"],
+    "inference_runtime_fields": ["pc", "addr"],
     "normal_policy_outputs_used_as_model_inputs": False,
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
@@ -210,6 +216,8 @@ common = {
     "normal_policy_constants_used_by_neural_inference": False,
     "probability_threshold_used": False,
     "neural_degree_cap": None,
+    "fixed_page_offset_classes": None,
+    "same_page_rule_used_by_neural_inference": False,
     "future_label_window_used": False,
     "handcrafted_semantic_features_used": False,
     "manual_loss_weights_used": False,
@@ -222,7 +230,7 @@ common = {
     "cnn_architecture_self_test": "PASS",
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "stride_threshold_free_split_v7",
+    "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "cnn",
 }
@@ -230,32 +238,40 @@ bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
 if family != "cnn":
     bad["model_family"] = (family, "cnn")
-if not tag.startswith("threshold_free_" + policy + "_cnn_"):
-    bad["model_tag"] = (tag, "threshold_free_" + policy + "_cnn_<size>")
+if not tag.startswith("independent_delta_" + policy + "_cnn_"):
+    bad["model_tag"] = (tag, "independent_delta_" + policy + "_cnn_<size>")
 expected_points = {
-    ("cnn", 10): ("p0", 5549),
-    ("cnn", 16): ("p1", 11489),
-    ("cnn", 25): ("p2", 24179),
+    ("cnn", 7): "p0",
+    ("cnn", 15): "p1",
+    ("cnn", 24): "p2",
 }
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
 else:
-    if metadata.get("architecture_pair_id") != point[0]:
-        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point[0])
-    if metadata.get("parameter_count") != point[1]:
-        bad["parameter_count"] = (metadata.get("parameter_count"), point[1])
+    if metadata.get("architecture_pair_id") != point:
+        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point)
+if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
+    bad["parameter_count"] = (metadata.get("parameter_count"), "positive measured value")
+encoder_hashes = {
+    metadata.get("runtime_encoder_sha256"),
+    metadata.get("training_runtime_encoder_sha256"),
+    metadata.get("inference_runtime_encoder_sha256"),
+}
+encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
+    bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared 64-hex digest")
 expected = {
-    "training_state_mode": "causal_dilated_tcn_over_chronological_stream",
-    "training_state_carried_across_chunks": False,
-    "training_state_detached_between_chunks": False,
-    "inference_history_mode": "chronological_sliding_context_with_exact_1554_event_overlap",
-    "cnn_temporal_layers": 4,
-    "cnn_kernel_size": 7,
+    "training_state_mode": "two_layer_causal_cnn_over_chronological_stream",
+    "training_state_carried_across_chunks": None,
+    "training_state_detached_between_chunks": None,
+    "inference_history_mode": "chronological_sliding_context_with_exact_overlap",
+    "cnn_temporal_layers": 2,
+    "cnn_kernel_size": 17,
     "cnn_stride": 1,
-    "cnn_dilations": [1, 6, 36, 216],
-    "cnn_receptive_field_events": 1555,
-    "training_left_context_overlap": 1554,
+    "cnn_dilations": [1, 17],
+    "cnn_receptive_field_events": 289,
+    "training_left_context_overlap": 288,
     "cnn_processes_complete_stream_in_order": True,
     "cnn_chunking_changes_visible_history": False,
 }
@@ -339,7 +355,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_threshold_free_stride_cnn_*)
+    offline_independent_delta_stride_cnn_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }

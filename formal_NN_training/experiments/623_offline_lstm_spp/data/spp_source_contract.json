@@ -21,6 +21,7 @@
   "normal_private_state": ["ST", "PT", "GHR", "FILTER"],
   "normal_feedback_callback": "cache_fill(evicted_addr) updates FILTER/GHR state; the raw evicted_addr callback is therefore a shared external input, while FILTER/GHR contents remain private",
   "output_action": ["same-page pf_addr", "FILL_L2 or FILL_LLC"],
+  "output_action_scope": "normal SPP source fact only; not imposed on the neural decoder",
   "self_target_action_semantics": "allowed_by_source_lookahead_and_replayed",
   "self_target_source_reason": "multi-step lookahead updates base_addr, so a later signed delta can return pf_addr to the callback trigger line; the source has no pf_addr != addr guard",
   "queue_effect_canonicalization": "per_target_min_fill_queue_effect",
@@ -30,5 +31,6 @@
     "prefetch_threshold": 40,
     "used_by_neural_inference": false
   },
-  "student_contract": "learned count/rank/fill policy over the complete same-page action interface from the chronological DEMAND(addr) and CACHE_FILL(evicted_addr) callback stream; no normal SPP action, threshold, degree, request budget, or private table state is an inference input"
+  "student_contract": "learned unbounded count plus autoregressive direct signed cache-line delta and fill policy from the chronological DEMAND(addr) and CACHE_FILL(evicted_addr) callback stream; no fixed page-offset classes, same-page rule, normal SPP action, threshold, degree, request budget, or private table state is an inference input",
+  "training_inference_input_encoder_identical": true
 }

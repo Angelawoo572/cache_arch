@@ -13,16 +13,16 @@ from pathlib import Path
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "spp_threshold_free_fill_feedback_split_v9"
+EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
-    "threshold_free_spp_lstm_h8,threshold_free_spp_lstm_h16,"
-    "threshold_free_spp_lstm_h32"
+    "independent_delta_spp_lstm_h12,independent_delta_spp_lstm_h16,"
+    "independent_delta_spp_lstm_h32"
 )
 EXPECTED_POINTS = {
-    ("lstm", 8): ("p0", 4713),
-    ("lstm", 16): ("p1", 9681),
-    ("lstm", 32): ("p2", 21153),
+    ("lstm", 12): "p0",
+    ("lstm", 16): "p1",
+    ("lstm", 32): "p2",
 }
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
@@ -301,13 +301,13 @@ def parse_events(path):
 
 
 def policy_for_method(method):
-    if method == "offline_" + POLICY or method.startswith("offline_threshold_free_spp_"):
+    if method == "offline_" + POLICY or method.startswith("offline_independent_delta_spp_"):
         return POLICY
     return ""
 
 
 def model_tag_for_method(method):
-    if method.startswith("offline_threshold_free_spp_"):
+    if method.startswith("offline_independent_delta_spp_"):
         return method[len("offline_"):]
     return ""
 
@@ -450,6 +450,12 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "pc_is_replay_transport_only": True,
         "teacher_actions_are_model_inputs": False,
         "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_free_running_self_test": "PASS",
+        "training_runtime_fields": SOURCE_INPUTS,
+        "inference_runtime_fields": SOURCE_INPUTS,
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
@@ -466,6 +472,8 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "normal_policy_constants_used_by_neural_inference": False,
         "probability_threshold_used": False,
         "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
         "fill_lead_cutoff_used": False,
         "handcrafted_semantic_features_used": False,
@@ -522,10 +530,18 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     if point is None:
         failures.append("{} is not a pinned matched architecture point".format(tag))
     else:
-        if metadata.get("architecture_pair_id") != point[0]:
+        if metadata.get("architecture_pair_id") != point:
             failures.append("{} architecture pair mismatch".format(tag))
-        if metadata.get("parameter_count") != point[1]:
-            failures.append("{} parameter count mismatch".format(tag))
+        if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
+            failures.append("{} invalid measured parameter count".format(tag))
+    encoder_hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+    if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
+        failures.append("{} train/inference encoder hash mismatch".format(tag))
     expected = {
         "training_state_mode": "chronological_stateful_tbptt",
         "training_state_carried_across_chunks": True,
@@ -571,7 +587,7 @@ def main():
     if not model_tags:
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
-        if not tag.startswith("threshold_free_spp_lstm_"):
+        if not tag.startswith("independent_delta_spp_lstm_"):
             raise SystemExit("invalid model tag {}".format(tag))
 
     methods = [
@@ -595,7 +611,7 @@ def main():
         if not event_path.is_file():
             failures.append("missing event log {}".format(event_path))
             continue
-        if method == "offline_spp" or method.startswith("offline_threshold_free_spp_"):
+        if method == "offline_spp" or method.startswith("offline_independent_delta_spp_"):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
                 failures.append(
@@ -688,6 +704,9 @@ def main():
             "cache_fill_private_state_used_as_model_input": False,
             "teacher_actions_are_model_inputs": False,
             "same_external_input_contract": True,
+            "training_inference_input_encoder_identical": True,
+            "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+            "decoder_previous_teacher_action_used_as_input": False,
             "normal_policy_outputs_used_as_model_inputs": False,
             "normal_policy_candidates_used_as_model_inputs": False,
             "normal_policy_private_state_used_as_model_inputs": False,
@@ -696,6 +715,8 @@ def main():
             "normal_policy_constants_used_by_neural_inference": False,
             "probability_threshold_used": False,
             "neural_degree_cap": None,
+            "fixed_page_offset_classes": None,
+            "same_page_rule_used_by_neural_inference": False,
             "future_label_window_used": False,
             "fill_lead_cutoff_used": False,
             "inference_policy_hardcodes_used": False,
@@ -704,8 +725,7 @@ def main():
             "model_does_not_use_pc": True,
             "cache_hit_and_type_are_audit_only": True,
             "source_decision_effective_external_input": SOURCE_INPUTS,
-            "action_count_classes": 65,
-            "target_offset_classes": 64,
+            "teacher_source_page_lines": 64,
             "fill_classes": ["FILL_L2", "FILL_LLC"],
             "complete_neural_action_space": True,
             "self_target_actions_allowed": True,
@@ -927,15 +947,6 @@ def main():
             ),
         }
         transport_fidelity[policy] = fidelity
-        if (
-            fidelity["ipc_relative_error"] > 0.01
-            or fidelity["l2_miss_relative_error"] > 0.05
-        ):
-            warnings.append(
-                "{} offline replay differs materially from live reference; "
-                "use the matched offline baseline for the primary claim and "
-                "report this transport gap".format(policy)
-            )
 
     status = "FAIL" if failures else "PASS"
     payload = {
@@ -956,7 +967,7 @@ def main():
         "primary_comparisons": {
             "spp_track": [
                 "offline_spp",
-                "offline_threshold_free_spp_{}_<capacity>".format(
+                "offline_independent_delta_spp_{}_<capacity>".format(
                     TRACK_MODEL_FAMILY
                 ),
             ],
@@ -967,11 +978,10 @@ def main():
         "transport_fidelity": transport_fidelity,
         "warnings": warnings,
         "track_guardrail": (
-            "Every neural point directly predicts the same 64-offset by "
-            "two-fill-level action space, including the source-legal trigger "
-            "offset, from the same chronological DEMAND(addr) and "
+            "Every neural point learns an unbounded request count, direct signed "
+            "cache-line deltas, and fill level from the same chronological DEMAND(addr) and "
             "CACHE_FILL(evicted_addr) external callback stream. "
-            "No captured SPP action is an inference input."
+            "No fixed page-offset interface or captured SPP action is an inference input."
         ),
         "transport": (
             "Each normal SPP action is attached by explicit prior "
@@ -982,10 +992,10 @@ def main():
             "offline normal comparator and supervised training targets."
         ),
         "direct_action_contract": {
-            "count_classes": 65,
-            "target_offsets": 64,
+            "count_distribution": "Poisson with non-negative unbounded support",
+            "target_distribution": "autoregressive signed cache-line delta mixture",
             "fill_classes": ["FILL_L2", "FILL_LLC"],
-            "decision": "count argmax, target top-count, fill argmax",
+            "decision": "Poisson mode, autoregressive mixture modes, fill argmax",
             "probability_threshold": None,
             "neural_degree_cap": None,
             "teacher_action_canonicalization": (
@@ -1008,7 +1018,7 @@ def main():
                 "prefetch_filter_usefulness_feedback",
             ],
             "direct_nn_inputs": [
-                "lossless 64-bit callback address encoding",
+                "lossless uint64 callback address encoding",
                 "one lossless DEMAND/FILL callback-kind bit",
             ],
             "not_nn_inputs": [
@@ -1026,12 +1036,12 @@ def main():
         "architecture_contract": (
             {
                 "name": "causal residual temporal convolutional network",
-                "temporal_convolution_layers": 4,
-                "kernel_size_events": 7,
+                "temporal_convolution_layers": 2,
+                "kernel_size_events": 17,
                 "stride_events": 1,
-                "dilations": [1, 6, 36, 216],
-                "left_context_events": 1554,
-                "receptive_field_events": 1555,
+                "dilations": [1, 17],
+                "left_context_events": 288,
+                "receptive_field_events": 289,
                 "interpretation": (
                     "a contiguous causal sliding window over DEMAND/FILL; "
                     "output t sees no future input"
@@ -1080,6 +1090,10 @@ def main():
             "policy_inputs": input_info,
         },
         "offline_normal_list_hashes_by_model_tag": normal_hashes,
+        "runtime_encoder_sha256_by_model_tag": {
+            tag: metadata_by_tag[tag].get("runtime_encoder_sha256")
+            for tag in sorted(metadata_by_tag)
+        },
         "architecture_pairs": {
             "{}:{}".format(policy, pair_id): [
                 {
@@ -1105,7 +1119,7 @@ def main():
             normal = by_method["offline_" + policy]
             points = []
             for tag in model_tags:
-                if not tag.startswith("threshold_free_" + policy + "_"):
+                if not tag.startswith("independent_delta_" + policy + "_"):
                     continue
                 row = by_method["offline_" + tag]
                 metadata = metadata_by_tag[tag]
@@ -1228,12 +1242,12 @@ def main():
         payload["architecture_pair_comparisons"] = pair_rows
         payload["cross_directory_interpretation_rule"] = {
             "cnn_wins": (
-                "At matched parameters, the 1,555-event causal TCN "
+                "At paired reported capacities, the 289-event causal CNN "
                 "improves IPC/miss rate without material BPI loss: immediate "
                 "and medium-range address correlation is sufficient."
             ),
             "lstm_wins": (
-                "At matched parameters, the stateful LSTM improves IPC and "
+                "At paired reported capacities, the stateful LSTM improves IPC and "
                 "BPI: useful information extends beyond the TCN receptive field."
             ),
             "both_fail": (

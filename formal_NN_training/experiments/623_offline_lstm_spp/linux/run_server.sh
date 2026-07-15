@@ -6,13 +6,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_spp_threshold_free_v9_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_spp_variable_delta_free_running_v11_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-threshold_free_spp_lstm_h8,threshold_free_spp_lstm_h16,threshold_free_spp_lstm_h32}"
-BASE_TAG="${BASE_TAG:-threshold_free_spp_lstm_h8}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-independent_delta_spp_lstm_h12,independent_delta_spp_lstm_h16,independent_delta_spp_lstm_h32}"
+BASE_TAG="${BASE_TAG:-independent_delta_spp_lstm_h12}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -293,6 +293,16 @@ common = {
     "cache_hit_and_type_are_audit_only": True,
     "teacher_actions_are_model_inputs": False,
     "same_external_input_contract": True,
+    "training_inference_input_encoder_identical": True,
+    "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+    "decoder_previous_teacher_action_used_as_input": False,
+    "decoder_free_running_self_test": "PASS",
+    "training_runtime_fields": [
+        "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
+    ],
+    "inference_runtime_fields": [
+        "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
+    ],
     "normal_policy_outputs_used_as_model_inputs": False,
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
@@ -303,6 +313,8 @@ common = {
     "normal_policy_constants_used_by_neural_inference": False,
     "probability_threshold_used": False,
     "neural_degree_cap": None,
+    "fixed_page_offset_classes": None,
+    "same_page_rule_used_by_neural_inference": False,
     "future_label_window_used": False,
     "fill_lead_cutoff_used": False,
     "handcrafted_semantic_features_used": False,
@@ -314,7 +326,7 @@ common = {
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_fill_v6",
     "action_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "spp_threshold_free_fill_feedback_split_v9",
+    "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": [
         "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
@@ -325,21 +337,29 @@ bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
-if not tag.startswith("threshold_free_spp_lstm_"):
-    bad["model_tag"] = (tag, "threshold_free_spp_lstm_<size>")
+if not tag.startswith("independent_delta_spp_lstm_"):
+    bad["model_tag"] = (tag, "independent_delta_spp_lstm_<size>")
 expected_points = {
-    ("lstm", 8): ("p0", 4713),
-    ("lstm", 16): ("p1", 9681),
-    ("lstm", 32): ("p2", 21153),
+    ("lstm", 12): "p0",
+    ("lstm", 16): "p1",
+    ("lstm", 32): "p2",
 }
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
 else:
-    if metadata.get("architecture_pair_id") != point[0]:
-        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point[0])
-    if metadata.get("parameter_count") != point[1]:
-        bad["parameter_count"] = (metadata.get("parameter_count"), point[1])
+    if metadata.get("architecture_pair_id") != point:
+        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point)
+if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
+    bad["parameter_count"] = (metadata.get("parameter_count"), "positive measured value")
+encoder_hashes = {
+    metadata.get("runtime_encoder_sha256"),
+    metadata.get("training_runtime_encoder_sha256"),
+    metadata.get("inference_runtime_encoder_sha256"),
+}
+encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
+    bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared 64-hex digest")
 expected = {
     "training_state_mode": "chronological_stateful_tbptt",
     "training_state_carried_across_chunks": True,
@@ -453,7 +473,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_threshold_free_spp_lstm_*)
+    offline_independent_delta_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
