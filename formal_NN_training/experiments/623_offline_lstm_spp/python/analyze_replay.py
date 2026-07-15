@@ -853,12 +853,12 @@ def main():
 
     add_comparison_metrics(rows, failures)
     by_method = {row["method"]: row for row in rows}
-    behavior_fields = [
-        "behavior_count_exact_match_rate", "behavior_target_precision",
-        "behavior_target_recall", "behavior_target_f1",
-        "behavior_fill_accuracy_on_matched_targets",
-        "behavior_predicted_actions", "behavior_normal_actions",
-    ]
+    behavior_fields = sorted({
+        key
+        for row in rows
+        for key in row
+        if key.startswith("behavior_")
+    })
     for row in rows:
         for field in behavior_fields:
             row.setdefault(field, "")
@@ -911,10 +911,7 @@ def main():
         "pollution_proxy_delta_vs_offline_normal", "pf_requested",
         "prefetch_request_reduction_vs_offline_normal",
         "balanced_parity_index", "parity_bottleneck",
-        "behavior_count_exact_match_rate", "behavior_target_precision",
-        "behavior_target_recall", "behavior_target_f1",
-        "behavior_fill_accuracy_on_matched_targets",
-        "behavior_predicted_actions", "behavior_normal_actions",
+        *behavior_fields,
     ]
     with (args.run_dir / "insight_summary.csv").open(
         "w", newline=""
