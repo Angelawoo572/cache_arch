@@ -5,8 +5,6 @@ Both architecture tracks consume exactly the chronological external callbacks
 read by source SPP: demand addresses and cache-fill eviction addresses.  The
 normal SPP action stream is supervision and comparator replay only.
 """
-from __future__ import annotations
-
 import argparse
 import csv
 import gzip
