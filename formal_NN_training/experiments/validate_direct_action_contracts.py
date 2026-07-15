@@ -100,6 +100,25 @@ def contract_fields(contract):
 
 
 def main():
+    # Sacramento uses an older system Python and does not provide pandas.
+    # Keep every server-side audit/analyzer dependency-free and fail closed if
+    # either unsupported postponed annotations or pandas is introduced.
+    future_annotations = "from __future__ import " + "annotations"
+    for path in tuple(COMMON.rglob("*.py")) + tuple(EXPERIMENTS.rglob("*.py")):
+        source = path.read_text()
+        if future_annotations in source:
+            fail("{} requires unsupported future annotations".format(path))
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                imported = [node.module or ""]
+            else:
+                continue
+            if any(name == "pandas" or name.startswith("pandas.") for name in imported):
+                fail("{} imports unavailable pandas".format(path))
+
     if (EXPERIMENTS / "623_offline_lstm_cnn_stride_spp").exists():
         fail("obsolete combined 623 directory still exists")
 
