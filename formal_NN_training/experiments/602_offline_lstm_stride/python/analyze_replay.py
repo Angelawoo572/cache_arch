@@ -156,10 +156,14 @@ def main():
             failures.append("{} lacks final simulator statistics".format(method))
         if method == "live_stride_reference" and row["prefetch_request_events"] <= 0:
             failures.append("live_stride_reference emitted no PF requests")
-        if method.startswith("offline_") and method != "offline_stride" and (row["matched"] <= 0 or row["emitted"] <= 0):
-            failures.append("{} did not replay keyed entries".format(method))
+        # A threshold-free neural policy may legitimately learn request count
+        # zero.  An empty NN action list is therefore a measured outcome, not a
+        # replay failure.  The normal comparator must remain nonempty, while
+        # every offline replay must still process the full callback stream.
         if method == "offline_stride" and (row["matched"] <= 0 or row["emitted"] <= 0):
             failures.append("offline_stride did not replay keyed entries")
+        if method.startswith("offline_") and row["callbacks"] <= 0:
+            failures.append("{} reported zero replay callbacks".format(method))
         row["matched_primary_comparison"] = int(method == "offline_stride" or method.startswith("offline_lstm_"))
         row["model_tag"] = method[len("offline_lstm_"):] if method.startswith("offline_lstm_") else ""
         row["hidden_size"] = model_tag_to_hidden(row["model_tag"]) if row["model_tag"] else 0
