@@ -293,6 +293,7 @@ def main():
         "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
         "neural_action_decoder": "unbounded count plus direct signed cache-line deltas",
+        "complete_neural_action_space": True,
         "self_target_actions_allowed": True,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "tracks": {POLICY: {}},
