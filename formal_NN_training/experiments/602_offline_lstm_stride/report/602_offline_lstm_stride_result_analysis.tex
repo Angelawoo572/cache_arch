@@ -109,7 +109,10 @@ filled; $L_t$ increments when demand merges into an in-flight prefetch; and
 $Q$ increments for a duplicate in the prefetch queue.  When a denominator is
 zero, the ratio is reported as \NA; a safe-divide value of zero in JSON is not
 treated as a valid 0\% accuracy/timeliness result.  We also report
-$Q/I$, $L_t/I$, $W/I$, and resolved-fill utility $U/(U+W)$.
+$U/M$, $Q/I$, $D/P$, $F/(I-Q)$, $L_t/I$, $W/I$, and resolved-fill
+utility $U/(U+W)$.  These labels state the numerator and denominator
+explicitly: $U/M$ can exceed one and is not coverage, while $F/(I-Q)$ is an
+issue-to-fill reach ratio rather than usefulness.
 Hennessy and Patterson motivate these separate dimensions: bad prefetches can
 displace useful blocks and consume bandwidth, while useful prefetches must
 arrive in time and avoid excessive outstanding work.\footnote{J. L. Hennessy
@@ -129,6 +132,7 @@ Method & params & cycles & IPC & speedup & L2 loads & L2 misses & miss rate & mi
 \midrule
 No prefetch & -- & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
 Offline Stride & -- & 67.538M & 0.37016 & 1.0059 & 404,219 & 168,281 & 41.63\% & 17.16\% \\
+Live Stride (context) & -- & 67.557M & 0.37006 & 1.0056 & 404,219 & 168,277 & 41.63\% & 17.16\% \\
 LSTM h8 & 4,869 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
 LSTM h16 & 10,749 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
 LSTM h32 & 25,581 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
@@ -154,38 +158,55 @@ LSTM h128 & 200,589 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% &
 \addplot+[color=blue,mark=*] coordinates {(0,0.36800000) (1,0.37016000) (2,0.36800000) (3,0.36800000) (4,0.36800000) (5,0.36800000) (6,0.36800000)};
 \nextgroupplot[title={L2 load miss rate},ylabel={percent},scaled y ticks=false]
 \addplot+[color=red,mark=square*] coordinates {(0,50.25270955) (1,41.63114549) (2,50.25270955) (3,50.25270955) (4,50.25270955) (5,50.25270955) (6,50.25270955)};
-\nextgroupplot[title={Accuracy: raw versus deduplicated},ylabel={percent},scaled y ticks=false,
-  legend style={at={(0.5,1.03)},anchor=south,legend columns=2,draw=none,font=\scriptsize}]
+\nextgroupplot[title={Accuracy: raw versus deduplicated},ylabel={percent},scaled y ticks=false]
 \addplot+[color=orange,mark=triangle*] coordinates {(0,0) (1,28.35431091) (2,0) (3,0) (4,0) (5,0) (6,0)};
-\addlegendentry{$A=U/I$}
 \addplot+[color=blue,mark=diamond*] coordinates {(0,0) (1,28.35431091) (2,0) (3,0) (4,0) (5,0) (6,0)};
-\addlegendentry{$A_{\rm sel}=U/(I-Q)$}
-\nextgroupplot[title={Coverage and timeliness},ylabel={percent},scaled y ticks=false,
-  legend style={at={(0.5,1.03)},anchor=south,legend columns=2,draw=none,font=\scriptsize}]
+\nextgroupplot[title={Coverage and timeliness},ylabel={percent},scaled y ticks=false]
 \addplot+[color=teal,mark=*] coordinates {(0,0.00000000) (1,17.15641630) (2,0.00000000) (3,0.00000000) (4,0.00000000) (5,0.00000000) (6,0.00000000)};
-\addlegendentry{coverage $C$}
 \addplot+[color=green,mark=square*] coordinates {(0,0) (1,99.52877338) (2,0) (3,0) (4,0) (5,0) (6,0)};
-\addlegendentry{timeliness $T$}
 \end{groupplot}
 \end{tikzpicture}
 
 \vspace{1mm}
-{\footnotesize All legends are outside the data region.  No-action points are drawn at zero for visibility; their zero-denominator accuracy/timeliness entries remain \NA\ in the tables.}
+{\footnotesize
+\textcolor{orange}{Orange triangles}: raw accuracy $A=U/I$;\quad
+\textcolor{blue}{blue diamonds}: selected accuracy $A_{\rm sel}=U/(I-Q)$;\quad
+\textcolor{teal}{teal circles}: coverage $C$;\quad
+\textcolor{green}{green squares}: timeliness $T$.\\
+Series labels are outside every plot and title.  No-action points are drawn at
+zero for visibility; their zero-denominator accuracy/timeliness entries remain
+\NA\ in the tables.}
 \end{center}
 
 \section*{3. Quality and traffic---kept separate}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrr@{}}
 \toprule
-Method & req./L2 load & raw acc. & selected acc. & coverage & timeliness & late/issued & useless/issued & resolved-fill utility \\
+Method & raw accuracy $U/I$ & selected accuracy $U/(I-Q)$ & coverage $U/M_0$ & useful/self-miss $U/M$ & timeliness $U/(U+L_t)$ \\
 \midrule
-Offline Stride & 0.304 & 28.35\% & 28.35\% & 17.16\% & 99.53\% & 0.134\% & 0.430\% & 98.50\% \\
-LSTM h8 & 0.000 & -- & -- & 0.00\% & -- & -- & -- & -- \\
-LSTM h16 & 0.000 & -- & -- & 0.00\% & -- & -- & -- & -- \\
-LSTM h32 & 0.000 & -- & -- & 0.00\% & -- & -- & -- & -- \\
-LSTM h64 & 0.000 & -- & -- & 0.00\% & -- & -- & -- & -- \\
-LSTM h128 & 0.000 & -- & -- & 0.00\% & -- & -- & -- & -- \\
+Offline Stride & 28.35\% & 28.35\% & 17.16\% & 0.207 & 99.53\% \\
+LSTM h8 & -- & -- & 0.00\% & 0.000 & -- \\
+LSTM h16 & -- & -- & 0.00\% & 0.000 & -- \\
+LSTM h32 & -- & -- & 0.00\% & 0.000 & -- \\
+LSTM h64 & -- & -- & 0.00\% & 0.000 & -- \\
+LSTM h128 & -- & -- & 0.00\% & 0.000 & -- \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\begin{center}\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Method & request/L2 load $P/N_L$ & merge/issued $Q/I$ & drop/request $D/P$ & fill/non-merged $F/(I-Q)$ & late/issued $L_t/I$ & useless/issued $W/I$ & resolved-fill utility $U/(U+W)$ \\
+\midrule
+Offline Stride & 0.304 & 0.000\% & 0.000\% & 28.790\% & 0.134\% & 0.430\% & 98.50\% \\
+LSTM h8 & 0.000 & -- & -- & -- & -- & -- & -- \\
+LSTM h16 & 0.000 & -- & -- & -- & -- & -- & -- \\
+LSTM h32 & 0.000 & -- & -- & -- & -- & -- & -- \\
+LSTM h64 & 0.000 & -- & -- & -- & -- & -- & -- \\
+LSTM h128 & 0.000 & -- & -- & -- & -- & -- & -- \\
 \bottomrule
 \end{tabular}}
 \end{center}
@@ -214,7 +235,16 @@ never interpreted without raw accuracy, merge count, coverage, miss rate, and
 IPC.
 \end{infobox}
 
-\section*{4. Event-log audit and 602/623 schema difference}
+\section*{4. Data-supported insights}
+\begin{infobox}[fontupper=\small]
+\begin{itemize}[itemsep=1pt,topsep=1pt]
+\item Offline Stride provides a small benefit: IPC 0.37016 versus 0.36800 and L2 miss rate 41.63\% versus 50.25\% without prefetching.
+\item Every LSTM capacity emits zero requests, so each reproduces the no-prefetch result.  Accuracy and timeliness are undefined (zero denominators), not successful 0\% measurements.
+\item This is a measured zero-action collapse.  It supports neither an LSTM-capacity conclusion nor a claim that Stride inputs are insufficient; the likely count/decoder problem is recorded but intentionally not repaired in this TeX-only update.
+\end{itemize}
+\end{infobox}
+
+\section*{5. Event-log audit and 602/623 schema difference}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lrrrrrrrrrr@{}}
@@ -257,24 +287,5 @@ the analyzers do.  The event-log counts above are an independent attribution
 audit and are never substituted into $A$, $A_{\rm sel}$, $C$, or $T$.}
 
 
-
-\section*{5. Data-supported insights}
-\begin{infobox}
-\begin{itemize}
-\item Offline Stride provides a small benefit: IPC 0.37016 versus 0.36800 and L2 miss rate 41.63\% versus 50.25\% without prefetching.
-\item Every LSTM capacity emits zero requests, so each reproduces the no-prefetch result.  Accuracy and timeliness are undefined (zero denominators), not successful 0\% measurements.
-\item This is a measured zero-action collapse.  It supports neither an LSTM-capacity conclusion nor a claim that Stride inputs are insufficient; the likely count/decoder problem is recorded but intentionally not repaired in this TeX-only update.
-\end{itemize}
-\end{infobox}
-
-\begin{center}\small
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-Context-only transport check & live IPC & offline IPC & live miss rate & offline miss rate \\
-\midrule
-Stride & 0.37006 & 0.37016 & 41.630\% & 41.631\% \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 \end{document}
