@@ -20,6 +20,10 @@ REPLAYER = re.compile(
 )
 
 
+def div(numerator, denominator):
+    return float(numerator) / float(denominator) if denominator else 0.0
+
+
 def sha256(path):
     digest = hashlib.sha256()
     with Path(path).open("rb") as handle:
@@ -45,29 +49,100 @@ def stream_hashes(path):
 
 
 def parse_log(path):
-    result = {"ipc": 0.0, "instructions": 0, "cycles": 0, "emitted": 0, "callbacks": 0, "matched": 0}
+    """Parse simulator-final counters without inferring semantics from names."""
+    stats = {}
     text = path.read_text(errors="ignore")
+    emitted = callbacks = matched = 0
     for raw in text.splitlines():
         match = KV.match(raw.strip())
         if match:
-            if match.group(1) == "Core_0_IPC":
-                result["ipc"] = float(match.group(2))
-            elif match.group(1) == "Core_0_instructions":
-                result["instructions"] = int(float(match.group(2)))
-            elif match.group(1) == "Core_0_cycles":
-                result["cycles"] = int(float(match.group(2)))
+            stats[match.group(1)] = float(match.group(2))
         match = FINISHED.search(raw)
         if match:
-            result["instructions"] = int(match.group(1))
-            result["cycles"] = int(match.group(2))
-            if not result["ipc"]:
-                result["ipc"] = float(match.group(3))
+            stats["finished_instructions"] = float(match.group(1))
+            stats["finished_cycles"] = float(match.group(2))
+            stats["finished_ipc"] = float(match.group(3))
         match = REPLAYER.search(raw)
         if match:
-            result["emitted"] = int(match.group(1))
-            result["callbacks"] = int(match.group(2))
-            result["matched"] = int(match.group(3))
-    return result
+            emitted = int(match.group(1))
+            callbacks = int(match.group(2))
+            matched = int(match.group(3))
+
+    required = [
+        "Core_0_L2C_loads",
+        "Core_0_L2C_load_miss",
+        "Core_0_L2C_prefetch_requested",
+        "Core_0_L2C_prefetch_dropped",
+        "Core_0_L2C_prefetch_issued",
+        "Core_0_L2C_prefetch_filled",
+        "Core_0_L2C_prefetch_useful",
+        "Core_0_L2C_prefetch_useless",
+        "Core_0_L2C_prefetch_late",
+        "Core_0_L2C_pq_merged",
+    ]
+    missing = [key for key in required if key not in stats]
+    if missing:
+        raise RuntimeError(
+            "{} missing ChampSim final counters {}".format(path, missing)
+        )
+
+    def value(key, fallback=0.0):
+        return stats.get(key, fallback)
+
+    ipc = value("Core_0_IPC", value("finished_ipc"))
+    instructions = int(value(
+        "Core_0_instructions", value("finished_instructions")
+    ))
+    cycles = int(value("Core_0_cycles", value("finished_cycles")))
+    l2_loads = int(value("Core_0_L2C_loads"))
+    l2_miss = int(value("Core_0_L2C_load_miss"))
+    requested = int(value("Core_0_L2C_prefetch_requested"))
+    dropped = int(value("Core_0_L2C_prefetch_dropped"))
+    issued = int(value("Core_0_L2C_prefetch_issued"))
+    filled = int(value("Core_0_L2C_prefetch_filled"))
+    useful = int(value("Core_0_L2C_prefetch_useful"))
+    useless = int(value("Core_0_L2C_prefetch_useless"))
+    late = int(value("Core_0_L2C_prefetch_late"))
+    merged = int(value("Core_0_L2C_pq_merged"))
+    nodup_issued = issued - merged
+    if min(
+        l2_loads, l2_miss, requested, dropped, issued, filled,
+        useful, useless, late, merged, nodup_issued,
+    ) < 0:
+        raise RuntimeError("{} has a negative ChampSim counter".format(path))
+
+    return {
+        "ipc": ipc,
+        "instructions": instructions,
+        "cycles": cycles,
+        "emitted": emitted,
+        "callbacks": callbacks,
+        "matched": matched,
+        "l2_loads": l2_loads,
+        "l2_load_miss": l2_miss,
+        "l2_load_miss_rate": div(l2_miss, l2_loads),
+        "pf_requested": requested,
+        "pf_dropped": dropped,
+        "pf_issued": issued,
+        "nodup_issued": nodup_issued,
+        "pf_filled": filled,
+        "pf_useful": useful,
+        "pf_useless": useless,
+        "pf_late": late,
+        "pq_merged_duplicate_proxy": merged,
+        "accuracy": div(useful, issued),
+        "nodup_accuracy": div(useful, nodup_issued),
+        "selected_accuracy": div(useful, nodup_issued),
+        "useful_per_l2_miss_self": div(useful, l2_miss),
+        "timeliness": div(useful, useful + late),
+        "request_per_l2_load": div(requested, l2_loads),
+        "merge_per_issued": div(merged, issued),
+        "late_per_issued": div(late, issued),
+        "drop_rate": div(dropped, requested),
+        "fill_per_nodup_issued": div(filled, nodup_issued),
+        "useless_per_issued": div(useless, issued),
+        "resolved_fill_utility": div(useful, useful + useless),
+    }
 
 
 def parse_events(path):
@@ -103,6 +178,131 @@ def parse_events(path):
             if int(row["late"]):
                 result["prefetch_late_demand_misses"] += 1
     return result
+
+
+def annotate_counter_event_consistency(row, failures):
+    """Audit overlap between analyzer event counts and ChampSim final counters."""
+    row["counter_event_l2_load_delta"] = (
+        row["l2_loads"] - row["demand_l2_loads"]
+    )
+    row["counter_event_l2_miss_delta"] = (
+        row["l2_load_miss"] - row["demand_l2_misses"]
+    )
+    row["counter_event_request_delta"] = (
+        row["pf_issued"] - row["prefetch_request_events"]
+    )
+    row["counter_event_useful_delta"] = (
+        row["pf_useful"] - row["prefetch_useful_demand_hits"]
+    )
+    row["counter_event_late_delta"] = (
+        row["pf_late"] - row["prefetch_late_demand_misses"]
+    )
+
+    if row["l2_load_miss"] > row["l2_loads"]:
+        failures.append("{} has more L2 misses than loads".format(row["method"]))
+    if row["pf_requested"] != row["pf_issued"] + row["pf_dropped"]:
+        failures.append(
+            "{} violates requested = issued + dropped".format(row["method"])
+        )
+    if row["pf_filled"] < row["pf_useful"] + row["pf_useless"]:
+        failures.append(
+            "{} has useful + useless greater than filled".format(row["method"])
+        )
+    if row["counter_event_l2_load_delta"] != 0:
+        failures.append(
+            "{} analyzer/ChampSim L2-load mismatch".format(row["method"])
+        )
+    if row["counter_event_l2_miss_delta"] != 0:
+        failures.append(
+            "{} analyzer/ChampSim L2-miss mismatch".format(row["method"])
+        )
+
+    if row["simulator_prefetch_counter_scope"] == "measurement_only":
+        checks = (
+            row["counter_event_request_delta"] == 0
+            and abs(row["counter_event_useful_delta"]) <= 1
+            and row["counter_event_late_delta"] == 0
+        )
+        row["counter_event_core_consistent"] = bool(checks)
+        if not checks:
+            failures.append(
+                "{} analyzer/ChampSim prefetch-counter mismatch".format(
+                    row["method"]
+                )
+            )
+        if row["counter_event_useful_delta"] == 0:
+            row["counter_event_consistency_note"] = "exact"
+        else:
+            row["counter_event_consistency_note"] = (
+                "useful differs by one at the measurement boundary"
+            )
+    else:
+        row["counter_event_core_consistent"] = bool(
+            row["counter_event_l2_load_delta"] == 0
+            and row["counter_event_l2_miss_delta"] == 0
+        )
+        row["counter_event_consistency_note"] = (
+            "live context: final prefetch lifecycle counters include warmup; "
+            "event counters are measurement-window only"
+        )
+
+
+def add_cache_metrics(rows, failures):
+    """Add source-defined cache metrics while keeping dimensions separate."""
+    by_method = {row["method"]: row for row in rows}
+    no_pref = by_method.get("no_pref")
+    if (
+        no_pref is None
+        or no_pref["ipc"] <= 0
+        or no_pref["l2_load_miss"] <= 0
+        or no_pref["demand_l2_misses"] <= 0
+    ):
+        failures.append("valid no-prefetch baseline is missing")
+        return
+
+    for row in rows:
+        row["speedup_vs_no_pref"] = div(row["ipc"], no_pref["ipc"])
+        row["miss_reduction_vs_no_pref"] = div(
+            no_pref["l2_load_miss"] - row["l2_load_miss"],
+            no_pref["l2_load_miss"],
+        )
+        row["l2_miss_reduction_vs_no_pref"] = (
+            row["miss_reduction_vs_no_pref"]
+        )
+        row["event_useful_per_request"] = div(
+            row["prefetch_useful_demand_hits"],
+            row["prefetch_request_events"],
+        )
+        row["event_coverage_vs_no_pref_l2_miss"] = div(
+            row["prefetch_useful_demand_hits"],
+            no_pref["demand_l2_misses"],
+        )
+        row["event_timeliness"] = div(
+            row["prefetch_useful_demand_hits"],
+            row["prefetch_useful_demand_hits"]
+            + row["prefetch_late_demand_misses"],
+        )
+
+        if row["simulator_prefetch_counter_scope"] == "measurement_only":
+            row["coverage_vs_no_pref_l2_miss"] = div(
+                row["pf_useful"], no_pref["l2_load_miss"]
+            )
+            row["coverage_metric_source"] = "ChampSim measurement counters"
+        else:
+            row["coverage_vs_no_pref_l2_miss"] = (
+                row["event_coverage_vs_no_pref_l2_miss"]
+            )
+            row["coverage_metric_source"] = (
+                "analyzer measurement-window events"
+            )
+
+        # Backward-compatible names retain their original event-window meaning.
+        row["prefetch_coverage_vs_no_pref_misses"] = (
+            row["event_coverage_vs_no_pref_l2_miss"]
+        )
+        row["primary_metric_eligible"] = bool(
+            row["simulator_prefetch_counter_scope"] == "measurement_only"
+        )
 
 
 def model_tag_to_hidden(tag):
@@ -152,6 +352,12 @@ def main():
             row.update(parse_events(event_path))
         except Exception as exc:
             failures.append("{} event parse failed: {}".format(method, exc))
+        row["simulator_prefetch_counter_scope"] = (
+            "warmup_plus_measurement"
+            if method.startswith("live_")
+            else "measurement_only"
+        )
+        annotate_counter_event_consistency(row, failures)
         if row["ipc"] <= 0 or row["instructions"] <= 0:
             failures.append("{} lacks final simulator statistics".format(method))
         if method == "live_stride_reference" and row["prefetch_request_events"] <= 0:
@@ -311,29 +517,63 @@ def main():
                     "{} {}-stream decompressed content does not match this run".format(tag, role)
                 )
 
-    if "no_pref" in by_method:
-        no_pref_misses = by_method["no_pref"]["demand_l2_misses"]
-        for row in rows:
-            useful = row["prefetch_useful_demand_hits"]
-            row["prefetch_coverage_vs_no_pref_misses"] = useful / float(no_pref_misses) if no_pref_misses else 0.0
-            row["l2_miss_reduction_vs_no_pref"] = (
-                (no_pref_misses - row["demand_l2_misses"]) / float(no_pref_misses) if no_pref_misses else 0.0
-            )
+    add_cache_metrics(rows, failures)
 
     status = "FAIL" if failures else "PASS"
     fields = [
-        "trace", "method", "model_tag", "hidden_size", "matched_primary_comparison",
-        "ipc", "instructions", "cycles", "matched", "emitted", "callbacks",
+        "trace", "method", "model_tag", "hidden_size",
+        "matched_primary_comparison", "primary_metric_eligible",
+        "simulator_prefetch_counter_scope", "ipc", "speedup_vs_no_pref",
+        "instructions", "cycles", "l2_loads", "l2_load_miss",
+        "l2_load_miss_rate", "miss_reduction_vs_no_pref",
+        "pf_requested", "pf_dropped", "pf_issued", "nodup_issued",
+        "pf_filled", "pf_useful", "pf_useless", "pf_late",
+        "pq_merged_duplicate_proxy", "accuracy", "nodup_accuracy",
+        "selected_accuracy", "coverage_vs_no_pref_l2_miss",
+        "coverage_metric_source", "useful_per_l2_miss_self",
+        "timeliness", "request_per_l2_load", "merge_per_issued",
+        "drop_rate", "fill_per_nodup_issued", "late_per_issued",
+        "useless_per_issued", "resolved_fill_utility",
         "demand_l2_loads", "demand_l2_hits", "demand_l2_misses",
         "prefetch_useful_demand_hits", "prefetch_late_demand_misses",
-        "prefetch_request_events", "prefetch_coverage_vs_no_pref_misses",
-        "l2_miss_reduction_vs_no_pref", "log", "event_log",
+        "prefetch_request_events", "event_useful_per_request",
+        "event_coverage_vs_no_pref_l2_miss", "event_timeliness",
+        "prefetch_coverage_vs_no_pref_misses",
+        "l2_miss_reduction_vs_no_pref",
+        "counter_event_l2_load_delta", "counter_event_l2_miss_delta",
+        "counter_event_request_delta", "counter_event_useful_delta",
+        "counter_event_late_delta", "counter_event_core_consistent",
+        "counter_event_consistency_note", "matched", "emitted",
+        "callbacks", "log", "event_log",
     ]
-    out_csv = args.run_dir / "matched_comparison.csv"
-    with out_csv.open("w", newline="") as handle:
+    with (args.run_dir / "matched_comparison.csv").open(
+        "w", newline=""
+    ) as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
         writer.writerows(rows)
+
+    insight_fields = [
+        "method", "model_tag", "hidden_size", "ipc",
+        "speedup_vs_no_pref", "l2_load_miss_rate",
+        "miss_reduction_vs_no_pref", "accuracy", "selected_accuracy",
+        "coverage_vs_no_pref_l2_miss", "useful_per_l2_miss_self",
+        "timeliness", "request_per_l2_load", "merge_per_issued",
+        "drop_rate", "fill_per_nodup_issued", "late_per_issued",
+        "useless_per_issued", "resolved_fill_utility",
+        "pf_requested", "pf_issued", "nodup_issued", "pf_filled",
+        "pf_useful", "pf_useless", "pf_late",
+        "pq_merged_duplicate_proxy",
+    ]
+    with (args.run_dir / "insight_summary.csv").open(
+        "w", newline=""
+    ) as handle:
+        writer = csv.DictWriter(handle, fieldnames=insight_fields)
+        writer.writeheader()
+        writer.writerows(
+            {key: row.get(key, "") for key in insight_fields}
+            for row in rows
+        )
 
     payload = {
         "status": status,
@@ -344,11 +584,87 @@ def main():
         "matched_input_contract": "effective Stride inputs only: current PC and cache-line address plus the LSTM's own causal state",
         "neural_contract": "unbounded learned count plus autoregressive direct cache-line deltas; no Stride candidates, page-offset table, degree, or tracker state enter inference",
         "live_stride_role": "validated general reference only; it is not the offline primary comparator",
+        "metric_sources": {
+            "analyzer_events": (
+                "measurement-window demand loads/hits/misses, PF request "
+                "events, useful-demand hits, and late-demand misses"
+            ),
+            "champsim_final_counters": (
+                "Core_0_L2C loads/misses and requested/dropped/issued/"
+                "pq_merged/filled/useful/useless/late"
+            ),
+            "scope": (
+                "offline/no-prefetch rows have measurement-only prefetch "
+                "counters; live-reference prefetch lifecycle counters include "
+                "warmup and are context-only"
+            ),
+        },
         "metric_definitions": {
-            "prefetch_useful_demand_hits": "post-warmup L2 load hits on a line marked as prefetched",
-            "prefetch_late_demand_misses": "post-warmup L2 load misses merged into an in-flight prefetch MSHR",
-            "prefetch_coverage_vs_no_pref_misses": "useful prefetch demand hits divided by no-prefetch L2 load misses",
-            "l2_miss_reduction_vs_no_pref": "(no-prefetch L2 load misses - method L2 load misses) / no-prefetch L2 load misses",
+            "l2_load_miss_rate": (
+                "Core_0_L2C_load_miss / Core_0_L2C_loads"
+            ),
+            "miss_reduction_vs_no_pref": (
+                "(no-prefetch L2 load misses - method L2 load misses) / "
+                "no-prefetch L2 load misses"
+            ),
+            "accuracy": (
+                "Core_0_L2C_prefetch_useful / "
+                "Core_0_L2C_prefetch_issued"
+            ),
+            "selected_accuracy": (
+                "Core_0_L2C_prefetch_useful / "
+                "(Core_0_L2C_prefetch_issued - Core_0_L2C_pq_merged)"
+            ),
+            "coverage_vs_no_pref_l2_miss": (
+                "measurement-window useful prefetches / no-prefetch "
+                "measurement-window L2 load misses"
+            ),
+            "useful_per_l2_miss_self": (
+                "Core_0_L2C_prefetch_useful / Core_0_L2C_load_miss"
+            ),
+            "timeliness": (
+                "Core_0_L2C_prefetch_useful / "
+                "(Core_0_L2C_prefetch_useful + Core_0_L2C_prefetch_late)"
+            ),
+            "request_per_l2_load": (
+                "Core_0_L2C_prefetch_requested / Core_0_L2C_loads"
+            ),
+            "merge_per_issued": (
+                "Core_0_L2C_pq_merged / Core_0_L2C_prefetch_issued"
+            ),
+            "drop_rate": (
+                "Core_0_L2C_prefetch_dropped / "
+                "Core_0_L2C_prefetch_requested"
+            ),
+            "fill_per_nodup_issued": (
+                "Core_0_L2C_prefetch_filled / "
+                "(Core_0_L2C_prefetch_issued - Core_0_L2C_pq_merged)"
+            ),
+            "late_per_issued": (
+                "Core_0_L2C_prefetch_late / "
+                "Core_0_L2C_prefetch_issued"
+            ),
+            "useless_per_issued": (
+                "Core_0_L2C_prefetch_useless / "
+                "Core_0_L2C_prefetch_issued"
+            ),
+            "resolved_fill_utility": (
+                "Core_0_L2C_prefetch_useful / "
+                "(Core_0_L2C_prefetch_useful + "
+                "Core_0_L2C_prefetch_useless)"
+            ),
+            "event_useful_per_request": (
+                "measurement-window useful-demand hits / "
+                "measurement-window PF request events"
+            ),
+            "event_coverage_vs_no_pref_l2_miss": (
+                "measurement-window useful-demand hits / no-prefetch "
+                "measurement-window demand L2 misses"
+            ),
+            "event_timeliness": (
+                "measurement-window useful-demand hits / "
+                "(useful-demand hits + late-demand misses)"
+            ),
         },
         "model_tags": model_tags,
         "required_recurrent_state_contract": {
@@ -376,6 +692,20 @@ def main():
                 "prefetch_coverage_vs_no_pref_misses": row["prefetch_coverage_vs_no_pref_misses"],
                 "prefetch_useful_demand_hits": row["prefetch_useful_demand_hits"],
                 "prefetch_late_demand_misses": row["prefetch_late_demand_misses"],
+                "l2_load_miss_rate": row["l2_load_miss_rate"],
+                "miss_reduction_vs_no_pref": row["miss_reduction_vs_no_pref"],
+                "accuracy": row["accuracy"],
+                "selected_accuracy": row["selected_accuracy"],
+                "coverage_vs_no_pref_l2_miss": row["coverage_vs_no_pref_l2_miss"],
+                "timeliness": row["timeliness"],
+                "pf_requested": row["pf_requested"],
+                "pf_issued": row["pf_issued"],
+                "nodup_issued": row["nodup_issued"],
+                "pf_filled": row["pf_filled"],
+                "pf_useful": row["pf_useful"],
+                "pf_useless": row["pf_useless"],
+                "pf_late": row["pf_late"],
+                "pq_merged_duplicate_proxy": row["pq_merged_duplicate_proxy"],
             }
             sweep.append(point)
             if first_better is None and point["lstm_beats_offline_stride"]:
@@ -402,3 +732,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
