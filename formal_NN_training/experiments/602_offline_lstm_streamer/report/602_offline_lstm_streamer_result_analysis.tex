@@ -109,7 +109,10 @@ filled; $L_t$ increments when demand merges into an in-flight prefetch; and
 $Q$ increments for a duplicate in the prefetch queue.  When a denominator is
 zero, the ratio is reported as \NA; a safe-divide value of zero in JSON is not
 treated as a valid 0\% accuracy/timeliness result.  We also report
-$Q/I$, $L_t/I$, $W/I$, and resolved-fill utility $U/(U+W)$.
+$U/M$, $Q/I$, $D/P$, $F/(I-Q)$, $L_t/I$, $W/I$, and resolved-fill
+utility $U/(U+W)$.  These labels state the numerator and denominator
+explicitly: $U/M$ can exceed one and is not coverage, while $F/(I-Q)$ is an
+issue-to-fill reach ratio rather than usefulness.
 Hennessy and Patterson motivate these separate dimensions: bad prefetches can
 displace useful blocks and consume bandwidth, while useful prefetches must
 arrive in time and avoid excessive outstanding work.\footnote{J. L. Hennessy
@@ -129,6 +132,7 @@ Method & params & cycles & IPC & speedup & L2 loads & L2 misses & miss rate & mi
 \midrule
 No prefetch & -- & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
 Offline Streamer & -- & 57.938M & 0.43150 & 1.1726 & 404,219 & 15,497 & 3.83\% & 92.37\% \\
+Live Streamer (context) & -- & 57.922M & 0.43161 & 1.1729 & 404,219 & 15,475 & 3.83\% & 92.38\% \\
 LSTM h8 & 2,821 & 57.189M & 0.43714 & 1.1879 & 404,219 & 5,095 & 1.26\% & 97.49\% \\
 LSTM h16 & 6,653 & 57.163M & 0.43734 & 1.1884 & 404,219 & 4,787 & 1.18\% & 97.64\% \\
 LSTM h32 & 17,389 & 57.150M & 0.43744 & 1.1887 & 404,219 & 4,602 & 1.14\% & 97.73\% \\
@@ -154,38 +158,55 @@ LSTM h128 & 167,821 & 57.150M & 0.43744 & 1.1887 & 404,219 & 4,603 & 1.14\% & 97
 \addplot+[color=blue,mark=*] coordinates {(0,0.36800000) (1,0.43150000) (2,0.43714000) (3,0.43734000) (4,0.43744000) (5,0.43744000) (6,0.43744000)};
 \nextgroupplot[title={L2 load miss rate},ylabel={percent},scaled y ticks=false]
 \addplot+[color=red,mark=square*] coordinates {(0,50.25270955) (1,3.83381286) (2,1.26045535) (3,1.18425903) (4,1.13849176) (5,1.13849176) (6,1.13873915)};
-\nextgroupplot[title={Accuracy: raw versus deduplicated},ylabel={percent},scaled y ticks=false,
-  legend style={at={(0.5,1.03)},anchor=south,legend columns=2,draw=none,font=\scriptsize}]
+\nextgroupplot[title={Accuracy: raw versus deduplicated},ylabel={percent},scaled y ticks=false]
 \addplot+[color=orange,mark=triangle*] coordinates {(0,0) (1,11.56219422) (2,27.35670259) (3,18.26626442) (4,13.71345611) (5,13.71346558) (6,13.71340598)};
-\addlegendentry{$A=U/I$}
 \addplot+[color=blue,mark=diamond*] coordinates {(0,0) (1,11.56680559) (2,27.39598493) (3,18.30133685) (4,13.74302380) (5,13.74303331) (6,13.74298312)};
-\addlegendentry{$A_{\rm sel}=U/(I-Q)$}
-\nextgroupplot[title={Coverage and timeliness},ylabel={percent},scaled y ticks=false,
-  legend style={at={(0.5,1.03)},anchor=south,legend columns=2,draw=none,font=\scriptsize}]
+\nextgroupplot[title={Coverage and timeliness},ylabel={percent},scaled y ticks=false]
 \addplot+[color=teal,mark=*] coordinates {(0,0.00000000) (1,92.37437910) (2,97.49324328) (3,97.64782333) (4,97.74480508) (5,97.74480508) (6,97.74431278)};
-\addlegendentry{coverage $C$}
 \addplot+[color=green,mark=square*] coordinates {(0,0) (1,99.97442578) (2,99.88651495) (3,99.93551020) (4,99.97281022) (5,99.97281022) (6,99.97281008)};
-\addlegendentry{timeliness $T$}
 \end{groupplot}
 \end{tikzpicture}
 
 \vspace{1mm}
-{\footnotesize All legends are outside the data region.  No-action points are drawn at zero for visibility; their zero-denominator accuracy/timeliness entries remain \NA\ in the tables.}
+{\footnotesize
+\textcolor{orange}{Orange triangles}: raw accuracy $A=U/I$;\quad
+\textcolor{blue}{blue diamonds}: selected accuracy $A_{\rm sel}=U/(I-Q)$;\quad
+\textcolor{teal}{teal circles}: coverage $C$;\quad
+\textcolor{green}{green squares}: timeliness $T$.\\
+Series labels are outside every plot and title.  No-action points are drawn at
+zero for visibility; their zero-denominator accuracy/timeliness entries remain
+\NA\ in the tables.}
 \end{center}
 
 \section*{3. Quality and traffic---kept separate}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrr@{}}
 \toprule
-Method & req./L2 load & raw acc. & selected acc. & coverage & timeliness & late/issued & useless/issued & resolved-fill utility \\
+Method & raw accuracy $U/I$ & selected accuracy $U/(I-Q)$ & coverage $U/M_0$ & useful/self-miss $U/M$ & timeliness $U/(U+L_t)$ \\
 \midrule
-Offline Streamer & 4.015 & 11.56\% & 11.57\% & 92.37\% & 99.97\% & 0.003\% & 0.487\% & 95.96\% \\
-LSTM h8 & 1.791 & 27.36\% & 27.40\% & 97.49\% & 99.89\% & 0.031\% & 1.068\% & 96.24\% \\
-LSTM h16 & 2.686 & 18.27\% & 18.30\% & 97.65\% & 99.94\% & 0.012\% & 1.035\% & 94.64\% \\
-LSTM h32 & 3.582 & 13.71\% & 13.74\% & 97.74\% & 99.97\% & 0.004\% & 1.012\% & 93.13\% \\
-LSTM h64 & 3.582 & 13.71\% & 13.74\% & 97.74\% & 99.97\% & 0.004\% & 1.012\% & 93.13\% \\
-LSTM h128 & 3.582 & 13.71\% & 13.74\% & 97.74\% & 99.97\% & 0.004\% & 1.012\% & 93.13\% \\
+Offline Streamer & 11.56\% & 11.57\% & 92.37\% & 12.108 & 99.97\% \\
+LSTM h8 & 27.36\% & 27.40\% & 97.49\% & 38.869 & 99.89\% \\
+LSTM h16 & 18.27\% & 18.30\% & 97.65\% & 41.436 & 99.94\% \\
+LSTM h32 & 13.71\% & 13.74\% & 97.74\% & 43.144 & 99.97\% \\
+LSTM h64 & 13.71\% & 13.74\% & 97.74\% & 43.144 & 99.97\% \\
+LSTM h128 & 13.71\% & 13.74\% & 97.74\% & 43.135 & 99.97\% \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+\begin{center}\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Method & request/L2 load $P/N_L$ & merge/issued $Q/I$ & drop/request $D/P$ & fill/non-merged $F/(I-Q)$ & late/issued $L_t/I$ & useless/issued $W/I$ & resolved-fill utility $U/(U+W)$ \\
+\midrule
+Offline Streamer & 4.015 & 0.040\% & 0.000\% & 12.060\% & 0.003\% & 0.487\% & 95.96\% \\
+LSTM h8 & 1.791 & 0.143\% & 0.000\% & 28.478\% & 0.031\% & 1.068\% & 96.24\% \\
+LSTM h16 & 2.686 & 0.192\% & 0.000\% & 19.351\% & 0.012\% & 1.035\% & 94.64\% \\
+LSTM h32 & 3.582 & 0.215\% & 0.000\% & 14.768\% & 0.004\% & 1.012\% & 93.13\% \\
+LSTM h64 & 3.582 & 0.215\% & 0.000\% & 14.768\% & 0.004\% & 1.012\% & 93.13\% \\
+LSTM h128 & 3.582 & 0.215\% & 0.000\% & 14.768\% & 0.004\% & 1.012\% & 93.13\% \\
 \bottomrule
 \end{tabular}}
 \end{center}
@@ -214,7 +235,16 @@ never interpreted without raw accuracy, merge count, coverage, miss rate, and
 IPC.
 \end{infobox}
 
-\section*{4. Event-log audit and 602/623 schema difference}
+\section*{4. Data-supported insights}
+\begin{infobox}[fontupper=\small]
+\begin{itemize}[itemsep=1pt,topsep=1pt]
+\item The IPC plateau begins at h32: h32 and h64 are 0.43744, and h128 is 0.43744 after rounding, versus 0.43150 for offline Streamer (about +1.38\%).
+\item h32 lowers L2 miss rate from 3.834\% to 1.138\% and raises coverage from 92.37\% to 97.75\%.  The IPC gain follows useful coverage and miss reduction, not a timeliness change; both methods are already above 99.9\% timely.
+\item h8 is the traffic-efficient point: 1.791 requests/L2 access and 27.40\% selected accuracy, versus Streamer's 4.015 and 11.57\%.  Added width above h32 changes neither cache outcome nor IPC.
+\end{itemize}
+\end{infobox}
+
+\section*{5. Event-log audit and 602/623 schema difference}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
 \begin{tabular}{@{}lrrrrrrrrrr@{}}
@@ -257,24 +287,5 @@ the analyzers do.  The event-log counts above are an independent attribution
 audit and are never substituted into $A$, $A_{\rm sel}$, $C$, or $T$.}
 
 
-
-\section*{5. Data-supported insights}
-\begin{infobox}
-\begin{itemize}
-\item The IPC plateau begins at h32: h32 and h64 are 0.43744, and h128 is 0.43744 after rounding, versus 0.43150 for offline Streamer (about +1.38\%).
-\item h32 lowers L2 miss rate from 3.834\% to 1.138\% and raises coverage from 92.37\% to 97.75\%.  The IPC gain follows useful coverage and miss reduction, not a timeliness change; both methods are already above 99.9\% timely.
-\item h8 is the traffic-efficient point: 1.791 requests/L2 access and 27.40\% selected accuracy, versus Streamer's 4.015 and 11.57\%.  Added width above h32 changes neither cache outcome nor IPC.
-\end{itemize}
-\end{infobox}
-
-\begin{center}\small
-\begin{tabular}{@{}lrrrr@{}}
-\toprule
-Context-only transport check & live IPC & offline IPC & live miss rate & offline miss rate \\
-\midrule
-Streamer & 0.43161 & 0.43150 & 3.828\% & 3.834\% \\
-\bottomrule
-\end{tabular}
-\end{center}
 
 \end{document}
