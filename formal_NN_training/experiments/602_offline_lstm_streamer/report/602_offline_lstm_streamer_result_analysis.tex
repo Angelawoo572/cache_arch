@@ -47,6 +47,9 @@ Shared external input & current cache-line address, in chronological order; PC i
 Neural history & stateful LSTM; chronological TBPTT carries and detaches hidden/cell state; inference carries state continuously.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
 Run artifact & \texttt{602\_offline\_lstm\_streamer\_variable\_delta\_free\_running\_v7\_seed7}.  ``PASS'' certifies the experiment contract; it does not certify useful neural behavior.\\
+Analyzer outputs & \texttt{matched\_comparison.csv/json} now contain both the
+raw ChampSim lifecycle counters and every separate derived metric used in this
+report; \texttt{insight\_summary.csv} is the compact presentation view.\\
 \end{tabularx}
 \end{infobox}
 
@@ -100,9 +103,12 @@ $A$ counts every issued attempt.  The project-defined $A_{\rm sel}$ removes PQ-m
 \end{minipage}
 
 \begin{infobox}[title={\bfseries Exact interpretation boundaries}]
-The formulas above are taken from the experiment analyzers and recomputed from
-the simulator counters, not inferred from CSV names.  A source audit of
-\texttt{src/cache.cc} confirms the lifecycle: $U$ increments on the first read
+The updated 602 analyzer parses both the measurement-window event stream and
+ChampSim's final \texttt{Core\_0\_L2C} counters, computes these formulas
+directly, and writes the raw counters and ratios into
+\texttt{matched\_comparison.csv/json} and \texttt{insight\_summary.csv}.
+No metric below is reconstructed from a field name in this TeX.  A source
+audit of \texttt{src/cache.cc} confirms the lifecycle: $U$ increments on the first read
 hit to a prefetched line and clears its prefetch bit; $W$ increments when a
 still-prefetched, unused line is replaced; $F$ increments when a prefetch is
 filled; $L_t$ increments when demand merges into an in-flight prefetch; and
@@ -244,48 +250,75 @@ IPC.
 \end{itemize}
 \end{infobox}
 
-\section*{5. Event-log audit and 602/623 schema difference}
+\clearpage
+\section*{5. Analyzer/ChampSim provenance and cross-check}
+The updated analyzer keeps two evidence layers explicit.  Let each delta below
+be \emph{ChampSim final counter minus analyzer measurement-event count}.
+Primary offline rows have measurement-only prefetch counters.
+
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrrr@{}}
+\begin{tabular}{@{}lrrrrrl@{}}
 \toprule
-Method & demand & demand miss & PF event & accepted & duplicate & action L2 & action LLC & fill feedback & useful-demand hit & late-demand miss \\
+Method & $\Delta$L2 loads & $\Delta$L2 misses & $\Delta$PF requests &
+$\Delta$useful & $\Delta$late & audit \\
 \midrule
-Offline Streamer & 404,219 & 15,497 & 1,622,884 & -- & -- & -- & -- & -- & 187,641 & 48 \\
-LSTM h8 & 404,219 & 5,095 & 723,914 & -- & -- & -- & -- & -- & 198,038 & 225 \\
-LSTM h16 & 404,219 & 4,787 & 1,085,898 & -- & -- & -- & -- & -- & 198,352 & 128 \\
-LSTM h32 & 404,219 & 4,602 & 1,447,848 & -- & -- & -- & -- & -- & 198,549 & 54 \\
-LSTM h64 & 404,219 & 4,602 & 1,447,847 & -- & -- & -- & -- & -- & 198,549 & 54 \\
-LSTM h128 & 404,219 & 4,603 & 1,447,846 & -- & -- & -- & -- & -- & 198,548 & 54 \\
+Offline Streamer & 0 & 0 & 0 & 0 & 0 & exact \\
+LSTM h8 & 0 & 0 & 0 & +1 & 0 & boundary $+1$ useful \\
+LSTM h16 & 0 & 0 & 0 & +1 & 0 & boundary $+1$ useful \\
+LSTM h32 & 0 & 0 & 0 & +1 & 0 & boundary $+1$ useful \\
+LSTM h64 & 0 & 0 & 0 & +1 & 0 & boundary $+1$ useful \\
+LSTM h128 & 0 & 0 & 0 & +1 & 0 & boundary $+1$ useful \\
 \bottomrule
 \end{tabular}}
 \end{center}
 
-\begin{tabularx}{\textwidth}{@{}>{\bfseries}lXX@{}}
+\begin{tabularx}{\textwidth}{@{}
+  >{\bfseries\raggedright\arraybackslash}p{0.18\textwidth}
+  >{\raggedright\arraybackslash}X
+  >{\raggedright\arraybackslash}X@{}}
 \toprule
-Evidence & 602 logger/results & 623 logger/results \\
+Evidence layer & Directly recorded fields & Role in this report \\
 \midrule
-Simulator final counters & IPC, loads/misses, requested/dropped/issued/merged/filled/useful/useless/late are present in the raw logs. & Same counters are copied into the JSON/CSV summary.\\
-Demand-event attribution & demand, miss, PF request, useful-demand hit, and late-demand miss. & Same core fields plus accepted, duplicate, fill-level, and (SPP) fill-feedback counts.\\
-Teacher imitation & not part of the cache-effect summary. & SPP only: precision/recall/F1 and count/fill diagnostics; these are model diagnostics, not cache metrics.\\
-Direct pollution & Not measured: the schema does not identify a useful victim displaced by a prefetch and later re-referenced. & Not measured; the same limitation applies.\\
+Analyzer event stream &
+Measurement-window demand loads/hits/misses, PF request events,
+useful-demand hits, and late-demand misses. &
+ROI attribution and an independent counter cross-check.\\
+ChampSim final statistics &
+\texttt{requested}, \texttt{dropped}, \texttt{issued},
+\texttt{pq\_merged}, \texttt{filled}, \texttt{useful},
+\texttt{useless}, \texttt{late}, plus L2 loads/misses, cycles, and IPC. &
+Source of the raw lifecycle table and the primary offline cache metrics.\\
+Updated 602 analyzer &
+Miss rate/reduction, raw and selected accuracy, coverage,
+useful/self-miss, timeliness, request/merge/drop/fill/late/useless ratios,
+resolved-fill utility, and all source counters. &
+Writes the complete per-method rows to JSON/CSV; no TeX-only metric recovery.\\
+Live normal reference &
+Measured IPC and demand outcomes are valid context.  Its final prefetch
+lifecycle counters include warmup, while its event counts cover measurement
+only. &
+Excluded from primary accuracy/traffic tables to avoid mixing scopes.\\
+Direct harmful pollution &
+No victim identity plus later re-reference outcome is recorded by either
+layer. &
+Not claimed; neither $1-A_{\rm sel}$ nor useless/issued is renamed pollution.\\
 \bottomrule
 \end{tabularx}
 
-\begin{infobox}[title={\bfseries Replay decision}]
-For 602, the apparently missing 623 metrics are a \emph{summary-schema}
-difference: the required simulator counters already exist in the archived raw
-logs and are used above.  No 602 replay is needed for miss rate, raw/selected
-accuracy, coverage, timeliness, request pressure, merges, fills, useful,
-useless, or late counts.  A new instrumented replay is needed only if the
-presentation requires direct harmful-eviction pollution or the newer
-accepted/fill-level event audit.
+\begin{infobox}[title={\bfseries Analyze/replay decision}]
+No 602 replay is required.  Running the updated analyzer on the existing
+logs/events is sufficient to repopulate
+\texttt{matched\_comparison.csv/json} and
+\texttt{insight\_summary.csv} with all core cache-prefetch metrics.
+A new instrumented replay is required only for direct harmful-eviction
+pollution or for a 623-style accepted/duplicate/fill-level event breakdown.
 \end{infobox}
 
-{\footnotesize The main formulas use the simulator-final counters exactly as
-the analyzers do.  The event-log counts above are an independent attribution
-audit and are never substituted into $A$, $A_{\rm sel}$, $C$, or $T$.}
-
-
+{\footnotesize For the primary Offline Streamer and LSTM rows, analyzer demand,
+miss, request, and late counts agree exactly with ChampSim.  The Streamer
+LSTM rows differ by one useful event at the measurement boundary; the analyzer
+records this delta explicitly and uses the simulator-final measurement counter
+for the primary formula.  No aggregate score is emitted or reported.}
 
 \end{document}
