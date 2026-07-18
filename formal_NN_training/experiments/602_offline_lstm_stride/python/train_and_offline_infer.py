@@ -6,8 +6,9 @@ address.  Teacher requests supervise the model but are never inference inputs.
 
 The previous shared Poisson count head collapsed on sparse Stride labels: the
 mean request count was below one, so Poisson-mode decoding returned zero for
-every callback.  This implementation fixes that model mismatch without adding
-a threshold, degree limit, candidate table, page rule, or normal-policy state:
+every callback.  This compact implementation fixes that mismatch without
+adding a threshold, degree limit, candidate table, page rule, or normal-policy
+state:
 
 * recurrent state is dynamically routed by the observed PC, with no fixed
   tracker capacity;
@@ -17,8 +18,9 @@ a threshold, degree limit, candidate table, page rule, or normal-policy state:
   frequencies, preventing the sparse all-zero shortcut without a tuned loss
   weight;
 * a learned positive log-count distribution has unbounded positive support;
-* an independent recurrent path learns free-running direct signed deltas, so
-  continuous-density gradients cannot swamp the sparse emission decision.
+* one shared single-layer LSTM supplies both decision and action context;
+* a lightweight deterministic autoregressive decoder learns direct signed
+  deltas with separately normalized decision/action losses.
 """
 import argparse
 import csv
@@ -57,8 +59,7 @@ TRACE = "602.gcc_s-734B"
 # Kept as the external input/action-space contract revision so the repository's
 # seven-track static validator remains compatible.
 EXPERIMENT_REVISION = "source_input_variable_delta_free_running_v7"
-MODEL_REVISION = "pc_keyed_hurdle_direct_delta_v8"
-DEFAULT_MIXTURE_COMPONENTS = 4
+MODEL_REVISION = "compact_shared_pc_hurdle_delta_v9"
 
 
 def sha256(path):
@@ -214,57 +215,40 @@ def _data_derived_gate_class_weights(counts):
     return weights.astype(np.float32)
 
 
-class DirectDeltaDecoder(nn.Module):
-    """Free-running autoregressive density over direct signed line deltas."""
+class CompactDirectDeltaDecoder(nn.Module):
+    """Lightweight free-running direct signed-delta regressor."""
 
-    def __init__(self, context_size, decoder_size, mixture_components):
+    def __init__(self, hidden_size):
         super().__init__()
-        if decoder_size < 1 or mixture_components < 1:
-            raise ValueError("decoder dimensions must be positive")
-        self.context_size = context_size
-        self.decoder_size = decoder_size
-        self.mixture_components = mixture_components
-        self.initial_state = nn.Linear(context_size, decoder_size)
-        self.action_cell = nn.GRUCell(1, decoder_size)
-        self.delta_head = nn.Linear(decoder_size, 3 * mixture_components)
+        if hidden_size < 1:
+            raise ValueError("decoder hidden size must be positive")
+        self.action_cell = nn.GRUCell(1, hidden_size)
+        self.delta_head = nn.Linear(hidden_size, 1)
 
     def begin(self, context):
-        return torch.tanh(self.initial_state(context))
+        return context
 
-    def distribution(self, state):
-        raw = self.delta_head(state)
-        mix, mean, raw_scale = raw.chunk(3, dim=-1)
-        scale = F.softplus(raw_scale) + torch.finfo(raw_scale.dtype).eps
-        return mix, mean, scale
-
-    def mode_coordinate(self, state):
-        mix, mean, _ = self.distribution(state)
-        component = mix.argmax(dim=-1, keepdim=True)
-        return mean.gather(1, component).squeeze(1)
+    def coordinate(self, state):
+        return self.delta_head(state).squeeze(-1)
 
     def advance(self, state, predicted_coordinate):
         return self.action_cell(predicted_coordinate.reshape(-1, 1), state)
 
 
-class PCKeyedHurdleStrideLSTM(nn.Module):
-    """Two independent PC-keyed recurrent paths with a learned hurdle count."""
+class CompactPCKeyedHurdleStrideLSTM(nn.Module):
+    """One shared single-layer PC-keyed LSTM with lightweight heads."""
 
-    def __init__(self, feature_count, hidden_size, mixture_components):
+    def __init__(self, feature_count, hidden_size):
         super().__init__()
         self.feature_count = feature_count
         self.hidden_size = hidden_size
-        self.decision_lstm = nn.LSTM(
-            feature_count, hidden_size, batch_first=True
-        )
-        self.action_lstm = nn.LSTM(
-            feature_count, hidden_size, batch_first=True
+        self.input_projection = nn.Linear(feature_count, hidden_size)
+        self.encoder_lstm = nn.LSTM(
+            hidden_size, hidden_size, batch_first=True
         )
         self.emit_head = nn.Linear(hidden_size, 2)
         self.log_count_mean = nn.Linear(hidden_size, 1)
-        self.log_count_scale = nn.Linear(hidden_size, 1)
-        self.action_decoder = DirectDeltaDecoder(
-            hidden_size, hidden_size, mixture_components
-        )
+        self.action_decoder = CompactDirectDeltaDecoder(hidden_size)
 
 
 def _initial_state(state_map, keys, hidden_size, device):
@@ -284,12 +268,15 @@ def _initial_state(state_map, keys, hidden_size, device):
     )
 
 
-def _encode_branch(lstm, padded, lengths, state_map, keys, hidden_size):
-    initial = _initial_state(state_map, keys, hidden_size, padded.device)
-    packed = pack_padded_sequence(
-        padded, lengths, batch_first=True, enforce_sorted=True
+def _encode_shared(model, padded, lengths, state_map, keys):
+    initial = _initial_state(
+        state_map, keys, model.hidden_size, padded.device
     )
-    packed_output, final = lstm(packed, initial)
+    projected = torch.tanh(model.input_projection(padded))
+    packed = pack_padded_sequence(
+        projected, lengths, batch_first=True, enforce_sorted=True
+    )
+    packed_output, final = model.encoder_lstm(packed, initial)
     output, _ = pad_packed_sequence(
         packed_output, batch_first=True, total_length=padded.shape[1]
     )
@@ -331,12 +318,10 @@ def _make_padded_batch(runtime, counts, deltas, batch, device):
     return padded_runtime, padded_counts, padded_deltas, lengths
 
 
-def _hurdle_direct_delta_loss(
-    model, decision_context, action_context, counts, deltas,
-    gate_class_weights,
+def _compact_hurdle_direct_delta_loss(
+    model, context, counts, deltas, gate_class_weights,
 ):
-    flat_decision = decision_context.reshape(-1, decision_context.shape[-1])
-    flat_action = action_context.reshape(-1, action_context.shape[-1])
+    flat_context = context.reshape(-1, context.shape[-1])
     flat_counts = counts.reshape(-1)
     flat_deltas = deltas.reshape(-1, deltas.shape[-1])
     valid = flat_counts >= 0
@@ -344,37 +329,30 @@ def _hurdle_direct_delta_loss(
     if not decision_atoms:
         raise RuntimeError("training batch has no valid decision")
 
-    decision_context = flat_decision[valid]
-    action_context = flat_action[valid]
+    context = flat_context[valid]
     targets = flat_counts[valid]
     target_deltas = flat_deltas[valid]
     emit_targets = (targets > 0).to(torch.long)
-    gate_nll = F.cross_entropy(
-        model.emit_head(decision_context), emit_targets,
+    gate_loss = F.cross_entropy(
+        model.emit_head(context), emit_targets,
         weight=gate_class_weights, reduction="sum"
     )
 
     positive = targets > 0
     positive_atoms = int(positive.sum().detach().item())
-    count_nll = decision_context.new_zeros(())
+    count_loss = context.new_zeros(())
     if positive_atoms:
         means = model.log_count_mean(
-            decision_context[positive]
+            context[positive]
         ).squeeze(-1)
-        raw_scales = model.log_count_scale(
-            decision_context[positive]
-        ).squeeze(-1)
-        scales = F.softplus(raw_scales) + torch.finfo(raw_scales.dtype).eps
         log_targets = torch.log(targets[positive].to(means.dtype))
-        count_nll = (
-            0.5 * ((log_targets - means) / scales).square()
-            + torch.log(scales)
-            + 0.5 * math.log(2.0 * math.pi)
-        ).sum()
+        count_loss = F.smooth_l1_loss(
+            means, log_targets, reduction="sum"
+        )
 
-    action_nll = action_context.new_zeros(())
+    action_delta_loss = context.new_zeros(())
     action_atoms = 0
-    state = model.action_decoder.begin(action_context)
+    state = model.action_decoder.begin(context)
     for step in range(target_deltas.shape[1]):
         active = targets > step
         active_atoms = int(active.sum().detach().item())
@@ -382,43 +360,36 @@ def _hurdle_direct_delta_loss(
             break
         indices = torch.nonzero(active, as_tuple=False).squeeze(1)
         active_state = state.index_select(0, indices)
-        mix, mean, scale = model.action_decoder.distribution(active_state)
+        predicted_coordinate = model.action_decoder.coordinate(active_state)
         target = target_deltas[active, step]
-        log_component = (
-            -0.5 * ((target.unsqueeze(1) - mean) / scale).square()
-            - torch.log(scale)
-            - 0.5 * math.log(2.0 * math.pi)
+        action_delta_loss = action_delta_loss + F.smooth_l1_loss(
+            predicted_coordinate, target, reduction="sum"
         )
-        log_probability = torch.logsumexp(
-            F.log_softmax(mix, dim=-1) + log_component, dim=-1
-        )
-        action_nll = action_nll - log_probability.sum()
         action_atoms += active_atoms
 
         # The teacher target above is loss-only.  State feedback uses the
-        # model's own deterministic mixture mode, exactly as inference does.
-        predicted_coordinate = model.action_decoder.mode_coordinate(
-            active_state
-        )
+        # model's own predicted coordinate, exactly as inference does.
         advanced = model.action_decoder.advance(
             active_state, predicted_coordinate
         )
         state = state.index_copy(0, indices, advanced)
 
-    # The decision and action recurrent paths have disjoint parameters.  Each
-    # path receives its own mean likelihood, so no tunable cross-task weight is
-    # required and the continuous delta density cannot drown the emit gate.
-    decision_loss = (gate_nll + count_nll) / float(
-        decision_atoms + positive_atoms
+    # Every objective is reduced to its own mean.  Their unit sum has no tuned
+    # coefficient and prevents the more numerous delta atoms from drowning the
+    # sparse gate while retaining one shared recurrent encoder.
+    mean_gate_loss = gate_loss / float(decision_atoms)
+    mean_count_loss = (
+        count_loss / float(positive_atoms)
+        if positive_atoms else context.new_zeros(())
     )
-    action_loss = (
-        action_nll / float(action_atoms)
-        if action_atoms else action_context.new_zeros(())
+    mean_action_loss = (
+        action_delta_loss / float(action_atoms)
+        if action_atoms else context.new_zeros(())
     )
-    return decision_loss + action_loss, {
-        "gate_nll_sum": float(gate_nll.detach().item()),
-        "positive_count_nll_sum": float(count_nll.detach().item()),
-        "action_delta_nll_sum": float(action_nll.detach().item()),
+    return mean_gate_loss + mean_count_loss + mean_action_loss, {
+        "gate_loss_sum": float(gate_loss.detach().item()),
+        "positive_count_loss_sum": float(count_loss.detach().item()),
+        "action_delta_loss_sum": float(action_delta_loss.detach().item()),
         "decision_atoms": decision_atoms,
         "positive_count_atoms": positive_atoms,
         "action_atoms": action_atoms,
@@ -439,12 +410,11 @@ def train_model(
     history = []
     for epoch in range(1, epochs + 1):
         model.train()
-        decision_states = {}
-        action_states = {}
+        recurrent_states = {}
         totals = {
-            "gate_nll_sum": 0.0,
-            "positive_count_nll_sum": 0.0,
-            "action_delta_nll_sum": 0.0,
+            "gate_loss_sum": 0.0,
+            "positive_count_loss_sum": 0.0,
+            "action_delta_loss_sum": 0.0,
             "decision_atoms": 0,
             "positive_count_atoms": 0,
             "action_atoms": 0,
@@ -456,16 +426,11 @@ def train_model(
                 runtime, counts, deltas, batch, device
             )
             optimizer.zero_grad(set_to_none=True)
-            decision_context = _encode_branch(
-                model.decision_lstm, padded, lengths, decision_states, keys,
-                model.hidden_size,
+            context = _encode_shared(
+                model, padded, lengths, recurrent_states, keys,
             )
-            action_context = _encode_branch(
-                model.action_lstm, padded, lengths, action_states, keys,
-                model.hidden_size,
-            )
-            loss, components = _hurdle_direct_delta_loss(
-                model, decision_context, action_context,
+            loss, components = _compact_hurdle_direct_delta_loss(
+                model, context,
                 count_batch, delta_batch, gate_class_weights,
             )
             if not torch.isfinite(loss):
@@ -475,31 +440,33 @@ def train_model(
             optimizer_steps += 1
             for key, value in components.items():
                 totals[key] += value
-        decision_denominator = (
-            totals["decision_atoms"] + totals["positive_count_atoms"]
-        )
         row = {
             "epoch": epoch,
-            "decision_nll_per_atom": (
-                totals["gate_nll_sum"]
-                + totals["positive_count_nll_sum"]
-            ) / max(1, decision_denominator),
-            "action_nll_per_action": (
-                totals["action_delta_nll_sum"]
+            "gate_loss_per_callback": (
+                totals["gate_loss_sum"]
+                / max(1, totals["decision_atoms"])
+            ),
+            "positive_count_loss_per_positive_callback": (
+                totals["positive_count_loss_sum"]
+                / max(1, totals["positive_count_atoms"])
+            ),
+            "action_delta_loss_per_action": (
+                totals["action_delta_loss_sum"]
                 / max(1, totals["action_atoms"])
             ),
-            "gate_nll_sum": totals["gate_nll_sum"],
-            "positive_count_nll_sum": totals["positive_count_nll_sum"],
-            "action_delta_nll_sum": totals["action_delta_nll_sum"],
+            "gate_loss_sum": totals["gate_loss_sum"],
+            "positive_count_loss_sum": totals["positive_count_loss_sum"],
+            "action_delta_loss_sum": totals["action_delta_loss_sum"],
             "pc_sequences": len(grouped),
             "optimizer_steps": optimizer_steps,
         }
         history.append(row)
         print(
-            "[train:keyed-lstm] epoch={} decision_nll={:.8f} "
-            "action_nll={:.8f}".format(
-                epoch, row["decision_nll_per_atom"],
-                row["action_nll_per_action"],
+            "[train:compact-keyed-lstm] epoch={} gate={:.8f} "
+            "count={:.8f} action={:.8f}".format(
+                epoch, row["gate_loss_per_callback"],
+                row["positive_count_loss_per_positive_callback"],
+                row["action_delta_loss_per_action"],
             ),
             flush=True,
         )
@@ -510,14 +477,10 @@ def score_model(
     model, rows, runtime, device, chunk_len, pc_batch_size,
 ):
     grouped = _group_indices_by_pc(rows)
-    decision_output = np.empty(
+    output = np.empty(
         (len(rows), model.hidden_size), dtype=np.float32
     )
-    action_output = np.empty(
-        (len(rows), model.hidden_size), dtype=np.float32
-    )
-    decision_states = {}
-    action_states = {}
+    recurrent_states = {}
     model.eval()
     with torch.no_grad():
         for batch in _chunk_batches(grouped, chunk_len, pc_batch_size):
@@ -531,43 +494,33 @@ def score_model(
                 padded[position, :len(indices)] = torch.from_numpy(
                     runtime[indices]
                 ).to(device)
-            decision_context = _encode_branch(
-                model.decision_lstm, padded, lengths, decision_states, keys,
-                model.hidden_size,
-            )
-            action_context = _encode_branch(
-                model.action_lstm, padded, lengths, action_states, keys,
-                model.hidden_size,
+            context = _encode_shared(
+                model, padded, lengths, recurrent_states, keys,
             )
             for position, (_, indices) in enumerate(batch):
                 length = len(indices)
-                decision_output[indices] = (
-                    decision_context[position, :length].cpu().numpy()
+                output[indices] = (
+                    context[position, :length].cpu().numpy()
                 )
-                action_output[indices] = (
-                    action_context[position, :length].cpu().numpy()
-                )
-    return decision_output, action_output
+    return output
 
 
-def decode(model, encoded, base_lines, device, chunk_len=8192):
-    decision_context, action_context = encoded
-    if (
-        len(decision_context) != len(action_context)
-        or len(decision_context) != len(base_lines)
-    ):
+def decode(model, context_numpy, base_lines, device, chunk_len=8192):
+    if len(context_numpy) != len(base_lines):
         raise RuntimeError("decoder row counts differ")
     counts = np.zeros(len(base_lines), dtype=np.int64)
     model.eval()
     with torch.no_grad():
         for start in range(0, len(base_lines), chunk_len):
             stop = min(start + chunk_len, len(base_lines))
-            context = torch.from_numpy(
-                decision_context[start:stop]
+            context_chunk = torch.from_numpy(
+                context_numpy[start:stop]
             ).to(device)
-            emit = model.emit_head(context).argmax(dim=-1).cpu().numpy()
+            emit = model.emit_head(
+                context_chunk
+            ).argmax(dim=-1).cpu().numpy()
             log_means = model.log_count_mean(
-                context
+                context_chunk
             ).squeeze(-1).cpu().numpy()
             positive_counts = _positive_counts_from_log_mean(log_means)
             counts[start:stop] = np.where(emit == 1, positive_counts, 0)
@@ -577,8 +530,10 @@ def decode(model, encoded, base_lines, device, chunk_len=8192):
     with torch.no_grad():
         for start in range(0, len(counts), chunk_len):
             stop = min(start + chunk_len, len(counts))
-            context = torch.from_numpy(action_context[start:stop]).to(device)
-            state = model.action_decoder.begin(context)
+            chunk_context = torch.from_numpy(
+                context_numpy[start:stop]
+            ).to(device)
+            state = model.action_decoder.begin(chunk_context)
             local_counts = counts[start:stop]
             steps = int(local_counts.max()) if len(local_counts) else 0
             for step in range(steps):
@@ -589,7 +544,7 @@ def decode(model, encoded, base_lines, device, chunk_len=8192):
                     device=device, dtype=torch.long
                 )
                 active_state = state.index_select(0, active)
-                coordinate = model.action_decoder.mode_coordinate(active_state)
+                coordinate = model.action_decoder.coordinate(active_state)
                 for local_position, value in zip(
                     active_numpy, coordinate.cpu().numpy()
                 ):
@@ -695,11 +650,9 @@ def _count_summary(actions):
 
 def self_test_free_running_decoder(feature_count, hidden_size):
     torch.manual_seed(2718)
-    model = PCKeyedHurdleStrideLSTM(
-        feature_count, hidden_size, DEFAULT_MIXTURE_COMPONENTS
-    )
+    model = CompactPCKeyedHurdleStrideLSTM(feature_count, hidden_size)
     state = model.action_decoder.begin(torch.randn(3, hidden_size))
-    predicted = model.action_decoder.mode_coordinate(state)
+    predicted = model.action_decoder.coordinate(state)
     advanced_a = model.action_decoder.advance(state, predicted)
     # Teacher values are intentionally different but cannot enter advance().
     teacher_a = torch.tensor([0.0, 3.0, -7.0])
@@ -709,6 +662,27 @@ def self_test_free_running_decoder(feature_count, hidden_size):
     advanced_b = model.action_decoder.advance(state, predicted)
     if not torch.equal(advanced_a, advanced_b):
         raise RuntimeError("teacher delta leaked into decoder feedback")
+
+
+def expected_parameter_count(feature_count, hidden_size):
+    """Exact parameter count for the compact shared architecture."""
+    return (
+        11 * hidden_size * hidden_size
+        + (feature_count + 22) * hidden_size
+        + 4
+    )
+
+
+def self_test_compact_parameter_count(feature_count, hidden_size):
+    model = CompactPCKeyedHurdleStrideLSTM(feature_count, hidden_size)
+    observed = sum(parameter.numel() for parameter in model.parameters())
+    expected = expected_parameter_count(feature_count, hidden_size)
+    if observed != expected:
+        raise RuntimeError(
+            "compact parameter formula mismatch: {} != {}".format(
+                observed, expected
+            )
+        )
 
 
 def self_test_variable_positive_count():
@@ -756,10 +730,6 @@ def build_parser():
         "--device", choices=["auto", "cpu", "cuda"], default="auto"
     )
     parser.add_argument("--hidden-size", type=int, default=16)
-    parser.add_argument(
-        "--mixture-components", type=int,
-        default=DEFAULT_MIXTURE_COMPONENTS,
-    )
     return parser
 
 
@@ -767,7 +737,7 @@ def main():
     args = build_parser().parse_args()
     if (
         args.hidden_size < 1 or args.chunk_len < 1
-        or args.pc_batch_size < 1 or args.mixture_components < 1
+        or args.pc_batch_size < 1
     ):
         raise RuntimeError("model and batching dimensions must be positive")
     policy_self_test()
@@ -776,6 +746,9 @@ def main():
     self_test_pc_router()
     self_test_free_running_decoder(
         ADDRESS_BITS * 2, max(2, args.hidden_size)
+    )
+    self_test_compact_parameter_count(
+        ADDRESS_BITS * 2, args.hidden_size
     )
 
     random.seed(args.seed)
@@ -810,12 +783,24 @@ def main():
         [line for _, line, _ in train_rows], train_normal
     )
 
-    model = PCKeyedHurdleStrideLSTM(
-        train_runtime.shape[1], args.hidden_size, args.mixture_components
+    model = CompactPCKeyedHurdleStrideLSTM(
+        train_runtime.shape[1], args.hidden_size
     )
     parameter_count = sum(
         parameter.numel() for parameter in model.parameters()
     )
+    expected_parameters = expected_parameter_count(
+        train_runtime.shape[1], args.hidden_size
+    )
+    if parameter_count != expected_parameters:
+        raise RuntimeError(
+            "compact parameter count mismatch: {} != {}".format(
+                parameter_count, expected_parameters
+            )
+        )
+    train_unique_pc_count = len(_group_indices_by_pc(train_rows))
+    eval_unique_pc_count = len(_group_indices_by_pc(eval_rows))
+    recurrent_state_bytes_per_pc = 2 * args.hidden_size * 4
     history, gate_class_weights = train_model(
         model, train_rows, train_runtime, train_counts, train_deltas,
         device, args.epochs, args.chunk_len, args.pc_batch_size,
@@ -862,13 +847,25 @@ def main():
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
         "model_family": (
-            "dynamic PC-keyed dual-path LSTM plus learned hurdle count "
-            "and free-running direct-delta decoder"
+            "compact shared single-layer dynamic PC-keyed LSTM plus "
+            "learned hurdle count and deterministic free-running "
+            "direct-delta decoder"
         ),
         "neural_role": "standalone_direct_action_prefetcher",
         "parameter_count": parameter_count,
+        "expected_parameter_count": expected_parameters,
+        "parameter_bytes_float32": parameter_count * 4,
+        "parameter_formula": (
+            "11H^2+(F+22)H+4; F=128 gives 11H^2+150H+4"
+        ),
+        "compact_parameter_self_test": "PASS",
         "hidden_size": args.hidden_size,
-        "mixture_components": args.mixture_components,
+        "encoder_recurrent_layers": 1,
+        "decision_action_encoder_shared": True,
+        "action_decoder_recurrent_cell": "single_gru_cell",
+        "delta_decoder": (
+            "deterministic_free_running_autoregressive_signed_log_delta"
+        ),
         "runtime_feature_count": train_runtime.shape[1],
         "runtime_encoding": "lossless_lsb_first_binary_uint64_source_values",
         "seed": args.seed,
@@ -893,6 +890,20 @@ def main():
         "training_state_router_sha256": router_hash,
         "inference_state_router_sha256": router_hash,
         "pc_state_capacity": None,
+        "persistent_recurrent_state_floats_per_observed_pc": (
+            2 * args.hidden_size
+        ),
+        "persistent_recurrent_state_bytes_per_observed_pc_float32": (
+            recurrent_state_bytes_per_pc
+        ),
+        "train_unique_pc_count": train_unique_pc_count,
+        "eval_unique_pc_count": eval_unique_pc_count,
+        "training_peak_recurrent_state_bytes_float32": (
+            train_unique_pc_count * recurrent_state_bytes_per_pc
+        ),
+        "inference_peak_recurrent_state_bytes_float32": (
+            eval_unique_pc_count * recurrent_state_bytes_per_pc
+        ),
         "normal_tracker_count_used_by_neural_inference": False,
         "decoder_training_mode": (
             "free_running_autoregressive_same_as_inference"
@@ -937,8 +948,9 @@ def main():
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
         "loss_design": (
-            "disjoint decision/action recurrent paths with each path "
-            "optimized by its own mean negative log likelihood"
+            "one shared recurrent context; data-balanced gate mean plus "
+            "positive log-count mean plus direct signed-log-delta mean; "
+            "unit sum with no manually tuned coefficients"
         ),
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,

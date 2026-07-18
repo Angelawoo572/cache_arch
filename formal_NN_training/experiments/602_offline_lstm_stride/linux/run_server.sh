@@ -8,7 +8,7 @@ EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_stride"
 TRACE="602.gcc_s-734B"
 # Legacy input-contract run token retained for the repository-wide static audit:
 # 602_offline_lstm_stride_variable_delta_free_running_v7_seed7
-RUN_ID="${RUN_ID:-602_offline_lstm_stride_pc_keyed_hurdle_v8_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_stride_compact_hurdle_v9_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -126,7 +126,13 @@ expected = {
     "training_state_carried_across_chunks": True,
     "training_state_detached_between_chunks": True,
     "experiment_revision": "source_input_variable_delta_free_running_v7",
-    "model_revision": "pc_keyed_hurdle_direct_delta_v8",
+    "model_revision": "compact_shared_pc_hurdle_delta_v9",
+    "compact_parameter_self_test": "PASS",
+    "parameter_formula": "11H^2+(F+22)H+4; F=128 gives 11H^2+150H+4",
+    "encoder_recurrent_layers": 1,
+    "decision_action_encoder_shared": True,
+    "action_decoder_recurrent_cell": "single_gru_cell",
+    "delta_decoder": "deterministic_free_running_autoregressive_signed_log_delta",
     "neural_role": "standalone_direct_action_prefetcher",
     "same_external_input_contract": True,
     "training_inference_input_encoder_identical": True,
@@ -146,12 +152,14 @@ expected = {
     "inference_runtime_fields": ["pc", "cache_line_address"],
     "training_state_key_fields": ["pc"],
     "inference_state_key_fields": ["pc"],
+    "normal_policy_outputs_used_as_model_inputs": False,
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
     "normal_policy_outputs_used_as_training_targets": True,
     "normal_policy_request_rate_used_as_budget": False,
     "normal_policy_constants_used_by_neural_inference": False,
     "probability_threshold_used": False,
+    "threshold_related_hardcodes_used": False,
     "neural_degree_cap": None,
     "fixed_page_offset_classes": None,
     "same_page_rule_used_by_neural_inference": False,
@@ -164,6 +172,19 @@ expected = {
     "nn_generates_own_target_addresses": True,
 }
 bad = {key: (metadata.get(key), value) for key, value in expected.items() if metadata.get(key) != value}
+hidden_size = metadata.get("hidden_size")
+if not isinstance(hidden_size, int) or hidden_size < 1:
+    bad["hidden_size"] = (hidden_size, "positive integer")
+else:
+    expected_parameters = 11 * hidden_size * hidden_size + 150 * hidden_size + 4
+    if metadata.get("parameter_count") != expected_parameters:
+        bad["parameter_count"] = (
+            metadata.get("parameter_count"), expected_parameters
+        )
+    if metadata.get("expected_parameter_count") != expected_parameters:
+        bad["expected_parameter_count"] = (
+            metadata.get("expected_parameter_count"), expected_parameters
+        )
 encoder_hashes = {metadata.get("runtime_encoder_sha256"), metadata.get("training_runtime_encoder_sha256"), metadata.get("inference_runtime_encoder_sha256")}
 encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
 if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:

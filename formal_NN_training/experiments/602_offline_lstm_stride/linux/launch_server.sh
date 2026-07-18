@@ -4,7 +4,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_stride"
 # Legacy input-contract run token retained for the repository-wide static audit:
 # 602_offline_lstm_stride_variable_delta_free_running_v7_seed7
-RUN_ID="${RUN_ID:-602_offline_lstm_stride_pc_keyed_hurdle_v8_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_stride_compact_hurdle_v9_seed7}"
 STAGE="${1:-${STAGE:-replay}}"
 CANONICAL_RUN_DIR="$EXP/runs/$RUN_ID"
 if [[ -n "${RUN_DIR:-}" && "$RUN_DIR" != "$CANONICAL_RUN_DIR" ]]; then

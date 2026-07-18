@@ -441,7 +441,17 @@ def main():
             "training_state_carried_across_chunks": True,
             "training_state_detached_between_chunks": True,
             "experiment_revision": "source_input_variable_delta_free_running_v7",
-            "model_revision": "pc_keyed_hurdle_direct_delta_v8",
+            "model_revision": "compact_shared_pc_hurdle_delta_v9",
+            "compact_parameter_self_test": "PASS",
+            "parameter_formula": (
+                "11H^2+(F+22)H+4; F=128 gives 11H^2+150H+4"
+            ),
+            "encoder_recurrent_layers": 1,
+            "decision_action_encoder_shared": True,
+            "action_decoder_recurrent_cell": "single_gru_cell",
+            "delta_decoder": (
+                "deterministic_free_running_autoregressive_signed_log_delta"
+            ),
             "neural_role": "standalone_direct_action_prefetcher",
             "same_external_input_contract": True,
             "training_inference_input_encoder_identical": True,
@@ -467,12 +477,14 @@ def main():
             ),
             "pc_state_capacity": None,
             "normal_tracker_count_used_by_neural_inference": False,
+            "normal_policy_outputs_used_as_model_inputs": False,
             "normal_policy_candidates_used_as_model_inputs": False,
             "normal_policy_private_state_used_as_model_inputs": False,
             "normal_policy_outputs_used_as_training_targets": True,
             "normal_policy_request_rate_used_as_budget": False,
             "normal_policy_constants_used_by_neural_inference": False,
             "probability_threshold_used": False,
+            "threshold_related_hardcodes_used": False,
             "neural_degree_cap": None,
             "fixed_page_offset_classes": None,
             "same_page_rule_used_by_neural_inference": False,
@@ -489,6 +501,29 @@ def main():
                 failures.append(
                     "{} metadata {}={!r}; expected {!r}".format(
                         tag, key, metadata.get(key), expected
+                    )
+                )
+        hidden_size = metadata.get("hidden_size")
+        if not isinstance(hidden_size, int) or hidden_size < 1:
+            failures.append(
+                "{} metadata hidden_size is not a positive integer".format(tag)
+            )
+        else:
+            expected_parameters = (
+                11 * hidden_size * hidden_size + 150 * hidden_size + 4
+            )
+            if metadata.get("parameter_count") != expected_parameters:
+                failures.append(
+                    "{} compact parameter_count={!r}; expected {}".format(
+                        tag, metadata.get("parameter_count"),
+                        expected_parameters,
+                    )
+                )
+            if metadata.get("expected_parameter_count") != expected_parameters:
+                failures.append(
+                    "{} expected_parameter_count={!r}; expected {}".format(
+                        tag, metadata.get("expected_parameter_count"),
+                        expected_parameters,
                     )
                 )
         encoder_hashes = {metadata.get("runtime_encoder_sha256"), metadata.get("training_runtime_encoder_sha256"), metadata.get("inference_runtime_encoder_sha256")}
