@@ -46,7 +46,7 @@ Primary comparison & Offline Stride actions versus independently generated LSTM 
 Shared external input & current PC and current cache-line address, in chronological order.\\
 Neural history & stateful LSTM; chronological TBPTT carries and detaches hidden/cell state; inference carries state continuously.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
-Run artifact & \texttt{602\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v7\_seed7}.  ``PASS'' certifies the experiment contract; it does not certify useful neural behavior.\\
+Run artifact & \texttt{602\_offline\_lstm\_stride\_compact\_hurdle\_v9\_seed7}.  ``PASS'' certifies the experiment contract; it does not by itself establish cross-seed or cross-trace generality.\\
 Analyzer outputs & \texttt{matched\_comparison.csv/json} now contain both the
 raw ChampSim lifecycle counters and every separate derived metric used in this
 report; \texttt{insight\_summary.csv} is the compact presentation view.\\
@@ -139,11 +139,11 @@ Method & params & cycles & IPC & speedup & L2 loads & L2 misses & miss rate & mi
 No prefetch & -- & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
 Offline Stride & -- & 67.538M & 0.37016 & 1.0059 & 404,219 & 168,281 & 41.63\% & 17.16\% \\
 Live Stride (context) & -- & 67.557M & 0.37006 & 1.0056 & 404,219 & 168,277 & 41.63\% & 17.16\% \\
-LSTM h8 & 4,869 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
-LSTM h16 & 10,749 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
-LSTM h32 & 25,581 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
-LSTM h64 & 67,533 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
-LSTM h128 & 200,589 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% & 0.00\% \\
+LSTM h8 & 1,908 & 61.088M & 0.40924 & 1.1121 & 404,219 & 86,199 & 21.32\% & 57.56\% \\
+LSTM h16 & 5,220 & 60.985M & 0.40994 & 1.1140 & 404,219 & 84,391 & 20.88\% & 58.45\% \\
+LSTM h32 & 16,068 & 67.215M & 0.37194 & 1.0107 & 404,219 & 163,905 & 40.55\% & 19.31\% \\
+LSTM h64 & 54,660 & 61.105M & 0.40913 & 1.1118 & 404,219 & 86,452 & 21.39\% & 57.44\% \\
+LSTM h128 & 199,428 & 67.387M & 0.37099 & 1.0081 & 404,219 & 166,239 & 41.13\% & 18.16\% \\
 \bottomrule
 \end{tabular}}
 \end{center}
@@ -161,15 +161,15 @@ LSTM h128 & 200,589 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% &
 ]
 \nextgroupplot[title={IPC},ylabel={IPC},scaled y ticks=false,
   yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=5}]
-\addplot+[color=blue,mark=*] coordinates {(0,0.36800000) (1,0.37016000) (2,0.36800000) (3,0.36800000) (4,0.36800000) (5,0.36800000) (6,0.36800000)};
+\addplot+[color=blue,mark=*] coordinates {(0,0.36800000) (1,0.37016000) (2,0.40924000) (3,0.40994000) (4,0.37194000) (5,0.40913000) (6,0.37099000)};
 \nextgroupplot[title={L2 load miss rate},ylabel={percent},scaled y ticks=false]
-\addplot+[color=red,mark=square*] coordinates {(0,50.25270955) (1,41.63114549) (2,50.25270955) (3,50.25270955) (4,50.25270955) (5,50.25270955) (6,50.25270955)};
+\addplot+[color=red,mark=square*] coordinates {(0,50.25270955) (1,41.63114549) (2,21.32482639) (3,20.87754410) (4,40.54856402) (5,21.38741623) (6,41.12597379)};
 \nextgroupplot[title={Accuracy: raw versus deduplicated},ylabel={percent},scaled y ticks=false]
-\addplot+[color=orange,mark=triangle*] coordinates {(0,0) (1,28.35431091) (2,0) (3,0) (4,0) (5,0) (6,0)};
-\addplot+[color=blue,mark=diamond*] coordinates {(0,0) (1,28.35431091) (2,0) (3,0) (4,0) (5,0) (6,0)};
+\addplot+[color=orange,mark=triangle*] coordinates {(0,0) (1,28.35431091) (2,28.46560383) (3,30.14631397) (4,25.37437981) (5,28.26313915) (6,26.44095007)};
+\addplot+[color=blue,mark=diamond*] coordinates {(0,0) (1,28.35431091) (2,28.46560383) (3,30.14631397) (4,25.37930499) (5,28.27416580) (6,26.44360342)};
 \nextgroupplot[title={Coverage and timeliness},ylabel={percent},scaled y ticks=false]
-\addplot+[color=teal,mark=*] coordinates {(0,0.00000000) (1,17.15641630) (2,0.00000000) (3,0.00000000) (4,0.00000000) (5,0.00000000) (6,0.00000000)};
-\addplot+[color=green,mark=square*] coordinates {(0,0) (1,99.52877338) (2,0) (3,0) (4,0) (5,0) (6,0)};
+\addplot+[color=teal,mark=*] coordinates {(0,0.00000000) (1,17.15641630) (2,57.56531499) (3,58.45488872) (4,19.31069113) (5,57.44027253) (6,18.16167892)};
+\addplot+[color=green,mark=square*] coordinates {(0,0) (1,99.52877338) (2,99.92053048) (3,99.91164963) (4,99.29878743) (5,99.85707684) (6,99.23339699)};
 \end{groupplot}
 \end{tikzpicture}
 
@@ -179,8 +179,8 @@ LSTM h128 & 200,589 & 67.935M & 0.36800 & 1.0000 & 404,219 & 203,131 & 50.25\% &
 \textcolor{blue}{blue diamonds}: selected accuracy $A_{\rm sel}=U/(I-Q)$;\quad
 \textcolor{teal}{teal circles}: coverage $C$;\quad
 \textcolor{green}{green squares}: timeliness $T$.\\
-Series labels are outside every plot and title.  No-action points are drawn at
-zero for visibility; their zero-denominator accuracy/timeliness entries remain
+Series labels are outside every plot and title.  The no-prefetch point is drawn
+at zero for visibility; its zero-denominator accuracy/timeliness entries remain
 \NA\ in the tables.}
 \end{center}
 
@@ -192,11 +192,11 @@ zero for visibility; their zero-denominator accuracy/timeliness entries remain
 Method & raw accuracy $U/I$ & selected accuracy $U/(I-Q)$ & coverage $U/M_0$ & useful/self-miss $U/M$ & timeliness $U/(U+L_t)$ \\
 \midrule
 Offline Stride & 28.35\% & 28.35\% & 17.16\% & 0.207 & 99.53\% \\
-LSTM h8 & -- & -- & 0.00\% & 0.000 & -- \\
-LSTM h16 & -- & -- & 0.00\% & 0.000 & -- \\
-LSTM h32 & -- & -- & 0.00\% & 0.000 & -- \\
-LSTM h64 & -- & -- & 0.00\% & 0.000 & -- \\
-LSTM h128 & -- & -- & 0.00\% & 0.000 & -- \\
+LSTM h8 & 28.47\% & 28.47\% & 57.57\% & 1.357 & 99.92\% \\
+LSTM h16 & 30.15\% & 30.15\% & 58.45\% & 1.407 & 99.91\% \\
+LSTM h32 & 25.37\% & 25.38\% & 19.31\% & 0.239 & 99.30\% \\
+LSTM h64 & 28.26\% & 28.27\% & 57.44\% & 1.350 & 99.86\% \\
+LSTM h128 & 26.44\% & 26.44\% & 18.16\% & 0.222 & 99.23\% \\
 \bottomrule
 \end{tabular}}
 \end{center}
@@ -208,11 +208,11 @@ LSTM h128 & -- & -- & 0.00\% & 0.000 & -- \\
 Method & request/L2 load $P/N_L$ & merge/issued $Q/I$ & drop/request $D/P$ & fill/non-merged $F/(I-Q)$ & late/issued $L_t/I$ & useless/issued $W/I$ & resolved-fill utility $U/(U+W)$ \\
 \midrule
 Offline Stride & 0.304 & 0.000\% & 0.000\% & 28.790\% & 0.134\% & 0.430\% & 98.50\% \\
-LSTM h8 & 0.000 & -- & -- & -- & -- & -- & -- \\
-LSTM h16 & 0.000 & -- & -- & -- & -- & -- & -- \\
-LSTM h32 & 0.000 & -- & -- & -- & -- & -- & -- \\
-LSTM h64 & 0.000 & -- & -- & -- & -- & -- & -- \\
-LSTM h128 & 0.000 & -- & -- & -- & -- & -- & -- \\
+LSTM h8 & 1.016 & 0.000\% & 0.000\% & 29.550\% & 0.023\% & 1.073\% & 96.37\% \\
+LSTM h16 & 0.974 & 0.000\% & 0.000\% & 31.271\% & 0.027\% & 1.112\% & 96.44\% \\
+LSTM h32 & 0.382 & 0.019\% & 0.000\% & 26.654\% & 0.179\% & 1.256\% & 95.28\% \\
+LSTM h64 & 1.021 & 0.039\% & 0.000\% & 29.337\% & 0.040\% & 1.051\% & 96.42\% \\
+LSTM h128 & 0.345 & 0.010\% & 0.000\% & 27.401\% & 0.204\% & 0.948\% & 96.54\% \\
 \bottomrule
 \end{tabular}}
 \end{center}
@@ -224,11 +224,11 @@ LSTM h128 & 0.000 & -- & -- & -- & -- & -- & -- \\
 Method & requested $P$ & dropped $D$ & issued $I$ & PQ merged $Q$ & $I-Q$ & filled $F$ & useful $U$ & useless $W$ & late $L_t$ \\
 \midrule
 Offline Stride & 122,909 & 0 & 122,909 & 0 & 122,909 & 35,385 & 34,850 & 529 & 165 \\
-LSTM h8 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-LSTM h16 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-LSTM h32 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-LSTM h64 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-LSTM h128 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
+LSTM h8 & 410,787 & 0 & 410,787 & 0 & 410,787 & 121,389 & 116,933 & 4,406 & 93 \\
+LSTM h16 & 393,879 & 0 & 393,879 & 0 & 393,879 & 123,171 & 118,740 & 4,380 & 105 \\
+LSTM h32 & 154,589 & 0 & 154,589 & 30 & 154,559 & 41,196 & 39,226 & 1,942 & 277 \\
+LSTM h64 & 412,831 & 0 & 412,831 & 161 & 412,670 & 121,064 & 116,679 & 4,337 & 167 \\
+LSTM h128 & 139,526 & 0 & 139,526 & 14 & 139,512 & 38,228 & 36,892 & 1,323 & 285 \\
 \bottomrule
 \end{tabular}}
 \end{center}
@@ -245,8 +245,10 @@ IPC.
 \begin{infobox}[fontupper=\small]
 \begin{itemize}[itemsep=1pt,topsep=1pt]
 \item Offline Stride provides a small benefit: IPC 0.37016 versus 0.36800 and L2 miss rate 41.63\% versus 50.25\% without prefetching.
-\item Every LSTM capacity emits zero requests, so each reproduces the no-prefetch result.  Accuracy and timeliness are undefined (zero denominators), not successful 0\% measurements.
-\item This is a measured zero-action collapse.  It supports neither an LSTM-capacity conclusion nor a claim that Stride inputs are insufficient; the likely count/decoder problem is recorded, but this analyzer/report update intentionally does not repair the NN.
+\item The best measured point is h16: IPC 0.40994 (1.1140$\times$ no prefetch and 10.75\% above Offline Stride), L2 miss rate 20.88\%, and coverage 58.45\%.  Its selected accuracy is 30.15\% and timeliness is 99.91\%; those dimensions support, but do not replace, the IPC and miss outcomes.
+\item That gain uses substantially more traffic: h16 requests 0.974 prefetches per L2 load versus 0.304 for Offline Stride.  Useless/issued rises from 0.430\% to 1.112\%, while resolved-fill utility remains 96.44\%.  This is a measured benefit--pressure tradeoff, not a single-score win.
+\item Capacity is non-monotonic on this seed and window: h8, h16, and h64 form the high-performing group, whereas h32 and h128 remain near Offline Stride.  The 1,908-parameter h8 is only 0.00070 IPC below h16; h16 is the measured best, not yet a robust saturation point.
+\item Raw and selected accuracy are nearly identical because PQ merges are zero or tiny (at most 161).  The large performance differences therefore are not artifacts of deduplicating the accuracy denominator.  No direct harmful-victim/re-reference counter exists, so the report does not rename useless requests or low accuracy as cache pollution.
 \end{itemize}
 \end{infobox}
 
