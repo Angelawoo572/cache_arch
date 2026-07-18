@@ -441,14 +441,32 @@ def main():
             "training_state_carried_across_chunks": True,
             "training_state_detached_between_chunks": True,
             "experiment_revision": "source_input_variable_delta_free_running_v7",
+            "model_revision": "pc_keyed_hurdle_direct_delta_v8",
             "neural_role": "standalone_direct_action_prefetcher",
             "same_external_input_contract": True,
             "training_inference_input_encoder_identical": True,
             "decoder_training_mode": "free_running_autoregressive_same_as_inference",
             "decoder_previous_teacher_action_used_as_input": False,
             "decoder_free_running_self_test": "PASS",
+            "variable_positive_count_self_test": "PASS",
+            "pc_keyed_causality_self_test": "PASS",
+            "count_model": (
+                "learned_two_class_hurdle_plus_unbounded_positive_log_count"
+            ),
+            "gate_imbalance_handling": (
+                "inverse_observed_training_class_frequency_equal_aggregate_mass"
+            ),
+            "data_derived_class_balancing_used": True,
+            "data_derived_gate_balance_self_test": "PASS",
             "training_runtime_fields": ["pc", "cache_line_address"],
             "inference_runtime_fields": ["pc", "cache_line_address"],
+            "training_state_key_fields": ["pc"],
+            "inference_state_key_fields": ["pc"],
+            "state_routing": (
+                "dynamic_exact_pc_keyed_recurrent_state_no_fixed_capacity"
+            ),
+            "pc_state_capacity": None,
+            "normal_tracker_count_used_by_neural_inference": False,
             "normal_policy_candidates_used_as_model_inputs": False,
             "normal_policy_private_state_used_as_model_inputs": False,
             "normal_policy_outputs_used_as_training_targets": True,
@@ -477,6 +495,18 @@ def main():
         encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
         if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
             failures.append("{} train/inference encoder hash mismatch".format(tag))
+        router_hashes = {
+            metadata.get("state_router_sha256"),
+            metadata.get("training_state_router_sha256"),
+            metadata.get("inference_state_router_sha256"),
+        }
+        router_hash = (
+            next(iter(router_hashes)) if len(router_hashes) == 1 else None
+        )
+        if not isinstance(router_hash, str) or len(router_hash) != 64:
+            failures.append(
+                "{} train/inference PC-state router hash mismatch".format(tag)
+            )
         if set(current_stream_info) != {"train", "eval"}:
             continue
 
@@ -516,6 +546,14 @@ def main():
                 failures.append(
                     "{} {}-stream decompressed content does not match this run".format(tag, role)
                 )
+
+    if metadata_by_tag and not any(
+        int(metadata.get("offline_lstm_entries", 0)) > 0
+        for metadata in metadata_by_tag.values()
+    ):
+        failures.append(
+            "all capacity points collapsed to empty neural replay lists"
+        )
 
     add_cache_metrics(rows, failures)
 
@@ -732,4 +770,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

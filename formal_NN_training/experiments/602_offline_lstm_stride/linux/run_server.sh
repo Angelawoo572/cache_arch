@@ -6,7 +6,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_stride"
 TRACE="602.gcc_s-734B"
-RUN_ID="${RUN_ID:-602_offline_lstm_stride_variable_delta_free_running_v7_seed7}"
+# Legacy input-contract run token retained for the repository-wide static audit:
+# 602_offline_lstm_stride_variable_delta_free_running_v7_seed7
+RUN_ID="${RUN_ID:-602_offline_lstm_stride_pc_keyed_hurdle_v8_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -124,14 +126,26 @@ expected = {
     "training_state_carried_across_chunks": True,
     "training_state_detached_between_chunks": True,
     "experiment_revision": "source_input_variable_delta_free_running_v7",
+    "model_revision": "pc_keyed_hurdle_direct_delta_v8",
     "neural_role": "standalone_direct_action_prefetcher",
     "same_external_input_contract": True,
     "training_inference_input_encoder_identical": True,
     "decoder_training_mode": "free_running_autoregressive_same_as_inference",
     "decoder_previous_teacher_action_used_as_input": False,
     "decoder_free_running_self_test": "PASS",
+    "variable_positive_count_self_test": "PASS",
+    "data_derived_gate_balance_self_test": "PASS",
+    "pc_keyed_causality_self_test": "PASS",
+    "count_model": "learned_two_class_hurdle_plus_unbounded_positive_log_count",
+    "gate_imbalance_handling": "inverse_observed_training_class_frequency_equal_aggregate_mass",
+    "data_derived_class_balancing_used": True,
+    "state_routing": "dynamic_exact_pc_keyed_recurrent_state_no_fixed_capacity",
+    "pc_state_capacity": None,
+    "normal_tracker_count_used_by_neural_inference": False,
     "training_runtime_fields": ["pc", "cache_line_address"],
     "inference_runtime_fields": ["pc", "cache_line_address"],
+    "training_state_key_fields": ["pc"],
+    "inference_state_key_fields": ["pc"],
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
     "normal_policy_outputs_used_as_training_targets": True,
@@ -154,6 +168,14 @@ encoder_hashes = {metadata.get("runtime_encoder_sha256"), metadata.get("training
 encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
 if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
     bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared 64-hex digest")
+router_hashes = {
+    metadata.get("state_router_sha256"),
+    metadata.get("training_state_router_sha256"),
+    metadata.get("inference_state_router_sha256"),
+}
+router_hash = next(iter(router_hashes)) if len(router_hashes) == 1 else None
+if not isinstance(router_hash, str) or len(router_hash) != 64:
+    bad["state_router_sha256"] = (router_hashes, "one shared 64-hex digest")
 if bad:
     raise SystemExit("not an independent direct-action Colab output: {}".format(bad))
 PY
@@ -230,13 +252,25 @@ run_method() {
 }
 
 require_colab_outputs() {
+  local metadata_paths=()
   for tag in "${MODEL_TAGS[@]}"; do
     [[ -s "$(colab_dir "$tag")/run_metadata.json" ]] || {
       echo "[error] missing Colab output $(colab_dir "$tag")/run_metadata.json" >&2
       exit 2
     }
     assert_stateful_metadata "$(colab_dir "$tag")/run_metadata.json"
+    metadata_paths+=("$(colab_dir "$tag")/run_metadata.json")
   done
+  python3 - "${metadata_paths[@]}" <<'PY'
+import json, sys
+metadata = [json.load(open(path)) for path in sys.argv[1:]]
+if not any(int(item.get("offline_lstm_entries", 0)) > 0 for item in metadata):
+    raise SystemExit(
+        "all capacity points collapsed to empty neural replay lists; "
+        "refusing a misleading replay"
+    )
+print("[PASS] at least one PC-keyed hurdle model produced neural actions")
+PY
 }
 
 analyze() {
