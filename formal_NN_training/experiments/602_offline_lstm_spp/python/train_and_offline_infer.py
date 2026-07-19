@@ -404,9 +404,9 @@ def _structured_loss(model, context, counts, deltas, fills):
 
     emit_targets = (decision_counts > 0).to(torch.long)
     # Unweighted maximum likelihood preserves the observed SPP trigger prior.
-    # Class balancing made rare zero labels carry about 35x the positive-label
-    # weight on this trace, which moved raw categorical argmax to a severe
-    # under-prefetch operating point.
+    # Inverse-frequency balancing upweighted rare zero labels and moved raw
+    # categorical argmax to the severe under-prefetch operating point observed
+    # in v1.  v2 also records the exact training split for direct verification.
     gate_sum = F.cross_entropy(
         model.decoder.emit_head(decision_context), emit_targets,
         reduction="sum",
