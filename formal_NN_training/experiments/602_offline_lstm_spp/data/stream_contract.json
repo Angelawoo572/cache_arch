@@ -1,6 +1,6 @@
 {
-  "experiment_revision": "spp_source_input_compact_hurdle_delta_fill_free_running_v1",
-  "model_revision": "compact_hurdle_autoregressive_gmm_fill_v1",
+  "experiment_revision": "spp_source_input_compact_empirical_prior_hurdle_delta_fill_free_running_v2",
+  "model_revision": "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v2",
   "event_logger_schema": "602_spp_causal_trigger_fill_v1",
   "normal_prefetcher": "spp",
   "source_decision_effective_external_input": [
@@ -25,7 +25,7 @@
   "neural_role": "standalone_direct_action_prefetcher",
   "track_model_family": "lstm",
   "neural_action_decoder": {
-    "request_count": "learned two-class categorical mode plus learned positive log-count with unbounded support",
+    "request_count": "unweighted empirical-prior two-class categorical argmax plus learned positive log-count with unbounded support",
     "targets": "free-running autoregressive four-component mixture over direct signed cache-line deltas",
     "fill_classes": [
       "FILL_L2",
@@ -47,9 +47,9 @@
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
   "threshold_related_hardcodes_used": false,
-  "training_target": "canonicalized source-SPP zero/positive, positive count, direct targets, and fill class as supervision only",
+  "training_target": "canonicalized source-SPP zero/positive, positive count, direct targets, and fill class as supervision only; the gate is fit by unweighted empirical-prior categorical NLL",
   "lstm": {
-    "architecture": "single global chronological LSTM plus learned hurdle/count and free-running autoregressive direct-delta-mixture/fill decoder",
+    "architecture": "single global chronological LSTM plus empirical-prior categorical hurdle/count and free-running autoregressive direct-delta-mixture/fill decoder",
     "stateful_training": "chronological TBPTT; hidden/cell state crosses chunks and graph history detaches at boundaries",
     "inference_history": "fresh state followed by complete train, guard, and evaluation chronology",
     "eviction_feedback": "raw chronological cache_fill(evicted_addr) callback updates LSTM state; no private SPP state or eviction target"
@@ -81,5 +81,8 @@
       "parameter_count": 153105
     }
   ],
-  "parameter_counts": "exact measured trainable/inference parameters; model capacity only, never an action threshold or degree"
+  "parameter_counts": "exact measured trainable/inference parameters; model capacity only, never an action threshold or degree",
+  "gate_class_weighting_used": false,
+  "gate_training_objective": "empirical_prior_unweighted_categorical_nll",
+  "gate_decoding_rule": "two_class_categorical_argmax"
 }
