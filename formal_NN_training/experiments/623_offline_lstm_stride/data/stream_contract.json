@@ -1,5 +1,6 @@
 {
   "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
+  "model_revision": "compact_pc_keyed_hurdle_delta_v10",
   "event_logger_schema": "623_causal_trigger_v5",
   "normal_prefetcher": "stride",
   "source_decision_effective_external_input": ["pc", "addr"],
@@ -12,14 +13,16 @@
   "neural_role": "standalone_direct_action_prefetcher",
   "track_model_family": "lstm",
   "neural_action_decoder": {
-    "request_count": "learned Poisson distribution with unbounded non-negative support",
-    "targets": "free-running autoregressive learned mixture over direct signed cache-line deltas",
+    "request_count": "learned two-class zero/positive categorical argmax plus learned positive log-count with unbounded support",
+    "targets": "free-running autoregressive direct signed cache-line deltas",
     "fill": "FILL_L2",
     "fixed_page_offset_classes": null,
     "same_page_rule": false,
     "normal_degree_cap": null,
     "probability_threshold": null
   },
+  "gate_class_weighting": "derived exactly from training zero/positive class frequencies",
+  "gate_decoding_rule": "two_class_categorical_argmax",
   "captured_stride_actions_role": "normal replay and supervised labels only",
   "normal_actions_are_model_inputs": false,
   "normal_private_state_is_model_input": false,
@@ -29,16 +32,19 @@
   "manual_loss_weights": false,
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
-  "training_target": "captured Stride request count and direct target addresses as supervision only",
+  "training_target": "captured Stride zero/positive emission, positive request count, and direct target addresses as supervision only",
   "lstm": {
-    "architecture": "single-layer stateful LSTM plus free-running autoregressive variable-cardinality direct-delta decoder",
-    "stateful_training": "chronological TBPTT; hidden/cell values cross chunks and graph history is detached at chunk boundaries",
+    "architecture": "compact single-layer exact-PC-keyed stateful LSTM plus hurdle count and free-running direct-delta decoder",
+    "pc_state_memory": "dynamic exact-PC map with no fixed tracker capacity",
+    "stateful_training": "chronological per-PC TBPTT; hidden/cell values cross batches and graph history is detached at batch boundaries",
     "inference_history": "fresh state followed by complete train, guard, and evaluation chronology"
   },
-  "architecture_pairs": [
-    {"pair_id": "p0", "lstm_size": 5, "cnn_size": 7},
-    {"pair_id": "p1", "lstm_size": 16, "cnn_size": 15},
-    {"pair_id": "p2", "lstm_size": 32, "cnn_size": 24}
+  "architecture_points": [
+    {"pair_id": "p0", "lstm_size": 8, "parameters": 1908},
+    {"pair_id": "p1", "lstm_size": 16, "parameters": 5220},
+    {"pair_id": "p2", "lstm_size": 32, "parameters": 16068},
+    {"pair_id": "p3", "lstm_size": 64, "parameters": 54660},
+    {"pair_id": "p4", "lstm_size": 128, "parameters": 199428}
   ],
-  "parameter_counts": "measured and reported; never thresholded"
+  "parameter_counts": "measured and asserted exactly; never thresholded"
 }

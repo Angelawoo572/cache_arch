@@ -1,24 +1,37 @@
-# 623 SPP — independent LSTM
+# 623 SPP — compact independent LSTM
 
-This track compares normal SPP with a standalone stateful LSTM on
+This track compares normal SPP with a standalone LSTM on
 `623.xalancbmk_s-700B`.
 
-The audited SPP source input is the chronological callback sequence
-`DEMAND(addr)` plus `CACHE_FILL(evicted_addr)`. PC is replay transport only;
-cache-hit/type and SPP private ST/PT/GHR/FILTER state are not NN inputs.
-Training and inference call the same lossless callback encoder and validators
-require identical encoder hashes. Captured SPP actions/fill levels are labels
-and the fill-preserving normal comparator only.
+## Fair input contract
 
-The NN uses one chronological stateful LSTM plus a learned Poisson count and
-free-running autoregressive direct signed-delta/fill decoder. Teacher actions
-compute loss but are not decoder inputs. It has no SPP thresholds,
-degree, fixed page-offset classes, same-page rule, candidate list, or private
-SPP state. Eviction feedback is included here because normal SPP reads that raw
-external callback; it is not added to tracks whose normal source cannot see it.
+The audited source-visible input is the complete chronological callback stream:
+`DEMAND(addr)` and `CACHE_FILL(evicted_addr)`. PC is replay transport only.
+Cache hit/type and SPP's private ST/PT/GHR/FILTER contents are excluded.
+Training and inference use the same lossless callback encoder, and all field
+lists and encoder hashes must match. Captured SPP requests/fill choices are
+labels and the fill-preserving offline comparator only.
 
-Revision: `spp_source_input_variable_delta_fill_feedback_free_running_v11`  
-Default run: `623_offline_lstm_spp_variable_delta_free_running_v11_seed7`
+## Independent NN design
 
-Use `linux/launch_server.sh collect` on the server, the A100 notebook for
-training, and `linux/launch_server.sh replay` after returning the output.
+Revision `compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12` replaces
+the shared Poisson head. One compact single-layer LSTM processes every demand
+and fill callback in time order. Its unweighted empirical-prior hurdle gate
+chooses zero versus positive by categorical argmax. Positive events use a
+learned unbounded count and a free-running autoregressive signed-delta mixture;
+fill placement is learned as L2 versus LLC. No probability threshold, degree
+cap, candidate list, fixed page-offset vocabulary, same-page rule, SPP private
+state, or future row is used. Eviction feedback is retained only because it is
+an actual source-visible SPP callback; it is not a handcrafted eviction rule or
+separate prediction target.
+
+The measured capacity sweep is h8/h16/h32/h64/h128 with
+2,865/6,609/16,785/47,889/153,105 parameters.
+
+Input revision: `spp_source_input_variable_delta_fill_feedback_free_running_v11`  
+Model revision: `compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12`  
+Default run: `623_offline_lstm_spp_empirical_prior_hurdle_v12_seed7`
+
+Run `linux/launch_server.sh collect`, train with the A100 notebook, return the
+output archive, and run `linux/launch_server.sh replay`. Previous v11 outputs
+remain separate and are not overwritten.

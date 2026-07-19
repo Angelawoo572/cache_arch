@@ -14,16 +14,21 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
+MODEL_REVISION = "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
-    "independent_delta_spp_lstm_h12,independent_delta_spp_lstm_h16,"
-    "independent_delta_spp_lstm_h32"
+    "independent_delta_spp_lstm_h8,independent_delta_spp_lstm_h16,"
+    "independent_delta_spp_lstm_h32,independent_delta_spp_lstm_h64,"
+    "independent_delta_spp_lstm_h128"
 )
 EXPECTED_POINTS = {
-    ("lstm", 12): "p0",
+    ("lstm", 8): "p0",
     ("lstm", 16): "p1",
     ("lstm", 32): "p2",
+    ("lstm", 64): "p3",
+    ("lstm", 128): "p4",
 }
+EXPECTED_PARAMETERS = {8: 2865, 16: 6609, 32: 16785, 64: 47889, 128: 153105}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = [
@@ -471,6 +476,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
         "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
@@ -478,6 +484,10 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "fill_lead_cutoff_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
+        "gate_class_weighting_used": False,
+        "gate_training_objective": "empirical_prior_unweighted_categorical_nll",
+        "gate_decoding_rule": "two_class_categorical_argmax",
+        "gate_operating_point_learned_from_empirical_prior": True,
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
@@ -486,6 +496,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
+        "model_revision": MODEL_REVISION,
         "neural_role": "standalone_direct_action_prefetcher",
         "replay_preserves_explicit_fill_level": True,
         "source_decision_effective_external_input": SOURCE_INPUTS,
@@ -532,8 +543,13 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     else:
         if metadata.get("architecture_pair_id") != point:
             failures.append("{} architecture pair mismatch".format(tag))
-        if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
-            failures.append("{} invalid measured parameter count".format(tag))
+        expected_parameters = EXPECTED_PARAMETERS.get(metadata.get("model_size"))
+        if metadata.get("parameter_count") != expected_parameters:
+            failures.append(
+                "{} parameter count {!r}; expected {!r}".format(
+                    tag, metadata.get("parameter_count"), expected_parameters
+                )
+            )
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256"),
         metadata.get("training_runtime_encoder_sha256"),

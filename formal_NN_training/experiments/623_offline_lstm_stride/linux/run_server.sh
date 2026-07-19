@@ -6,13 +6,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_variable_delta_free_running_v9_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_compact_hurdle_v10_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-independent_delta_stride_lstm_h5,independent_delta_stride_lstm_h16,independent_delta_stride_lstm_h32}"
-BASE_TAG="${BASE_TAG:-independent_delta_stride_lstm_h5}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,independent_delta_stride_lstm_h32,independent_delta_stride_lstm_h64,independent_delta_stride_lstm_h128}"
+BASE_TAG="${BASE_TAG:-independent_delta_stride_lstm_h8}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -215,12 +215,16 @@ common = {
     "normal_policy_request_rate_used_as_budget": False,
     "normal_policy_constants_used_by_neural_inference": False,
     "probability_threshold_used": False,
+    "threshold_related_hardcodes_used": False,
     "neural_degree_cap": None,
     "fixed_page_offset_classes": None,
     "same_page_rule_used_by_neural_inference": False,
     "future_label_window_used": False,
     "handcrafted_semantic_features_used": False,
     "manual_loss_weights_used": False,
+    "data_derived_gate_class_weights_used": True,
+    "gate_training_objective": "training_frequency_derived_balanced_categorical_nll",
+    "gate_decoding_rule": "two_class_categorical_argmax",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "learned_request_count": True,
@@ -231,6 +235,7 @@ common = {
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
+    "model_revision": "compact_pc_keyed_hurdle_delta_v10",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
 }
@@ -241,18 +246,22 @@ if family != "lstm":
 if not tag.startswith("independent_delta_" + policy + "_lstm_"):
     bad["model_tag"] = (tag, "independent_delta_" + policy + "_lstm_<size>")
 expected_points = {
-    ("lstm", 5): "p0",
+    ("lstm", 8): "p0",
     ("lstm", 16): "p1",
     ("lstm", 32): "p2",
+    ("lstm", 64): "p3",
+    ("lstm", 128): "p4",
 }
+expected_parameters = {8: 1908, 16: 5220, 32: 16068, 64: 54660, 128: 199428}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
 else:
     if metadata.get("architecture_pair_id") != point:
         bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point)
-if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
-    bad["parameter_count"] = (metadata.get("parameter_count"), "positive measured value")
+expected_parameter_count = expected_parameters.get(metadata.get("model_size"))
+if metadata.get("parameter_count") != expected_parameter_count:
+    bad["parameter_count"] = (metadata.get("parameter_count"), expected_parameter_count)
 encoder_hashes = {
     metadata.get("runtime_encoder_sha256"),
     metadata.get("training_runtime_encoder_sha256"),

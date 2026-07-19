@@ -14,16 +14,21 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
+MODEL_REVISION = "compact_pc_keyed_hurdle_delta_v10"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
-    "independent_delta_stride_lstm_h5,independent_delta_stride_lstm_h16,"
-    "independent_delta_stride_lstm_h32"
+    "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
+    "independent_delta_stride_lstm_h32,independent_delta_stride_lstm_h64,"
+    "independent_delta_stride_lstm_h128"
 )
 EXPECTED_POINTS = {
-    ("lstm", 5): "p0",
+    ("lstm", 8): "p0",
     ("lstm", 16): "p1",
     ("lstm", 32): "p2",
+    ("lstm", 64): "p3",
+    ("lstm", 128): "p4",
 }
+EXPECTED_PARAMETERS = {8: 1908, 16: 5220, 32: 16068, 64: 54660, 128: 199428}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -424,12 +429,16 @@ def validate_metadata(metadata, tag, inputs, failures):
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
         "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
+        "data_derived_gate_class_weights_used": True,
+        "gate_training_objective": "training_frequency_derived_balanced_categorical_nll",
+        "gate_decoding_rule": "two_class_categorical_argmax",
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
@@ -440,6 +449,7 @@ def validate_metadata(metadata, tag, inputs, failures):
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
+        "model_revision": MODEL_REVISION,
         "neural_role": "standalone_direct_action_prefetcher",
         "track_model_family": TRACK_MODEL_FAMILY,
     }
@@ -463,8 +473,13 @@ def validate_metadata(metadata, tag, inputs, failures):
     else:
         if metadata.get("architecture_pair_id") != point:
             failures.append("{} architecture group mismatch".format(tag))
-        if not isinstance(metadata.get("parameter_count"), int) or metadata.get("parameter_count") <= 0:
-            failures.append("{} invalid measured parameter count".format(tag))
+        expected_parameters = EXPECTED_PARAMETERS.get(metadata.get("model_size"))
+        if metadata.get("parameter_count") != expected_parameters:
+            failures.append(
+                "{} parameter count {!r}; expected {!r}".format(
+                    tag, metadata.get("parameter_count"), expected_parameters
+                )
+            )
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256"),
         metadata.get("training_runtime_encoder_sha256"),

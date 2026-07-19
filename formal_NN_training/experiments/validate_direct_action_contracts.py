@@ -41,7 +41,7 @@ TRACKS = (
         "623_offline_lstm_stride",
         "stride_source_input_variable_delta_free_running_v9",
         ["pc", "addr"],
-        "623_offline_lstm_stride_variable_delta_free_running_v9_seed7",
+        "623_offline_lstm_stride_compact_hurdle_v10_seed7",
     ),
     (
         "623_offline_cnn_stride",
@@ -56,7 +56,7 @@ TRACKS = (
             "callback_kind", "invoke_prefetcher.addr",
             "cache_fill.evicted_addr",
         ],
-        "623_offline_lstm_spp_variable_delta_free_running_v11_seed7",
+        "623_offline_lstm_spp_empirical_prior_hurdle_v12_seed7",
     ),
     (
         "623_offline_cnn_spp",
@@ -212,6 +212,33 @@ def main():
                     fail("602 SPP contract {} mismatch".format(key))
                 if key not in notebook or str(expected) not in notebook:
                     fail("602 SPP notebook missing {}".format(key))
+        if experiment == "623_offline_lstm_stride":
+            stride_contract = {
+                "model_revision": "compact_pc_keyed_hurdle_delta_v10",
+                "gate_decoding_rule": "two_class_categorical_argmax",
+            }
+            for key, expected in stride_contract.items():
+                if contract.get(key) != expected:
+                    fail("623 Stride contract {} mismatch".format(key))
+                if key not in notebook or str(expected) not in notebook:
+                    fail("623 Stride notebook missing {}".format(key))
+        if experiment == "623_offline_lstm_spp":
+            spp_contract = {
+                "model_revision": (
+                    "compact_empirical_prior_hurdle_"
+                    "autoregressive_gmm_fill_v12"
+                ),
+                "gate_class_weighting_used": False,
+                "gate_training_objective": (
+                    "empirical_prior_unweighted_categorical_nll"
+                ),
+                "gate_decoding_rule": "two_class_categorical_argmax",
+            }
+            for key, expected in spp_contract.items():
+                if contract.get(key) != expected:
+                    fail("623 SPP contract {} mismatch".format(key))
+                if key not in notebook or str(expected) not in notebook:
+                    fail("623 SPP notebook missing {}".format(key))
 
         for relative in (
             "python/analyze_replay.py",
@@ -330,6 +357,41 @@ def main():
     ):
         if forbidden in spp_602_train:
             fail("602 SPP train script retains {}".format(forbidden))
+
+    stride_623_train = (
+        EXPERIMENTS
+        / "623_offline_lstm_stride/python/train_and_offline_infer.py"
+    ).read_text()
+    for token in (
+        "CompactPCKeyedHurdleStrideLSTM",
+        "_data_derived_gate_class_weights",
+        "two_class_argmax_then_rounded_exp_positive_count",
+        '"probability_threshold_used": False',
+        '"threshold_related_hardcodes_used": False',
+        '"neural_degree_cap": None',
+        '"fixed_page_offset_classes": None',
+        '"normal_tracker_capacity_used_by_neural_inference": False',
+        '"data_derived_gate_class_weights_used": True',
+    ):
+        if token not in stride_623_train:
+            fail("623 Stride train script missing {}".format(token))
+
+    spp_623_train = (
+        EXPERIMENTS / "623_offline_lstm_spp/python/train_and_offline_infer.py"
+    ).read_text()
+    for token in (
+        "CompactSPPLSTM",
+        "active_state, predicted_coordinate, predicted_fill",
+        '"probability_threshold_used": False',
+        '"threshold_related_hardcodes_used": False',
+        '"neural_degree_cap": None',
+        '"fixed_page_offset_classes": None',
+        '"gate_class_weighting_used": False',
+        '"empirical_prior_unweighted_categorical_nll"',
+        '"gate_decoding_rule": "two_class_categorical_argmax"',
+    ):
+        if token not in spp_623_train:
+            fail("623 SPP train script missing {}".format(token))
 
     compare_source = (
         EXPERIMENTS / "compare_623_split_architectures.py"
