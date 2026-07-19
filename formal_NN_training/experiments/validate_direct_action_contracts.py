@@ -11,6 +11,15 @@ COMMON = ROOT / "formal_NN_training" / "common"
 
 TRACKS = (
     (
+        "602_offline_lstm_spp",
+        "spp_source_input_compact_hurdle_delta_fill_free_running_v1",
+        [
+            "callback_kind", "invoke_prefetcher.addr",
+            "cache_fill.evicted_addr",
+        ],
+        "602_offline_lstm_spp_compact_hurdle_free_running_v1_seed7",
+    ),
+    (
         "602_offline_lstm_stride",
         "source_input_variable_delta_free_running_v7",
         ["pc", "cache_line_address"],
@@ -216,8 +225,13 @@ def main():
             if token not in analyzer:
                 fail("{} analyzer missing {}".format(experiment, token))
 
-    for family in ("lstm", "cnn"):
-        spp = EXPERIMENTS / "623_offline_{}_spp".format(family)
+    spp_tracks = (
+        EXPERIMENTS / "602_offline_lstm_spp",
+        EXPERIMENTS / "623_offline_lstm_spp",
+        EXPERIMENTS / "623_offline_cnn_spp",
+    )
+    for spp in spp_tracks:
+        family = "cnn" if "cnn" in spp.name else "lstm"
         normalize = (spp / "python" / "normalize_events.py").read_text()
         validator = (spp / "python" / "validate_collected_inputs.py").read_text()
         if "target_page_offset" in normalize or "target_page_offset" in validator:
@@ -241,6 +255,15 @@ def main():
         for path in (spp / "python").glob("*.py"):
             parse_python(path)
 
+    spp_602_patch = (
+        EXPERIMENTS / "602_offline_lstm_spp/linux/patch_demand_logger.sh"
+    ).read_bytes()
+    if (
+        b"DEMAND_EVENT_LOG_SCHEMA_602_SPP_V1" not in spp_602_patch
+        or b'"602_spp_causal_trigger_fill_v1"' not in spp_602_patch
+        or b"DEMAND_EVENT_LOG_SCHEMA_(623_|602_SPP_)" not in spp_602_patch
+    ):
+        fail("602 SPP logger patch lacks schema or cross-track reset")
     lstm_patch = (
         EXPERIMENTS / "623_offline_lstm_spp/linux/patch_demand_logger.sh"
     ).read_bytes()
@@ -252,6 +275,21 @@ def main():
     if b'wq_replacement = "' in lstm_patch or b"wq_replacement = '''" in lstm_patch:
         fail("SPP WQ replacement reverted to brace-sensitive formatting")
 
+    spp_602_train = (
+        EXPERIMENTS / "602_offline_lstm_spp/python/train_and_offline_infer.py"
+    ).read_text()
+    for token in (
+        "self_test_model(args.model_size)",
+        '"decoder_free_running_self_test": "PASS"',
+        '"threshold_related_hardcodes_used": False',
+        '"neural_degree_cap": None',
+        '"fixed_page_offset_classes": None',
+        "active_state, predicted_coordinate, predicted_fill",
+        "expected_parameter_count",
+    ):
+        if token not in spp_602_train:
+            fail("602 SPP train script missing {}".format(token))
+
     compare_source = (
         EXPERIMENTS / "compare_623_split_architectures.py"
     ).read_text()
@@ -259,7 +297,7 @@ def main():
     if "runtime_encoder_exact_match" not in compare_source:
         fail("cross-directory encoder equality is not enforced")
 
-    print("[PASS] seven direct-action tracks satisfy the static input contract")
+    print("[PASS] eight direct-action tracks satisfy the static input contract")
     print("[PASS] training/inference encoder fields, code hashes, and decoder feedback agree")
     print("[PASS] no neural page-offset interface, threshold, or degree cap is declared")
 
