@@ -14,8 +14,15 @@ import json
 import math
 import platform
 import random
+import sys
 from collections import defaultdict
 from pathlib import Path
+
+# Make direct execution robust in Colab and on Sacramento.  Python otherwise
+# puts only this nested script directory on sys.path, not the repository root.
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 import numpy as np
 import torch
