@@ -12,12 +12,12 @@ COMMON = ROOT / "formal_NN_training" / "common"
 TRACKS = (
     (
         "602_offline_lstm_spp",
-        "spp_source_input_compact_hurdle_delta_fill_free_running_v1",
+        "spp_source_input_compact_empirical_prior_hurdle_delta_fill_free_running_v2",
         [
             "callback_kind", "invoke_prefetcher.addr",
             "cache_fill.evicted_addr",
         ],
-        "602_offline_lstm_spp_compact_hurdle_free_running_v1_seed7",
+        "602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7",
     ),
     (
         "602_offline_lstm_stride",
@@ -199,6 +199,19 @@ def main():
         ):
             if token not in notebook:
                 fail("{} notebook missing {}".format(experiment, token))
+        if experiment == "602_offline_lstm_spp":
+            gate_contract = {
+                "gate_class_weighting_used": False,
+                "gate_training_objective": (
+                    "empirical_prior_unweighted_categorical_nll"
+                ),
+                "gate_decoding_rule": "two_class_categorical_argmax",
+            }
+            for key, expected in gate_contract.items():
+                if contract.get(key) != expected:
+                    fail("602 SPP contract {} mismatch".format(key))
+                if key not in notebook or str(expected) not in notebook:
+                    fail("602 SPP notebook missing {}".format(key))
 
         for relative in (
             "python/analyze_replay.py",
@@ -286,9 +299,37 @@ def main():
         '"fixed_page_offset_classes": None',
         "active_state, predicted_coordinate, predicted_fill",
         "expected_parameter_count",
+        '"gate_class_weighting_used": False',
+        '"gate_training_objective": (',
+        '"empirical_prior_unweighted_categorical_nll"',
+        '"gate_decoding_rule": "two_class_categorical_argmax"',
     ):
         if token not in spp_602_train:
             fail("602 SPP train script missing {}".format(token))
+    spp_602_tree = ast.parse(
+        spp_602_train,
+        filename=str(
+            EXPERIMENTS
+            / "602_offline_lstm_spp/python/train_and_offline_infer.py"
+        ),
+    )
+    for node in ast.walk(spp_602_tree):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if (
+            isinstance(function, ast.Attribute)
+            and function.attr == "cross_entropy"
+            and any(keyword.arg == "weight" for keyword in node.keywords)
+        ):
+            fail("602 SPP categorical loss still applies class weighting")
+    for forbidden in (
+        "_data_derived_gate_class_weights",
+        "gate_class_weights",
+        "gate_weights",
+    ):
+        if forbidden in spp_602_train:
+            fail("602 SPP train script retains {}".format(forbidden))
 
     compare_source = (
         EXPERIMENTS / "compare_623_split_architectures.py"
