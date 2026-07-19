@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_spp"
 TRACE="602.gcc_s-734B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-602_offline_lstm_spp_compact_hurdle_free_running_v1_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -322,13 +322,17 @@ common = {
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "threshold_related_hardcodes_used": False,
-    "model_revision": "compact_hurdle_autoregressive_gmm_fill_v1",
+    "gate_class_weighting_used": False,
+    "gate_training_objective": "empirical_prior_unweighted_categorical_nll",
+    "gate_decoding_rule": "two_class_categorical_argmax",
+    "gate_operating_point_learned_from_empirical_prior": True,
+    "model_revision": "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v2",
     "learned_request_count": True,
     "causal_no_future_self_test": "PASS",
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "602_spp_causal_trigger_fill_v1",
     "action_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "spp_source_input_compact_hurdle_delta_fill_free_running_v1",
+    "experiment_revision": "spp_source_input_compact_empirical_prior_hurdle_delta_fill_free_running_v2",
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": [
         "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
@@ -392,7 +396,11 @@ elif metadata.get("source_contract_sha256") != hashlib.sha256(source_contract.re
         hashlib.sha256(source_contract.read_bytes()).hexdigest(),
     )
 behavior = metadata.get("heldout_behavior_metrics", {})
-for key in ("count_exact_match_rate", "target_precision", "target_recall", "target_f1"):
+for key in (
+    "count_exact_match_rate", "target_precision", "target_recall", "target_f1",
+    "normal_positive_callback_rate", "predicted_positive_callback_rate",
+    "trigger_precision", "trigger_recall", "trigger_f1",
+):
     value = behavior.get(key)
     if not isinstance(value, (int, float)) or not 0 <= value <= 1:
         bad["heldout_behavior_metrics." + key] = (value, "[0,1]")
