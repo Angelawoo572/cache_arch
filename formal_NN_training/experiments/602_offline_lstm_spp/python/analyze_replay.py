@@ -13,7 +13,7 @@ from pathlib import Path
 TRACE = "602.gcc_s-734B"
 POLICY = "spp"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "spp_source_input_compact_hurdle_delta_fill_free_running_v1"
+EXPERIMENT_REVISION = "spp_source_input_compact_empirical_prior_hurdle_delta_fill_free_running_v2"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_spp_lstm_h8,independent_delta_spp_lstm_h16,"
@@ -491,7 +491,13 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,
-        "model_revision": "compact_hurdle_autoregressive_gmm_fill_v1",
+        "gate_class_weighting_used": False,
+        "gate_training_objective": (
+            "empirical_prior_unweighted_categorical_nll"
+        ),
+        "gate_decoding_rule": "two_class_categorical_argmax",
+        "gate_operating_point_learned_from_empirical_prior": True,
+        "model_revision": "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v2",
         "learned_request_count": True,
         "causal_no_future_self_test": "PASS",
         "cnn_architecture_self_test": "NOT_APPLICABLE",
@@ -516,7 +522,9 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     behavior = metadata.get("heldout_behavior_metrics")
     required_behavior = (
         "count_exact_match_rate", "target_precision", "target_recall",
-        "target_f1",
+        "target_f1", "normal_positive_callback_rate",
+        "predicted_positive_callback_rate", "trigger_precision",
+        "trigger_recall", "trigger_f1",
     )
     if not isinstance(behavior, dict):
         failures.append("{} lacks held-out behavior audit".format(tag))
@@ -737,6 +745,11 @@ def main():
             "future_label_window_used": False,
             "fill_lead_cutoff_used": False,
             "inference_policy_hardcodes_used": False,
+            "gate_class_weighting_used": False,
+            "gate_training_objective": (
+                "empirical_prior_unweighted_categorical_nll"
+            ),
+            "gate_decoding_rule": "two_class_categorical_argmax",
             "normal_candidate_bank_is_fixed": False,
             "nn_can_generate_actions_not_emitted_by_teacher": True,
             "model_does_not_use_pc": True,
