@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_offline_lstm_spp"
-RUN_ID="${RUN_ID:-602_offline_lstm_spp_compact_hurdle_free_running_v1_seed7}"
+RUN_ID="${RUN_ID:-602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7}"
 STAGE="${1:-${STAGE:-collect}}"
 RUN_DIR="$EXP/runs/$RUN_ID"
 LOG="$RUN_DIR/$STAGE.nohup.log"
