@@ -41,8 +41,8 @@ POLICY = "spp"
 FILL_LEVELS = (2, 4)
 MIXTURE_COMPONENTS = 4
 RUNTIME_FEATURES = ADDRESS_BITS + 1
-EXPERIMENT_REVISION = "spp_source_input_compact_hurdle_delta_fill_free_running_v1"
-MODEL_REVISION = "compact_hurdle_autoregressive_gmm_fill_v1"
+EXPERIMENT_REVISION = "spp_source_input_compact_empirical_prior_hurdle_delta_fill_free_running_v2"
+MODEL_REVISION = "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v2"
 EVENT_LOGGER_SCHEMA = "602_spp_causal_trigger_fill_v1"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -326,21 +326,6 @@ def _positive_counts_from_log_mean(log_means):
     return counts
 
 
-def _data_derived_gate_class_weights(expanded_counts):
-    counts = np.asarray(expanded_counts, dtype=np.int64)
-    counts = counts[counts >= 0]
-    labels = (counts > 0).astype(np.int64)
-    frequencies = np.bincount(labels, minlength=2).astype(np.float64)
-    if len(labels) == 0 or np.any(frequencies == 0):
-        raise RuntimeError(
-            "hurdle training requires observed zero and positive decision rows"
-        )
-    weights = float(len(labels)) / (2.0 * frequencies)
-    if not np.all(np.isfinite(weights)):
-        raise RuntimeError("non-finite data-derived hurdle weights")
-    return weights.astype(np.float32)
-
-
 class CompactSPPActionDecoder(nn.Module):
     """Threshold-free variable-cardinality direct-delta/fill decoder."""
 
@@ -402,9 +387,7 @@ def _iter_chunks(length, width):
         yield start, min(length, start + width)
 
 
-def _structured_loss(
-    model, context, counts, deltas, fills, gate_class_weights,
-):
+def _structured_loss(model, context, counts, deltas, fills):
     flat_context = context.reshape(-1, context.shape[-1])
     flat_counts = counts.reshape(-1)
     flat_deltas = deltas.reshape(-1, deltas.shape[-1])
@@ -420,9 +403,13 @@ def _structured_loss(
     decision_fills = flat_fills[valid]
 
     emit_targets = (decision_counts > 0).to(torch.long)
+    # Unweighted maximum likelihood preserves the observed SPP trigger prior.
+    # Class balancing made rare zero labels carry about 35x the positive-label
+    # weight on this trace, which moved raw categorical argmax to a severe
+    # under-prefetch operating point.
     gate_sum = F.cross_entropy(
         model.decoder.emit_head(decision_context), emit_targets,
-        weight=gate_class_weights, reduction="sum",
+        reduction="sum",
     )
 
     positive = decision_counts > 0
@@ -512,9 +499,6 @@ def train_model(
     count_tensor = torch.from_numpy(counts).to(torch.long)
     delta_tensor = torch.from_numpy(deltas).to(torch.float32)
     fill_tensor = torch.from_numpy(fills).to(torch.long)
-    gate_weights = torch.from_numpy(
-        _data_derived_gate_class_weights(counts[:fit_end])
-    ).to(device)
     chunks = list(_iter_chunks(fit_end, chunk_len))
     history = []
     for epoch in range(1, epochs + 1):
@@ -549,7 +533,7 @@ def train_model(
                     # but they carry no SPP decision loss.
                     continue
                 loss, components = _structured_loss(
-                    model, context, cb, db, fb, gate_weights
+                    model, context, cb, db, fb
                 )
                 if not torch.isfinite(loss):
                     raise RuntimeError("non-finite SPP training loss")
@@ -675,6 +659,61 @@ def decode_actions(
     return counts, predicted_lines, predicted_fills
 
 
+
+def trigger_behavior_metrics(predicted_counts, teacher_actions):
+    """Report trigger calibration separately from target-address quality."""
+    predicted = np.asarray(predicted_counts, dtype=np.int64)
+    normal = np.asarray(
+        [len(items) for items in teacher_actions], dtype=np.int64
+    )
+    if predicted.shape != normal.shape or predicted.ndim != 1:
+        raise RuntimeError("SPP trigger behavior rows differ")
+    if np.any(predicted < 0):
+        raise RuntimeError("negative predicted SPP request count")
+    predicted_positive = predicted > 0
+    normal_positive = normal > 0
+    true_positive = int(np.logical_and(predicted_positive, normal_positive).sum())
+    false_positive = int(
+        np.logical_and(predicted_positive, np.logical_not(normal_positive)).sum()
+    )
+    false_negative = int(
+        np.logical_and(np.logical_not(predicted_positive), normal_positive).sum()
+    )
+    normal_positive_count = int(normal_positive.sum())
+    predicted_positive_count = int(predicted_positive.sum())
+    callbacks = int(len(normal))
+
+    def ratio(numerator, denominator):
+        return float(numerator) / float(denominator) if denominator else 0.0
+
+    precision = ratio(true_positive, true_positive + false_positive)
+    recall = ratio(true_positive, true_positive + false_negative)
+    return {
+        "normal_positive_callbacks": normal_positive_count,
+        "normal_zero_callbacks": callbacks - normal_positive_count,
+        "predicted_positive_callbacks": predicted_positive_count,
+        "true_positive_trigger_callbacks": true_positive,
+        "false_positive_trigger_callbacks": false_positive,
+        "false_negative_trigger_callbacks": false_negative,
+        "normal_positive_callback_rate": ratio(normal_positive_count, callbacks),
+        "predicted_positive_callback_rate": ratio(
+            predicted_positive_count, callbacks
+        ),
+        "trigger_precision": precision,
+        "trigger_recall": recall,
+        "trigger_f1": ratio(2.0 * precision * recall, precision + recall),
+        "mean_normal_actions_per_positive_callback": ratio(
+            int(normal.sum()), normal_positive_count
+        ),
+        "mean_predicted_actions_per_positive_callback": ratio(
+            int(predicted.sum()), predicted_positive_count
+        ),
+        "predicted_to_normal_action_ratio": ratio(
+            int(predicted.sum()), int(normal.sum())
+        ),
+    }
+
+
 def self_test_model(hidden_size):
     model = CompactSPPLSTM(RUNTIME_FEATURES, hidden_size)
     observed = sum(parameter.numel() for parameter in model.parameters())
@@ -690,18 +729,17 @@ def self_test_model(hidden_size):
     )
     if test_counts.tolist() != [1, 2, 9, 257]:
         raise RuntimeError("positive SPP count support is not variable")
-    weights = _data_derived_gate_class_weights(
-        np.asarray([0, 0, 0, 2], dtype=np.int64)
-    )
-    if not math.isclose(float(weights[0] * 3), float(weights[1])):
-        raise RuntimeError("data-derived hurdle balancing is incorrect")
     loss_source = inspect.getsource(_structured_loss)
     forbidden = (
         "advance(active_state, target",
         "advance(active_state, target_fill",
+        "gate_" + "class_weights",
+        "weight" + "=",
     )
     if any(token in loss_source for token in forbidden):
-        raise RuntimeError("teacher action leaked into decoder feedback")
+        raise RuntimeError(
+            "structured SPP loss contains forbidden feedback or weighting"
+        )
     required = (
         "active_state, predicted_coordinate, predicted_fill",
     )
@@ -812,6 +850,18 @@ def run_cli():
         raise RuntimeError("measured compact SPP parameter count changed")
 
     train_counts, train_deltas, train_fills = context_targets["train"]
+    train_decision_counts = train_counts[train_counts >= 0]
+    train_positive_callbacks = int((train_decision_counts > 0).sum())
+    gate_training_label_statistics = {
+        "decision_callbacks": int(len(train_decision_counts)),
+        "positive_callbacks": train_positive_callbacks,
+        "zero_callbacks": (
+            int(len(train_decision_counts)) - train_positive_callbacks
+        ),
+        "positive_callback_rate": (
+            float(train_positive_callbacks) / float(len(train_decision_counts))
+        ),
+    }
     history = train_model(
         model, runtime["train"], train_counts, train_deltas, train_fills,
         len(streams["train"]["context"]), device, args.epochs,
@@ -842,6 +892,9 @@ def run_cli():
         predicted_counts, predicted_lines, predicted_fills,
         normal["eval"], fill_levels=FILL_LEVELS,
     )
+    behavior.update(trigger_behavior_metrics(
+        predicted_counts, normal["eval"]
+    ))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     normal_path = args.out_dir / "offline_spp.replay.csv"
@@ -945,10 +998,17 @@ def run_cli():
         "fill_lead_cutoff_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
+        "gate_class_weighting_used": False,
+        "gate_training_objective": (
+            "empirical_prior_unweighted_categorical_nll"
+        ),
+        "gate_decoding_rule": "two_class_categorical_argmax",
+        "gate_operating_point_learned_from_empirical_prior": True,
+        "gate_training_label_statistics": gate_training_label_statistics,
         "loss_design": (
-            "data-derived balanced hurdle mean plus positive log-count "
-            "mean plus direct-delta mixture NLL mean plus fill NLL mean; "
-            "unit sum with no manually tuned coefficients"
+            "empirical-prior unweighted hurdle NLL mean plus positive "
+            "log-count mean plus direct-delta mixture NLL mean plus fill "
+            "NLL mean; unit sum with no manually tuned coefficients"
         ),
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
