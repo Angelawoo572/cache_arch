@@ -29,12 +29,16 @@ The v1 h128 result had better selected accuracy than offline SPP
 but only 45.34% coverage versus 65.11%. It produced 1.307M actions while the
 normal comparator produced 2.254M and recovered only 46.23% of target actions.
 
-The cause was the zero/positive gate objective. Only 2.76% of evaluation
-callbacks had zero SPP actions, but inverse-frequency class balancing gave a
-zero label about 35 times the positive-label weight. Raw categorical argmax
-therefore behaved like an unintended very conservative operating point. The
-v2 run removes that class weighting and fits the observed zero/positive prior
-with unweighted categorical maximum likelihood.
+The strongest identified cause is the zero/positive gate objective. Only
+2.76% of evaluation callbacks had zero SPP actions, while v1 applied
+inverse-frequency class balancing before raw categorical argmax. This
+combination is consistent with the observed conservative under-emission. The
+old archive did not record the exact training positive/zero split, so it does
+not support an exact training-weight ratio; v2 records that split explicitly.
+For reference, applying the same weighting to the held-out split would give a
+zero label about 35 times the positive-label weight. The v2 run removes class
+weighting and fits the observed zero/positive prior with unweighted categorical
+maximum likelihood.
 
 This is a one-variable ablation: external inputs, h8/h16/h32/h64/h128
 capacities, positive-count head, direct-delta mixture, learned fill head,
