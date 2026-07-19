@@ -14,7 +14,7 @@ POLICY = "spp"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "602_spp_causal_trigger_fill_v1"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "spp_source_input_compact_hurdle_delta_fill_free_running_v1"
+EXPERIMENT_REVISION = "spp_source_input_compact_empirical_prior_hurdle_delta_fill_free_running_v2"
 SOURCE_SPP_PAGE_LINES = 64
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
 SOURCE_INPUTS = [
@@ -235,8 +235,19 @@ def read_teacher_actions(path, demand_rows):
             last_pf_event = pf_event
     if total == 0:
         raise RuntimeError("empty teacher action stream {}".format(path))
+    positive_callbacks = len(counts)
+    zero_callbacks = len(demand_rows) - positive_callbacks
     return {
         "teacher_actions": total,
+        "positive_action_callbacks": positive_callbacks,
+        "zero_action_callbacks": zero_callbacks,
+        "positive_action_callback_rate": (
+            positive_callbacks / float(len(demand_rows))
+        ),
+        "mean_actions_per_positive_callback": (
+            total / float(positive_callbacks)
+        ),
+        "mean_actions_per_demand_callback": total / float(len(demand_rows)),
         "raw_source_prefetch_calls": raw_total,
         "collapsed_source_calls": raw_total - total,
         "self_target_actions": self_target_total,
@@ -286,6 +297,11 @@ def main():
         "fill_lead_cutoff_used": False,
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,
+        "gate_class_weighting_used": False,
+        "gate_training_objective": (
+            "empirical_prior_unweighted_categorical_nll"
+        ),
+        "gate_decoding_rule": "two_class_categorical_argmax",
         "normal_candidate_bank_is_fixed": False,
         "nn_can_generate_actions_not_emitted_by_teacher": True,
         "model_does_not_use_pc": True,
