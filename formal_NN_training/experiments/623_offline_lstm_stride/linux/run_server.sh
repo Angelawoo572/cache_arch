@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_mass_hurdle_v13_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_event_sampled_v14_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -225,28 +225,42 @@ common = {
     "data_derived_gate_class_weights_used": False,
     "gate_class_weighting_used": False,
     "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+    "gate_decoding_rule": "event_local_bernoulli_sample",
     "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "causal_probability_mass_hurdle_plus_positive_excess_residual",
-    "request_count_residual_scope": "dynamic_exact_pc_key",
+    "request_count_decoding_rule": "event_local_bernoulli_hurdle_plus_conditional_poisson_sample",
+    "request_count_residual_scope": "none_event_local",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "learned_request_count": True,
     "nn_generates_own_target_addresses": True,
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
-    "probability_mass_hurdle_count_self_test": "PASS",
+    "event_local_hurdle_count_self_test": "PASS",
+    "event_local_mixture_sampling_self_test": "PASS",
+    "decoder_probability_mass_carries_train_guard_history": False,
+    "cross_event_probability_credit_used": False,
+    "sampled_outputs_used_as_decoder_feedback": False,
+    "stochastic_decoding_reproducible": True,
+    "delta_mixture_decoding_rule": "event_local_categorical_component_sample_then_component_mean",
+    "delta_decoder_feedback_rule": "complete_mixture_expectation_same_in_training_and_inference",
     "delta_mixture_components": 3,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_mass_hurdle_mixture_v13",
+    "model_revision": "compact_pc_keyed_event_sampled_mixture_v14",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
+decoder_rng_seeds = metadata.get("decoder_rng_seeds")
+if (
+    not isinstance(decoder_rng_seeds, dict)
+    or set(decoder_rng_seeds) != {"request_count", "delta_component"}
+    or any(type(value) is not int for value in decoder_rng_seeds.values())
+):
+    bad["decoder_rng_seeds"] = (decoder_rng_seeds, "two reproducible integer seeds")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
 if not tag.startswith("independent_delta_" + policy + "_lstm_"):
