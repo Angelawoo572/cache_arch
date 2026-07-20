@@ -14,24 +14,28 @@ labels and the fill-preserving offline comparator only.
 
 ## Independent NN design
 
-Revision `compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12` replaces
-the shared Poisson head. One compact single-layer LSTM processes every demand
-and fill callback in time order. Its unweighted empirical-prior hurdle gate
-chooses zero versus positive by categorical argmax. Positive events use a
-learned unbounded count and a free-running autoregressive signed-delta mixture;
-fill placement is learned as L2 versus LLC. No probability threshold, degree
-cap, candidate list, fixed page-offset vocabulary, same-page rule, SPP private
-state, or future row is used. Eviction feedback is retained only because it is
-an actual source-visible SPP callback; it is not a handcrafted eviction rule or
-separate prediction target.
+Revision `compact_mass_hurdle_mixture_fill_v13` corrects the two v12 argmax
+collapses: almost every callback issued and every action selected LLC. One
+compact single-layer LSTM still processes every demand and fill callback in
+time order. An unweighted Bernoulli learns zero versus positive callbacks and
+a conditional Poisson learns the unbounded positive excess count. A causal
+probability-mass scheduler preserves both the learned trigger rate and SPP's
+positive-count bursts instead of smearing one average count across callbacks.
+The autoregressive signed-delta mixture remains independent, while its feedback
+uses the complete learned fill distribution. A second probability-mass decoder
+converts that distribution to L2/LLC choices without discarding rare learned L2
+mass. No selected probability threshold, degree cap, candidate list, fixed
+page-offset vocabulary, same-page rule, SPP private state, or future row is
+used. Eviction feedback is retained only because it is an actual source-visible
+SPP callback; it is not a handcrafted eviction rule or prediction target.
 
 The measured capacity sweep is h8/h16/h32/h64/h128 with
-2,865/6,609/16,785/47,889/153,105 parameters.
+2,856/6,592/16,752/47,824/152,976 parameters.
 
 Input revision: `spp_source_input_variable_delta_fill_feedback_free_running_v11`  
-Model revision: `compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12`  
-Default run: `623_offline_lstm_spp_empirical_prior_hurdle_v12_seed7`
+Model revision: `compact_mass_hurdle_mixture_fill_v13`  
+Default run: `623_offline_lstm_spp_mass_hurdle_fill_v13_seed7`
 
 Run `linux/launch_server.sh collect`, train with the A100 notebook, return the
-output archive, and run `linux/launch_server.sh replay`. Previous v11 outputs
-remain separate and are not overwritten.
+output archive, and run `linux/launch_server.sh replay`. Previous v11/v12
+outputs remain separate and are not overwritten.
