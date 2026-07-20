@@ -1,6 +1,6 @@
 {
   "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-  "model_revision": "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12",
+  "model_revision": "compact_mass_hurdle_mixture_fill_v13",
   "event_logger_schema": "623_causal_trigger_fill_v6",
   "normal_prefetcher": "spp",
   "source_decision_effective_external_input": [
@@ -17,7 +17,7 @@
   "neural_role": "standalone_direct_action_prefetcher",
   "track_model_family": "lstm",
   "neural_action_decoder": {
-    "request_count": "learned two-class zero/positive categorical argmax plus learned positive log-count with unbounded support",
+    "request_count": "unweighted learned Bernoulli hurdle plus conditional Poisson excess; causal global demand-order probability-mass scheduling with unbounded nonnegative integer support",
     "targets": "free-running autoregressive learned mixture over direct signed cache-line deltas",
     "fill_classes": ["FILL_L2", "FILL_LLC"],
     "fixed_page_offset_classes": null,
@@ -26,8 +26,13 @@
     "probability_threshold": null
   },
   "gate_class_weighting_used": false,
-  "gate_training_objective": "empirical_prior_unweighted_categorical_nll",
-  "gate_decoding_rule": "two_class_categorical_argmax",
+  "gate_training_objective": "unweighted_bernoulli_nll",
+  "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+  "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
+  "request_count_decoding_rule": "causal_probability_mass_hurdle_plus_positive_excess_residual",
+  "fill_training_objective": "unweighted_categorical_nll",
+  "fill_decoding_rule": "causal_probability_mass_argmax",
+  "decoder_mixture_components": 4,
   "captured_spp_actions_role": "fill-preserving normal replay and supervised labels only",
   "teacher_actions_are_model_inputs": false,
   "normal_private_state_is_model_input": false,
@@ -38,19 +43,19 @@
   "manual_loss_weights": false,
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
-  "training_target": "canonicalized source-SPP zero/positive emission, positive request count, direct targets, and fill class as supervision only",
+  "training_target": "canonicalized source-SPP request count, direct targets, and fill class as supervision only",
   "lstm": {
-    "architecture": "compact single-layer chronological LSTM plus empirical-prior hurdle count and free-running autoregressive direct-delta/fill decoder",
+    "architecture": "compact single-layer chronological LSTM plus mass-scheduled hurdle/excess count and free-running autoregressive direct-delta/probability-mass fill decoder",
     "stateful_training": "chronological TBPTT over the complete demand/fill event sequence; hidden/cell values cross chunks and graph history is detached at chunk boundaries",
     "inference_history": "fresh state followed by complete train, guard, and evaluation chronology"
   },
   "eviction_feedback_role": "raw chronological input event only; no private SPP state and no separate eviction prediction target",
   "architecture_points": [
-    {"pair_id": "p0", "lstm_size": 8, "parameters": 2865},
-    {"pair_id": "p1", "lstm_size": 16, "parameters": 6609},
-    {"pair_id": "p2", "lstm_size": 32, "parameters": 16785},
-    {"pair_id": "p3", "lstm_size": 64, "parameters": 47889},
-    {"pair_id": "p4", "lstm_size": 128, "parameters": 153105}
+    {"pair_id": "p0", "lstm_size": 8, "parameters": 2856},
+    {"pair_id": "p1", "lstm_size": 16, "parameters": 6592},
+    {"pair_id": "p2", "lstm_size": 32, "parameters": 16752},
+    {"pair_id": "p3", "lstm_size": 64, "parameters": 47824},
+    {"pair_id": "p4", "lstm_size": 128, "parameters": 152976}
   ],
   "parameter_counts": "measured and asserted exactly; never thresholded"
 }
