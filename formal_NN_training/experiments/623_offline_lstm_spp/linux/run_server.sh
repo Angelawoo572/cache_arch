@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_spp_empirical_prior_hurdle_v12_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_spp_mass_hurdle_fill_v13_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -321,18 +321,29 @@ common = {
     "handcrafted_semantic_features_used": False,
     "manual_loss_weights_used": False,
     "gate_class_weighting_used": False,
-    "gate_training_objective": "empirical_prior_unweighted_categorical_nll",
-    "gate_decoding_rule": "two_class_categorical_argmax",
-    "gate_operating_point_learned_from_empirical_prior": True,
+    "gate_training_objective": "unweighted_bernoulli_nll",
+    "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+    "gate_operating_point_learned_from_empirical_prior": False,
+    "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
+    "request_count_decoding_rule": "causal_probability_mass_hurdle_plus_positive_excess_residual",
+    "request_count_residual_scope": "global_demand_chronology",
+    "fill_training_objective": "unweighted_categorical_nll",
+    "fill_decoding_rule": "causal_probability_mass_argmax",
+    "fill_argmax_used": False,
+    "fill_probability_feedback_used": True,
+    "decoder_probability_mass_carries_train_guard_history": True,
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "learned_request_count": True,
     "causal_no_future_self_test": "PASS",
+    "probability_mass_hurdle_count_self_test": "PASS",
+    "fill_probability_mass_self_test": "PASS",
+    "decoder_mixture_components": 4,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_fill_v6",
     "action_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-    "model_revision": "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12",
+    "model_revision": "compact_mass_hurdle_mixture_fill_v13",
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": [
         "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
@@ -352,7 +363,7 @@ expected_points = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-expected_parameters = {8: 2865, 16: 6609, 32: 16785, 64: 47889, 128: 153105}
+expected_parameters = {8: 2856, 16: 6592, 32: 16752, 64: 47824, 128: 152976}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
