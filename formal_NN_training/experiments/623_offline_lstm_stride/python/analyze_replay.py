@@ -14,7 +14,7 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_mass_hurdle_mixture_v13"
+MODEL_REVISION = "compact_pc_keyed_event_sampled_mixture_v14"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
@@ -439,21 +439,32 @@ def validate_metadata(metadata, tag, inputs, failures):
         "data_derived_gate_class_weights_used": False,
         "gate_class_weighting_used": False,
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "gate_decoding_rule": "event_local_bernoulli_sample",
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+            "event_local_bernoulli_hurdle_plus_conditional_poisson_sample"
         ),
-        "request_count_residual_scope": "dynamic_exact_pc_key",
+        "request_count_residual_scope": "none_event_local",
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
         "nn_generates_own_target_addresses": True,
         "training_chunks_shuffled": False,
         "causal_no_future_self_test": "PASS",
-        "probability_mass_hurdle_count_self_test": "PASS",
+        "event_local_hurdle_count_self_test": "PASS",
+        "event_local_mixture_sampling_self_test": "PASS",
+        "decoder_probability_mass_carries_train_guard_history": False,
+        "cross_event_probability_credit_used": False,
+        "sampled_outputs_used_as_decoder_feedback": False,
+        "stochastic_decoding_reproducible": True,
+        "delta_mixture_decoding_rule": (
+            "event_local_categorical_component_sample_then_component_mean"
+        ),
+        "delta_decoder_feedback_rule": (
+            "complete_mixture_expectation_same_in_training_and_inference"
+        ),
         "delta_mixture_components": 3,
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
@@ -470,6 +481,13 @@ def validate_metadata(metadata, tag, inputs, failures):
                     tag, key, metadata.get(key), expected
                 )
             )
+    decoder_rng_seeds = metadata.get("decoder_rng_seeds")
+    if (
+        not isinstance(decoder_rng_seeds, dict)
+        or set(decoder_rng_seeds) != {"request_count", "delta_component"}
+        or any(type(value) is not int for value in decoder_rng_seeds.values())
+    ):
+        failures.append("{} decoder RNG seed contract mismatch".format(tag))
     family = metadata.get("model_family")
     if family != TRACK_MODEL_FAMILY:
         failures.append(
