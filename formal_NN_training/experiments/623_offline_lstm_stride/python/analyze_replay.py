@@ -14,7 +14,7 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_hurdle_delta_v10"
+MODEL_REVISION = "compact_pc_keyed_mass_hurdle_mixture_v13"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
@@ -28,7 +28,7 @@ EXPECTED_POINTS = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-EXPECTED_PARAMETERS = {8: 1908, 16: 5220, 32: 16068, 64: 54660, 128: 199428}
+EXPECTED_PARAMETERS = {8: 1971, 16: 5339, 32: 16299, 64: 55115, 128: 200331}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -436,15 +436,25 @@ def validate_metadata(metadata, tag, inputs, failures):
         "future_label_window_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
-        "data_derived_gate_class_weights_used": True,
-        "gate_training_objective": "training_frequency_derived_balanced_categorical_nll",
-        "gate_decoding_rule": "two_class_categorical_argmax",
+        "data_derived_gate_class_weights_used": False,
+        "gate_class_weighting_used": False,
+        "gate_training_objective": "unweighted_bernoulli_nll",
+        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "request_count_training_objective": (
+            "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
+        ),
+        "request_count_decoding_rule": (
+            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+        ),
+        "request_count_residual_scope": "dynamic_exact_pc_key",
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
         "nn_generates_own_target_addresses": True,
         "training_chunks_shuffled": False,
         "causal_no_future_self_test": "PASS",
+        "probability_mass_hurdle_count_self_test": "PASS",
+        "delta_mixture_components": 3,
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
@@ -864,9 +874,11 @@ def main():
             "through the same PC-line-occ ListReplayer."
         ),
         "direct_action_contract": (
-            "The neural model learns an unbounded Poisson request count and an "
-            "autoregressive density over direct signed cache-line deltas. It "
-            "has no fixed page-offset table, same-page rule, or Stride degree cap."
+            "The neural model learns an unweighted zero/positive hurdle, an "
+            "unbounded conditional Poisson excess count, and an autoregressive "
+            "mixture over direct signed cache-line deltas. Causal probability-"
+            "mass decoding uses no selected threshold, fixed page-offset table, "
+            "same-page rule, or Stride degree cap."
         ),
         "model_input_guardrail": {
             "normal_stride_private_state": [
