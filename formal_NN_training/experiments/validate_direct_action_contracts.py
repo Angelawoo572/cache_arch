@@ -41,7 +41,7 @@ TRACKS = (
         "623_offline_lstm_stride",
         "stride_source_input_variable_delta_free_running_v9",
         ["pc", "addr"],
-        "623_offline_lstm_stride_mass_hurdle_v13_seed7",
+        "623_offline_lstm_stride_event_sampled_v14_seed7",
     ),
     (
         "623_offline_cnn_stride",
@@ -56,7 +56,7 @@ TRACKS = (
             "callback_kind", "invoke_prefetcher.addr",
             "cache_fill.evicted_addr",
         ],
-        "623_offline_lstm_spp_mass_hurdle_fill_v13_seed7",
+        "623_offline_lstm_spp_event_sampled_fill_v14_seed7",
     ),
     (
         "623_offline_cnn_spp",
@@ -215,19 +215,32 @@ def main():
         if experiment == "623_offline_lstm_stride":
             stride_contract = {
                 "model_revision": (
-                    "compact_pc_keyed_mass_hurdle_mixture_v13"
+                    "compact_pc_keyed_event_sampled_mixture_v14"
                 ),
                 "gate_decoding_rule": (
-                    "causal_binary_probability_mass_scheduler"
+                    "event_local_bernoulli_sample"
                 ),
                 "request_count_training_objective": (
                     "unweighted_bernoulli_hurdle_plus_positive_"
                     "poisson_excess_nll"
                 ),
                 "request_count_decoding_rule": (
-                    "causal_probability_mass_hurdle_plus_positive_"
-                    "excess_residual"
+                    "event_local_bernoulli_hurdle_plus_conditional_"
+                    "poisson_sample"
                 ),
+                "request_count_residual_scope": "none_event_local",
+                "cross_event_probability_credit_used": False,
+                "sampled_outputs_used_as_decoder_feedback": False,
+                "delta_mixture_decoding_rule": (
+                    "event_local_categorical_component_sample_then_"
+                    "component_mean"
+                ),
+                "delta_decoder_feedback_rule": (
+                    "complete_mixture_expectation_same_in_training_"
+                    "and_inference"
+                ),
+                "stochastic_decoding_reproducible": True,
+                "decoder_probability_mass_carries_train_guard_history": False,
             }
             for key, expected in stride_contract.items():
                 if contract.get(key) != expected:
@@ -236,21 +249,34 @@ def main():
                     fail("623 Stride notebook missing {}".format(key))
         if experiment == "623_offline_lstm_spp":
             spp_contract = {
-                "model_revision": "compact_mass_hurdle_mixture_fill_v13",
+                "model_revision": "compact_event_sampled_mixture_fill_v14",
                 "gate_class_weighting_used": False,
                 "gate_training_objective": "unweighted_bernoulli_nll",
                 "gate_decoding_rule": (
-                    "causal_binary_probability_mass_scheduler"
+                    "event_local_bernoulli_sample"
                 ),
                 "request_count_training_objective": (
                     "unweighted_bernoulli_hurdle_plus_positive_"
                     "poisson_excess_nll"
                 ),
                 "request_count_decoding_rule": (
-                    "causal_probability_mass_hurdle_plus_positive_"
-                    "excess_residual"
+                    "event_local_bernoulli_hurdle_plus_conditional_"
+                    "poisson_sample"
                 ),
-                "fill_decoding_rule": "causal_probability_mass_argmax",
+                "request_count_residual_scope": "none_event_local",
+                "fill_decoding_rule": "event_local_categorical_sample",
+                "cross_event_probability_credit_used": False,
+                "sampled_outputs_used_as_decoder_feedback": False,
+                "delta_mixture_decoding_rule": (
+                    "event_local_categorical_component_sample_then_"
+                    "component_mean"
+                ),
+                "delta_decoder_feedback_rule": (
+                    "complete_mixture_expectation_same_in_training_"
+                    "and_inference"
+                ),
+                "stochastic_decoding_reproducible": True,
+                "decoder_probability_mass_carries_train_guard_history": False,
             }
             for key, expected in spp_contract.items():
                 if contract.get(key) != expected:
@@ -381,11 +407,15 @@ def main():
         / "623_offline_lstm_stride/python/train_and_offline_infer.py"
     ).read_text()
     for token in (
-        "CompactPCKeyedMassStrideLSTM",
-        "_mass_hurdle_counts",
-        "causal_per_pc_probability_mass_hurdle",
+        "CompactPCKeyedSampledStrideLSTM",
+        "_event_sampled_hurdle_counts",
+        "_sample_categorical",
+        "_decoder_rngs",
+        "rng.binomial",
+        "rng.poisson",
+        "rng.choice",
         '"gate_training_objective": "unweighted_bernoulli_nll"',
-        '"gate_decoding_rule": "causal_binary_probability_mass_scheduler"',
+        '"gate_decoding_rule": "event_local_bernoulli_sample"',
         '"unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"',
         '"request_count_decoding_rule": (',
         '"probability_threshold_used": False',
@@ -394,6 +424,10 @@ def main():
         '"fixed_page_offset_classes": None',
         '"normal_tracker_capacity_used_by_neural_inference": False',
         '"data_derived_gate_class_weights_used": False',
+        '"stochastic_decoding_reproducible": True',
+        '"decoder_probability_mass_carries_train_guard_history": False',
+        '"cross_event_probability_credit_used": False',
+        '"sampled_outputs_used_as_decoder_feedback": False',
     ):
         if token not in stride_623_train:
             fail("623 Stride train script missing {}".format(token))
@@ -401,6 +435,10 @@ def main():
         "_data_derived_gate_class_weights",
         "gate_class_weights",
         "two_class_categorical_argmax",
+        ".argmax(",
+        "_binary_probability_mass_choice",
+        "_probability_mass_choice",
+        "_mass_hurdle_counts",
     ):
         if forbidden in stride_623_train:
             fail("623 Stride train script retains {}".format(forbidden))
@@ -411,22 +449,35 @@ def main():
     for token in (
         "CompactSPPLSTM",
         "predicted_fill_probabilities",
-        "_mass_hurdle_counts",
-        "_probability_mass_choice",
+        "_event_sampled_hurdle_counts",
+        "_sample_categorical",
+        "_decoder_rngs",
+        "rng.binomial",
+        "rng.poisson",
+        "rng.choice",
         '"unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"',
-        '"fill_decoding_rule": "causal_probability_mass_argmax"',
+        '"fill_decoding_rule": "event_local_categorical_sample"',
         '"probability_threshold_used": False',
         '"threshold_related_hardcodes_used": False',
         '"neural_degree_cap": None',
         '"fixed_page_offset_classes": None',
         '"gate_class_weighting_used": False',
         '"gate_training_objective": "unweighted_bernoulli_nll"',
-        '"gate_decoding_rule": "causal_binary_probability_mass_scheduler"',
+        '"gate_decoding_rule": "event_local_bernoulli_sample"',
+        '"stochastic_decoding_reproducible": True',
+        '"decoder_probability_mass_carries_train_guard_history": False',
+        '"cross_event_probability_credit_used": False',
+        '"sampled_outputs_used_as_decoder_feedback": False',
     ):
         if token not in spp_623_train:
             fail("623 SPP train script missing {}".format(token))
     for forbidden in (
-        "fill_logits.argmax",
+        "fill_logits.argmax(",
+        "mix.argmax(",
+        "_binary_probability_mass_choice",
+        "_probability_mass_choice",
+        "_mass_hurdle_counts",
+        ".argmax(",
         "emit_head",
         "positive_log_count",
     ):
