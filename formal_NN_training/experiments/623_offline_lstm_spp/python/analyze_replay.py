@@ -14,7 +14,7 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12"
+MODEL_REVISION = "compact_mass_hurdle_mixture_fill_v13"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_spp_lstm_h8,independent_delta_spp_lstm_h16,"
@@ -28,7 +28,7 @@ EXPECTED_POINTS = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-EXPECTED_PARAMETERS = {8: 2865, 16: 6609, 32: 16785, 64: 47889, 128: 153105}
+EXPECTED_PARAMETERS = {8: 2856, 16: 6592, 32: 16752, 64: 47824, 128: 152976}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = [
@@ -485,13 +485,28 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
         "gate_class_weighting_used": False,
-        "gate_training_objective": "empirical_prior_unweighted_categorical_nll",
-        "gate_decoding_rule": "two_class_categorical_argmax",
-        "gate_operating_point_learned_from_empirical_prior": True,
+        "gate_training_objective": "unweighted_bernoulli_nll",
+        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "gate_operating_point_learned_from_empirical_prior": False,
+        "request_count_training_objective": (
+            "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
+        ),
+        "request_count_decoding_rule": (
+            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+        ),
+        "request_count_residual_scope": "global_demand_chronology",
+        "fill_training_objective": "unweighted_categorical_nll",
+        "fill_decoding_rule": "causal_probability_mass_argmax",
+        "fill_argmax_used": False,
+        "fill_probability_feedback_used": True,
+        "decoder_probability_mass_carries_train_guard_history": True,
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
         "causal_no_future_self_test": "PASS",
+        "probability_mass_hurdle_count_self_test": "PASS",
+        "fill_probability_mass_self_test": "PASS",
+        "decoder_mixture_components": 4,
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
@@ -1005,10 +1020,16 @@ def main():
             "offline normal comparator and supervised training targets."
         ),
         "direct_action_contract": {
-            "count_distribution": "Poisson with non-negative unbounded support",
+            "count_distribution": (
+                "unweighted Bernoulli hurdle plus conditional Poisson excess "
+                "with non-negative unbounded support"
+            ),
             "target_distribution": "autoregressive signed cache-line delta mixture",
             "fill_classes": ["FILL_L2", "FILL_LLC"],
-            "decision": "Poisson mode, autoregressive mixture modes, fill argmax",
+            "decision": (
+                "causal probability-mass hurdle, positive-excess residual, "
+                "autoregressive mixture modes, and categorical fill-mass scheduler"
+            ),
             "probability_threshold": None,
             "neural_degree_cap": None,
             "teacher_action_canonicalization": (
