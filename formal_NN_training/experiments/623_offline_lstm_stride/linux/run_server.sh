@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_compact_hurdle_v10_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_mass_hurdle_v13_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -222,20 +222,26 @@ common = {
     "future_label_window_used": False,
     "handcrafted_semantic_features_used": False,
     "manual_loss_weights_used": False,
-    "data_derived_gate_class_weights_used": True,
-    "gate_training_objective": "training_frequency_derived_balanced_categorical_nll",
-    "gate_decoding_rule": "two_class_categorical_argmax",
+    "data_derived_gate_class_weights_used": False,
+    "gate_class_weighting_used": False,
+    "gate_training_objective": "unweighted_bernoulli_nll",
+    "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+    "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
+    "request_count_decoding_rule": "causal_probability_mass_hurdle_plus_positive_excess_residual",
+    "request_count_residual_scope": "dynamic_exact_pc_key",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "learned_request_count": True,
     "nn_generates_own_target_addresses": True,
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
+    "probability_mass_hurdle_count_self_test": "PASS",
+    "delta_mixture_components": 3,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_hurdle_delta_v10",
+    "model_revision": "compact_pc_keyed_mass_hurdle_mixture_v13",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
 }
@@ -252,7 +258,7 @@ expected_points = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-expected_parameters = {8: 1908, 16: 5220, 32: 16068, 64: 54660, 128: 199428}
+expected_parameters = {8: 1971, 16: 5339, 32: 16299, 64: 55115, 128: 200331}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
