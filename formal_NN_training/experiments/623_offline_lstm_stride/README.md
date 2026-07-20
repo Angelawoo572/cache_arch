@@ -14,23 +14,25 @@ degree, request-rate budget, or future rows.
 
 ## Independent NN design
 
-Revision `compact_pc_keyed_hurdle_delta_v10` replaces the old shared Poisson
-count head. An exact-PC dynamic state map routes events through one compact
-single-layer LSTM. A learned two-class gate selects zero versus positive by
-categorical argmax; class weights are derived only from the training-label
-frequencies. For positive events the model learns an unbounded positive count
-and generates direct signed cache-line deltas autoregressively using its own
-previous prediction. There is no probability threshold, fixed tracker
-capacity, degree cap, candidate list, page-offset vocabulary, or same-page
-rule.
+Revision `compact_pc_keyed_mass_hurdle_mixture_v13` corrects the v10 inverse-
+frequency gate, which over-issued on this sparse trace. An exact-PC dynamic
+state map routes events through one compact single-layer LSTM. An unweighted
+Bernoulli hurdle learns zero versus positive callbacks and a conditional
+Poisson learns the unbounded positive excess count. Causal per-PC probability-
+mass scheduling preserves the learned sparse trigger rate without `p>c`, while
+the excess residual preserves Stride's near-two-action bursts. A small
+autoregressive three-component mixture learns direct signed cache-line deltas
+without averaging incompatible modes. There is no selected probability
+threshold, fixed tracker capacity, degree cap, candidate list, page-offset
+vocabulary, or same-page rule.
 
 The measured capacity sweep is h8/h16/h32/h64/h128 with
-1,908/5,220/16,068/54,660/199,428 parameters.
+1,971/5,339/16,299/55,115/200,331 parameters.
 
 Input revision: `stride_source_input_variable_delta_free_running_v9`  
-Model revision: `compact_pc_keyed_hurdle_delta_v10`  
-Default run: `623_offline_lstm_stride_compact_hurdle_v10_seed7`
+Model revision: `compact_pc_keyed_mass_hurdle_mixture_v13`  
+Default run: `623_offline_lstm_stride_mass_hurdle_v13_seed7`
 
 Run `linux/launch_server.sh collect`, train with the A100 notebook, return the
-output archive, and run `linux/launch_server.sh replay`. Previous v9 outputs
-remain separate and are not overwritten.
+output archive, and run `linux/launch_server.sh replay`. Previous v9/v10
+outputs remain separate and are not overwritten.
