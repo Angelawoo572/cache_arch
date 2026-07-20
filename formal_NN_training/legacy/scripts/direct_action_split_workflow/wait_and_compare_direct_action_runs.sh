@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
+# Historical v7/v9/v11 seven-track waiter retained for reproducibility only.
 # Wait for the seven direct-action result contracts, then compare 623 LSTM/CNN.
 # Compatible with the server's Python 3.6 and intentionally uses no pandas.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 cd "$ROOT"
 WAIT_INTERVAL="${WAIT_INTERVAL:-60}"
 
@@ -66,14 +68,14 @@ for result in "${results[@]}"; do
   echo "[PASS] $result"
 done
 
-python3 formal_NN_training/experiments/compare_623_split_architectures.py \
+python3 "$SCRIPT_DIR/compare_623_split_architectures.py" \
   --policy stride \
   --lstm-run-dir formal_NN_training/experiments/623_offline_lstm_stride/runs/623_offline_lstm_stride_variable_delta_free_running_v9_seed7 \
   --cnn-run-dir formal_NN_training/experiments/623_offline_cnn_stride/runs/623_offline_cnn_stride_variable_delta_free_running_v9_seed7 \
   --out-dir formal_NN_training/results/623_stride_lstm_vs_cnn_free_running &
 stride_compare=$!
 
-python3 formal_NN_training/experiments/compare_623_split_architectures.py \
+python3 "$SCRIPT_DIR/compare_623_split_architectures.py" \
   --policy spp \
   --lstm-run-dir formal_NN_training/experiments/623_offline_lstm_spp/runs/623_offline_lstm_spp_variable_delta_free_running_v11_seed7 \
   --cnn-run-dir formal_NN_training/experiments/623_offline_cnn_spp/runs/623_offline_cnn_spp_variable_delta_free_running_v11_seed7 \

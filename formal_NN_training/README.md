@@ -1,34 +1,49 @@
 # formal_NN_training
 
-The current experiment is:
+This directory contains the completed 602 matched-input study and the current
+623 matched-input LSTM study.  The experiment READMEs, contracts, run metadata,
+and TeX reports are the source of truth; older proposal/report PDFs are not used
+to choose the current research objective or architecture.
+
+## Completed 602 comparison
+
+Four normal prefetchers were evaluated through matched offline replay:
+`stride`, `streamer`, `ampm`, and `spp`.  Each neural track sees only the
+external inputs visible to its corresponding normal prefetcher, while captured
+normal actions are labels and the offline-normal comparator.  The primary
+comparison is offline normal versus offline NN; live normal and no-prefetch are
+context.  IPC, miss rate, coverage, selected accuracy, timeliness, and request
+pressure remain separate metrics.  There is no composite score and
+`1 - selected_accuracy` is not called cache pollution.
+
+## Current 623 work
+
+The active tracks are:
 
 ```text
-experiments/602_offline_lstm_stride/
+experiments/623_offline_lstm_stride/
+experiments/623_offline_lstm_spp/
 ```
 
-Research question:
+Both v15 tracks use stateless SHA-256 event-keyed inverse-CDF sampling.  A fixed
+decoder seed therefore supplies the same event-local quantiles to every LSTM
+capacity without a mutable RNG stream; one callback can no longer shift all
+later samples.  Stride uses exact-PC recurrent state and a lossless 122-feature
+PC/cache-line encoder.  SPP uses the chronological source-visible
+`DEMAND(addr)`/`CACHE_FILL(evicted_addr)` stream, a lossless 59-feature encoder,
+and a joint delta-component/fill decoder.
 
-> With the same 602 evaluation PC/address stream, the same causal history, one future-stride candidate, and the same keyed replay transport, does a 545-parameter LSTM select a more useful prefetch list than offline stride?
+The SPP input comparison is deliberately described as matched-input offline
+replay.  Its recorded fill-callback stream came from the source SPP run, so the
+result is not a closed-loop live-NN claim.
 
-The current workflow is intentionally one trace and one baseline:
+Current default runs:
 
 ```text
-Linux collect
-  -> 0-20M training PC/address stream
-  -> 25M-warmup + 25M evaluation PC/address stream
-
-Colab A100
-  -> train tiny LSTM on the training stream
-  -> offline causal inference on the evaluation stream
-  -> export offline_stride.replay.csv
-  -> export offline_lstm.replay.csv
-
-Linux replay
-  -> same ListReplayer binary for both lists
-  -> no-prefetch and live stride retained as references
-  -> matched_comparison.json must report PASS
+623_offline_lstm_stride_keyed_crn_v15_seed7
+623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7
 ```
 
-The LSTM and offline stride receive only current PC, current cache-line address, and causal state derived from prior PC/address rows. Hit/miss, cycle, queue occupancy, metadata, and future evaluation rows are excluded.
-
-All prior numbered scripts were moved to `legacy/scripts/`. They remain available only for provenance and are not part of the current experiment.
+Stale seven-track split helpers live under
+`legacy/scripts/direct_action_split_workflow/`; they are provenance only and
+are not part of the active two-track workflow.

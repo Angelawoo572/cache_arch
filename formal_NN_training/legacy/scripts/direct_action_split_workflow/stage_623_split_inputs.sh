@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Historical v9/v11 LSTM/CNN archive splitter retained for reproducibility only.
 # Validate one freshly collected 623 policy stream, then copy every normalized
 # input byte from its standalone LSTM run into its standalone CNN run.  The
 # archive containers have different run names; their contained model inputs,

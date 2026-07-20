@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Historical v7/v9/v11 seven-track installer retained for reproducibility only.
 # Install the seven Colab output archives into their matching, revisioned run
 # directories.  Existing nonempty output directories fail closed so an old
 # model cannot be mixed with a new revision.

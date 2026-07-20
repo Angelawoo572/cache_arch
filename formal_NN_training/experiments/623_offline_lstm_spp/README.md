@@ -1,41 +1,44 @@
-# 623 SPP — compact independent LSTM
+# 623 SPP — compact independent LSTM v15
 
-This track compares normal SPP with a standalone LSTM on
-`623.xalancbmk_s-700B`.
+This track compares offline normal SPP with a standalone LSTM on
+`623.xalancbmk_s-700B` through the same fill-preserving replay transport.
 
-## Fair input contract
+## Fair input contract and claim boundary
 
-The audited source-visible input is the complete chronological callback stream:
-`DEMAND(addr)` and `CACHE_FILL(evicted_addr)`. PC is replay transport only.
-Cache hit/type and SPP's private ST/PT/GHR/FILTER contents are excluded.
-Training and inference use the same lossless callback encoder, and all field
-lists and encoder hashes must match. Captured SPP requests/fill choices are
-labels and the fill-preserving offline comparator only.
+The audited source-visible input is the chronological callback stream:
+`DEMAND(addr)` and `CACHE_FILL(evicted_addr)`.  PC is replay transport only;
+cache hit/type and SPP's private ST/PT/GHR/FILTER state are excluded.  The NN
+encodes the 58-bit cache-line number plus one callback-kind bit losslessly (59
+features), removing six byte-offset bits that are identically zero.  Captured
+SPP targets/fill choices are labels and the offline-normal comparator only.
 
-## Independent NN design
+This is a same-source-input offline comparison, not a closed-loop live-NN
+claim: the recorded fill callbacks are consequences of the source SPP run.
 
-Revision `compact_event_sampled_mixture_fill_v14` removes both v12's independent
-argmax collapse and v13's cross-callback probability-credit phase. One compact
-single-layer LSTM processes every demand and fill callback in time order. An
-unweighted Bernoulli and conditional Poisson describe the complete
-zero/positive/unbounded-count distribution. Every demand samples its own
-learned count distribution with a reproducible run seed. The autoregressive
-signed-delta head samples a learned mixture component, and the fill head samples
-the learned L2/LLC categorical distribution. Recurrent feedback uses the full
-delta mixture expectation and full fill probabilities in both training and
-inference, never a teacher action or sampled output. No selected probability
-threshold, degree cap, candidate list, fixed page-offset vocabulary, same-page
-rule, SPP private state, or future row is used. Eviction feedback is retained
-only because it is an actual source-visible SPP callback; it is not a
-handcrafted eviction rule or prediction target.
+## Why this differs from 602 SPP
 
-The measured capacity sweep is h8/h16/h32/h64/h128 with
-2,856/6,592/16,752/47,824/152,976 parameters.
+602 SPP used separate direct-delta and fill heads and deterministic decoding.
+For 623, fill level is statistically tied to the requested target and queue
+effect, so v15 models one joint distribution over four delta components and two
+fill classes.  Its joint likelihood and single sampled `(component, fill)` pair
+preserve that dependence instead of sampling two independent heads.
+
+One chronological LSTM retains the learned Bernoulli hurdle and conditional
+Poisson excess.  Count and mean-sorted joint-pair choices are stateless
+inverse-CDF samples keyed only by the allowed chronological decision identity,
+head, action rank, trace/policy/role, and `--decoder-seed`.  They do not use PC,
+raw teacher event gaps, private SPP state, or a probability threshold.  Full
+joint delta/fill marginals drive recurrent feedback in both training and
+inference.
+
+The exact capacity sweep is h8/h16/h32/h64/h128 with
+2,682/6,242/16,050/46,418/150,162 parameters.
 
 Input revision: `spp_source_input_variable_delta_fill_feedback_free_running_v11`  
-Model revision: `compact_event_sampled_mixture_fill_v14`  
-Default run: `623_offline_lstm_spp_event_sampled_fill_v14_seed7`
+Model revision: `compact_crn_joint_delta_fill_mixture_v15`  
+Default run: `623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7`
 
-Run `linux/launch_server.sh collect`, train with the A100 notebook, return the
-output archive, and run `linux/launch_server.sh replay`. Previous v11--v13
-outputs remain separate and are not overwritten.
+Run `linux/launch_server.sh collect`, train with the A100 notebook, copy the
+output archive back, then run `linux/launch_server.sh replay` (or `analyze`).
+The committed TeX results are explicitly historical v11 evidence; v15 results
+must come from the new run ID and are currently pending.

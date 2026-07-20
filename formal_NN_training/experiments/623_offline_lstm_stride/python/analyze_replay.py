@@ -14,7 +14,7 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_event_sampled_mixture_v14"
+MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
@@ -28,7 +28,7 @@ EXPECTED_POINTS = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-EXPECTED_PARAMETERS = {8: 1971, 16: 5339, 32: 16299, 64: 55115, 128: 200331}
+EXPECTED_PARAMETERS = {8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -71,6 +71,7 @@ def stream_hashes(path):
 
 def replay_list_info(path, allow_empty=False):
     count = 0
+    triggers = set()
     with Path(path).open(newline="") as handle:
         reader = csv.reader(handle)
         if next(reader, None) != ["pc", "line", "occ", "prefetch_addr"]:
@@ -91,14 +92,28 @@ def replay_list_info(path, allow_empty=False):
                         line_number, exc
                     )
                 )
-            if min(pc, line, occurrence, address) < 0 or address % 64:
+            if (
+                min(pc, line, occurrence, address) < 0
+                or pc > (1 << 64) - 1
+                or line > (1 << 58) - 1
+                or address > (1 << 64) - 64
+                or address % 64
+            ):
                 raise RuntimeError(
-                    "unaligned/negative stride replay row {}".format(line_number)
+                    "out-of-range/unaligned stride replay row {}".format(
+                        line_number
+                    )
                 )
+            trigger = (pc, line, occurrence)
+            triggers.add(trigger)
             count += 1
     if count <= 0 and not allow_empty:
         raise RuntimeError("empty stride replay list")
-    return {"entries": count, "sha256": sha256(path)}
+    return {
+        "entries": count,
+        "unique_triggers": len(triggers),
+        "sha256": sha256(path),
+    }
 
 
 def parse_log(path):
@@ -162,7 +177,7 @@ def parse_log(path):
         "late_per_issued": div(late, issued),
         "drop_rate": div(dropped, requested),
         "useless_per_issued": div(useless, issued),
-        "pollution_risk_proxy": (
+        "one_minus_selected_accuracy": (
             max(0.0, 1.0 - div(useful, nodup_issued))
             if nodup_issued else 0.0
         ),
@@ -280,13 +295,6 @@ def model_tag_for_method(method):
     return ""
 
 
-def capped_ratio(value, baseline, lower_is_better=False):
-    if value <= 0 or baseline <= 0:
-        return 0.0
-    ratio = baseline / value if lower_is_better else value / baseline
-    return min(1.0, ratio)
-
-
 def add_comparison_metrics(rows, failures):
     by_method = {row["method"]: row for row in rows}
     no_pref = by_method.get("no_pref")
@@ -307,12 +315,6 @@ def add_comparison_metrics(rows, failures):
             row["prefetch_useful_demand_hits"],
             no_pref["demand_l2_misses"],
         )
-        row["balanced_parity_index"] = ""
-        row["parity_miss_rate"] = ""
-        row["parity_selected_accuracy"] = ""
-        row["parity_coverage"] = ""
-        row["parity_timeliness"] = ""
-        row["parity_bottleneck"] = ""
         row["ipc_delta_vs_offline_normal"] = ""
         row["ipc_pct_vs_offline_normal"] = ""
         row["l2_miss_rate_delta_vs_offline_normal"] = ""
@@ -321,59 +323,16 @@ def add_comparison_metrics(rows, failures):
         row["timeliness_delta_vs_offline_normal"] = ""
         row["prefetch_request_ratio_vs_offline_normal"] = ""
         row["prefetch_request_reduction_vs_offline_normal"] = ""
-        row["pollution_proxy_delta_vs_offline_normal"] = ""
+        row["one_minus_selected_accuracy_delta_vs_offline_normal"] = ""
 
     for policy in POLICIES:
         baseline = by_method.get("offline_" + policy)
         if baseline is None:
             failures.append("offline {} baseline is missing".format(policy))
             continue
-        required = (
-            baseline["l2_load_miss_rate"],
-            baseline["selected_accuracy"],
-            baseline["coverage_vs_no_pref_l2_miss"],
-            baseline["timeliness"],
-        )
-        if any(value <= 0 for value in required):
-            failures.append(
-                "offline {} has a zero BPI denominator".format(policy)
-            )
-            continue
         for row in rows:
             if row["comparison_policy"] != policy:
                 continue
-            q_miss = capped_ratio(
-                row["l2_load_miss_rate"],
-                baseline["l2_load_miss_rate"],
-                lower_is_better=True,
-            )
-            q_accuracy = capped_ratio(
-                row["selected_accuracy"], baseline["selected_accuracy"]
-            )
-            q_coverage = capped_ratio(
-                row["coverage_vs_no_pref_l2_miss"],
-                baseline["coverage_vs_no_pref_l2_miss"],
-            )
-            q_timeliness = capped_ratio(
-                row["timeliness"], baseline["timeliness"]
-            )
-            bpi = 100.0 * (
-                q_miss * q_accuracy * q_coverage * q_timeliness
-            ) ** 0.25
-            row["balanced_parity_index"] = bpi
-            row["parity_miss_rate"] = q_miss
-            row["parity_selected_accuracy"] = q_accuracy
-            row["parity_coverage"] = q_coverage
-            row["parity_timeliness"] = q_timeliness
-            parity = {
-                "miss_rate": q_miss,
-                "selected_accuracy": q_accuracy,
-                "coverage": q_coverage,
-                "timeliness": q_timeliness,
-            }
-            row["parity_bottleneck"] = min(
-                parity, key=lambda name: parity[name]
-            )
             row["ipc_delta_vs_offline_normal"] = (
                 row["ipc"] - baseline["ipc"]
             )
@@ -402,9 +361,9 @@ def add_comparison_metrics(rows, failures):
             row["prefetch_request_reduction_vs_offline_normal"] = (
                 1.0 - request_ratio
             )
-            row["pollution_proxy_delta_vs_offline_normal"] = (
-                row["pollution_risk_proxy"]
-                - baseline["pollution_risk_proxy"]
+            row["one_minus_selected_accuracy_delta_vs_offline_normal"] = (
+                row["one_minus_selected_accuracy"]
+                - baseline["one_minus_selected_accuracy"]
             )
 
 
@@ -439,12 +398,12 @@ def validate_metadata(metadata, tag, inputs, failures):
         "data_derived_gate_class_weights_used": False,
         "gate_class_weighting_used": False,
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "event_local_bernoulli_sample",
+        "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "event_local_bernoulli_hurdle_plus_conditional_poisson_sample"
+            "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf"
         ),
         "request_count_residual_scope": "none_event_local",
         "training_regularization_used": False,
@@ -453,14 +412,15 @@ def validate_metadata(metadata, tag, inputs, failures):
         "nn_generates_own_target_addresses": True,
         "training_chunks_shuffled": False,
         "causal_no_future_self_test": "PASS",
-        "event_local_hurdle_count_self_test": "PASS",
-        "event_local_mixture_sampling_self_test": "PASS",
+        "event_keyed_crn_self_test": "PASS",
+        "event_keyed_hurdle_count_self_test": "PASS",
+        "canonicalized_mixture_sampling_self_test": "PASS",
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
         "sampled_outputs_used_as_decoder_feedback": False,
         "stochastic_decoding_reproducible": True,
         "delta_mixture_decoding_rule": (
-            "event_local_categorical_component_sample_then_component_mean"
+            "event_keyed_mean_sorted_categorical_inverse_cdf_then_component_mean"
         ),
         "delta_decoder_feedback_rule": (
             "complete_mixture_expectation_same_in_training_and_inference"
@@ -473,6 +433,23 @@ def validate_metadata(metadata, tag, inputs, failures):
         "model_revision": MODEL_REVISION,
         "neural_role": "standalone_direct_action_prefetcher",
         "track_model_family": TRACK_MODEL_FAMILY,
+        "runtime_feature_count": 122,
+        "runtime_encoding": (
+            "lossless uint64 PC plus lossless 58-bit cache-line number"
+        ),
+        "runtime_pc_bits": 64,
+        "runtime_line_number_bits": 58,
+        "runtime_constant_offset_bits_removed": 6,
+        "common_random_numbers_across_capacities": True,
+        "strict_common_random_numbers_across_capacities": True,
+        "cross_event_rng_state_used": False,
+        "decoder_sampling_roles": ["eval"],
+        "decoder_train_sampling_performed": False,
+        "decoder_guard_sampling_performed": False,
+        "decoder_event_key_definition": "zero_based_eval_demand_idx",
+        "decoder_event_key_uses_teacher_information": False,
+        "decoder_action_rank_origin": 0,
+        "decoder_key_includes_sampler_revision": True,
     }
     for key, expected in common.items():
         if metadata.get(key) != expected:
@@ -481,13 +458,42 @@ def validate_metadata(metadata, tag, inputs, failures):
                     tag, key, metadata.get(key), expected
                 )
             )
-    decoder_rng_seeds = metadata.get("decoder_rng_seeds")
+    sampler = metadata.get("decoder_sampler")
+    expected_key_fields = [
+        "revision", "decoder_seed", "trace", "policy", "role",
+        "event_key", "head", "action_rank",
+    ]
     if (
-        not isinstance(decoder_rng_seeds, dict)
-        or set(decoder_rng_seeds) != {"request_count", "delta_component"}
-        or any(type(value) is not int for value in decoder_rng_seeds.values())
+        not isinstance(sampler, dict)
+        or sampler.get("sampler_revision")
+        != "sha256_event_keyed_inverse_cdf_crn_v1"
+        or sampler.get("key_fields") != expected_key_fields
+        or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
+        or sampler.get("cross_event_rng_state") is not False
+        or metadata.get("decoder_key_fields") != expected_key_fields
     ):
-        failures.append("{} decoder RNG seed contract mismatch".format(tag))
+        failures.append("{} keyed decoder sampler contract mismatch".format(tag))
+    for key in (
+        "decoder_event_key_stream_sha256",
+        "decoder_sampler_source_sha256",
+        "decoder_sampler_key_schedule_sha256",
+        "decoder_sampling_schedule_sha256",
+        "training_state_router_sha256",
+        "inference_state_router_sha256",
+    ):
+        value = metadata.get(key)
+        if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            failures.append("{} invalid {}".format(tag, key))
+    if metadata.get("training_state_router_sha256") != metadata.get(
+        "inference_state_router_sha256"
+    ):
+        failures.append("{} train/inference state routers differ".format(tag))
+    for key in (
+        "peak_training_recurrent_state_bytes_float32",
+        "peak_inference_recurrent_state_bytes_float32",
+    ):
+        if not isinstance(metadata.get(key), int) or metadata.get(key) <= 0:
+            failures.append("{} invalid {}".format(tag, key))
     family = metadata.get("model_family")
     if family != TRACK_MODEL_FAMILY:
         failures.append(
@@ -699,6 +705,7 @@ def main():
 
     metadata_by_tag = {}
     normal_hashes = {policy: {} for policy in POLICIES}
+    replay_lists = {}
     pairs = defaultdict(list)
     for tag in model_tags:
         policy = POLICY
@@ -736,6 +743,7 @@ def main():
         if list_path.is_file():
             try:
                 normal_info = replay_list_info(list_path)
+                replay_lists.setdefault("offline_" + policy, normal_info)
                 normal_hashes[policy][tag] = normal_info["sha256"]
                 if metadata.get("normal_list_sha256") != normal_info["sha256"]:
                     failures.append("{} normal-list SHA256 mismatch".format(tag))
@@ -747,6 +755,7 @@ def main():
         if nn_path.is_file():
             try:
                 nn_info = replay_list_info(nn_path, allow_empty=True)
+                replay_lists["offline_" + tag] = nn_info
                 if metadata.get("nn_list_sha256") != nn_info["sha256"]:
                     failures.append("{} NN-list SHA256 mismatch".format(tag))
                 if metadata.get("offline_nn_entries") != nn_info["entries"]:
@@ -770,6 +779,38 @@ def main():
                 )
             )
 
+    rows_by_method = {row["method"]: row for row in rows}
+    for method in ["offline_" + POLICY] + [
+        "offline_" + tag for tag in model_tags
+    ]:
+        row = rows_by_method.get(method)
+        info = replay_lists.get(method)
+        if row is None or info is None:
+            failures.append("{} lacks replay accounting inputs".format(method))
+            continue
+        checks = {
+            "list entries versus replayer emitted": (
+                info["entries"], row["emitted"]
+            ),
+            "list entries versus simulator requested": (
+                info["entries"], row["pf_requested"]
+            ),
+            "list entries versus PF events": (
+                info["entries"], row["prefetch_request_events"]
+            ),
+            "unique list triggers versus matched triggers": (
+                info["unique_triggers"], row["matched"]
+            ),
+            "replayer callbacks versus L2 loads": (
+                row["callbacks"], row["l2_loads"]
+            ),
+        }
+        for label, (left, right) in checks.items():
+            if left != right:
+                failures.append(
+                    "{} {} {} != {}".format(method, label, left, right)
+                )
+
     add_comparison_metrics(rows, failures)
     by_method = {row["method"]: row for row in rows}
     fields = [
@@ -781,10 +822,8 @@ def main():
         "pf_filled", "pf_useful", "pf_useless", "pf_late",
         "pq_merged_duplicate_proxy", "accuracy", "selected_accuracy",
         "coverage_vs_no_pref_l2_miss", "timeliness", "late_per_issued",
-        "drop_rate", "useless_per_issued", "pollution_risk_proxy",
-        "balanced_parity_index", "parity_miss_rate",
-        "parity_selected_accuracy", "parity_coverage", "parity_timeliness",
-        "parity_bottleneck", "ipc_delta_vs_offline_normal",
+        "drop_rate", "useless_per_issued", "one_minus_selected_accuracy",
+        "ipc_delta_vs_offline_normal",
         "ipc_pct_vs_offline_normal",
         "l2_miss_rate_delta_vs_offline_normal",
         "selected_accuracy_delta_vs_offline_normal",
@@ -792,7 +831,7 @@ def main():
         "timeliness_delta_vs_offline_normal",
         "prefetch_request_ratio_vs_offline_normal",
         "prefetch_request_reduction_vs_offline_normal",
-        "pollution_proxy_delta_vs_offline_normal",
+        "one_minus_selected_accuracy_delta_vs_offline_normal",
         "demand_l2_loads", "demand_l2_hits", "demand_l2_misses",
         "prefetch_useful_demand_hits", "prefetch_late_demand_misses",
         "prefetch_request_events", "prefetch_accepted_events",
@@ -815,10 +854,9 @@ def main():
         "selected_accuracy", "selected_accuracy_delta_vs_offline_normal",
         "coverage_vs_no_pref_l2_miss",
         "coverage_delta_vs_offline_normal", "timeliness",
-        "timeliness_delta_vs_offline_normal", "pollution_risk_proxy",
-        "pollution_proxy_delta_vs_offline_normal", "pf_requested",
+        "timeliness_delta_vs_offline_normal", "one_minus_selected_accuracy",
+        "one_minus_selected_accuracy_delta_vs_offline_normal", "pf_requested",
         "prefetch_request_reduction_vs_offline_normal",
-        "balanced_parity_index", "parity_bottleneck",
     ]
     with (args.run_dir / "insight_summary.csv").open(
         "w", newline=""
@@ -881,6 +919,7 @@ def main():
             "no_pref", "live_stride_reference"
         ],
         "transport_fidelity": transport_fidelity,
+        "replay_accounting": replay_lists,
         "warnings": warnings,
         "track_guardrail": (
             "Every neural point sees only the same PC/address stream as Stride. "
@@ -894,16 +933,17 @@ def main():
         "direct_action_contract": (
             "The neural model learns an unweighted zero/positive hurdle, an "
             "unbounded conditional Poisson excess count, and an autoregressive "
-            "mixture over direct signed cache-line deltas. Causal probability-"
-            "mass decoding uses no selected threshold, fixed page-offset table, "
-            "same-page rule, or Stride degree cap."
+            "mixture over direct signed cache-line deltas. Stateless SHA-256 "
+            "event-keyed inverse-CDF sampling supplies common random numbers "
+            "across capacities and uses no selected threshold, fixed page-offset "
+            "table, same-page rule, or Stride degree cap."
         ),
         "model_input_guardrail": {
             "normal_stride_private_state": [
                 "PC-indexed tracker table", "confidence", "last stride"
             ],
             "direct_nn_inputs": [
-                "lossless uint64 PC and aligned source-address encodings",
+                "lossless uint64 PC and 58-bit cache-line-number encodings",
                 "causal address/PC history represented by the model itself",
             ],
             "not_nn_inputs": [
@@ -948,19 +988,13 @@ def main():
                 "Core_0_L2C_prefetch_useful / "
                 "(Core_0_L2C_prefetch_useful + Core_0_L2C_prefetch_late)"
             ),
-            "pollution_risk_proxy": (
-                "1 - selected_accuracy; proxy only, not harmful evictions"
-            ),
-            "balanced_parity_index": (
-                "100 * (q_miss_rate * q_selected_accuracy * q_coverage * "
-                "q_timeliness)^(1/4); each equally weighted ratio is "
-                "capped at 1 against the model's own offline normal policy"
+            "one_minus_selected_accuracy": (
+                "Arithmetic complement of selected_accuracy for audit only; "
+                "it is not a cache-pollution measurement"
             ),
         },
-        "balanced_parity_guardrail": (
-            "BPI summarizes within-track normal-policy parity; IPC and "
-            "speedup versus no-prefetch remain separate outcomes."
-        ),
+        "aggregate_score_used": False,
+        "direct_harmful_eviction_pollution_measured": False,
         "input_provenance": {
             "current_input_dir": str(input_dir),
             "collection_manifest": collection_manifest,
@@ -1019,24 +1053,18 @@ def main():
                         row["coverage_vs_no_pref_l2_miss"]
                     ),
                     "timeliness": row["timeliness"],
-                    "pollution_risk_proxy": row["pollution_risk_proxy"],
+                    "one_minus_selected_accuracy": row[
+                        "one_minus_selected_accuracy"
+                    ],
                     "prefetch_request_reduction_vs_offline_normal": (
                         row["prefetch_request_reduction_vs_offline_normal"]
                     ),
-                    "balanced_parity_index": (
-                        row["balanced_parity_index"]
-                    ),
-                    "parity_bottleneck": row["parity_bottleneck"],
                 })
             tracks[policy] = {
                 "offline_normal_ipc": normal["ipc"],
                 "models": points,
                 "best_model_by_ipc": max(
                     points, key=lambda point: point["ipc"]
-                ),
-                "best_model_by_balanced_parity": max(
-                    points,
-                    key=lambda point: point["balanced_parity_index"],
                 ),
                 "any_model_beats_offline_normal": any(
                     point["beats_offline_normal"] for point in points
@@ -1078,18 +1106,8 @@ def main():
                 "cnn_minus_lstm_timeliness": (
                     cnn_row["timeliness"] - lstm_row["timeliness"]
                 ),
-                "cnn_minus_lstm_balanced_parity": (
-                    cnn_row["balanced_parity_index"]
-                    - lstm_row["balanced_parity_index"]
-                ),
                 "ipc_winner": (
                     "cnn" if cnn_row["ipc"] > lstm_row["ipc"] else "lstm"
-                ),
-                "balanced_parity_winner": (
-                    "cnn"
-                    if cnn_row["balanced_parity_index"]
-                    > lstm_row["balanced_parity_index"]
-                    else "lstm"
                 ),
             })
         if pair_rows:
@@ -1104,12 +1122,12 @@ def main():
         payload["cross_directory_interpretation_rule"] = {
             "cnn_wins": (
                 "At paired reported capacities, the 289-event causal CNN "
-                "improves IPC/miss rate without material BPI loss: immediate "
+                "improves IPC and miss rate: immediate "
                 "and medium-range address correlation is sufficient."
             ),
             "lstm_wins": (
-                "At paired reported capacities, the stateful LSTM improves IPC and "
-                "BPI: useful information extends beyond the TCN receptive field."
+                "At paired reported capacities, the stateful LSTM improves IPC: "
+                "useful information extends beyond the TCN receptive field."
             ),
             "both_fail": (
                 "Both standalone students fail to discover enough useful "

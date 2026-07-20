@@ -1,4 +1,9 @@
-# Source-input-fair direct-action rerun
+# Historical source-input-fair direct-action rerun
+
+> **Historical workflow only.** This runbook preserves the retired seven-track
+> v7/v9/v11 LSTM/CNN split experiment for reproducibility. It is not the current
+> 602/623 execution path, and its result contracts must not be used as current
+> evidence.
 
 ## Contract
 
@@ -52,7 +57,7 @@ ID.
 ```bash
 cd ~/cache
 
-bash formal_NN_training/experiments/stage_threshold_free_inputs.sh
+bash formal_NN_training/legacy/scripts/direct_action_split_workflow/stage_threshold_free_inputs.sh
 
 RUN_ID=623_offline_lstm_stride_variable_delta_free_running_v9_seed7 \
 RESET_PATCH=1 FORCE=1 BUILD=1 \
@@ -77,8 +82,8 @@ CNN archives:
 
 ```bash
 cd ~/cache
-bash formal_NN_training/experiments/stage_623_split_inputs.sh stride
-bash formal_NN_training/experiments/stage_623_split_inputs.sh spp
+bash formal_NN_training/legacy/scripts/direct_action_split_workflow/stage_623_split_inputs.sh stride
+bash formal_NN_training/legacy/scripts/direct_action_split_workflow/stage_623_split_inputs.sh spp
 ```
 
 ## 3. Copy all seven input archives to the Mac
@@ -131,7 +136,7 @@ Run on Sacramento:
 
 ```bash
 cd ~/cache
-bash formal_NN_training/experiments/install_direct_action_outputs.sh \
+bash formal_NN_training/legacy/scripts/direct_action_split_workflow/install_direct_action_outputs.sh \
   "$HOME/direct_action_uploads"
 ```
 
@@ -143,7 +148,7 @@ nonempty, preventing mixed old/new model files.
 ```bash
 cd ~/cache
 FORCE=1 BUILD=1 JOBS=8 \
-bash formal_NN_training/experiments/launch_direct_action_replays.sh replay
+bash formal_NN_training/legacy/scripts/direct_action_split_workflow/launch_direct_action_replays.sh replay
 ```
 
 The seven launchers use `nohup`; the build lock serializes shared ChampSim
@@ -155,13 +160,13 @@ builds.  Every completed run must produce `matched_comparison.json` with
 ```bash
 cd ~/cache
 
-python3 formal_NN_training/experiments/compare_623_split_architectures.py \
+python3 formal_NN_training/legacy/scripts/direct_action_split_workflow/compare_623_split_architectures.py \
   --policy stride \
   --lstm-run-dir formal_NN_training/experiments/623_offline_lstm_stride/runs/623_offline_lstm_stride_variable_delta_free_running_v9_seed7 \
   --cnn-run-dir formal_NN_training/experiments/623_offline_cnn_stride/runs/623_offline_cnn_stride_variable_delta_free_running_v9_seed7 \
   --out-dir formal_NN_training/results/623_stride_lstm_vs_cnn_free_running
 
-python3 formal_NN_training/experiments/compare_623_split_architectures.py \
+python3 formal_NN_training/legacy/scripts/direct_action_split_workflow/compare_623_split_architectures.py \
   --policy spp \
   --lstm-run-dir formal_NN_training/experiments/623_offline_lstm_spp/runs/623_offline_lstm_spp_variable_delta_free_running_v11_seed7 \
   --cnn-run-dir formal_NN_training/experiments/623_offline_cnn_spp/runs/623_offline_cnn_spp_variable_delta_free_running_v11_seed7 \

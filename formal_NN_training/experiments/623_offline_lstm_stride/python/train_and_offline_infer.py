@@ -4,26 +4,24 @@
 Training and inference receive exactly the source-visible PC and cache-line
 address.  Teacher requests supervise the model but are never inference inputs.
 
-The v10 balanced hurdle over-issued, while the v13 probability-mass scheduler
-preserved aggregate request volume by carrying credit between callbacks.  That
-credit can move a request from a high-probability callback to a later
-low-probability callback, which is precisely the wrong trade for prefetch
-timeliness.  This revision therefore models and samples the complete local
-action distribution at each callback without adding capacity, a threshold, a
-degree limit, a candidate table, a page rule, or normal-policy state:
+This revision models and samples the complete local action distribution at
+each callback without adding capacity, a threshold, a degree limit, a
+candidate table, a page rule, or normal-policy state:
 
 * recurrent state is dynamically routed by the observed PC, with no fixed
   tracker capacity;
 * an unweighted Bernoulli hurdle and positive-count Poisson are fit by ordinary
   maximum likelihood;
-* an event-local Bernoulli sample realizes the learned hurdle and a conditional
-  Poisson sample realizes the learned unbounded positive excess count.  A fixed
-  experiment seed makes replay reproducible; no selected probability cutoff or
-  normal Stride degree enters either decision;
+* SHA-256-keyed inverse-CDF Bernoulli and Poisson samples realize the learned
+  hurdle and unbounded positive excess count.  Stateless event keys give all
+  capacity points strict common random numbers without carrying RNG state;
 * one shared single-layer LSTM supplies both decision and action context;
 * a lightweight autoregressive three-component mixture learns direct signed
-  deltas.  Emitted deltas sample a learned component, while recurrent feedback
-  uses the complete mixture expectation in both training and inference.
+  deltas.  Components are canonicalized by learned mean before keyed sampling,
+  while recurrent feedback uses the complete mixture expectation in both
+  training and inference;
+* the lossless input encoder removes the six address-offset bits that are
+  identically zero for aligned cache lines: PC64 + line-number58 = 122 bits.
 """
 import argparse
 import csv
@@ -51,14 +49,20 @@ if str(ROOT) not in sys.path:
 
 from formal_NN_training.common.threshold_free_policy import (
     ADDRESS_BITS, CACHE_LINE_BYTES, apply_signed_line_delta, behavior_metrics,
-    runtime_bits, targets_from_actions,
+    targets_from_actions,
+)
+from formal_NN_training.common.keyed_sampling import (
+    SAMPLER_REVISION, canonical_component_order, categorical_icdf,
+    event_keyed_hurdle_counts, key_schedule_sha256, key_stream_sha256,
+    keyed_uniform, sampler_metadata, sampler_source_sha256,
+    sampling_schedule_sha256, self_test_keyed_crn,
 )
 
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_event_sampled_mixture_v14"
+MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = ["pc", "addr"]
@@ -66,6 +70,12 @@ MODEL_POINTS = {
     "lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"},
 }
 MIXTURE_COMPONENTS = 3
+CACHE_LINE_OFFSET_BITS = int(math.log(CACHE_LINE_BYTES, 2))
+LINE_NUMBER_BITS = ADDRESS_BITS - CACHE_LINE_OFFSET_BITS
+RUNTIME_FEATURES = ADDRESS_BITS + LINE_NUMBER_BITS
+EXPECTED_PARAMETER_COUNTS = {
+    8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563,
+}
 
 
 def sha256(path):
@@ -184,23 +194,40 @@ def load_teacher_actions(path, rows):
     return actions
 
 
+def _unsigned_bits(values, width):
+    """Encode bounded unsigned integers as deterministic LSB-first bits."""
+    integers = [int(value) for value in values]
+    limit = 1 << int(width)
+    if any(value < 0 or value >= limit for value in integers):
+        raise RuntimeError("runtime integer exceeds its lossless bit width")
+    array = np.asarray(integers, dtype=np.uint64)
+    shifts = np.arange(width, dtype=np.uint64)
+    return (
+        (array[:, None] >> shifts[None, :]) & np.uint64(1)
+    ).astype(np.float32)
+
+
 def runtime_features(rows):
-    """One lossless encoder used identically by training and inference."""
-    return runtime_bits(
-        [pc for pc, _, _ in rows],
-        [line * CACHE_LINE_BYTES for _, line, _ in rows],
-        True,
-    )
+    """Losslessly encode PC64 and aligned-address line-number58."""
+    if CACHE_LINE_BYTES != (1 << CACHE_LINE_OFFSET_BITS):
+        raise RuntimeError("cache-line bytes must be a power of two")
+    return np.concatenate([
+        _unsigned_bits([pc for pc, _, _ in rows], ADDRESS_BITS),
+        _unsigned_bits([line for _, line, _ in rows], LINE_NUMBER_BITS),
+    ], axis=1)
 
 
 def runtime_encoder_sha256():
     payload = {
         "entrypoint_source": inspect.getsource(runtime_features),
-        "primitive_source": inspect.getsource(runtime_bits),
+        "primitive_source": inspect.getsource(_unsigned_bits),
         "fields": SOURCE_INPUTS,
         "use_pc": True,
         "address_bits": ADDRESS_BITS,
         "cache_line_bytes": CACHE_LINE_BYTES,
+        "cache_line_offset_bits_removed": CACHE_LINE_OFFSET_BITS,
+        "line_number_bits": LINE_NUMBER_BITS,
+        "feature_count": RUNTIME_FEATURES,
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode()
@@ -285,64 +312,6 @@ def _sigmoid_probabilities(logits):
     exp_values = np.exp(values[~positive])
     probabilities[~positive] = exp_values / (1.0 + exp_values)
     return probabilities
-
-
-def _event_sampled_hurdle_counts(
-    trigger_logits, log_excess_means, rng,
-):
-    """Sample each learned hurdle/count distribution at its own callback."""
-    probabilities = _sigmoid_probabilities(trigger_logits)
-    excess_means = _poisson_means(log_excess_means)
-    if len(probabilities) != len(excess_means):
-        raise RuntimeError("request hurdle/count row counts differ")
-    if not hasattr(rng, "binomial") or not hasattr(rng, "poisson"):
-        raise RuntimeError("event-local count sampler is not a NumPy RNG")
-    counts = np.zeros(len(probabilities), dtype=np.int64)
-    maximum = int(np.iinfo(np.int64).max)
-    for index, (probability, excess_mean) in enumerate(zip(
-        probabilities, excess_means
-    )):
-        try:
-            trigger = int(rng.binomial(1, float(probability)))
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise RuntimeError("invalid learned Bernoulli distribution") from exc
-        if trigger:
-            try:
-                extra = int(rng.poisson(float(excess_mean)))
-            except (TypeError, ValueError, OverflowError) as exc:
-                raise RuntimeError("invalid learned Poisson distribution") from exc
-            if extra < 0 or extra >= maximum:
-                raise RuntimeError("positive request count exceeds host domain")
-            counts[index] = 1 + extra
-    return counts
-
-
-def _sample_categorical(probabilities, rng):
-    """Sample a finite learned distribution without a selected cutoff."""
-    values = np.asarray(probabilities, dtype=np.float64)
-    if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
-        raise RuntimeError("invalid learned categorical distribution")
-    if np.any(values < 0.0):
-        raise RuntimeError("negative learned categorical probability")
-    total = float(values.sum())
-    if not math.isfinite(total) or total <= 0.0:
-        raise RuntimeError("learned categorical distribution has no mass")
-    try:
-        return int(rng.choice(len(values), p=values / total))
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise RuntimeError("failed to sample learned categorical distribution") from exc
-
-
-def _decoder_rngs(seed, count):
-    """Derive reproducible independent RNG streams from the run seed."""
-    if count < 1:
-        raise RuntimeError("decoder RNG count must be positive")
-    root = np.random.RandomState(int(seed))
-    upper = int(np.iinfo(np.int32).max)
-    seeds = root.randint(0, upper, size=count)
-    return [np.random.RandomState(int(value)) for value in seeds], [
-        int(value) for value in seeds
-    ]
 
 
 class CompactDirectDeltaDecoder(nn.Module):
@@ -670,23 +639,19 @@ def score_count_distribution(
 
 
 def decode(
-    model, context_numpy, counts, base_lines, device, rng,
-    materialize=True, chunk_len=8192,
+    model, context_numpy, counts, base_lines, event_keys, device,
+    decoder_seed, role="eval", chunk_len=8192,
 ):
     counts = np.asarray(counts, dtype=np.int64)
     if not (
-        len(context_numpy) == len(counts) == len(base_lines)
+        len(context_numpy) == len(counts) == len(base_lines) == len(event_keys)
     ):
         raise RuntimeError("decoder row counts differ")
     if np.any(counts < 0):
         raise RuntimeError("negative decoded Stride request count")
 
-    predicted_lines = (
-        [[] for _ in range(len(counts))] if materialize else None
-    )
-    predicted_fills = (
-        [[] for _ in range(len(counts))] if materialize else None
-    )
+    predicted_lines = [[] for _ in range(len(counts))]
+    predicted_fills = [[] for _ in range(len(counts))]
     with torch.no_grad():
         for start in range(0, len(counts), chunk_len):
             stop = min(start + chunk_len, len(counts))
@@ -719,20 +684,31 @@ def decode(
                     active_state, feedback_coordinate
                 )
                 state = state.index_copy(0, active, advanced)
-            # Sampling is callback-major/action-major and therefore does not
-            # move a learned decision to a neighbouring callback.
+            # Stateless key coordinates make callback/action traversal order
+            # irrelevant.  Mean-major canonicalization also makes component
+            # label permutations share the same inverse-CDF uniform.
             for local_position, distributions in enumerate(local_distributions):
                 global_position = start + local_position
-                for probabilities, means in distributions:
-                    component = _sample_categorical(probabilities, rng)
-                    if materialize:
-                        delta = _delta_to_integer(means[component])
-                        predicted_lines[global_position].append(
-                            apply_signed_line_delta(
-                                base_lines[global_position], delta
-                            )
+                for action_rank, (probabilities, means) in enumerate(
+                    distributions
+                ):
+                    order = canonical_component_order(means)
+                    uniform = keyed_uniform(
+                        decoder_seed, TRACE, POLICY, role,
+                        event_keys[global_position], "delta_component",
+                        action_rank,
+                    )
+                    canonical_index = categorical_icdf(
+                        probabilities[order], uniform,
+                    )
+                    component = int(order[canonical_index])
+                    delta = _delta_to_integer(means[component])
+                    predicted_lines[global_position].append(
+                        apply_signed_line_delta(
+                            base_lines[global_position], delta
                         )
-                        predicted_fills[global_position].append(-1)
+                    )
+                    predicted_fills[global_position].append(-1)
     return counts, predicted_lines, predicted_fills
 
 
@@ -821,6 +797,66 @@ def _count_summary(actions):
     }
 
 
+def count_decoder_diagnostics(
+    trigger_probabilities, excess_means, sampled_counts,
+):
+    """Report learned count marginals and realized count dispersion."""
+    trigger_probabilities = np.asarray(
+        trigger_probabilities, dtype=np.float64,
+    )
+    excess_means = np.asarray(excess_means, dtype=np.float64)
+    sampled_counts = np.asarray(sampled_counts, dtype=np.int64)
+    if not (
+        len(trigger_probabilities) == len(excess_means)
+        == len(sampled_counts)
+    ):
+        raise RuntimeError("count diagnostic vector lengths differ")
+    expected_counts = trigger_probabilities * (1.0 + excess_means)
+    second_moments = trigger_probabilities * (
+        excess_means + np.square(1.0 + excess_means)
+    )
+    model_variances = second_moments - np.square(expected_counts)
+    sampled_mean = float(sampled_counts.mean())
+    sampled_variance = float(sampled_counts.var())
+    positive = sampled_counts[sampled_counts > 0]
+    distribution = Counter(int(value) for value in sampled_counts)
+    return {
+        "callbacks": int(len(sampled_counts)),
+        "mean_trigger_probability": float(trigger_probabilities.mean()),
+        "expected_positive_callbacks": float(trigger_probabilities.sum()),
+        "mean_conditional_excess": float(excess_means.mean()),
+        "expected_total_actions": float(expected_counts.sum()),
+        "expected_mean_actions_per_callback": float(expected_counts.mean()),
+        "mean_model_count_variance": float(model_variances.mean()),
+        "sampled_positive_callbacks": int(np.count_nonzero(sampled_counts)),
+        "sampled_total_actions": int(sampled_counts.sum()),
+        "sampled_mean_actions_per_callback": sampled_mean,
+        "sampled_count_variance": sampled_variance,
+        "sampled_count_fano_factor": (
+            sampled_variance / sampled_mean if sampled_mean else 0.0
+        ),
+        "sampled_mean_actions_per_positive_callback": (
+            float(positive.mean()) if len(positive) else 0.0
+        ),
+        "sampled_max_actions_per_callback": (
+            int(sampled_counts.max()) if len(sampled_counts) else 0
+        ),
+        "sampled_count_distribution": {
+            str(key): int(value)
+            for key, value in sorted(distribution.items())
+        },
+    }
+
+
+def decoder_schedule_coordinates(event_keys, counts):
+    """Yield every stateless inverse-CDF coordinate used by evaluation."""
+    for event_key, count in zip(event_keys, counts):
+        yield event_key, "request_trigger", 0
+        yield event_key, "request_excess", 0
+        for action_rank in range(int(count)):
+            yield event_key, "delta_component", action_rank
+
+
 def self_test_free_running_decoder(feature_count, hidden_size):
     torch.manual_seed(2718)
     model = CompactPCKeyedSampledStrideLSTM(feature_count, hidden_size)
@@ -856,44 +892,62 @@ def self_test_compact_parameter_count(feature_count, hidden_size):
                 observed, expected
             )
         )
+    configured = EXPECTED_PARAMETER_COUNTS.get(hidden_size)
+    if feature_count == RUNTIME_FEATURES and configured != expected:
+        raise RuntimeError(
+            "configured parameter count mismatch: {} != {}".format(
+                configured, expected
+            )
+        )
 
 
-def self_test_event_sampled_count():
+def self_test_event_keyed_count_and_mixture():
+    self_test_keyed_crn()
     low_logits = np.full(4096, -4.0, dtype=np.float64)
     high_logits = np.full(4096, 4.0, dtype=np.float64)
-    log_excess = np.zeros(4096, dtype=np.float64)
-    first = _event_sampled_hurdle_counts(
-        np.concatenate([low_logits, high_logits]),
-        np.concatenate([log_excess, log_excess]),
-        np.random.RandomState(1701),
+    probabilities = _sigmoid_probabilities(
+        np.concatenate([low_logits, high_logits])
     )
-    second = _event_sampled_hurdle_counts(
-        np.concatenate([low_logits, high_logits]),
-        np.concatenate([log_excess, log_excess]),
-        np.random.RandomState(1701),
+    means = np.ones(len(probabilities), dtype=np.float64)
+    event_keys = list(range(len(probabilities)))
+    first = event_keyed_hurdle_counts(
+        probabilities, means, event_keys,
+        1701, "self-test", POLICY, "eval",
+    )
+    second = event_keyed_hurdle_counts(
+        probabilities, means, event_keys,
+        1701, "self-test", POLICY, "eval",
     )
     if not np.array_equal(first, second):
-        raise RuntimeError("event-local count sampling is not reproducible")
+        raise RuntimeError("event-keyed count sampling is not reproducible")
     if np.count_nonzero(first[4096:]) <= np.count_nonzero(first[:4096]):
-        raise RuntimeError("event-local sampling ignored learned trigger mass")
-    large = _event_sampled_hurdle_counts(
-        np.asarray([100.0]), np.log(np.asarray([256.0])),
-        np.random.RandomState(2718),
+        raise RuntimeError("event-keyed sampling ignored learned trigger mass")
+    large = event_keyed_hurdle_counts(
+        np.asarray([1.0]), np.asarray([256.0]), [0],
+        2718, "self-test", POLICY, "eval",
     )
     if large[0] <= 2:
         raise RuntimeError("positive count support appears degree capped")
 
-    probabilities = np.asarray([0.1, 0.2, 0.7], dtype=np.float64)
-    choices_a = [
-        _sample_categorical(probabilities, np.random.RandomState(seed))
-        for seed in range(64)
-    ]
-    choices_b = [
-        _sample_categorical(probabilities, np.random.RandomState(seed))
-        for seed in range(64)
-    ]
-    if choices_a != choices_b or len(set(choices_a)) < 2:
-        raise RuntimeError("mixture sampling is not reproducible or multimodal")
+    mixture_probabilities = np.asarray([0.1, 0.6, 0.3])
+    mixture_means = np.asarray([-2.0, 4.0, 0.5])
+    permutation = np.asarray([2, 0, 1])
+    uniform = keyed_uniform(
+        1701, "self-test", POLICY, "eval", 4,
+        "delta_component", 0,
+    )
+    first_order = canonical_component_order(mixture_means)
+    first_choice = first_order[categorical_icdf(
+        mixture_probabilities[first_order], uniform,
+    )]
+    permuted_probabilities = mixture_probabilities[permutation]
+    permuted_means = mixture_means[permutation]
+    second_order = canonical_component_order(permuted_means)
+    second_choice = second_order[categorical_icdf(
+        permuted_probabilities[second_order], uniform,
+    )]
+    if mixture_means[first_choice] != permuted_means[second_choice]:
+        raise RuntimeError("canonical mixture sampling changed under relabeling")
 
 
 def self_test_pc_router():
@@ -939,6 +993,10 @@ def build_parser():
     parser.add_argument("--model-size", type=int, required=True)
     parser.add_argument("--pair-id", required=True)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--decoder-seed", type=int, default=None,
+        help="stateless CRN decoder seed (defaults to --seed)",
+    )
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--chunk-len", type=int, default=256)
     parser.add_argument("--pc-batch-size", type=int, default=128)
@@ -951,6 +1009,7 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
+    decoder_seed = args.seed if args.decoder_seed is None else args.decoder_seed
     expected_pair = MODEL_POINTS["lstm"].get(args.model_size)
     if expected_pair is None or args.pair_id != expected_pair:
         raise RuntimeError("model size/pair is not a configured LSTM point")
@@ -960,16 +1019,16 @@ def main():
     ):
         raise RuntimeError("model and batching dimensions must be positive")
 
-    self_test_event_sampled_count()
+    self_test_event_keyed_count_and_mixture()
     self_test_pc_router()
     self_test_free_running_decoder(
-        ADDRESS_BITS * 2, max(2, args.model_size)
+        RUNTIME_FEATURES, max(2, args.model_size)
     )
     self_test_compact_parameter_count(
-        ADDRESS_BITS * 2, args.model_size
+        RUNTIME_FEATURES, args.model_size
     )
     self_test_no_future(
-        ADDRESS_BITS * 2, max(2, args.model_size)
+        RUNTIME_FEATURES, max(2, args.model_size)
     )
 
     random.seed(args.seed)
@@ -1000,8 +1059,8 @@ def main():
         for role in roles
     }
     runtime = {role: runtime_features(rows[role]) for role in roles}
-    if any(value.shape[1] != ADDRESS_BITS * 2 for value in runtime.values()):
-        raise RuntimeError("lossless PC/address feature count mismatch")
+    if any(value.shape[1] != RUNTIME_FEATURES for value in runtime.values()):
+        raise RuntimeError("lossless PC/line-number feature count mismatch")
     for role in roles:
         if not np.array_equal(runtime[role], runtime_features(rows[role])):
             raise RuntimeError(
@@ -1045,27 +1104,26 @@ def main():
     )
     eval_start = len(rows["train"]) + len(rows["guard"])
     eval_context = encoded_history[eval_start:]
-    history_trigger_logits, history_log_excess = score_count_distribution(
-        model, encoded_history, device
+    eval_trigger_logits, eval_log_excess = score_count_distribution(
+        model, eval_context, device
     )
-    decoder_rngs, decoder_rng_seeds = _decoder_rngs(args.seed, 2)
-    count_rng, delta_rng = decoder_rngs
-    history_counts = _event_sampled_hurdle_counts(
-        history_trigger_logits, history_log_excess, count_rng,
+    eval_trigger_probabilities = _sigmoid_probabilities(eval_trigger_logits)
+    eval_excess_means = _poisson_means(eval_log_excess)
+    # The zero-based evaluation decision index is source chronology, not a
+    # teacher-action identifier.  Only the evaluation suffix is sampled; train
+    # and guard rows establish causal recurrent history but never burn RNG.
+    eval_event_keys = range(len(rows["eval"]))
+    predicted_counts = event_keyed_hurdle_counts(
+        eval_trigger_probabilities, eval_excess_means, eval_event_keys,
+        decoder_seed, TRACE, POLICY, "eval",
     )
-    train_end = len(rows["train"])
-    guard_end = eval_start
-    for start, stop in ((0, train_end), (train_end, guard_end)):
-        decode(
-            model, encoded_history[start:stop], history_counts[start:stop],
-            [line for _, line, _ in history_rows[start:stop]], device,
-            delta_rng, materialize=False,
-        )
-    predicted_counts = history_counts[eval_start:]
     predicted_counts, predicted_lines, predicted_fills = decode(
         model, eval_context, predicted_counts,
-        [line for _, line, _ in rows["eval"]], device, delta_rng,
-        materialize=True,
+        [line for _, line, _ in rows["eval"]], eval_event_keys,
+        device, decoder_seed, role="eval",
+    )
+    count_diagnostics = count_decoder_diagnostics(
+        eval_trigger_probabilities, eval_excess_means, predicted_counts,
     )
     behavior = behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills, teacher["eval"]
@@ -1090,12 +1148,19 @@ def main():
         "runtime_features": runtime["train"].shape[1],
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
+        "decoder_seed": decoder_seed,
+        "sampler_revision": SAMPLER_REVISION,
     }, args.out_dir / "model.pt")
 
     train_positive = int(np.count_nonzero(train_counts > 0))
     train_zero = int(len(train_counts) - train_positive)
     train_unique_pc_count = len(_group_indices_by_pc(rows["train"]))
     history_unique_pc_count = len(_group_indices_by_pc(history_rows))
+    sampler_info = sampler_metadata()
+    sampler_schedule_hash = sampling_schedule_sha256(
+        decoder_seed, TRACE, POLICY, "eval",
+        decoder_schedule_coordinates(eval_event_keys, predicted_counts),
+    )
     metadata = {
         "trace": TRACE,
         "model_tag": tag,
@@ -1109,17 +1174,41 @@ def main():
         "expected_parameter_count": expected_parameters,
         "parameter_bytes_float32": parameter_count * 4,
         "seed": args.seed,
-        "decoder_rng_seeds": {
-            "request_count": decoder_rng_seeds[0],
-            "delta_component": decoder_rng_seeds[1],
-        },
+        "decoder_seed": decoder_seed,
         "stochastic_decoding_reproducible": True,
+        "common_random_numbers_across_capacities": True,
+        "strict_common_random_numbers_across_capacities": True,
+        "cross_event_rng_state_used": False,
+        "sampler_revision": SAMPLER_REVISION,
+        "decoder_sampling_roles": ["eval"],
+        "decoder_train_sampling_performed": False,
+        "decoder_guard_sampling_performed": False,
+        "decoder_event_key_definition": "zero_based_eval_demand_idx",
+        "decoder_event_key_uses_teacher_information": False,
+        "decoder_event_key_stream_sha256": key_stream_sha256(
+            eval_event_keys
+        ),
+        "decoder_action_rank_origin": 0,
+        "decoder_key_fields": sampler_info["key_fields"],
+        "decoder_key_includes_sampler_revision": True,
+        "decoder_sampler": sampler_info,
+        "decoder_sampler_source_sha256": sampler_source_sha256(),
+        "decoder_sampler_key_schedule_sha256": key_schedule_sha256(),
+        "decoder_sampling_schedule_sha256": sampler_schedule_hash,
         "epochs": args.epochs,
         "chunk_len": args.chunk_len,
         "pc_batch_size": args.pc_batch_size,
         "learning_rate": args.learning_rate,
         "runtime_feature_count": runtime["train"].shape[1],
-        "runtime_encoding": "lossless uint64 PC plus aligned uint64 address bits",
+        "runtime_encoding": (
+            "lossless uint64 PC plus lossless 58-bit cache-line number"
+        ),
+        "runtime_encoding_note": (
+            "six constant-zero aligned-address byte-offset bits removed"
+        ),
+        "runtime_pc_bits": ADDRESS_BITS,
+        "runtime_line_number_bits": LINE_NUMBER_BITS,
+        "runtime_constant_offset_bits_removed": CACHE_LINE_OFFSET_BITS,
         "source_decision_effective_external_input": SOURCE_INPUTS,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
@@ -1164,18 +1253,19 @@ def main():
             "signed cache-line deltas"
         ),
         "decision_rule": (
-            "event_local_bernoulli_then_conditional_poisson_and_"
-            "categorical_delta_mixture_sampling"
+            "stateless_sha256_keyed_bernoulli_and_poisson_inverse_cdf_"
+            "then_canonicalized_categorical_delta_inverse_cdf"
         ),
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "event_local_bernoulli_sample",
+        "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "event_local_bernoulli_hurdle_plus_conditional_poisson_sample"
+            "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf"
         ),
         "request_count_residual_scope": "none_event_local",
+        "request_count_decoder_diagnostics": count_diagnostics,
         "request_count_training_label_statistics": {
             "decision_callbacks": int(len(train_counts)),
             "positive_callbacks": train_positive,
@@ -1216,7 +1306,11 @@ def main():
             "dynamic exact-PC key with no fixed tracker capacity"
         ),
         "delta_mixture_decoding_rule": (
-            "event_local_categorical_component_sample_then_component_mean"
+            "event_keyed_mean_sorted_categorical_inverse_cdf_then_"
+            "component_mean"
+        ),
+        "delta_mixture_component_canonicalization": (
+            "ascending_delta_mean_then_original_component_index"
         ),
         "delta_decoder_feedback_rule": (
             "complete_mixture_expectation_same_in_training_and_inference"
@@ -1226,10 +1320,22 @@ def main():
         "recurrent_state_bytes_per_observed_pc": (
             2 * args.model_size * 4
         ),
+        "training_state_router_sha256": state_router_sha256(),
+        "inference_state_router_sha256": state_router_sha256(),
+        "peak_training_recurrent_state_bytes_float32": (
+            train_unique_pc_count * 2 * args.model_size * 4
+        ),
+        "peak_inference_recurrent_state_bytes_float32": (
+            history_unique_pc_count * 2 * args.model_size * 4
+        ),
+        "peak_persistent_recurrent_state_bytes": (
+            history_unique_pc_count * 2 * args.model_size * 4
+        ),
         "causal_no_future_self_test": "PASS",
         "pc_keyed_causality_self_test": "PASS",
-        "event_local_hurdle_count_self_test": "PASS",
-        "event_local_mixture_sampling_self_test": "PASS",
+        "event_keyed_crn_self_test": "PASS",
+        "event_keyed_hurdle_count_self_test": "PASS",
+        "canonicalized_mixture_sampling_self_test": "PASS",
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
         "sampled_outputs_used_as_decoder_feedback": False,

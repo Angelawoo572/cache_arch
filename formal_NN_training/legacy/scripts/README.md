@@ -1,4 +1,4 @@
-# `formal_NN_training/scripts`
+# `formal_NN_training/legacy/scripts`
 
 All Sacramento-side utilities are Python 3.6 compatible and use only the standard library unless a script explicitly invokes an existing ChampSim build tool. Numeric names are retained for path stability.
 
@@ -83,3 +83,20 @@ A rich list needs at least `demand_idx` or `replay_idx`, `pc`, `line`, and `pref
 `formal_NN_training/LSTM/draft/` and the historical `LSTM_cache_action_predictor*.ipynb` notebooks use the retired action-predictor workflow. Do not run them for the current standalone no-prefetch pipeline.
 
 `25_build_v4_1_notebook.py` was removed because its referenced extension payload is absent. The explicit per-trace 07/05 notebooks supersede it.
+
+### Historical direct-action split workflow
+
+`direct_action_split_workflow/` contains the retired v7/v9/v11 seven-track
+source-input-fair rerun utilities (three 602 LSTM tracks and separate 623
+LSTM/CNN tracks). The scripts and runbook retain their revision-pinned run IDs
+for reproducibility; they are not part of the current experiment pipeline.
+The directory contains its historical runbook, archive staging/installation
+helpers, replay launch/wait wrappers, and the cross-directory comparison tool;
+keeping them together prevents obsolete CNN assumptions from appearing in the
+active `experiments/` namespace.
+Invoke a retained script from the repository root with its full legacy path,
+for example:
+
+```bash
+bash formal_NN_training/legacy/scripts/direct_action_split_workflow/stage_threshold_free_inputs.sh
+```

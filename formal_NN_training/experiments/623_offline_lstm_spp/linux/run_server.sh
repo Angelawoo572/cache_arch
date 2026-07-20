@@ -6,13 +6,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_spp_event_sampled_fill_v14_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-independent_delta_spp_lstm_h8,independent_delta_spp_lstm_h16,independent_delta_spp_lstm_h32,independent_delta_spp_lstm_h64,independent_delta_spp_lstm_h128}"
-BASE_TAG="${BASE_TAG:-independent_delta_spp_lstm_h8}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-joint_delta_fill_spp_lstm_h8,joint_delta_fill_spp_lstm_h16,joint_delta_fill_spp_lstm_h32,joint_delta_fill_spp_lstm_h64,joint_delta_fill_spp_lstm_h128}"
+BASE_TAG="${BASE_TAG:-joint_delta_fill_spp_lstm_h8}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -42,6 +42,7 @@ audit_spp_source() {
     "$CHAMP_DIR/inc/spp_dev2.h" "$SOURCE_CONTRACT_REPO" <<'PY'
 import hashlib
 import json
+import re
 import re
 import sys
 from pathlib import Path
@@ -273,6 +274,7 @@ assert_model_metadata() {
 import csv
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -322,13 +324,13 @@ common = {
     "manual_loss_weights_used": False,
     "gate_class_weighting_used": False,
     "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "event_local_bernoulli_sample",
+    "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
     "gate_operating_point_learned_from_empirical_prior": False,
     "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "event_local_bernoulli_hurdle_plus_conditional_poisson_sample",
+    "request_count_decoding_rule": "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf",
     "request_count_residual_scope": "none_event_local",
-    "fill_training_objective": "unweighted_categorical_nll",
-    "fill_decoding_rule": "event_local_categorical_sample",
+    "fill_training_objective": "joint_with_delta_component_unweighted_mixture_nll",
+    "fill_decoding_rule": "single_joint_delta_fill_pair_sample",
     "fill_argmax_used": False,
     "fill_probability_feedback_used": True,
     "decoder_probability_mass_carries_train_guard_history": False,
@@ -340,37 +342,63 @@ common = {
     "learned_request_count": True,
     "causal_no_future_self_test": "PASS",
     "event_local_hurdle_count_self_test": "PASS",
-    "event_local_mixture_sampling_self_test": "PASS",
-    "event_local_fill_sampling_self_test": "PASS",
-    "delta_mixture_decoding_rule": "event_local_categorical_component_sample_then_component_mean",
-    "delta_decoder_feedback_rule": "complete_mixture_expectation_same_in_training_and_inference",
+    "keyed_sampling_self_test": "PASS",
+    "joint_delta_fill_sampling_self_test": "PASS",
+    "delta_mixture_decoding_rule": "single_joint_component_fill_sample_then_component_mean",
+    "delta_decoder_feedback_rule": "complete_joint_distribution_expectation_same_in_training_and_inference",
     "decoder_mixture_components": 4,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_fill_v6",
     "action_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-    "model_revision": "compact_event_sampled_mixture_fill_v14",
+    "model_revision": "compact_crn_joint_delta_fill_mixture_v15",
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": [
         "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
     ],
-    "runtime_feature_count": 65,
+    "runtime_feature_count": 59,
+    "runtime_encoding": "lossless 58-bit cache-line number plus one DEMAND/FILL kind bit",
+    "joint_delta_fill_dependency_modeled": True,
+    "joint_pair_classes": 8,
+    "joint_delta_fill_training_objective": "unweighted_joint_delta_component_fill_mixture_nll",
+    "joint_delta_fill_decoding_rule": "event_keyed_mean_sorted_joint_pair_inverse_cdf",
+    "same_source_input_offline_claim_allowed": True,
+    "closed_loop_live_claim_allowed": False,
+    "common_random_numbers_across_capacities": True,
+    "strict_common_random_numbers_across_capacities": True,
+    "cross_event_rng_state_used": False,
+    "decoder_sampling_roles": ["eval"],
+    "decoder_train_sampling_performed": False,
+    "decoder_guard_sampling_performed": False,
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
-decoder_rng_seeds = metadata.get("decoder_rng_seeds")
+expected_key_fields = [
+    "revision", "decoder_seed", "trace", "policy", "role",
+    "event_key", "head", "action_rank",
+]
+sampler = metadata.get("decoder_sampler")
 if (
-    not isinstance(decoder_rng_seeds, dict)
-    or set(decoder_rng_seeds) != {
-        "request_count", "delta_component", "fill_class",
-    }
-    or any(type(value) is not int for value in decoder_rng_seeds.values())
+    not isinstance(sampler, dict)
+    or sampler.get("sampler_revision") != "sha256_event_keyed_inverse_cdf_crn_v1"
+    or sampler.get("key_fields") != expected_key_fields
+    or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
+    or sampler.get("cross_event_rng_state") is not False
+    or metadata.get("decoder_key_fields") != expected_key_fields
 ):
-    bad["decoder_rng_seeds"] = (decoder_rng_seeds, "three reproducible integer seeds")
+    bad["decoder_sampler"] = (sampler, "stateless keyed inverse-CDF CRN v1")
+for key in (
+    "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
+    "decoder_eval_event_key_stream_sha256", "decoder_eval_sampling_schedule_sha256",
+    "decision_router_source_sha256", "eval_decision_router_sha256",
+):
+    value = metadata.get(key)
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        bad[key] = (value, "64 lowercase hex characters")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
-if not tag.startswith("independent_delta_spp_lstm_"):
-    bad["model_tag"] = (tag, "independent_delta_spp_lstm_<size>")
+if not tag.startswith("joint_delta_fill_spp_lstm_"):
+    bad["model_tag"] = (tag, "joint_delta_fill_spp_lstm_<size>")
 expected_points = {
     ("lstm", 8): "p0",
     ("lstm", 16): "p1",
@@ -378,7 +406,7 @@ expected_points = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-expected_parameters = {8: 2856, 16: 6592, 32: 16752, 64: 47824, 128: 152976}
+expected_parameters = {8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
@@ -509,7 +537,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_independent_delta_spp_lstm_*)
+    offline_joint_delta_fill_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }

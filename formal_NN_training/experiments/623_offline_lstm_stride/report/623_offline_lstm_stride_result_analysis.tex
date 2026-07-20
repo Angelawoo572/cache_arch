@@ -32,6 +32,13 @@
 \newcommand{\metric}[1]{\textcolor{navy}{\bfseries #1}}
 
 \begin{document}
+\begin{infobox}[colback=orange!8,colframe=orange]
+\textbf{Historical-results boundary.}  All numerical results in this document
+are from the completed v9 artifact shown below.  The current implementation is
+\texttt{compact\_pc\_keyed\_crn\_event\_sampled\_mixture\_v15} with default run
+\texttt{623\_offline\_lstm\_stride\_keyed\_crn\_v15\_seed7}; its replay results
+are pending and must not be inferred from these tables.
+\end{infobox}
 \begin{center}
 {\LARGE\bfseries\color{navy} 623 Direct-Action LSTM vs. Offline Stride}\\[2pt]
 {\small 623.xalancbmk\_s-700B \quad $\vert$ \quad seed 7 \quad $\vert$ \quad 25M measured instructions}\\[4pt]
@@ -46,7 +53,7 @@ Primary comparison & Offline Stride actions versus independently generated LSTM 
 Shared external input & current PC and current cache-line address, in chronological order.\\
 Neural history & stateful LSTM over complete train--guard--evaluation chronology; chronological TBPTT carries and detaches state.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
-Run artifact & \texttt{623\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v9\_seed7}.  ``PASS'' certifies the experiment contract; it does not certify useful neural behavior.\\
+Historical run artifact & \texttt{623\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v9\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v15 or useful neural behavior.\\
 \end{tabularx}
 \end{infobox}
 

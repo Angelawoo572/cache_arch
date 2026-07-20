@@ -41,7 +41,7 @@ TRACKS = (
         "623_offline_lstm_stride",
         "stride_source_input_variable_delta_free_running_v9",
         ["pc", "addr"],
-        "623_offline_lstm_stride_event_sampled_v14_seed7",
+        "623_offline_lstm_stride_keyed_crn_v15_seed7",
     ),
     (
         "623_offline_cnn_stride",
@@ -56,7 +56,7 @@ TRACKS = (
             "callback_kind", "invoke_prefetcher.addr",
             "cache_fill.evicted_addr",
         ],
-        "623_offline_lstm_spp_event_sampled_fill_v14_seed7",
+        "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7",
     ),
     (
         "623_offline_cnn_spp",
@@ -133,6 +133,23 @@ def main():
 
     policy_source = (COMMON / "threshold_free_policy.py").read_text()
     parse_python(COMMON / "threshold_free_policy.py")
+    keyed_source = (COMMON / "keyed_sampling.py").read_text()
+    parse_python(COMMON / "keyed_sampling.py")
+    for token in (
+        "sha256_event_keyed_inverse_cdf_crn_v1",
+        "def keyed_uniform(",
+        "def bernoulli_icdf(",
+        "def poisson_icdf(",
+        "poisson.ppf(",
+        "def categorical_icdf(",
+        "def canonical_component_order(",
+        "def self_test_keyed_crn(",
+    ):
+        if token not in keyed_source:
+            fail("keyed sampler missing {}".format(token))
+    for forbidden in ("RandomState", "default_rng", ".binomial(", ".choice("):
+        if forbidden in keyed_source:
+            fail("keyed sampler retains mutable RNG API {}".format(forbidden))
     for path in (
         COMMON / "direct_action_lstm.py",
         COMMON / "experiment_623_stride.py",
@@ -215,31 +232,33 @@ def main():
         if experiment == "623_offline_lstm_stride":
             stride_contract = {
                 "model_revision": (
-                    "compact_pc_keyed_event_sampled_mixture_v14"
+                    "compact_pc_keyed_crn_event_sampled_mixture_v15"
                 ),
                 "gate_decoding_rule": (
-                    "event_local_bernoulli_sample"
+                    "event_keyed_bernoulli_inverse_cdf"
                 ),
                 "request_count_training_objective": (
                     "unweighted_bernoulli_hurdle_plus_positive_"
                     "poisson_excess_nll"
                 ),
                 "request_count_decoding_rule": (
-                    "event_local_bernoulli_hurdle_plus_conditional_"
-                    "poisson_sample"
+                    "event_keyed_bernoulli_plus_common_quantile_"
+                    "poisson_inverse_cdf"
                 ),
                 "request_count_residual_scope": "none_event_local",
                 "cross_event_probability_credit_used": False,
                 "sampled_outputs_used_as_decoder_feedback": False,
                 "delta_mixture_decoding_rule": (
-                    "event_local_categorical_component_sample_then_"
-                    "component_mean"
+                    "event_keyed_mean_sorted_categorical_inverse_cdf_"
+                    "then_component_mean"
                 ),
                 "delta_decoder_feedback_rule": (
                     "complete_mixture_expectation_same_in_training_"
                     "and_inference"
                 ),
                 "stochastic_decoding_reproducible": True,
+                "common_random_numbers_across_capacities": True,
+                "cross_event_rng_state_used": False,
                 "decoder_probability_mass_carries_train_guard_history": False,
             }
             for key, expected in stride_contract.items():
@@ -247,35 +266,50 @@ def main():
                     fail("623 Stride contract {} mismatch".format(key))
                 if key not in notebook or str(expected) not in notebook:
                     fail("623 Stride notebook missing {}".format(key))
+            expected_decoder_key_fields = [
+                "revision", "decoder_seed", "trace", "policy", "role",
+                "event_key", "head", "action_rank",
+            ]
+            if contract.get("decoder_key_fields") != expected_decoder_key_fields:
+                fail("623 Stride decoder key fields mismatch")
         if experiment == "623_offline_lstm_spp":
             spp_contract = {
-                "model_revision": "compact_event_sampled_mixture_fill_v14",
+                "model_revision": "compact_crn_joint_delta_fill_mixture_v15",
                 "gate_class_weighting_used": False,
                 "gate_training_objective": "unweighted_bernoulli_nll",
                 "gate_decoding_rule": (
-                    "event_local_bernoulli_sample"
+                    "event_keyed_bernoulli_inverse_cdf"
                 ),
                 "request_count_training_objective": (
                     "unweighted_bernoulli_hurdle_plus_positive_"
                     "poisson_excess_nll"
                 ),
                 "request_count_decoding_rule": (
-                    "event_local_bernoulli_hurdle_plus_conditional_"
-                    "poisson_sample"
+                    "event_keyed_bernoulli_plus_common_quantile_"
+                    "poisson_inverse_cdf"
                 ),
                 "request_count_residual_scope": "none_event_local",
-                "fill_decoding_rule": "event_local_categorical_sample",
+                "joint_delta_fill_dependency_modeled": True,
+                "joint_delta_fill_training_objective": (
+                    "unweighted_joint_delta_component_fill_mixture_nll"
+                ),
+                "joint_delta_fill_decoding_rule": (
+                    "event_keyed_mean_sorted_joint_pair_inverse_cdf"
+                ),
                 "cross_event_probability_credit_used": False,
                 "sampled_outputs_used_as_decoder_feedback": False,
                 "delta_mixture_decoding_rule": (
-                    "event_local_categorical_component_sample_then_"
-                    "component_mean"
+                    "single_joint_component_fill_sample_then_component_mean"
                 ),
                 "delta_decoder_feedback_rule": (
-                    "complete_mixture_expectation_same_in_training_"
-                    "and_inference"
+                    "complete_joint_distribution_expectation_same_in_"
+                    "training_and_inference"
                 ),
                 "stochastic_decoding_reproducible": True,
+                "common_random_numbers_across_capacities": True,
+                "cross_event_rng_state_used": False,
+                "same_source_input_offline_claim_allowed": True,
+                "closed_loop_live_claim_allowed": False,
                 "decoder_probability_mass_carries_train_guard_history": False,
             }
             for key, expected in spp_contract.items():
@@ -283,6 +317,12 @@ def main():
                     fail("623 SPP contract {} mismatch".format(key))
                 if key not in notebook or str(expected) not in notebook:
                     fail("623 SPP notebook missing {}".format(key))
+            expected_decoder_key_fields = [
+                "revision", "decoder_seed", "trace", "policy", "role",
+                "event_key", "head", "action_rank",
+            ]
+            if contract.get("decoder_key_fields") != expected_decoder_key_fields:
+                fail("623 SPP decoder key fields mismatch")
 
         for relative in (
             "python/analyze_replay.py",
@@ -408,23 +448,28 @@ def main():
     ).read_text()
     for token in (
         "CompactPCKeyedSampledStrideLSTM",
-        "_event_sampled_hurdle_counts",
-        "_sample_categorical",
-        "_decoder_rngs",
-        "rng.binomial",
-        "rng.poisson",
-        "rng.choice",
+        "event_keyed_hurdle_counts",
+        "keyed_uniform",
+        "canonical_component_order",
+        "runtime_features",
+        'RUNTIME_FEATURES = ADDRESS_BITS + LINE_NUMBER_BITS',
+        '"compact_pc_keyed_crn_event_sampled_mixture_v15"',
         '"gate_training_objective": "unweighted_bernoulli_nll"',
-        '"gate_decoding_rule": "event_local_bernoulli_sample"',
+        '"gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf"',
         '"unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"',
-        '"request_count_decoding_rule": (',
+        '"strict_common_random_numbers_across_capacities": True',
+        '"cross_event_rng_state_used": False',
+        '"decoder_sampling_roles": ["eval"]',
+        '"decoder_train_sampling_performed": False',
+        '"decoder_guard_sampling_performed": False',
+        '"runtime_feature_count": runtime["train"].shape[1]',
         '"probability_threshold_used": False',
         '"threshold_related_hardcodes_used": False',
         '"neural_degree_cap": None',
         '"fixed_page_offset_classes": None',
         '"normal_tracker_capacity_used_by_neural_inference": False',
         '"data_derived_gate_class_weights_used": False',
-        '"stochastic_decoding_reproducible": True',
+        '"event_keyed_crn_self_test": "PASS"',
         '"decoder_probability_mass_carries_train_guard_history": False',
         '"cross_event_probability_credit_used": False',
         '"sampled_outputs_used_as_decoder_feedback": False',
@@ -439,6 +484,11 @@ def main():
         "_binary_probability_mass_choice",
         "_probability_mass_choice",
         "_mass_hurdle_counts",
+        "RandomState",
+        "default_rng",
+        ".binomial(",
+        ".poisson(",
+        ".choice(",
     ):
         if forbidden in stride_623_train:
             fail("623 Stride train script retains {}".format(forbidden))
@@ -449,21 +499,31 @@ def main():
     for token in (
         "CompactSPPLSTM",
         "predicted_fill_probabilities",
-        "_event_sampled_hurdle_counts",
-        "_sample_categorical",
-        "_decoder_rngs",
-        "rng.binomial",
-        "rng.poisson",
-        "rng.choice",
+        "CompactSPPActionDecoder",
+        "joint_action_head",
+        "event_keyed_hurdle_counts",
+        "keyed_uniform",
+        "categorical_icdf",
+        "canonical_joint_pair_order",
+        'RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1',
+        '"compact_crn_joint_delta_fill_mixture_v15"',
         '"unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"',
-        '"fill_decoding_rule": "event_local_categorical_sample"',
+        '"joint_delta_fill_dependency_modeled": True',
+        '"unweighted_joint_delta_component_fill_mixture_nll"',
+        '"event_keyed_mean_sorted_joint_pair_inverse_cdf"',
+        '"single_joint_delta_fill_pair_sample"',
+        '"strict_common_random_numbers_across_capacities": True',
+        '"cross_event_rng_state_used": False',
+        '"decoder_sampling_roles": ["eval"]',
+        '"same_source_input_offline_claim_allowed": True',
+        '"closed_loop_live_claim_allowed": False',
         '"probability_threshold_used": False',
         '"threshold_related_hardcodes_used": False',
         '"neural_degree_cap": None',
         '"fixed_page_offset_classes": None',
         '"gate_class_weighting_used": False',
         '"gate_training_objective": "unweighted_bernoulli_nll"',
-        '"gate_decoding_rule": "event_local_bernoulli_sample"',
+        '"gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf"',
         '"stochastic_decoding_reproducible": True',
         '"decoder_probability_mass_carries_train_guard_history": False',
         '"cross_event_probability_credit_used": False',
@@ -480,16 +540,15 @@ def main():
         ".argmax(",
         "emit_head",
         "positive_log_count",
+        "self.fill_head",
+        "RandomState(",
+        "default_rng(",
+        ".binomial(",
+        ".poisson(",
+        ".choice(",
     ):
         if forbidden in spp_623_train:
             fail("623 SPP train script retains {}".format(forbidden))
-
-    compare_source = (
-        EXPERIMENTS / "compare_623_split_architectures.py"
-    ).read_text()
-    parse_python(EXPERIMENTS / "compare_623_split_architectures.py")
-    if "runtime_encoder_exact_match" not in compare_source:
-        fail("cross-directory encoder equality is not enforced")
 
     print("[PASS] eight direct-action tracks satisfy the static input contract")
     print("[PASS] training/inference encoder fields, code hashes, and decoder feedback agree")

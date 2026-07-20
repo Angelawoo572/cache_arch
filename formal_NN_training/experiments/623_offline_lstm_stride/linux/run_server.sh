@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_event_sampled_v14_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_keyed_crn_v15_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -190,6 +190,7 @@ assert_model_metadata() {
 import csv
 import hashlib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -225,9 +226,9 @@ common = {
     "data_derived_gate_class_weights_used": False,
     "gate_class_weighting_used": False,
     "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "event_local_bernoulli_sample",
+    "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
     "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "event_local_bernoulli_hurdle_plus_conditional_poisson_sample",
+    "request_count_decoding_rule": "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf",
     "request_count_residual_scope": "none_event_local",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
@@ -235,32 +236,56 @@ common = {
     "nn_generates_own_target_addresses": True,
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
-    "event_local_hurdle_count_self_test": "PASS",
-    "event_local_mixture_sampling_self_test": "PASS",
+    "event_keyed_crn_self_test": "PASS",
+    "event_keyed_hurdle_count_self_test": "PASS",
+    "canonicalized_mixture_sampling_self_test": "PASS",
     "decoder_probability_mass_carries_train_guard_history": False,
     "cross_event_probability_credit_used": False,
     "sampled_outputs_used_as_decoder_feedback": False,
     "stochastic_decoding_reproducible": True,
-    "delta_mixture_decoding_rule": "event_local_categorical_component_sample_then_component_mean",
+    "delta_mixture_decoding_rule": "event_keyed_mean_sorted_categorical_inverse_cdf_then_component_mean",
     "delta_decoder_feedback_rule": "complete_mixture_expectation_same_in_training_and_inference",
     "delta_mixture_components": 3,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_event_sampled_mixture_v14",
+    "model_revision": "compact_pc_keyed_crn_event_sampled_mixture_v15",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
+    "runtime_feature_count": 122,
+    "runtime_encoding": "lossless uint64 PC plus lossless 58-bit cache-line number",
+    "common_random_numbers_across_capacities": True,
+    "strict_common_random_numbers_across_capacities": True,
+    "cross_event_rng_state_used": False,
+    "decoder_sampling_roles": ["eval"],
+    "decoder_train_sampling_performed": False,
+    "decoder_guard_sampling_performed": False,
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
-decoder_rng_seeds = metadata.get("decoder_rng_seeds")
+expected_key_fields = [
+    "revision", "decoder_seed", "trace", "policy", "role",
+    "event_key", "head", "action_rank",
+]
+sampler = metadata.get("decoder_sampler")
 if (
-    not isinstance(decoder_rng_seeds, dict)
-    or set(decoder_rng_seeds) != {"request_count", "delta_component"}
-    or any(type(value) is not int for value in decoder_rng_seeds.values())
+    not isinstance(sampler, dict)
+    or sampler.get("sampler_revision") != "sha256_event_keyed_inverse_cdf_crn_v1"
+    or sampler.get("key_fields") != expected_key_fields
+    or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
+    or sampler.get("cross_event_rng_state") is not False
+    or metadata.get("decoder_key_fields") != expected_key_fields
 ):
-    bad["decoder_rng_seeds"] = (decoder_rng_seeds, "two reproducible integer seeds")
+    bad["decoder_sampler"] = (sampler, "stateless keyed inverse-CDF CRN v1")
+for key in (
+    "decoder_event_key_stream_sha256", "decoder_sampler_source_sha256",
+    "decoder_sampler_key_schedule_sha256", "decoder_sampling_schedule_sha256",
+    "training_state_router_sha256", "inference_state_router_sha256",
+):
+    value = metadata.get(key)
+    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+        bad[key] = (value, "64 lowercase hex characters")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
 if not tag.startswith("independent_delta_" + policy + "_lstm_"):
@@ -272,7 +297,7 @@ expected_points = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-expected_parameters = {8: 1971, 16: 5339, 32: 16299, 64: 55115, 128: 200331}
+expected_parameters = {8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")

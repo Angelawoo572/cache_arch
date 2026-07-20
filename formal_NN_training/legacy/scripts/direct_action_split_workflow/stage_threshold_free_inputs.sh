@@ -1,14 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Historical v7/v9/v11 input staging wrapper retained for reproducibility only.
 # Reuse the exact previously collected stream bytes for the three 602 reruns.
 # The two 623 policies are freshly collected in their LSTM directories and
 # then copied byte-for-byte into their separate CNN directories by
 # stage_623_split_inputs.sh.
 # Source IDs may be overridden when a server uses different archival names.
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-STAGER="$ROOT/formal_NN_training/experiments/stage_direct_action_inputs.sh"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+STAGER="$SCRIPT_DIR/stage_direct_action_inputs.sh"
+cd "$ROOT"
 
 stage() {
   bash "$STAGER" "$1" "$2" "$3"
@@ -28,4 +31,4 @@ stage 602-ampm \
 
 echo "[READY] three unchanged-input 602 Colab archives"
 echo "[NEXT] collect 623 Stride and SPP once in the standalone LSTM tracks"
-echo "[NEXT] run stage_623_split_inputs.sh stride and ... spp"
+echo "[NEXT] run $SCRIPT_DIR/stage_623_split_inputs.sh stride and ... spp"

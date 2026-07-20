@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed cross-directory comparison for standalone 623 LSTM/CNN runs."""
+"""Historical fail-closed comparison for the retired 623 LSTM/CNN split runs."""
 import argparse
 import csv
 import json

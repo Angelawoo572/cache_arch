@@ -5,16 +5,15 @@ The model consumes exactly the chronological external callbacks used by source
 SPP: DEMAND(addr) and CACHE_FILL(evicted_addr). Source SPP actions are
 supervised labels and an offline comparator only; they never enter inference.
 
-The v12 independent argmax decisions collapsed to almost every callback
-issuing and every action filling LLC. The v13 probability-mass scheduler fixed
-aggregate class frequency, but its credit state can move a trigger or fill
-choice from the callback where the model assigned it high probability to a
-later callback. This revision samples the complete event-local learned
-distribution instead: an unweighted zero/positive hurdle, an unbounded
-conditional Poisson excess count, a direct-delta mixture component, and an
-L2/LLC categorical fill. A fixed experiment seed makes the generated replay
-reproducible. None introduces a selected probability threshold, degree cap,
-candidate table, page-offset class, or source-SPP private state.
+This v15 revision samples every event from a stateless SHA-256-keyed inverse-CDF
+schedule.  Hidden-size points therefore share strict common random numbers:
+one model's earlier count can no longer shift any later callback's draw.  The
+action head is a joint distribution over delta-mixture component and L2/LLC
+fill, so it can learn their dependence.  Input addresses are represented
+losslessly as 58 cache-line-number bits plus callback kind; the six alignment
+bits that were identically zero in v14 are removed.  None of these changes
+introduces a selected probability threshold, degree cap, candidate table,
+page-offset class, source-SPP private state, or forbidden replay identity.
 """
 import argparse
 import csv
@@ -43,7 +42,13 @@ import torch.nn.functional as F
 from formal_NN_training.common.threshold_free_policy import (
     ADDRESS_BITS, CACHE_LINE_BYTES, CACHE_LINE_SHIFT,
     apply_signed_line_delta, behavior_metrics, expand_targets,
-    runtime_bits, targets_from_actions,
+    targets_from_actions,
+)
+from formal_NN_training.common.keyed_sampling import (
+    KEY_FIELDS, SAMPLER_REVISION, canonical_component_order,
+    categorical_icdf, event_keyed_hurdle_counts, key_stream_sha256,
+    key_schedule_sha256, keyed_uniform, sampler_metadata, sampler_source_sha256,
+    sampling_schedule_sha256, self_test_keyed_crn,
 )
 
 
@@ -51,9 +56,10 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 FILL_LEVELS = (2, 4)
 MIXTURE_COMPONENTS = 4
-RUNTIME_FEATURES = ADDRESS_BITS + 1
+LINE_ADDRESS_BITS = ADDRESS_BITS - CACHE_LINE_SHIFT
+RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_event_sampled_mixture_fill_v14"
+MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -121,6 +127,7 @@ def load_stream(path):
                 or as_int(row["event_idx"]) != index
                 or row["logger_schema"] != EVENT_LOGGER_SCHEMA
                 or address != line << CACHE_LINE_SHIFT
+                or line < 0 or line >= 1 << LINE_ADDRESS_BITS
                 or raw_event_id <= last_raw_event_id
                 or cycle < last_cycle
                 or kind not in ("DEMAND", "FILL")
@@ -230,31 +237,86 @@ def load_teacher_actions(path, rows):
     return actions
 
 
+def _unsigned_bits(values, width):
+    """Return a lossless least-significant-bit-first unsigned bit matrix."""
+    integers = [int(value) for value in values]
+    if width < 1 or any(value < 0 or value >= 1 << width for value in integers):
+        raise RuntimeError("runtime line number is outside the encoded domain")
+    array = np.asarray(integers, dtype=np.uint64)
+    shifts = np.arange(width, dtype=np.uint64)
+    return ((array[:, None] >> shifts[None, :]) & 1).astype(np.float32)
+
+
 def runtime_array(stream):
     context = stream["context"]
-    addresses = runtime_bits(
-        [0 for _ in context], [address for _, address, _, _ in context], False
+    line_bits = _unsigned_bits(
+        [line for _, _, line, _ in context], LINE_ADDRESS_BITS
     )
     kinds = np.asarray([
         [1.0 if kind == "DEMAND" else 0.0]
         for kind, _, _, _ in context
     ], dtype=np.float32)
-    return np.concatenate([addresses, kinds], axis=1)
+    return np.concatenate([line_bits, kinds], axis=1)
 
 
 def runtime_encoder_sha256():
     payload = {
         "entrypoint_source": inspect.getsource(runtime_array),
-        "primitive_source": inspect.getsource(runtime_bits),
+        "primitive_source": inspect.getsource(_unsigned_bits),
         "fields": SOURCE_INPUTS,
         "use_pc": False,
         "address_bits": ADDRESS_BITS,
+        "line_address_bits": LINE_ADDRESS_BITS,
         "cache_line_bytes": CACHE_LINE_BYTES,
+        "bit_order": "least_significant_first",
+        "removed_constant_alignment_bits": CACHE_LINE_SHIFT,
         "callback_kind_encoding": {"DEMAND": 1.0, "FILL": 0.0},
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True).encode()
     ).hexdigest()
+
+
+def sampling_event_keys(stream):
+    """Build keys only from stable chronology and source-visible demand line."""
+    keys = []
+    for decision_idx, (position, demand) in enumerate(zip(
+        stream["demand_positions"], stream["demands"]
+    )):
+        kind, _, context_line, routed_idx = stream["context"][int(position)]
+        _, _, demand_line, _ = demand
+        if (
+            kind != "DEMAND" or routed_idx != decision_idx
+            or context_line != demand_line
+        ):
+            raise RuntimeError("SPP decision router changed")
+        keys.append("decision_idx={}|kind=DEMAND|line={}".format(
+            decision_idx, demand_line
+        ))
+    return keys
+
+
+def decision_router_sha256(stream):
+    """Hash the chronological context-to-demand routing used by the model."""
+    payload = {
+        "context_rows": len(stream["context"]),
+        "demand_positions": [
+            int(value) for value in stream["demand_positions"]
+        ],
+        "decision_indices": [
+            int(stream["context"][int(position)][3])
+            for position in stream["demand_positions"]
+        ],
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def decision_router_source_sha256():
+    return hashlib.sha256(inspect.getsource(
+        decision_router_sha256
+    ).encode()).hexdigest()
 
 
 def write_table(path, rows):
@@ -350,68 +412,22 @@ def _sigmoid_probabilities(logits):
     return probabilities
 
 
-def _event_sampled_hurdle_counts(trigger_logits, log_excess_means, rng):
-    """Sample each learned hurdle/count distribution at its own demand."""
-    probabilities = _sigmoid_probabilities(trigger_logits)
-    excess_means = _poisson_means(log_excess_means)
-    if len(probabilities) != len(excess_means):
-        raise RuntimeError("SPP hurdle/count row counts differ")
-    if not hasattr(rng, "binomial") or not hasattr(rng, "poisson"):
-        raise RuntimeError("event-local SPP count sampler is not a NumPy RNG")
-    counts = np.zeros(len(probabilities), dtype=np.int64)
-    maximum = int(np.iinfo(np.int64).max)
-    for index, (probability, excess_mean) in enumerate(zip(
-        probabilities, excess_means
-    )):
-        try:
-            trigger = int(rng.binomial(1, float(probability)))
-        except (TypeError, ValueError, OverflowError) as exc:
-            raise RuntimeError("invalid learned SPP Bernoulli distribution") from exc
-        if trigger:
-            try:
-                extra = int(rng.poisson(float(excess_mean)))
-            except (TypeError, ValueError, OverflowError) as exc:
-                raise RuntimeError("invalid learned SPP Poisson distribution") from exc
-            if extra < 0 or extra >= maximum:
-                raise RuntimeError("SPP positive count exceeds host domain")
-            counts[index] = 1 + extra
-    return counts
-
-
-def _sample_categorical(probabilities, rng):
-    """Sample a finite learned distribution without a selected cutoff."""
-    probabilities = np.asarray(probabilities, dtype=np.float64)
-    if (
-        probabilities.ndim != 1 or not len(probabilities) or
-        not np.all(np.isfinite(probabilities))
-        or np.any(probabilities < 0.0)
-    ):
-        raise RuntimeError("invalid learned categorical distribution")
-    total = float(probabilities.sum())
-    if not math.isfinite(total) or total <= 0.0:
-        raise RuntimeError("learned fill distribution has no probability mass")
-    try:
-        return int(rng.choice(
-            len(probabilities), p=probabilities / total
-        ))
-    except (TypeError, ValueError, OverflowError) as exc:
-        raise RuntimeError("failed to sample learned categorical distribution") from exc
-
-
-def _decoder_rngs(seed, count):
-    """Derive reproducible independent RNG streams from the run seed."""
-    if count < 1:
-        raise RuntimeError("decoder RNG count must be positive")
-    root = np.random.RandomState(int(seed))
-    upper = int(np.iinfo(np.int32).max)
-    seeds = root.randint(0, upper, size=count)
-    return [np.random.RandomState(int(value)) for value in seeds], [
-        int(value) for value in seeds
+def canonical_joint_pair_order(means):
+    """Order joint classes by delta mean, fill label, then original index."""
+    means = np.asarray(means, dtype=np.float64)
+    components = canonical_component_order(means)
+    pairs = [
+        (int(component), fill_class)
+        for component in components
+        for fill_class in range(len(FILL_LEVELS))
     ]
+    return sorted(pairs, key=lambda pair: (
+        float(means[pair[0]]), pair[1], pair[0]
+    ))
 
 
 class CompactSPPActionDecoder(nn.Module):
-    """Threshold-free variable-cardinality direct-delta/fill decoder."""
+    """Threshold-free decoder with joint delta-component/fill probabilities."""
 
     def __init__(self, hidden_size):
         super().__init__()
@@ -419,16 +435,35 @@ class CompactSPPActionDecoder(nn.Module):
         self.trigger_logit = nn.Linear(hidden_size, 1)
         self.log_positive_excess_mean = nn.Linear(hidden_size, 1)
         self.action_cell = nn.GRUCell(1 + len(FILL_LEVELS), hidden_size)
-        self.delta_head = nn.Linear(
-            hidden_size, 3 * MIXTURE_COMPONENTS
+        self.joint_action_head = nn.Linear(
+            hidden_size,
+            MIXTURE_COMPONENTS * len(FILL_LEVELS) + 2 * MIXTURE_COMPONENTS,
         )
-        self.fill_head = nn.Linear(hidden_size, len(FILL_LEVELS))
 
     def distribution(self, state):
-        raw = self.delta_head(state)
-        mix, mean, raw_scale = raw.chunk(3, dim=-1)
+        raw = self.joint_action_head(state)
+        joint_width = MIXTURE_COMPONENTS * len(FILL_LEVELS)
+        joint, mean, raw_scale = torch.split(
+            raw,
+            [joint_width, MIXTURE_COMPONENTS, MIXTURE_COMPONENTS],
+            dim=-1,
+        )
+        joint = joint.reshape(
+            -1, MIXTURE_COMPONENTS, len(FILL_LEVELS)
+        )
         scale = F.softplus(raw_scale) + torch.finfo(raw_scale.dtype).tiny
-        return mix, mean, scale, self.fill_head(state)
+        return joint, mean, scale
+
+    @staticmethod
+    def marginals(joint_logits, mean):
+        flat = joint_logits.reshape(joint_logits.shape[0], -1)
+        joint_probabilities = F.softmax(flat, dim=-1).reshape_as(joint_logits)
+        component_probabilities = joint_probabilities.sum(dim=-1)
+        fill_probabilities = joint_probabilities.sum(dim=1)
+        expected_coordinate = (
+            component_probabilities * mean
+        ).sum(dim=-1)
+        return joint_probabilities, expected_coordinate, fill_probabilities
 
     def advance(
         self, state, predicted_coordinate, predicted_fill_probabilities,
@@ -459,9 +494,9 @@ class CompactSPPLSTM(nn.Module):
 
 
 def expected_parameter_count(hidden_size):
-    # LSTM(65,H), hurdle/excess heads, GRU(H,3),
-    # four-component delta mixture, and two-class fill head.
-    return 7 * hidden_size * hidden_size + 299 * hidden_size + 16
+    # LSTM(59,H), hurdle/excess heads, GRU(H,3), and one joint
+    # 4-component-by-2-fill action distribution with four means/scales.
+    return 7 * hidden_size * hidden_size + 277 * hidden_size + 18
 
 
 def _detach_state(state):
@@ -508,8 +543,7 @@ def _structured_loss(model, context, counts, deltas, fills):
             full=False, reduction="sum",
         )
 
-    delta_sum = context.new_zeros(())
-    fill_sum = context.new_zeros(())
+    joint_sum = context.new_zeros(())
     action_atoms = 0
     state = decision_context
     for step in range(decision_deltas.shape[1]):
@@ -519,33 +553,36 @@ def _structured_loss(model, context, counts, deltas, fills):
             break
         indices = torch.nonzero(active, as_tuple=False).squeeze(1)
         active_state = state.index_select(0, indices)
-        mix, mean, scale, fill_logits = model.decoder.distribution(
-            active_state
-        )
+        joint_logits, mean, scale = model.decoder.distribution(active_state)
         target = decision_deltas[active, step]
         log_component = (
             -0.5 * ((target.unsqueeze(1) - mean) / scale).square()
             - torch.log(scale)
             - 0.5 * math.log(2.0 * math.pi)
         )
-        delta_sum = delta_sum - torch.logsumexp(
-            F.log_softmax(mix, dim=-1) + log_component, dim=-1
-        ).sum()
         target_fill = decision_fills[active, step]
-        fill_sum = fill_sum + F.cross_entropy(
-            fill_logits, target_fill, reduction="sum"
-        )
+        joint_log_probabilities = F.log_softmax(
+            joint_logits.reshape(active_atoms, -1), dim=-1
+        ).reshape_as(joint_logits)
+        selected_fill_log_probabilities = joint_log_probabilities.gather(
+            2,
+            target_fill.reshape(-1, 1, 1).expand(
+                -1, MIXTURE_COMPONENTS, 1
+            ),
+        ).squeeze(-1)
+        joint_sum = joint_sum - torch.logsumexp(
+            selected_fill_log_probabilities + log_component, dim=-1
+        ).sum()
         action_atoms += active_atoms
 
-        # Teacher targets above are loss-only. Recurrent feedback is the
-        # model's complete delta-mixture expectation and learned fill
-        # distribution, exactly as in inference. Sampled emitted actions and
-        # discrete teacher actions never enter the recurrent feedback path.
-        mixture_probabilities = F.softmax(mix, dim=-1)
-        predicted_coordinate = (
-            mixture_probabilities * mean
-        ).sum(dim=-1)
-        predicted_fill_probabilities = F.softmax(fill_logits, dim=-1)
+        # The loss uses teacher delta/fill labels, but recurrent feedback uses
+        # the complete learned joint distribution in both training and
+        # inference.  Neither sampled outputs nor teacher actions are fed back.
+        (
+            _, predicted_coordinate, predicted_fill_probabilities,
+        ) = model.decoder.marginals(
+            joint_logits, mean
+        )
         advanced = model.decoder.advance(
             active_state, predicted_coordinate,
             predicted_fill_probabilities,
@@ -557,19 +594,14 @@ def _structured_loss(model, context, counts, deltas, fills):
         excess_sum / float(positive_atoms)
         if positive_atoms else context.new_zeros(())
     )
-    mean_delta = (
-        delta_sum / float(action_atoms)
+    mean_joint = (
+        joint_sum / float(action_atoms)
         if action_atoms else context.new_zeros(())
     )
-    mean_fill = (
-        fill_sum / float(action_atoms)
-        if action_atoms else context.new_zeros(())
-    )
-    return mean_trigger + mean_excess + mean_delta + mean_fill, {
+    return mean_trigger + mean_excess + mean_joint, {
         "trigger_nll_sum": float(trigger_sum.detach().item()),
         "positive_excess_nll_sum": float(excess_sum.detach().item()),
-        "delta_nll_sum": float(delta_sum.detach().item()),
-        "fill_nll_sum": float(fill_sum.detach().item()),
+        "joint_delta_fill_nll_sum": float(joint_sum.detach().item()),
         "decision_atoms": decision_atoms,
         "positive_atoms": positive_atoms,
         "action_atoms": action_atoms,
@@ -594,8 +626,7 @@ def train_model(
         totals = {
             "trigger_nll_sum": 0.0,
             "positive_excess_nll_sum": 0.0,
-            "delta_nll_sum": 0.0,
-            "fill_nll_sum": 0.0,
+            "joint_delta_fill_nll_sum": 0.0,
             "decision_atoms": 0,
             "positive_atoms": 0,
             "action_atoms": 0,
@@ -639,22 +670,21 @@ def train_model(
                 totals["positive_excess_nll_sum"]
                 / max(1, totals["positive_atoms"])
             ),
-            "delta_nll_per_action": (
-                totals["delta_nll_sum"]
-                / max(1, totals["action_atoms"])
-            ),
-            "fill_nll_per_action": (
-                totals["fill_nll_sum"]
+            "joint_delta_fill_nll_per_action": (
+                totals["joint_delta_fill_nll_sum"]
                 / max(1, totals["action_atoms"])
             ),
             "chronological_chunks": len(chunks),
             "optimizer_steps": steps,
         }
         history.append(row)
-        print("[train:spp-lstm] epoch={} trigger={:.8f} excess={:.8f} delta={:.8f} fill={:.8f}".format(
+        print((
+            "[train:spp-lstm] epoch={} trigger={:.8f} "
+            "excess={:.8f} joint={:.8f}"
+        ).format(
             epoch, row["trigger_nll_per_decision"],
             row["positive_excess_nll_per_positive_decision"],
-            row["delta_nll_per_action"], row["fill_nll_per_action"],
+            row["joint_delta_fill_nll_per_action"],
         ))
     return history
 
@@ -695,16 +725,18 @@ def advance_lstm_state(model, runtime, device, initial_state=None):
 
 def decode_actions(
     model, trigger_logits, log_excess_means, contexts, base_lines, device,
-    count_rng, delta_rng, fill_rng, materialize=True,
+    event_keys, decoder_seed, role, materialize=True,
     chunk_len=8192,
 ):
     if not (
         len(trigger_logits) == len(log_excess_means)
-        == len(contexts) == len(base_lines)
+        == len(contexts) == len(base_lines) == len(event_keys)
     ):
         raise RuntimeError("SPP decoder row counts differ")
-    counts = _event_sampled_hurdle_counts(
-        trigger_logits, log_excess_means, count_rng,
+    counts = event_keyed_hurdle_counts(
+        _sigmoid_probabilities(trigger_logits),
+        _poisson_means(log_excess_means),
+        event_keys, decoder_seed, TRACE, POLICY, role,
     )
     predicted_lines = (
         [[] for _ in range(len(counts))] if materialize else None
@@ -717,7 +749,6 @@ def decode_actions(
         for start, stop in _iter_chunks(len(counts), chunk_len):
             state = torch.from_numpy(contexts[start:stop]).to(device)
             local_counts = counts[start:stop]
-            local_distributions = [[] for _ in range(len(local_counts))]
             steps = int(local_counts.max()) if len(local_counts) else 0
             for step in range(steps):
                 active_numpy = np.flatnonzero(local_counts > step)
@@ -727,34 +758,31 @@ def decode_actions(
                     device=device, dtype=torch.long
                 )
                 active_state = state.index_select(0, active)
-                mix, mean, _, fill_logits = model.decoder.distribution(
-                    active_state
-                )
-                mixture_probabilities = F.softmax(mix, dim=-1)
-                feedback_coordinate = (
-                    mixture_probabilities * mean
-                ).sum(dim=-1)
-                fill_probabilities = F.softmax(fill_logits, dim=-1)
-                for local_position, mixture_row, mean_row, fill_row in zip(
-                    active_numpy, mixture_probabilities.cpu().numpy(),
-                    mean.cpu().numpy(), fill_probabilities.cpu().numpy(),
-                ):
-                    local_distributions[int(local_position)].append(
-                        (mixture_row, mean_row, fill_row)
-                    )
-                advanced = model.decoder.advance(
-                    active_state, feedback_coordinate, fill_probabilities
-                )
-                state = state.index_copy(0, active, advanced)
-            # Apply all output samples in callback-major/action-major order.
-            # Each choice belongs to the callback whose learned distribution
-            # produced it; no probability credit is carried to another event.
-            for local_position, distributions in enumerate(local_distributions):
-                global_position = start + local_position
-                for mixture_row, mean_row, fill_row in distributions:
-                    component = _sample_categorical(mixture_row, delta_rng)
-                    fill_choice = _sample_categorical(fill_row, fill_rng)
-                    if materialize:
+                joint_logits, mean, _ = model.decoder.distribution(active_state)
+                (
+                    joint_probabilities, feedback_coordinate,
+                    fill_probabilities,
+                ) = model.decoder.marginals(joint_logits, mean)
+                if materialize:
+                    for local_position, joint_row, mean_row in zip(
+                        active_numpy, joint_probabilities.cpu().numpy(),
+                        mean.cpu().numpy(),
+                    ):
+                        global_position = start + int(local_position)
+                        pair_order = canonical_joint_pair_order(mean_row)
+                        ordered_pairs = np.asarray([
+                            joint_row[component, fill_class]
+                            for component, fill_class in pair_order
+                        ], dtype=np.float64)
+                        pair_choice = categorical_icdf(
+                            ordered_pairs,
+                            keyed_uniform(
+                                decoder_seed, TRACE, POLICY, role,
+                                event_keys[global_position],
+                                "joint_delta_fill", step,
+                            ),
+                        )
+                        component, fill_choice = pair_order[pair_choice]
                         delta = _coordinate_to_delta(mean_row[component])
                         predicted_lines[global_position].append(
                             apply_signed_line_delta(
@@ -762,7 +790,27 @@ def decode_actions(
                             )
                         )
                         predicted_fills[global_position].append(fill_choice)
+                advanced = model.decoder.advance(
+                    active_state, feedback_coordinate, fill_probabilities
+                )
+                state = state.index_copy(0, active, advanced)
     return counts, predicted_lines, predicted_fills
+
+
+def decoder_sampling_coordinates(event_keys, counts):
+    """Enumerate the exact stateless coordinates consumed by this replay."""
+    if len(event_keys) != len(counts):
+        raise RuntimeError("SPP schedule row counts differ")
+    coordinates = []
+    for event_key, count in zip(event_keys, counts):
+        count = int(count)
+        if count < 0:
+            raise RuntimeError("SPP schedule contains a negative action count")
+        coordinates.append((event_key, "request_trigger", 0))
+        coordinates.append((event_key, "request_excess", 0))
+        for action_rank in range(count):
+            coordinates.append((event_key, "joint_delta_fill", action_rank))
+    return coordinates
 
 
 
@@ -820,55 +868,94 @@ def trigger_behavior_metrics(predicted_counts, teacher_actions):
     }
 
 
+def joint_label_diagnostics(targets):
+    """Summarize whether target delta coordinates depend on fill class."""
+    counts, deltas, fills = targets
+    coordinates = []
+    fill_classes = []
+    for row, count in enumerate(np.asarray(counts, dtype=np.int64)):
+        if count < 0:
+            continue
+        for action_rank in range(int(count)):
+            coordinate = float(deltas[row, action_rank])
+            fill_class = int(fills[row, action_rank])
+            if not math.isfinite(coordinate) or fill_class not in (0, 1):
+                raise RuntimeError("invalid SPP joint training label")
+            coordinates.append(coordinate)
+            fill_classes.append(fill_class)
+    coordinate_array = np.asarray(coordinates, dtype=np.float64)
+    fill_array = np.asarray(fill_classes, dtype=np.int64)
+    by_fill = {}
+    for fill_class, fill_level in enumerate(FILL_LEVELS):
+        selected = coordinate_array[fill_array == fill_class]
+        by_fill[str(fill_level)] = {
+            "actions": int(len(selected)),
+            "mean_delta_coordinate": (
+                float(selected.mean()) if len(selected) else None
+            ),
+            "std_delta_coordinate": (
+                float(selected.std()) if len(selected) else None
+            ),
+        }
+    correlation = None
+    if (
+        len(coordinate_array) > 1 and len(np.unique(fill_array)) == 2
+        and float(coordinate_array.std()) > 0.0
+    ):
+        candidate = float(np.corrcoef(coordinate_array, fill_array)[0, 1])
+        correlation = candidate if math.isfinite(candidate) else None
+    return {
+        "actions": int(len(coordinate_array)),
+        "by_fill_level": by_fill,
+        "delta_coordinate_fill_point_biserial_correlation": correlation,
+    }
+
+
 def self_test_model(hidden_size):
-    model = CompactSPPLSTM(RUNTIME_FEATURES, hidden_size)
-    observed = sum(parameter.numel() for parameter in model.parameters())
-    expected = expected_parameter_count(hidden_size)
-    if observed != expected:
-        raise RuntimeError(
-            "compact SPP parameter formula mismatch: {} != {}".format(
-                observed, expected
+    expected_points = {
+        8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162,
+    }
+    for size, expected in expected_points.items():
+        point = CompactSPPLSTM(RUNTIME_FEATURES, size)
+        observed = sum(parameter.numel() for parameter in point.parameters())
+        if observed != expected or observed != expected_parameter_count(size):
+            raise RuntimeError(
+                "compact SPP parameter formula mismatch at h{}: {} != {}".format(
+                    size, observed, expected
+                )
             )
-        )
+    model = CompactSPPLSTM(RUNTIME_FEATURES, hidden_size)
+    self_test_keyed_crn()
     low_logits = np.full(4096, -4.0, dtype=np.float64)
     high_logits = np.full(4096, 4.0, dtype=np.float64)
     log_excess = np.zeros(4096, dtype=np.float64)
-    test_counts = _event_sampled_hurdle_counts(
-        np.concatenate([low_logits, high_logits]),
-        np.concatenate([log_excess, log_excess]),
-        np.random.RandomState(1701),
+    test_keys = ["self_test={}".format(index) for index in range(8192)]
+    test_counts = event_keyed_hurdle_counts(
+        _sigmoid_probabilities(np.concatenate([low_logits, high_logits])),
+        _poisson_means(np.concatenate([log_excess, log_excess])),
+        test_keys, 1701, TRACE, POLICY, "self_test",
     )
-    repeated_counts = _event_sampled_hurdle_counts(
-        np.concatenate([low_logits, high_logits]),
-        np.concatenate([log_excess, log_excess]),
-        np.random.RandomState(1701),
+    repeated_counts = event_keyed_hurdle_counts(
+        _sigmoid_probabilities(np.concatenate([low_logits, high_logits])),
+        _poisson_means(np.concatenate([log_excess, log_excess])),
+        test_keys, 1701, TRACE, POLICY, "self_test",
     )
     if not np.array_equal(test_counts, repeated_counts):
-        raise RuntimeError("SPP event-local count sampling is not reproducible")
+        raise RuntimeError("SPP keyed count sampling is not reproducible")
     if np.count_nonzero(test_counts[4096:]) <= np.count_nonzero(
         test_counts[:4096]
     ):
         raise RuntimeError("SPP sampling ignored learned trigger mass")
-    large_counts = _event_sampled_hurdle_counts(
-        np.asarray([100.0]), np.log(np.asarray([256.0])),
-        np.random.RandomState(2718),
+    large_counts = event_keyed_hurdle_counts(
+        np.asarray([1.0]), np.asarray([256.0]), ["large_count"],
+        2718, TRACE, POLICY, "self_test",
     )
     if large_counts[0] <= 2:
         raise RuntimeError("SPP positive count support appears degree capped")
-    choices_a = [
-        _sample_categorical(
-            np.asarray([0.25, 0.75]), np.random.RandomState(seed)
-        )
-        for seed in range(64)
-    ]
-    choices_b = [
-        _sample_categorical(
-            np.asarray([0.25, 0.75]), np.random.RandomState(seed)
-        )
-        for seed in range(64)
-    ]
-    if choices_a != choices_b or len(set(choices_a)) != len(FILL_LEVELS):
-        raise RuntimeError("SPP categorical sampling collapsed a learned class")
+    if categorical_icdf(np.asarray([0.25, 0.75]), 0.1) != 0:
+        raise RuntimeError("SPP joint categorical inverse CDF lost class zero")
+    if categorical_icdf(np.asarray([0.25, 0.75]), 0.9) != 1:
+        raise RuntimeError("SPP joint categorical inverse CDF lost class one")
     loss_source = inspect.getsource(_structured_loss)
     forbidden = (
         "advance(active_state, target",
@@ -877,16 +964,41 @@ def self_test_model(hidden_size):
         "weight" + "=",
         "fill_logits.argmax",
         "mix.argmax",
+        "fill_head",
     )
     if any(token in loss_source for token in forbidden):
         raise RuntimeError(
             "structured SPP loss contains forbidden feedback or weighting"
         )
     required = (
+        "joint_log_probabilities", "selected_fill_log_probabilities",
         "predicted_fill_probabilities",
     )
     if any(token not in loss_source for token in required):
         raise RuntimeError("free-running decoder feedback evidence missing")
+
+    decoder_source = inspect.getsource(decode_actions)
+    decoder_required = (
+        "canonical_joint_pair_order", "joint_delta_fill", "keyed_uniform",
+    )
+    if any(token not in decoder_source for token in decoder_required):
+        raise RuntimeError("joint keyed SPP decoder evidence missing")
+    if "raw_event_id" in decoder_source or "RandomState" in decoder_source:
+        raise RuntimeError("SPP decoder uses forbidden identity or RNG state")
+    if canonical_joint_pair_order([0.0, 0.0, 1.0, 2.0])[:4] != [
+        (0, 0), (1, 0), (0, 1), (1, 1),
+    ]:
+        raise RuntimeError("SPP joint pair canonicalization order changed")
+
+    encoded = _unsigned_bits([0, 1, (1 << LINE_ADDRESS_BITS) - 1],
+                             LINE_ADDRESS_BITS)
+    if encoded.shape != (3, LINE_ADDRESS_BITS):
+        raise RuntimeError("compact SPP line encoder width changed")
+    if (
+        encoded[0].any() or encoded[1, 0] != 1.0
+        or encoded[1, 1:].any() or not encoded[2].all()
+    ):
+        raise RuntimeError("compact SPP line encoder is not lossless")
 
     model.eval()
     prefix = np.zeros((1, 5, RUNTIME_FEATURES), dtype=np.float32)
@@ -902,7 +1014,7 @@ def self_test_model(hidden_size):
 def model_tag(family, size):
     if family != "lstm":
         raise RuntimeError("623 SPP track is LSTM-only")
-    return "independent_delta_spp_lstm_h{}".format(size)
+    return "joint_delta_fill_spp_lstm_h{}".format(size)
 
 
 def run_cli():
@@ -919,12 +1031,18 @@ def run_cli():
     parser.add_argument("--model-size", type=int, required=True)
     parser.add_argument("--pair-id", required=True)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument(
+        "--decoder-seed", type=int, default=None,
+        help="stateless decoder key seed; defaults to --seed",
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--chunk-len", type=int, default=1024)
     parser.add_argument("--accumulate-chunks", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=0.002)
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
+    if args.decoder_seed is None:
+        args.decoder_seed = args.seed
 
     source_contract = json.loads(args.source_contract.read_text())
     if source_contract.get("decision_effective_external_input") != SOURCE_INPUTS:
@@ -968,6 +1086,14 @@ def run_cli():
             raise RuntimeError(
                 "{} training/inference runtime encoder differs".format(role)
             )
+    event_keys = {
+        role: sampling_event_keys(streams[role]) for role in roles
+    }
+    if any(
+        len(event_keys[role]) != len(streams[role]["demands"])
+        for role in roles
+    ):
+        raise RuntimeError("SPP keyed sampler router row count changed")
 
     decision_targets = {
         role: targets_from_actions(
@@ -976,6 +1102,9 @@ def run_cli():
         )
         for role in roles
     }
+    training_joint_label_diagnostics = joint_label_diagnostics(
+        decision_targets["train"]
+    )
     context_targets = {
         role: expand_targets(
             decision_targets[role], streams[role]["demand_positions"],
@@ -1010,31 +1139,15 @@ def run_cli():
         args.chunk_len, args.accumulate_chunks, args.learning_rate,
     )
 
-    # Re-run the complete train -> guard -> eval chronology with fixed weights.
-    # LSTM state and reproducible decoder RNG streams cross role boundaries.
-    # Teacher actions are never fed back.
+    # Re-run the complete train -> guard -> eval input chronology with fixed
+    # weights.  Only the global LSTM state crosses role boundaries.  Decoder
+    # draws are stateless and only the eval role is decoded; train/guard burns
+    # are neither necessary nor allowed under the keyed schedule.
     encoded = {}
     recurrent_state = None
     for role in roles:
         encoded[role], recurrent_state = score_lstm(
             model, runtime[role], device, initial_state=recurrent_state
-        )
-
-    decoder_rngs, decoder_rng_seeds = _decoder_rngs(args.seed, 3)
-    count_rng, delta_rng, fill_rng = decoder_rngs
-    for role in ("train", "guard"):
-        demand_positions = streams[role]["demand_positions"]
-        trigger_logits, log_excess_means, contexts = (
-            value[demand_positions] for value in encoded[role]
-        )
-        base_lines = [
-            line for _, _, line, _ in streams[role]["demands"]
-        ]
-        decode_actions(
-            model, trigger_logits, log_excess_means,
-            contexts, base_lines, device,
-            count_rng, delta_rng, fill_rng,
-            materialize=False,
         )
 
     demand_positions = streams["eval"]["demand_positions"]
@@ -1047,8 +1160,11 @@ def run_cli():
     predicted_counts, predicted_lines, predicted_fills = decode_actions(
         model, trigger_logits, log_excess_means,
         contexts, base_lines, device,
-        count_rng, delta_rng, fill_rng,
+        event_keys["eval"], args.decoder_seed, "eval",
         materialize=True,
+    )
+    decoder_coordinates = decoder_sampling_coordinates(
+        event_keys["eval"], predicted_counts
     )
     behavior = behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills,
@@ -1076,6 +1192,11 @@ def run_cli():
         "runtime_features": RUNTIME_FEATURES,
         "fill_levels": FILL_LEVELS,
         "mixture_components": MIXTURE_COMPONENTS,
+        "joint_delta_fill_classes": (
+            MIXTURE_COMPONENTS * len(FILL_LEVELS)
+        ),
+        "decoder_seed": args.decoder_seed,
+        "sampler_revision": SAMPLER_REVISION,
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
     }, args.out_dir / "model.pt")
@@ -1091,12 +1212,66 @@ def run_cli():
         "model_size": args.model_size,
         "architecture_pair_id": args.pair_id,
         "parameter_count": parameter_count,
-        "seed": args.seed,
-        "decoder_rng_seeds": {
-            "request_count": decoder_rng_seeds[0],
-            "delta_component": decoder_rng_seeds[1],
-            "fill_class": decoder_rng_seeds[2],
+        "parameter_formula": "7*H^2 + 277*H + 18",
+        "configured_parameter_counts": {
+            "8": 2682, "16": 6242, "32": 16050,
+            "64": 46418, "128": 150162,
         },
+        "parameter_storage_bytes_float32": parameter_count * 4,
+        "peak_recurrent_state_bytes": args.model_size * 2 * 4,
+        "peak_persistent_recurrent_state_bytes": args.model_size * 2 * 4,
+        "peak_training_recurrent_state_bytes_float32": (
+            args.model_size * 2 * 4
+        ),
+        "peak_inference_recurrent_state_bytes_float32": (
+            args.model_size * 2 * 4
+        ),
+        "recurrent_state_bytes_per_global_stream": args.model_size * 2 * 4,
+        "recurrent_state_dtype": "float32",
+        "persistent_recurrent_state": (
+            "one global float32 LSTM hidden/cell pair"
+        ),
+        "seed": args.seed,
+        "decoder_seed": args.decoder_seed,
+        "decoder_sampler": sampler_metadata(),
+        "sampler_revision": SAMPLER_REVISION,
+        "decoder_sampler_revision": SAMPLER_REVISION,
+        "decoder_sampler_source_sha256": sampler_source_sha256(),
+        "decoder_sampler_key_schedule_sha256": key_schedule_sha256(),
+        "decoder_sampler_key_fields": list(KEY_FIELDS),
+        "decoder_key_fields": list(KEY_FIELDS),
+        "decoder_event_key_fields": [
+            "decision_index", "constant_DEMAND_kind", "source_line",
+        ],
+        "decoder_event_key_definition": (
+            "zero_based_role_decision_idx_plus_source_line"
+        ),
+        "decoder_event_key_uses_teacher_information": False,
+        "decoder_key_includes_sampler_revision": True,
+        "decoder_forbidden_key_fields": ["pc", "raw_teacher_event_id"],
+        "decoder_additional_forbidden_key_fields": [
+            "raw_event_id", "pf_event_id", "teacher_action_gap",
+        ],
+        "decoder_action_rank_origin": 0,
+        "decoder_eval_event_key_stream_sha256": key_stream_sha256(
+            event_keys["eval"]
+        ),
+        "decoder_eval_sampling_schedule_sha256": sampling_schedule_sha256(
+            args.decoder_seed, TRACE, POLICY, "eval", decoder_coordinates
+        ),
+        "decoder_eval_sampling_coordinates": len(decoder_coordinates),
+        "common_random_numbers_across_capacities": True,
+        "strict_common_random_numbers_across_capacities": True,
+        "cross_event_rng_state_used": False,
+        "train_guard_decoder_rng_burn_used": False,
+        "decoder_sampling_roles": ["eval"],
+        "decoder_train_sampling_performed": False,
+        "decoder_guard_sampling_performed": False,
+        "keyed_sampling_self_test": "PASS",
+        "stochastic_decoding": (
+            "stateless SHA-256 event-keyed inverse-CDF "
+            "common-random-number sampling"
+        ),
         "stochastic_decoding_reproducible": True,
         "epochs": args.epochs,
         "chunk_len": args.chunk_len,
@@ -1116,8 +1291,10 @@ def run_cli():
         ),
         "runtime_feature_count": RUNTIME_FEATURES,
         "runtime_encoding": (
-            "lossless callback-address uint64 bits plus callback-kind bit"
+            "lossless 58-bit cache-line number plus one DEMAND/FILL kind bit"
         ),
+        "runtime_address_alignment_bits_removed": CACHE_LINE_SHIFT,
+        "runtime_address_alignment_bits_were_constant_zero": True,
         "source_decision_effective_external_input": SOURCE_INPUTS,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
@@ -1134,6 +1311,7 @@ def run_cli():
         "inference_runtime_encoder_sha256": runtime_encoder_sha256(),
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
+        "decision_router_source_sha256": decision_router_source_sha256(),
         "model_does_not_use_pc": True,
         "pc_is_replay_transport_only": True,
         "model_input_is_causal_external_event_sequence_only": True,
@@ -1154,8 +1332,8 @@ def run_cli():
             "cache-line deltas and learned fill"
         ),
         "decision_rule": (
-            "event_local_bernoulli_then_conditional_poisson_with_"
-            "categorical_delta_mixture_and_fill_sampling"
+            "keyed_bernoulli_then_conditional_poisson_with_single_"
+            "joint_delta_component_fill_inverse_cdf_sample"
         ),
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
@@ -1168,35 +1346,51 @@ def run_cli():
         "manual_loss_weights_used": False,
         "gate_class_weighting_used": False,
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "event_local_bernoulli_sample",
+        "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
         "gate_operating_point_learned_from_empirical_prior": False,
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "event_local_bernoulli_hurdle_plus_conditional_poisson_sample"
+            "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf"
         ),
         "request_count_residual_scope": "none_event_local",
         "request_count_training_label_statistics": (
             request_count_training_label_statistics
         ),
-        "fill_training_objective": "unweighted_categorical_nll",
-        "fill_decoding_rule": "event_local_categorical_sample",
+        "joint_delta_fill_dependency_modeled": True,
+        "joint_delta_fill_class_count": (
+            MIXTURE_COMPONENTS * len(FILL_LEVELS)
+        ),
+        "joint_pair_classes": MIXTURE_COMPONENTS * len(FILL_LEVELS),
+        "joint_delta_fill_training_objective": (
+            "unweighted_joint_delta_component_fill_mixture_nll"
+        ),
+        "joint_delta_fill_decoding_rule": (
+            "event_keyed_mean_sorted_joint_pair_inverse_cdf"
+        ),
+        "joint_component_canonicalization": (
+            "ascending_delta_mean_then_fill_label_then_original_component"
+        ),
+        "fill_training_objective": (
+            "joint_with_delta_component_unweighted_mixture_nll"
+        ),
+        "fill_decoding_rule": "single_joint_delta_fill_pair_sample",
         "fill_argmax_used": False,
         "fill_probability_feedback_used": True,
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
         "sampled_outputs_used_as_decoder_feedback": False,
         "delta_mixture_decoding_rule": (
-            "event_local_categorical_component_sample_then_component_mean"
+            "single_joint_component_fill_sample_then_component_mean"
         ),
         "delta_decoder_feedback_rule": (
-            "complete_mixture_expectation_same_in_training_and_inference"
+            "complete_joint_distribution_expectation_same_in_training_and_inference"
         ),
         "loss_design": (
             "unweighted trigger NLL mean plus positive-excess Poisson NLL "
-            "mean plus direct-delta mixture NLL mean plus unweighted fill "
-            "NLL mean; unit sum with no manually tuned coefficients"
+            "mean plus joint direct-delta-component/fill mixture NLL mean; "
+            "unit sum with no manually tuned coefficients"
         ),
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
@@ -1204,6 +1398,9 @@ def run_cli():
         "address_interface_bits": ADDRESS_BITS,
         "cache_line_bytes": CACHE_LINE_BYTES,
         "decoder_mixture_components": MIXTURE_COMPONENTS,
+        "joint_delta_fill_training_label_diagnostics": (
+            training_joint_label_diagnostics
+        ),
         "eviction_feedback_role": (
             "raw chronological input event only; no private SPP state "
             "and no separate eviction prediction target"
@@ -1228,11 +1425,11 @@ def run_cli():
         "inference_history_mode": (
             "fresh_state_then_complete_train_guard_eval_chronology"
         ),
+        "decoder_roles_sampled": ["eval"],
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "causal_no_future_self_test": "PASS",
         "event_local_hurdle_count_self_test": "PASS",
-        "event_local_mixture_sampling_self_test": "PASS",
-        "event_local_fill_sampling_self_test": "PASS",
+        "joint_delta_fill_sampling_self_test": "PASS",
         "cnn_temporal_layers": 0,
         "cnn_kernel_size": 0,
         "cnn_stride": 0,
@@ -1248,6 +1445,15 @@ def run_cli():
         "canonicalization_mode": CANONICALIZATION_MODE,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "replay_preserves_explicit_fill_level": True,
+        "same_source_input_offline_claim_allowed": True,
+        "closed_loop_live_claim_allowed": False,
+        "offline_input_feedback_origin": (
+            "recorded cache-fill callbacks produced by the source SPP run"
+        ),
+        "comparison_claim_boundary": (
+            "matched-input open-loop offline comparison only; live NN actions "
+            "were not used to regenerate cache-fill feedback"
+        ),
         "source_contract_sha256": sha256(args.source_contract),
         "offline_normal_entries": normal_entries,
         "offline_normal_triggers": normal_triggers,
@@ -1267,6 +1473,12 @@ def run_cli():
         "numpy": np.__version__,
     }
     for role in roles:
+        metadata[role + "_decision_router_sha256"] = decision_router_sha256(
+            streams[role]
+        )
+        metadata[role + "_decoder_event_key_stream_sha256"] = (
+            key_stream_sha256(event_keys[role])
+        )
         metadata[role + "_stream_gzip_sha256"] = sha256(
             stream_paths[role]
         )

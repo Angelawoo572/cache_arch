@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Historical v7 input repackager retained for reproducibility only.
 # Repackage already-collected streams for the source-input-fair neural runs.
 # Every .csv.gz file is copied byte-for-byte and checked with cmp.  Only the
 # generated manifest/SHA256SUMS and archive container are new.
@@ -17,7 +18,7 @@ Collect once in each standalone LSTM policy directory, then use
 stage_623_split_inputs.sh to create the byte-identical CNN input archive.
 
 Example:
-  bash formal_NN_training/experiments/stage_direct_action_inputs.sh \
+  bash formal_NN_training/legacy/scripts/direct_action_split_workflow/stage_direct_action_inputs.sh \
     602-stride 602_offline_lstm_stride_stateful_v2_seed7 \
     602_offline_lstm_stride_variable_delta_free_running_v7_seed7
 EOF

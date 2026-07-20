@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Historical v7/v9/v11 seven-track launcher retained for reproducibility only.
 # Start all source-input-fair neural replay/analyze pipelines concurrently.
 # Each per-experiment launcher uses nohup.  ChampSim builds remain serialized by
 # the repository-wide build lock; completed builds then replay concurrently.
