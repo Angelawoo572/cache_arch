@@ -4,25 +4,26 @@
 Training and inference receive exactly the source-visible PC and cache-line
 address.  Teacher requests supervise the model but are never inference inputs.
 
-The v10 balanced hurdle fixed an earlier all-zero collapse, but its inverse-
-frequency gate over-corrected the sparse 623 Stride prior and over-issued at
-every measured capacity.  A single integrated mean would correct the total
-request volume but smear Stride's near-two-action bursts across neighbouring
-callbacks.  This revision instead fixes the full zero/positive/count decision
-without adding capacity, a threshold, a degree limit, a candidate table, a
-page rule, or normal-policy state:
+The v10 balanced hurdle over-issued, while the v13 probability-mass scheduler
+preserved aggregate request volume by carrying credit between callbacks.  That
+credit can move a request from a high-probability callback to a later
+low-probability callback, which is precisely the wrong trade for prefetch
+timeliness.  This revision therefore models and samples the complete local
+action distribution at each callback without adding capacity, a threshold, a
+degree limit, a candidate table, a page rule, or normal-policy state:
 
 * recurrent state is dynamically routed by the observed PC, with no fixed
   tracker capacity;
 * an unweighted Bernoulli hurdle and positive-count Poisson are fit by ordinary
   maximum likelihood;
-* a causal per-PC probability-mass scheduler converts the learned hurdle
-  distribution to zero/positive decisions, while a residual integrator emits
-  the learned unbounded positive excess count.  No selected probability cutoff
-  or normal Stride degree enters either decision;
+* an event-local Bernoulli sample realizes the learned hurdle and a conditional
+  Poisson sample realizes the learned unbounded positive excess count.  A fixed
+  experiment seed makes replay reproducible; no selected probability cutoff or
+  normal Stride degree enters either decision;
 * one shared single-layer LSTM supplies both decision and action context;
 * a lightweight autoregressive three-component mixture learns direct signed
-  deltas without averaging incompatible address modes.
+  deltas.  Emitted deltas sample a learned component, while recurrent feedback
+  uses the complete mixture expectation in both training and inference.
 """
 import argparse
 import csv
@@ -57,7 +58,7 @@ from formal_NN_training.common.threshold_free_policy import (
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_mass_hurdle_mixture_v13"
+MODEL_REVISION = "compact_pc_keyed_event_sampled_mixture_v14"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = ["pc", "addr"]
@@ -286,54 +287,62 @@ def _sigmoid_probabilities(logits):
     return probabilities
 
 
-def _binary_probability_mass_choice(positive_probability, credits):
-    """Quantize cumulative Bernoulli mass without a selected cutoff."""
-    probability = float(positive_probability)
-    credits = np.asarray(credits, dtype=np.float64).copy()
-    if (
-        not math.isfinite(probability) or probability < 0.0
-        or probability > 1.0 or credits.shape != (2,)
-        or not np.all(np.isfinite(credits))
-    ):
-        raise RuntimeError("invalid trigger probability mass")
-    credits += np.asarray([1.0 - probability, probability])
-    choice = int(np.argmax(credits))
-    credits[choice] -= 1.0
-    return choice, credits
-
-
-def _mass_hurdle_counts(
-    trigger_logits, log_excess_means, pc_keys, states=None,
+def _event_sampled_hurdle_counts(
+    trigger_logits, log_excess_means, rng,
 ):
-    """Causally decode learned hurdle mass and unbounded positive excess."""
+    """Sample each learned hurdle/count distribution at its own callback."""
     probabilities = _sigmoid_probabilities(trigger_logits)
     excess_means = _poisson_means(log_excess_means)
-    if len(probabilities) != len(excess_means) or len(probabilities) != len(pc_keys):
-        raise RuntimeError("request hurdle/PC row counts differ")
-    states = {} if states is None else {
-        key: (np.asarray(value[0], dtype=np.float64).copy(), float(value[1]))
-        for key, value in states.items()
-    }
+    if len(probabilities) != len(excess_means):
+        raise RuntimeError("request hurdle/count row counts differ")
+    if not hasattr(rng, "binomial") or not hasattr(rng, "poisson"):
+        raise RuntimeError("event-local count sampler is not a NumPy RNG")
     counts = np.zeros(len(probabilities), dtype=np.int64)
-    maximum = float(np.iinfo(np.int64).max)
-    for index, (probability, excess_mean, pc) in enumerate(zip(
-        probabilities, excess_means, pc_keys
+    maximum = int(np.iinfo(np.int64).max)
+    for index, (probability, excess_mean) in enumerate(zip(
+        probabilities, excess_means
     )):
-        trigger_credits, excess_residual = states.get(
-            pc, (np.zeros(2, dtype=np.float64), 0.0)
-        )
-        trigger, trigger_credits = _binary_probability_mass_choice(
-            probability, trigger_credits
-        )
+        try:
+            trigger = int(rng.binomial(1, float(probability)))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("invalid learned Bernoulli distribution") from exc
         if trigger:
-            total = excess_residual + float(excess_mean)
-            if not math.isfinite(total) or total > maximum - 1.0:
+            try:
+                extra = int(rng.poisson(float(excess_mean)))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError("invalid learned Poisson distribution") from exc
+            if extra < 0 or extra >= maximum:
                 raise RuntimeError("positive request count exceeds host domain")
-            extra = int(math.floor(total))
-            excess_residual = total - float(extra)
             counts[index] = 1 + extra
-        states[pc] = (trigger_credits, excess_residual)
-    return counts, states
+    return counts
+
+
+def _sample_categorical(probabilities, rng):
+    """Sample a finite learned distribution without a selected cutoff."""
+    values = np.asarray(probabilities, dtype=np.float64)
+    if values.ndim != 1 or not len(values) or not np.all(np.isfinite(values)):
+        raise RuntimeError("invalid learned categorical distribution")
+    if np.any(values < 0.0):
+        raise RuntimeError("negative learned categorical probability")
+    total = float(values.sum())
+    if not math.isfinite(total) or total <= 0.0:
+        raise RuntimeError("learned categorical distribution has no mass")
+    try:
+        return int(rng.choice(len(values), p=values / total))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError("failed to sample learned categorical distribution") from exc
+
+
+def _decoder_rngs(seed, count):
+    """Derive reproducible independent RNG streams from the run seed."""
+    if count < 1:
+        raise RuntimeError("decoder RNG count must be positive")
+    root = np.random.RandomState(int(seed))
+    upper = int(np.iinfo(np.int32).max)
+    seeds = root.randint(0, upper, size=count)
+    return [np.random.RandomState(int(value)) for value in seeds], [
+        int(value) for value in seeds
+    ]
 
 
 class CompactDirectDeltaDecoder(nn.Module):
@@ -355,16 +364,15 @@ class CompactDirectDeltaDecoder(nn.Module):
         scale = F.softplus(raw_scale) + torch.finfo(raw_scale.dtype).tiny
         return mix, mean, scale
 
-    def coordinate(self, state):
+    def feedback_coordinate(self, state):
         mix, mean, _ = self.distribution(state)
-        component = mix.argmax(dim=-1, keepdim=True)
-        return mean.gather(1, component).squeeze(1)
+        return (F.softmax(mix, dim=-1) * mean).sum(dim=-1)
 
     def advance(self, state, predicted_coordinate):
         return self.action_cell(predicted_coordinate.reshape(-1, 1), state)
 
 
-class CompactPCKeyedMassStrideLSTM(nn.Module):
+class CompactPCKeyedSampledStrideLSTM(nn.Module):
     """One shared single-layer PC-keyed LSTM with lightweight heads."""
 
     def __init__(self, feature_count, hidden_size):
@@ -447,7 +455,7 @@ def _make_padded_batch(runtime, counts, deltas, batch, device):
     return padded_runtime, padded_counts, padded_deltas, lengths
 
 
-def _compact_mass_hurdle_mixture_loss(model, context, counts, deltas):
+def _compact_event_distribution_loss(model, context, counts, deltas):
     flat_context = context.reshape(-1, context.shape[-1])
     flat_counts = counts.reshape(-1)
     flat_deltas = deltas.reshape(-1, deltas.shape[-1])
@@ -489,8 +497,9 @@ def _compact_mass_hurdle_mixture_loss(model, context, counts, deltas):
         indices = torch.nonzero(active, as_tuple=False).squeeze(1)
         active_state = state.index_select(0, indices)
         mix, mean, scale = model.action_decoder.distribution(active_state)
-        component = mix.argmax(dim=-1, keepdim=True)
-        predicted_coordinate = mean.gather(1, component).squeeze(1)
+        predicted_coordinate = (
+            F.softmax(mix, dim=-1) * mean
+        ).sum(dim=-1)
         target = target_deltas[active, step]
         log_component = (
             -0.5 * ((target.unsqueeze(1) - mean) / scale).square()
@@ -559,7 +568,7 @@ def train_model(
             context = _encode_shared(
                 model, padded, lengths, recurrent_states, keys,
             )
-            loss, components = _compact_mass_hurdle_mixture_loss(
+            loss, components = _compact_event_distribution_loss(
                 model, context, count_batch, delta_batch,
             )
             if not torch.isfinite(loss):
@@ -660,7 +669,10 @@ def score_count_distribution(
     )
 
 
-def decode(model, context_numpy, counts, base_lines, device, chunk_len=8192):
+def decode(
+    model, context_numpy, counts, base_lines, device, rng,
+    materialize=True, chunk_len=8192,
+):
     counts = np.asarray(counts, dtype=np.int64)
     if not (
         len(context_numpy) == len(counts) == len(base_lines)
@@ -669,8 +681,12 @@ def decode(model, context_numpy, counts, base_lines, device, chunk_len=8192):
     if np.any(counts < 0):
         raise RuntimeError("negative decoded Stride request count")
 
-    predicted_lines = [[] for _ in range(len(counts))]
-    predicted_fills = [[] for _ in range(len(counts))]
+    predicted_lines = (
+        [[] for _ in range(len(counts))] if materialize else None
+    )
+    predicted_fills = (
+        [[] for _ in range(len(counts))] if materialize else None
+    )
     with torch.no_grad():
         for start in range(0, len(counts), chunk_len):
             stop = min(start + chunk_len, len(counts))
@@ -679,6 +695,7 @@ def decode(model, context_numpy, counts, base_lines, device, chunk_len=8192):
             ).to(device)
             state = model.action_decoder.begin(chunk_context)
             local_counts = counts[start:stop]
+            local_distributions = [[] for _ in range(len(local_counts))]
             steps = int(local_counts.max()) if len(local_counts) else 0
             for step in range(steps):
                 active_numpy = np.flatnonzero(local_counts > step)
@@ -688,22 +705,34 @@ def decode(model, context_numpy, counts, base_lines, device, chunk_len=8192):
                     device=device, dtype=torch.long
                 )
                 active_state = state.index_select(0, active)
-                coordinate = model.action_decoder.coordinate(active_state)
-                for local_position, value in zip(
-                    active_numpy, coordinate.cpu().numpy()
+                mix, mean, _ = model.action_decoder.distribution(active_state)
+                probabilities = F.softmax(mix, dim=-1)
+                feedback_coordinate = (probabilities * mean).sum(dim=-1)
+                for local_position, probability_row, mean_row in zip(
+                    active_numpy,
+                    probabilities.cpu().numpy(), mean.cpu().numpy(),
                 ):
-                    global_position = start + int(local_position)
-                    delta = _delta_to_integer(value)
-                    predicted_lines[global_position].append(
-                        apply_signed_line_delta(
-                            base_lines[global_position], delta
-                        )
+                    local_distributions[int(local_position)].append(
+                        (probability_row, mean_row)
                     )
-                    predicted_fills[global_position].append(-1)
                 advanced = model.action_decoder.advance(
-                    active_state, coordinate
+                    active_state, feedback_coordinate
                 )
                 state = state.index_copy(0, active, advanced)
+            # Sampling is callback-major/action-major and therefore does not
+            # move a learned decision to a neighbouring callback.
+            for local_position, distributions in enumerate(local_distributions):
+                global_position = start + local_position
+                for probabilities, means in distributions:
+                    component = _sample_categorical(probabilities, rng)
+                    if materialize:
+                        delta = _delta_to_integer(means[component])
+                        predicted_lines[global_position].append(
+                            apply_signed_line_delta(
+                                base_lines[global_position], delta
+                            )
+                        )
+                        predicted_fills[global_position].append(-1)
     return counts, predicted_lines, predicted_fills
 
 
@@ -794,9 +823,9 @@ def _count_summary(actions):
 
 def self_test_free_running_decoder(feature_count, hidden_size):
     torch.manual_seed(2718)
-    model = CompactPCKeyedMassStrideLSTM(feature_count, hidden_size)
+    model = CompactPCKeyedSampledStrideLSTM(feature_count, hidden_size)
     state = model.action_decoder.begin(torch.randn(3, hidden_size))
-    predicted = model.action_decoder.coordinate(state)
+    predicted = model.action_decoder.feedback_coordinate(state)
     advanced_a = model.action_decoder.advance(state, predicted)
     # Teacher values are intentionally different but cannot enter advance().
     teacher_a = torch.tensor([0.0, 3.0, -7.0])
@@ -818,7 +847,7 @@ def expected_parameter_count(feature_count, hidden_size):
 
 
 def self_test_compact_parameter_count(feature_count, hidden_size):
-    model = CompactPCKeyedMassStrideLSTM(feature_count, hidden_size)
+    model = CompactPCKeyedSampledStrideLSTM(feature_count, hidden_size)
     observed = sum(parameter.numel() for parameter in model.parameters())
     expected = expected_parameter_count(feature_count, hidden_size)
     if observed != expected:
@@ -829,20 +858,42 @@ def self_test_compact_parameter_count(feature_count, hidden_size):
         )
 
 
-def self_test_mass_hurdle_count():
-    keys = [11, 22, 11, 22, 11, 22, 11, 22]
-    logits = np.zeros(len(keys), dtype=np.float64)
-    log_excess = np.zeros(len(keys), dtype=np.float64)
-    counts, states = _mass_hurdle_counts(logits, log_excess, keys)
-    if counts.tolist() != [0, 0, 2, 2, 0, 0, 2, 2]:
-        raise RuntimeError("per-PC hurdle scheduler lost trigger/count mass")
-    if any(abs(value[1]) > 1e-12 for value in states.values()):
-        raise RuntimeError("per-PC positive-count residual mismatch")
-    large, _ = _mass_hurdle_counts(
-        np.asarray([100.0]), np.log(np.asarray([256.0])), [33]
+def self_test_event_sampled_count():
+    low_logits = np.full(4096, -4.0, dtype=np.float64)
+    high_logits = np.full(4096, 4.0, dtype=np.float64)
+    log_excess = np.zeros(4096, dtype=np.float64)
+    first = _event_sampled_hurdle_counts(
+        np.concatenate([low_logits, high_logits]),
+        np.concatenate([log_excess, log_excess]),
+        np.random.RandomState(1701),
     )
-    if large.tolist() != [257]:
-        raise RuntimeError("positive count support is not unbounded")
+    second = _event_sampled_hurdle_counts(
+        np.concatenate([low_logits, high_logits]),
+        np.concatenate([log_excess, log_excess]),
+        np.random.RandomState(1701),
+    )
+    if not np.array_equal(first, second):
+        raise RuntimeError("event-local count sampling is not reproducible")
+    if np.count_nonzero(first[4096:]) <= np.count_nonzero(first[:4096]):
+        raise RuntimeError("event-local sampling ignored learned trigger mass")
+    large = _event_sampled_hurdle_counts(
+        np.asarray([100.0]), np.log(np.asarray([256.0])),
+        np.random.RandomState(2718),
+    )
+    if large[0] <= 2:
+        raise RuntimeError("positive count support appears degree capped")
+
+    probabilities = np.asarray([0.1, 0.2, 0.7], dtype=np.float64)
+    choices_a = [
+        _sample_categorical(probabilities, np.random.RandomState(seed))
+        for seed in range(64)
+    ]
+    choices_b = [
+        _sample_categorical(probabilities, np.random.RandomState(seed))
+        for seed in range(64)
+    ]
+    if choices_a != choices_b or len(set(choices_a)) < 2:
+        raise RuntimeError("mixture sampling is not reproducible or multimodal")
 
 
 def self_test_pc_router():
@@ -858,7 +909,7 @@ def self_test_pc_router():
 def self_test_no_future(feature_count, hidden_size):
     """Changing future rows must not change an already encoded prefix."""
     torch.manual_seed(31415)
-    model = CompactPCKeyedMassStrideLSTM(feature_count, hidden_size)
+    model = CompactPCKeyedSampledStrideLSTM(feature_count, hidden_size)
     rows = [(7, 100 + index, 0) for index in range(8)]
     original = np.zeros((len(rows), feature_count), dtype=np.float32)
     changed = original.copy()
@@ -909,7 +960,7 @@ def main():
     ):
         raise RuntimeError("model and batching dimensions must be positive")
 
-    self_test_mass_hurdle_count()
+    self_test_event_sampled_count()
     self_test_pc_router()
     self_test_free_running_decoder(
         ADDRESS_BITS * 2, max(2, args.model_size)
@@ -960,7 +1011,7 @@ def main():
     train_counts, train_deltas, _ = targets_from_actions(
         [line for _, line, _ in rows["train"]], teacher["train"]
     )
-    model = CompactPCKeyedMassStrideLSTM(
+    model = CompactPCKeyedSampledStrideLSTM(
         runtime["train"].shape[1], args.model_size
     )
     parameter_count = sum(
@@ -997,14 +1048,24 @@ def main():
     history_trigger_logits, history_log_excess = score_count_distribution(
         model, encoded_history, device
     )
-    history_counts, _ = _mass_hurdle_counts(
-        history_trigger_logits, history_log_excess,
-        [pc for pc, _, _ in history_rows]
+    decoder_rngs, decoder_rng_seeds = _decoder_rngs(args.seed, 2)
+    count_rng, delta_rng = decoder_rngs
+    history_counts = _event_sampled_hurdle_counts(
+        history_trigger_logits, history_log_excess, count_rng,
     )
+    train_end = len(rows["train"])
+    guard_end = eval_start
+    for start, stop in ((0, train_end), (train_end, guard_end)):
+        decode(
+            model, encoded_history[start:stop], history_counts[start:stop],
+            [line for _, line, _ in history_rows[start:stop]], device,
+            delta_rng, materialize=False,
+        )
     predicted_counts = history_counts[eval_start:]
     predicted_counts, predicted_lines, predicted_fills = decode(
         model, eval_context, predicted_counts,
-        [line for _, line, _ in rows["eval"]], device,
+        [line for _, line, _ in rows["eval"]], device, delta_rng,
+        materialize=True,
     )
     behavior = behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills, teacher["eval"]
@@ -1048,6 +1109,11 @@ def main():
         "expected_parameter_count": expected_parameters,
         "parameter_bytes_float32": parameter_count * 4,
         "seed": args.seed,
+        "decoder_rng_seeds": {
+            "request_count": decoder_rng_seeds[0],
+            "delta_component": decoder_rng_seeds[1],
+        },
+        "stochastic_decoding_reproducible": True,
         "epochs": args.epochs,
         "chunk_len": args.chunk_len,
         "pc_batch_size": args.pc_batch_size,
@@ -1098,18 +1164,18 @@ def main():
             "signed cache-line deltas"
         ),
         "decision_rule": (
-            "causal_per_pc_probability_mass_hurdle_then_unbounded_"
-            "positive_excess_and_free_running_delta_mixture"
+            "event_local_bernoulli_then_conditional_poisson_and_"
+            "categorical_delta_mixture_sampling"
         ),
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "gate_decoding_rule": "event_local_bernoulli_sample",
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+            "event_local_bernoulli_hurdle_plus_conditional_poisson_sample"
         ),
-        "request_count_residual_scope": "dynamic_exact_pc_key",
+        "request_count_residual_scope": "none_event_local",
         "request_count_training_label_statistics": {
             "decision_callbacks": int(len(train_counts)),
             "positive_callbacks": train_positive,
@@ -1149,6 +1215,12 @@ def main():
         "inference_state_routing": (
             "dynamic exact-PC key with no fixed tracker capacity"
         ),
+        "delta_mixture_decoding_rule": (
+            "event_local_categorical_component_sample_then_component_mean"
+        ),
+        "delta_decoder_feedback_rule": (
+            "complete_mixture_expectation_same_in_training_and_inference"
+        ),
         "train_unique_pc_count": train_unique_pc_count,
         "history_unique_pc_count": history_unique_pc_count,
         "recurrent_state_bytes_per_observed_pc": (
@@ -1156,7 +1228,11 @@ def main():
         ),
         "causal_no_future_self_test": "PASS",
         "pc_keyed_causality_self_test": "PASS",
-        "probability_mass_hurdle_count_self_test": "PASS",
+        "event_local_hurdle_count_self_test": "PASS",
+        "event_local_mixture_sampling_self_test": "PASS",
+        "decoder_probability_mass_carries_train_guard_history": False,
+        "cross_event_probability_credit_used": False,
+        "sampled_outputs_used_as_decoder_feedback": False,
         "delta_mixture_components": MIXTURE_COMPONENTS,
         "compact_parameter_self_test": "PASS",
         "cnn_architecture_self_test": "NOT_APPLICABLE",
