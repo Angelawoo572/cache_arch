@@ -29,6 +29,7 @@ BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
 NORMALIZE="$EXP/python/normalize_events.py"
 VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
+INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 SOURCE_CONTRACT_REPO="$EXP/data/spp_source_contract.json"
 SOURCE_CONTRACT_INPUT="$STREAM_DIR/spp_source_contract.json"
@@ -37,12 +38,23 @@ IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
 
+require_repo_file() {
+  [[ -f "$1" ]] || {
+    echo "[error] missing required repository file $1" >&2
+    exit 2
+  }
+}
+for required_file in \
+  "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
+  "$ANALYZE" "$INSTALL_COLAB_OUTPUT" "$SOURCE_CONTRACT_REPO"; do
+  require_repo_file "$required_file"
+done
+
 audit_spp_source() {
   python3 - "$CHAMP_DIR/prefetcher/spp_dev2.cc" \
     "$CHAMP_DIR/inc/spp_dev2.h" "$SOURCE_CONTRACT_REPO" <<'PY'
 import hashlib
 import json
-import re
 import re
 import sys
 from pathlib import Path
@@ -211,9 +223,20 @@ if not matches:
     raise SystemExit("missing Core_0_L2C_loads in {}".format(log_path))
 expected = int(matches[-1])
 with gzip.open(stream_path, "rt", newline="") as handle:
-    rows = list(csv.DictReader(handle))
-observed = sum(row.get("event_kind") == "DEMAND" for row in rows)
-fills = sum(row.get("event_kind") == "FILL" for row in rows)
+    observed = 0
+    fills = 0
+    for row in csv.DictReader(handle):
+        kind = row.get("event_kind")
+        if kind == "DEMAND":
+            observed += 1
+        elif kind == "FILL":
+            fills += 1
+        else:
+            raise SystemExit(
+                "SPP {} stream contains invalid event kind {!r}".format(
+                    role, kind
+                )
+            )
 if observed != expected:
     raise SystemExit(
         "SPP {} completed demand callbacks {} != simulator L2 loads {}".format(
@@ -559,6 +582,9 @@ require_colab_outputs() {
   python3 "$VALIDATE_INPUTS" \
     --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
     --source-contract "$SOURCE_CONTRACT_INPUT"
+  python3 "$INSTALL_COLAB_OUTPUT" \
+    --archive "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
+    --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
   for tag in "${MODEL_TAGS[@]}"; do
     for name in run_metadata.json offline_spp.replay.csv \
       offline_nn.replay.csv model.pt training_history.csv; do

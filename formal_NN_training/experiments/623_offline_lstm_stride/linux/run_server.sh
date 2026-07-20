@@ -29,11 +29,24 @@ BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
 NORMALIZE="$EXP/python/normalize_events.py"
 VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
+INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 
 IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
+
+require_repo_file() {
+  [[ -f "$1" ]] || {
+    echo "[error] missing required repository file $1" >&2
+    exit 2
+  }
+}
+for required_file in \
+  "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
+  "$ANALYZE" "$INSTALL_COLAB_OUTPUT"; do
+  require_repo_file "$required_file"
+done
 
 ensure_libbf() {
   if [[ -e "$CHAMP_DIR/libbf" && ! -d "$CHAMP_DIR/libbf/.git" ]]; then
@@ -423,6 +436,9 @@ require_colab_outputs() {
   local tag
   python3 "$VALIDATE_INPUTS" \
     --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
+  python3 "$INSTALL_COLAB_OUTPUT" \
+    --archive "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
+    --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
   for tag in "${MODEL_TAGS[@]}"; do
     for name in run_metadata.json offline_stride.replay.csv \
       offline_nn.replay.csv model.pt training_history.csv; do

@@ -38,7 +38,11 @@ Input revision: `stride_source_input_variable_delta_free_running_v9`
 Model revision: `compact_pc_keyed_crn_event_sampled_mixture_v15`  
 Default run: `623_offline_lstm_stride_keyed_crn_v15_seed7`
 
-Run `linux/launch_server.sh collect`, train with the A100 notebook, copy the
-output archive back, then run `linux/launch_server.sh replay` (or `analyze`).
+Run `linux/launch_server.sh collect`, train with the A100 notebook, and copy the
+output archive into the canonical run directory.  `launch_server.sh replay`
+then safely installs that archive automatically before replay and analysis; no
+interactive Python extraction command is required.
+Sacramento collect/replay/analyze uses Python 3.6 standard-library code only;
+PyTorch, NumPy, and SciPy are Colab training dependencies, not server imports.
 The committed TeX results are explicitly historical v9 evidence; v15 results
 must come from the new run ID and are currently pending.

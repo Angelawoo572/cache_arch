@@ -78,6 +78,31 @@ def parse_python(path):
     ast.parse(path.read_text(), filename=str(path))
 
 
+def python_identifiers(source, filename):
+    """Return exact Python identifiers, excluding strings and comments.
+
+    Substring checks are not safe here: for example, the required audit key
+    ``data_derived_gate_class_weights_used`` contains the retired identifier
+    ``gate_class_weights`` even though no weighted gate implementation exists.
+    """
+    tree = ast.parse(source, filename=str(filename))
+    identifiers = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            identifiers.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            identifiers.add(node.attr)
+        elif isinstance(node, ast.arg):
+            identifiers.add(node.arg)
+        elif isinstance(node, ast.keyword) and node.arg is not None:
+            identifiers.add(node.arg)
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            identifiers.add(node.name)
+        elif isinstance(node, ast.alias):
+            identifiers.add(node.asname or node.name.rsplit(".", 1)[-1])
+    return identifiers
+
+
 def notebook_source(path):
     notebook = json.loads(path.read_text())
     if notebook.get("nbformat") != 4:
@@ -150,6 +175,17 @@ def main():
     for forbidden in ("RandomState", "default_rng", ".binomial(", ".choice("):
         if forbidden in keyed_source:
             fail("keyed sampler retains mutable RNG API {}".format(forbidden))
+    installer = COMMON / "install_colab_output.py"
+    installer_source = installer.read_text()
+    parse_python(installer)
+    for token in (
+        "def validate_members(",
+        "member.issym()",
+        'handle.extractall(str(output_dir), members=members)',
+        "COMMON_REQUIRED_FILES",
+    ):
+        if token not in installer_source:
+            fail("Colab output installer missing {}".format(token))
     for path in (
         COMMON / "direct_action_lstm.py",
         COMMON / "experiment_623_stride.py",
@@ -338,6 +374,14 @@ def main():
                 and "decoder_free_running_self_test" not in shell_source
             ):
                 fail("{} server does not enforce decoder self-test".format(experiment))
+            if (
+                experiment in (
+                    "623_offline_lstm_stride", "623_offline_lstm_spp"
+                )
+                and relative == "linux/run_server.sh"
+                and "install_colab_output.py" not in shell_source
+            ):
+                fail("{} server does not auto-install Colab output".format(experiment))
         analyzer = (base / "python" / "analyze_replay.py").read_text()
         for token in (
             "decoder_training_mode",
@@ -434,12 +478,16 @@ def main():
             and any(keyword.arg == "weight" for keyword in node.keywords)
         ):
             fail("602 SPP categorical loss still applies class weighting")
+    spp_602_identifiers = python_identifiers(
+        spp_602_train,
+        EXPERIMENTS / "602_offline_lstm_spp/python/train_and_offline_infer.py",
+    )
     for forbidden in (
         "_data_derived_gate_class_weights",
         "gate_class_weights",
         "gate_weights",
     ):
-        if forbidden in spp_602_train:
+        if forbidden in spp_602_identifiers:
             fail("602 SPP train script retains {}".format(forbidden))
 
     stride_623_train = (
@@ -476,9 +524,17 @@ def main():
     ):
         if token not in stride_623_train:
             fail("623 Stride train script missing {}".format(token))
+    stride_623_identifiers = python_identifiers(
+        stride_623_train,
+        EXPERIMENTS
+        / "623_offline_lstm_stride/python/train_and_offline_infer.py",
+    )
     for forbidden in (
-        "_data_derived_gate_class_weights",
-        "gate_class_weights",
+        "_data_derived_gate_class_weights", "gate_class_weights"
+    ):
+        if forbidden in stride_623_identifiers:
+            fail("623 Stride train script retains {}".format(forbidden))
+    for forbidden in (
         "two_class_categorical_argmax",
         ".argmax(",
         "_binary_probability_mass_choice",
