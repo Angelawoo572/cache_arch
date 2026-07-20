@@ -2,8 +2,17 @@
 """Source-input-fair compact LSTM student for 623 SPP.
 
 The model consumes exactly the chronological external callbacks used by source
-SPP: DEMAND(addr) and CACHE_FILL(evicted_addr).  Source SPP actions are
+SPP: DEMAND(addr) and CACHE_FILL(evicted_addr). Source SPP actions are
 supervised labels and an offline comparator only; they never enter inference.
+
+The v12 independent argmax decisions collapsed to almost every callback
+issuing and every action filling LLC. A single integrated request mean would
+fix total volume but smear SPP's zero/positive events and positive-count bursts
+across neighbouring callbacks. This revision instead uses causal probability-
+mass decoders for the complete hurdle/count/fill distribution: an unweighted
+learned zero/positive hurdle, an unbounded conditional Poisson excess count,
+and a mass-preserving L2/LLC categorical decoder. None introduces a selected
+probability threshold, a degree cap, a candidate table, or source-SPP state.
 """
 import argparse
 import csv
@@ -42,7 +51,7 @@ FILL_LEVELS = (2, 4)
 MIXTURE_COMPONENTS = 4
 RUNTIME_FEATURES = ADDRESS_BITS + 1
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_empirical_prior_hurdle_autoregressive_gmm_fill_v12"
+MODEL_REVISION = "compact_mass_hurdle_mixture_fill_v13"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -314,16 +323,106 @@ def _coordinate_to_delta(coordinate):
     return -integer if coordinate < 0 else integer
 
 
-def _positive_counts_from_log_mean(log_means):
-    values = np.asarray(log_means, dtype=np.float64)
-    if not np.all(np.isfinite(values)):
-        raise RuntimeError("positive-count prediction is not finite")
+def _poisson_means(log_rates):
+    values = np.asarray(log_rates, dtype=np.float64)
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        raise RuntimeError("SPP positive-count log mean is not finite")
     limit = math.log(float(np.iinfo(np.int64).max))
     if np.any(values > limit):
-        raise RuntimeError("positive-count prediction exceeds host domain")
-    counts = np.rint(np.exp(values)).astype(np.int64)
-    counts[counts < 1] = 1
-    return counts
+        raise RuntimeError("SPP positive-count mean exceeds host domain")
+    means = np.exp(values)
+    if not np.all(np.isfinite(means)) or np.any(means < 0.0):
+        raise RuntimeError("SPP positive-count mean is outside numeric domain")
+    return means
+
+
+def _sigmoid_probabilities(logits):
+    values = np.asarray(logits, dtype=np.float64)
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        raise RuntimeError("SPP trigger logits are not a finite vector")
+    probabilities = np.empty_like(values)
+    positive = values >= 0.0
+    probabilities[positive] = 1.0 / (1.0 + np.exp(-values[positive]))
+    exp_values = np.exp(values[~positive])
+    probabilities[~positive] = exp_values / (1.0 + exp_values)
+    return probabilities
+
+
+def _binary_probability_mass_choice(positive_probability, credits):
+    probability = float(positive_probability)
+    credits = np.asarray(credits, dtype=np.float64).copy()
+    if (
+        not math.isfinite(probability) or probability < 0.0
+        or probability > 1.0 or credits.shape != (2,)
+        or not np.all(np.isfinite(credits))
+    ):
+        raise RuntimeError("invalid SPP trigger probability mass")
+    credits += np.asarray([1.0 - probability, probability])
+    choice = int(np.argmax(credits))
+    credits[choice] -= 1.0
+    return choice, credits
+
+
+def _mass_hurdle_counts(
+    trigger_logits, log_excess_means, trigger_credits=None,
+    excess_residual=0.0,
+):
+    """Decode global demand-order hurdle mass and unbounded excess count."""
+    probabilities = _sigmoid_probabilities(trigger_logits)
+    excess_means = _poisson_means(log_excess_means)
+    if len(probabilities) != len(excess_means):
+        raise RuntimeError("SPP hurdle/count row counts differ")
+    trigger_credits = (
+        np.zeros(2, dtype=np.float64) if trigger_credits is None
+        else np.asarray(trigger_credits, dtype=np.float64).copy()
+    )
+    excess_residual = float(excess_residual)
+    if (
+        trigger_credits.shape != (2,)
+        or not np.all(np.isfinite(trigger_credits))
+        or not math.isfinite(excess_residual)
+        or excess_residual < 0.0 or excess_residual >= 1.0
+    ):
+        raise RuntimeError("invalid causal SPP count-decoder state")
+    counts = np.zeros(len(probabilities), dtype=np.int64)
+    maximum = float(np.iinfo(np.int64).max)
+    for index, (probability, excess_mean) in enumerate(zip(
+        probabilities, excess_means
+    )):
+        trigger, trigger_credits = _binary_probability_mass_choice(
+            probability, trigger_credits
+        )
+        if trigger:
+            total = excess_residual + float(excess_mean)
+            if not math.isfinite(total) or total > maximum - 1.0:
+                raise RuntimeError("SPP positive count exceeds host domain")
+            extra = int(math.floor(total))
+            excess_residual = total - float(extra)
+            counts[index] = 1 + extra
+    return counts, trigger_credits, excess_residual
+
+
+def _probability_mass_choice(probabilities, credits):
+    """Causal deterministic categorical quantization without a cutoff."""
+    probabilities = np.asarray(probabilities, dtype=np.float64)
+    credits = np.asarray(credits, dtype=np.float64)
+    if probabilities.shape != (len(FILL_LEVELS),) or credits.shape != (
+        len(FILL_LEVELS),
+    ):
+        raise RuntimeError("fill probability-mass dimensions differ")
+    if (
+        not np.all(np.isfinite(probabilities))
+        or not np.all(np.isfinite(credits))
+        or np.any(probabilities < 0.0)
+    ):
+        raise RuntimeError("invalid learned fill probability mass")
+    total = float(probabilities.sum())
+    if not math.isfinite(total) or total <= 0.0:
+        raise RuntimeError("learned fill distribution has no probability mass")
+    credits = credits + probabilities / total
+    choice = int(np.argmax(credits))
+    credits[choice] -= 1.0
+    return choice, credits
 
 
 class CompactSPPActionDecoder(nn.Module):
@@ -332,8 +431,8 @@ class CompactSPPActionDecoder(nn.Module):
     def __init__(self, hidden_size):
         super().__init__()
         self.hidden_size = hidden_size
-        self.emit_head = nn.Linear(hidden_size, 2)
-        self.positive_log_count = nn.Linear(hidden_size, 1)
+        self.trigger_logit = nn.Linear(hidden_size, 1)
+        self.log_positive_excess_mean = nn.Linear(hidden_size, 1)
         self.action_cell = nn.GRUCell(1 + len(FILL_LEVELS), hidden_size)
         self.delta_head = nn.Linear(
             hidden_size, 3 * MIXTURE_COMPONENTS
@@ -346,12 +445,14 @@ class CompactSPPActionDecoder(nn.Module):
         scale = F.softplus(raw_scale) + torch.finfo(raw_scale.dtype).tiny
         return mix, mean, scale, self.fill_head(state)
 
-    def advance(self, state, predicted_coordinate, predicted_fill):
+    def advance(
+        self, state, predicted_coordinate, predicted_fill_probabilities,
+    ):
+        if predicted_fill_probabilities.shape[-1] != len(FILL_LEVELS):
+            raise RuntimeError("predicted fill probability width changed")
         feedback = torch.cat([
             predicted_coordinate.reshape(-1, 1),
-            F.one_hot(
-                predicted_fill.to(torch.long), len(FILL_LEVELS)
-            ).to(predicted_coordinate.dtype),
+            predicted_fill_probabilities.to(predicted_coordinate.dtype),
         ], dim=-1)
         return self.action_cell(feedback, state)
 
@@ -373,9 +474,9 @@ class CompactSPPLSTM(nn.Module):
 
 
 def expected_parameter_count(hidden_size):
-    # LSTM(65,H), two-class gate, positive-count head, GRU(H,3),
+    # LSTM(65,H), hurdle/excess heads, GRU(H,3),
     # four-component delta mixture, and two-class fill head.
-    return 7 * hidden_size * hidden_size + 300 * hidden_size + 17
+    return 7 * hidden_size * hidden_size + 299 * hidden_size + 16
 
 
 def _detach_state(state):
@@ -402,28 +503,24 @@ def _structured_loss(model, context, counts, deltas, fills):
     decision_deltas = flat_deltas[valid]
     decision_fills = flat_fills[valid]
 
-    emit_targets = (decision_counts > 0).to(torch.long)
-    # Unweighted maximum likelihood preserves the observed SPP trigger prior.
-    # Inverse-frequency balancing upweighted rare zero labels and moved raw
-    # categorical argmax to the severe under-prefetch operating point observed
-    # in v1.  v2 also records the exact training split for direct verification.
-    gate_sum = F.cross_entropy(
-        model.decoder.emit_head(decision_context), emit_targets,
-        reduction="sum",
+    trigger_targets = (decision_counts > 0).to(decision_context.dtype)
+    trigger_logits = model.decoder.trigger_logit(
+        decision_context
+    ).squeeze(-1)
+    trigger_sum = F.binary_cross_entropy_with_logits(
+        trigger_logits, trigger_targets, reduction="sum",
     )
-
     positive = decision_counts > 0
     positive_atoms = int(positive.sum().detach().item())
-    count_sum = context.new_zeros(())
+    excess_sum = context.new_zeros(())
     if positive_atoms:
-        predicted_log_count = model.decoder.positive_log_count(
+        log_excess = model.decoder.log_positive_excess_mean(
             decision_context[positive]
         ).squeeze(-1)
-        target_log_count = torch.log(
-            decision_counts[positive].to(predicted_log_count.dtype)
-        )
-        count_sum = F.smooth_l1_loss(
-            predicted_log_count, target_log_count, reduction="sum"
+        excess_targets = decision_counts[positive] - 1
+        excess_sum = F.poisson_nll_loss(
+            log_excess, excess_targets.to(log_excess.dtype), log_input=True,
+            full=False, reduction="sum",
         )
 
     delta_sum = context.new_zeros(())
@@ -455,19 +552,21 @@ def _structured_loss(model, context, counts, deltas, fills):
         )
         action_atoms += active_atoms
 
-        # Teacher targets above are loss-only.  Recurrent feedback is the
-        # model's own modal delta and fill, exactly as in offline inference.
+        # Teacher targets above are loss-only. Recurrent feedback is the
+        # model's own modal delta and complete learned fill distribution,
+        # exactly as in offline inference. No discrete teacher fill enters.
         component = mix.argmax(dim=-1, keepdim=True)
         predicted_coordinate = mean.gather(1, component).squeeze(1)
-        predicted_fill = fill_logits.argmax(dim=-1)
+        predicted_fill_probabilities = F.softmax(fill_logits, dim=-1)
         advanced = model.decoder.advance(
-            active_state, predicted_coordinate, predicted_fill
+            active_state, predicted_coordinate,
+            predicted_fill_probabilities,
         )
         state = state.index_copy(0, indices, advanced)
 
-    mean_gate = gate_sum / float(decision_atoms)
-    mean_count = (
-        count_sum / float(positive_atoms)
+    mean_trigger = trigger_sum / float(decision_atoms)
+    mean_excess = (
+        excess_sum / float(positive_atoms)
         if positive_atoms else context.new_zeros(())
     )
     mean_delta = (
@@ -478,13 +577,13 @@ def _structured_loss(model, context, counts, deltas, fills):
         fill_sum / float(action_atoms)
         if action_atoms else context.new_zeros(())
     )
-    return mean_gate + mean_count + mean_delta + mean_fill, {
-        "gate_loss_sum": float(gate_sum.detach().item()),
-        "positive_count_loss_sum": float(count_sum.detach().item()),
+    return mean_trigger + mean_excess + mean_delta + mean_fill, {
+        "trigger_nll_sum": float(trigger_sum.detach().item()),
+        "positive_excess_nll_sum": float(excess_sum.detach().item()),
         "delta_nll_sum": float(delta_sum.detach().item()),
         "fill_nll_sum": float(fill_sum.detach().item()),
         "decision_atoms": decision_atoms,
-        "positive_count_atoms": positive_atoms,
+        "positive_atoms": positive_atoms,
         "action_atoms": action_atoms,
     }
 
@@ -505,12 +604,12 @@ def train_model(
         model.train()
         state = None
         totals = {
-            "gate_loss_sum": 0.0,
-            "positive_count_loss_sum": 0.0,
+            "trigger_nll_sum": 0.0,
+            "positive_excess_nll_sum": 0.0,
             "delta_nll_sum": 0.0,
             "fill_nll_sum": 0.0,
             "decision_atoms": 0,
-            "positive_count_atoms": 0,
+            "positive_atoms": 0,
             "action_atoms": 0,
         }
         steps = 0
@@ -544,13 +643,13 @@ def train_model(
             steps += 1
         row = {
             "epoch": epoch,
-            "gate_loss_per_decision": (
-                totals["gate_loss_sum"]
+            "trigger_nll_per_decision": (
+                totals["trigger_nll_sum"]
                 / max(1, totals["decision_atoms"])
             ),
-            "positive_count_loss_per_positive": (
-                totals["positive_count_loss_sum"]
-                / max(1, totals["positive_count_atoms"])
+            "positive_excess_nll_per_positive_decision": (
+                totals["positive_excess_nll_sum"]
+                / max(1, totals["positive_atoms"])
             ),
             "delta_nll_per_action": (
                 totals["delta_nll_sum"]
@@ -564,9 +663,9 @@ def train_model(
             "optimizer_steps": steps,
         }
         history.append(row)
-        print("[train:spp-lstm] epoch={} gate={:.8f} count={:.8f} delta={:.8f} fill={:.8f}".format(
-            epoch, row["gate_loss_per_decision"],
-            row["positive_count_loss_per_positive"],
+        print("[train:spp-lstm] epoch={} trigger={:.8f} excess={:.8f} delta={:.8f} fill={:.8f}".format(
+            epoch, row["trigger_nll_per_decision"],
+            row["positive_excess_nll_per_positive_decision"],
             row["delta_nll_per_action"], row["fill_nll_per_action"],
         ))
     return history
@@ -574,8 +673,8 @@ def train_model(
 
 def score_lstm(model, runtime, device, initial_state=None, chunk_len=8192):
     model.eval()
-    emit_parts = []
-    count_parts = []
+    trigger_parts = []
+    excess_parts = []
     context_parts = []
     state = initial_state
     with torch.no_grad():
@@ -583,17 +682,18 @@ def score_lstm(model, runtime, device, initial_state=None, chunk_len=8192):
             xb = torch.from_numpy(runtime[start:stop]).unsqueeze(0).to(device)
             context, state = model.encode(xb, state)
             flat = context.squeeze(0)
-            emit_parts.append(
-                model.decoder.emit_head(flat).cpu().numpy()
+            trigger_parts.append(
+                model.decoder.trigger_logit(flat)
+                .squeeze(-1).cpu().numpy()
             )
-            count_parts.append(
-                model.decoder.positive_log_count(flat)
+            excess_parts.append(
+                model.decoder.log_positive_excess_mean(flat)
                 .squeeze(-1).cpu().numpy()
             )
             context_parts.append(flat.cpu().numpy())
     return (
-        np.concatenate(emit_parts, axis=0),
-        np.concatenate(count_parts, axis=0),
+        np.concatenate(trigger_parts, axis=0),
+        np.concatenate(excess_parts, axis=0),
         np.concatenate(context_parts, axis=0),
     ), state
 
@@ -606,24 +706,42 @@ def advance_lstm_state(model, runtime, device, initial_state=None):
 
 
 def decode_actions(
-    model, emit_logits, positive_log_counts, contexts, base_lines, device,
+    model, trigger_logits, log_excess_means, contexts, base_lines, device,
+    trigger_credits=None, excess_residual=0.0, fill_credits=None,
+    materialize=True,
     chunk_len=8192,
 ):
     if not (
-        len(emit_logits) == len(positive_log_counts)
+        len(trigger_logits) == len(log_excess_means)
         == len(contexts) == len(base_lines)
     ):
         raise RuntimeError("SPP decoder row counts differ")
-    positive_counts = _positive_counts_from_log_mean(positive_log_counts)
-    gates = np.asarray(emit_logits).argmax(axis=1)
-    counts = np.where(gates == 1, positive_counts, 0).astype(np.int64)
-    predicted_lines = [[] for _ in range(len(counts))]
-    predicted_fills = [[] for _ in range(len(counts))]
+    counts, trigger_credits, excess_residual = _mass_hurdle_counts(
+        trigger_logits, log_excess_means,
+        trigger_credits=trigger_credits,
+        excess_residual=excess_residual,
+    )
+    fill_credits = (
+        np.zeros(len(FILL_LEVELS), dtype=np.float64)
+        if fill_credits is None
+        else np.asarray(fill_credits, dtype=np.float64).copy()
+    )
+    if fill_credits.shape != (len(FILL_LEVELS),):
+        raise RuntimeError("SPP fill probability-credit width changed")
+    predicted_lines = (
+        [[] for _ in range(len(counts))] if materialize else None
+    )
+    predicted_fills = (
+        [[] for _ in range(len(counts))] if materialize else None
+    )
     model.eval()
     with torch.no_grad():
         for start, stop in _iter_chunks(len(counts), chunk_len):
             state = torch.from_numpy(contexts[start:stop]).to(device)
             local_counts = counts[start:stop]
+            local_fill_probabilities = [
+                [] for _ in range(len(local_counts))
+            ]
             steps = int(local_counts.max()) if len(local_counts) else 0
             for step in range(steps):
                 active_numpy = np.flatnonzero(local_counts > step)
@@ -638,25 +756,45 @@ def decode_actions(
                 )
                 component = mix.argmax(dim=-1, keepdim=True)
                 coordinate = mean.gather(1, component).squeeze(1)
-                fill_choice = fill_logits.argmax(dim=-1)
+                fill_probabilities = F.softmax(fill_logits, dim=-1)
                 coordinate_cpu = coordinate.cpu().numpy()
-                fill_cpu = fill_choice.cpu().numpy()
-                for local_position, value, fill in zip(
+                fill_cpu = fill_probabilities.cpu().numpy()
+                for local_position, value, probabilities in zip(
                     active_numpy, coordinate_cpu, fill_cpu
                 ):
                     global_position = start + int(local_position)
-                    predicted_lines[global_position].append(
-                        apply_signed_line_delta(
-                            base_lines[global_position],
-                            _coordinate_to_delta(value),
+                    delta = _coordinate_to_delta(value)
+                    if materialize:
+                        predicted_lines[global_position].append(
+                            apply_signed_line_delta(
+                                base_lines[global_position],
+                                delta,
+                            )
                         )
+                    local_fill_probabilities[int(local_position)].append(
+                        probabilities
                     )
-                    predicted_fills[global_position].append(int(fill))
                 advanced = model.decoder.advance(
-                    active_state, coordinate, fill_choice
+                    active_state, coordinate, fill_probabilities
                 )
                 state = state.index_copy(0, active, advanced)
-    return counts, predicted_lines, predicted_fills
+            # The vectorized action loop above is step-major. Apply fill mass
+            # in actual callback-major/action-major order before the next
+            # chunk so decoder state remains strictly causal.
+            for local_position, probability_rows in enumerate(
+                local_fill_probabilities
+            ):
+                global_position = start + local_position
+                for probabilities in probability_rows:
+                    choice, fill_credits = _probability_mass_choice(
+                        probabilities, fill_credits
+                    )
+                    if materialize:
+                        predicted_fills[global_position].append(choice)
+    return (
+        counts, predicted_lines, predicted_fills,
+        trigger_credits, excess_residual, fill_credits,
+    )
 
 
 
@@ -724,24 +862,45 @@ def self_test_model(hidden_size):
                 observed, expected
             )
         )
-    test_counts = _positive_counts_from_log_mean(
-        np.log(np.asarray([1.0, 2.0, 9.0, 257.0]))
+    test_counts, trigger_credits, excess_residual = _mass_hurdle_counts(
+        np.zeros(4, dtype=np.float64),
+        np.zeros(4, dtype=np.float64),
     )
-    if test_counts.tolist() != [1, 2, 9, 257]:
-        raise RuntimeError("positive SPP count support is not variable")
+    if test_counts.tolist() != [0, 2, 0, 2]:
+        raise RuntimeError("SPP hurdle scheduler lost trigger/count mass")
+    if (
+        not np.allclose(trigger_credits, np.zeros(2))
+        or abs(excess_residual) > 1e-12
+    ):
+        raise RuntimeError("SPP count-decoder residual mismatch")
+    large_counts, _, _ = _mass_hurdle_counts(
+        np.asarray([100.0]), np.log(np.asarray([256.0]))
+    )
+    if large_counts.tolist() != [257]:
+        raise RuntimeError("SPP positive count support is not unbounded")
+    credits = np.zeros(len(FILL_LEVELS), dtype=np.float64)
+    choices = []
+    for _ in range(4):
+        choice, credits = _probability_mass_choice(
+            np.asarray([0.25, 0.75]), credits
+        )
+        choices.append(choice)
+    if choices.count(0) != 1 or choices.count(1) != 3:
+        raise RuntimeError("fill probability-mass decoder collapsed a class")
     loss_source = inspect.getsource(_structured_loss)
     forbidden = (
         "advance(active_state, target",
         "advance(active_state, target_fill",
         "gate_" + "class_weights",
         "weight" + "=",
+        "fill_logits.argmax",
     )
     if any(token in loss_source for token in forbidden):
         raise RuntimeError(
             "structured SPP loss contains forbidden feedback or weighting"
         )
     required = (
-        "active_state, predicted_coordinate, predicted_fill",
+        "predicted_fill_probabilities",
     )
     if any(token not in loss_source for token in required):
         raise RuntimeError("free-running decoder feedback evidence missing")
@@ -852,7 +1011,7 @@ def run_cli():
     train_counts, train_deltas, train_fills = context_targets["train"]
     train_decision_counts = train_counts[train_counts >= 0]
     train_positive_callbacks = int((train_decision_counts > 0).sum())
-    gate_training_label_statistics = {
+    request_count_training_label_statistics = {
         "decision_callbacks": int(len(train_decision_counts)),
         "positive_callbacks": train_positive_callbacks,
         "zero_callbacks": (
@@ -868,25 +1027,55 @@ def run_cli():
         args.chunk_len, args.accumulate_chunks, args.learning_rate,
     )
 
-    history_state = advance_lstm_state(
-        model, runtime["train"], device
-    )
-    guard_state = advance_lstm_state(
-        model, runtime["guard"], device, initial_state=history_state
-    )
-    eval_encoded, _ = score_lstm(
-        model, runtime["eval"], device, initial_state=guard_state
-    )
+    # Re-run the complete train -> guard -> eval chronology with fixed weights.
+    # Both the LSTM state and the two causal probability-mass decoder states
+    # cross role boundaries. Teacher actions are never fed back.
+    encoded = {}
+    recurrent_state = None
+    for role in roles:
+        encoded[role], recurrent_state = score_lstm(
+            model, runtime[role], device, initial_state=recurrent_state
+        )
+
+    trigger_credits = None
+    excess_residual = 0.0
+    fill_credits = None
+    for role in ("train", "guard"):
+        demand_positions = streams[role]["demand_positions"]
+        trigger_logits, log_excess_means, contexts = (
+            value[demand_positions] for value in encoded[role]
+        )
+        base_lines = [
+            line for _, _, line, _ in streams[role]["demands"]
+        ]
+        (
+            _, _, _, trigger_credits, excess_residual, fill_credits,
+        ) = decode_actions(
+            model, trigger_logits, log_excess_means,
+            contexts, base_lines, device,
+            trigger_credits=trigger_credits,
+            excess_residual=excess_residual,
+            fill_credits=fill_credits,
+            materialize=False,
+        )
+
     demand_positions = streams["eval"]["demand_positions"]
-    emit_logits, positive_log_counts, contexts = (
-        value[demand_positions] for value in eval_encoded
+    trigger_logits, log_excess_means, contexts = (
+        value[demand_positions] for value in encoded["eval"]
     )
     base_lines = [
         line for _, _, line, _ in streams["eval"]["demands"]
     ]
-    predicted_counts, predicted_lines, predicted_fills = decode_actions(
-        model, emit_logits, positive_log_counts, contexts,
-        base_lines, device,
+    (
+        predicted_counts, predicted_lines, predicted_fills,
+        trigger_credits, excess_residual, fill_credits,
+    ) = decode_actions(
+        model, trigger_logits, log_excess_means,
+        contexts, base_lines, device,
+        trigger_credits=trigger_credits,
+        excess_residual=excess_residual,
+        fill_credits=fill_credits,
+        materialize=True,
     )
     behavior = behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills,
@@ -986,8 +1175,8 @@ def run_cli():
             "cache-line deltas and learned fill"
         ),
         "decision_rule": (
-            "two_class_argmax_then_rounded_exp_positive_count_then_"
-            "autoregressive_delta_mixture_and_fill_modes"
+            "causal_probability_mass_hurdle_then_unbounded_positive_"
+            "excess_autoregressive_delta_mixture_and_fill_probability_mass"
         ),
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
@@ -999,15 +1188,27 @@ def run_cli():
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
         "gate_class_weighting_used": False,
-        "gate_training_objective": (
-            "empirical_prior_unweighted_categorical_nll"
+        "gate_training_objective": "unweighted_bernoulli_nll",
+        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "gate_operating_point_learned_from_empirical_prior": False,
+        "request_count_training_objective": (
+            "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
-        "gate_decoding_rule": "two_class_categorical_argmax",
-        "gate_operating_point_learned_from_empirical_prior": True,
-        "gate_training_label_statistics": gate_training_label_statistics,
+        "request_count_decoding_rule": (
+            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+        ),
+        "request_count_residual_scope": "global_demand_chronology",
+        "request_count_training_label_statistics": (
+            request_count_training_label_statistics
+        ),
+        "fill_training_objective": "unweighted_categorical_nll",
+        "fill_decoding_rule": "causal_probability_mass_argmax",
+        "fill_argmax_used": False,
+        "fill_probability_feedback_used": True,
+        "decoder_probability_mass_carries_train_guard_history": True,
         "loss_design": (
-            "empirical-prior unweighted hurdle NLL mean plus positive "
-            "log-count mean plus direct-delta mixture NLL mean plus fill "
+            "unweighted trigger NLL mean plus positive-excess Poisson NLL "
+            "mean plus direct-delta mixture NLL mean plus unweighted fill "
             "NLL mean; unit sum with no manually tuned coefficients"
         ),
         "training_regularization_used": False,
@@ -1042,6 +1243,8 @@ def run_cli():
         ),
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "causal_no_future_self_test": "PASS",
+        "probability_mass_hurdle_count_self_test": "PASS",
+        "fill_probability_mass_self_test": "PASS",
         "cnn_temporal_layers": 0,
         "cnn_kernel_size": 0,
         "cnn_stride": 0,
