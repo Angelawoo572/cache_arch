@@ -4,23 +4,25 @@
 Training and inference receive exactly the source-visible PC and cache-line
 address.  Teacher requests supervise the model but are never inference inputs.
 
-The previous shared Poisson count head collapsed on sparse Stride labels: the
-mean request count was below one, so Poisson-mode decoding returned zero for
-every callback.  This compact implementation fixes that mismatch without
-adding a threshold, degree limit, candidate table, page rule, or normal-policy
-state:
+The v10 balanced hurdle fixed an earlier all-zero collapse, but its inverse-
+frequency gate over-corrected the sparse 623 Stride prior and over-issued at
+every measured capacity.  A single integrated mean would correct the total
+request volume but smear Stride's near-two-action bursts across neighbouring
+callbacks.  This revision instead fixes the full zero/positive/count decision
+without adding capacity, a threshold, a degree limit, a candidate table, a
+page rule, or normal-policy state:
 
 * recurrent state is dynamically routed by the observed PC, with no fixed
   tracker capacity;
-* a learned two-class hurdle head chooses zero versus positive requests by
-  argmax, not by a hand-selected probability threshold;
-* the hurdle likelihood is balanced from the observed training-label
-  frequencies, preventing the sparse all-zero shortcut without a tuned loss
-  weight;
-* a learned positive log-count distribution has unbounded positive support;
+* an unweighted Bernoulli hurdle and positive-count Poisson are fit by ordinary
+  maximum likelihood;
+* a causal per-PC probability-mass scheduler converts the learned hurdle
+  distribution to zero/positive decisions, while a residual integrator emits
+  the learned unbounded positive excess count.  No selected probability cutoff
+  or normal Stride degree enters either decision;
 * one shared single-layer LSTM supplies both decision and action context;
-* a lightweight deterministic autoregressive decoder learns direct signed
-  deltas with separately normalized decision/action losses.
+* a lightweight autoregressive three-component mixture learns direct signed
+  deltas without averaging incompatible address modes.
 """
 import argparse
 import csv
@@ -55,13 +57,14 @@ from formal_NN_training.common.threshold_free_policy import (
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_hurdle_delta_v10"
+MODEL_REVISION = "compact_pc_keyed_mass_hurdle_mixture_v13"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = ["pc", "addr"]
 MODEL_POINTS = {
     "lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"},
 }
+MIXTURE_COMPONENTS = 3
 
 
 def sha256(path):
@@ -257,53 +260,111 @@ def _delta_to_integer(coordinate):
     return -integer if coordinate < 0 else integer
 
 
-def _positive_counts_from_log_mean(log_means):
-    values = np.asarray(log_means, dtype=np.float64)
-    if not np.all(np.isfinite(values)):
-        raise RuntimeError("positive-count prediction is not finite")
+def _poisson_means(log_rates):
+    """Convert learned log means without clipping or a policy count cap."""
+    values = np.asarray(log_rates, dtype=np.float64)
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        raise RuntimeError("positive-count log mean is not a finite vector")
     limit = math.log(float(np.iinfo(np.int64).max))
     if np.any(values > limit):
-        raise RuntimeError("positive-count prediction exceeds host domain")
-    counts = np.rint(np.exp(values)).astype(np.int64)
-    counts[counts < 1] = 1
-    return counts
+        raise RuntimeError("positive-count mean exceeds host count domain")
+    means = np.exp(values)
+    if not np.all(np.isfinite(means)) or np.any(means < 0.0):
+        raise RuntimeError("positive-count mean is outside its numeric domain")
+    return means
 
 
-def _data_derived_gate_class_weights(counts):
-    """Give each observed hurdle class equal aggregate training mass."""
-    labels = (np.asarray(counts, dtype=np.int64) > 0).astype(np.int64)
-    frequencies = np.bincount(labels, minlength=2).astype(np.float64)
-    if np.any(frequencies == 0):
-        raise RuntimeError(
-            "hurdle training requires observed zero and positive rows"
+def _sigmoid_probabilities(logits):
+    values = np.asarray(logits, dtype=np.float64)
+    if values.ndim != 1 or not np.all(np.isfinite(values)):
+        raise RuntimeError("trigger logits are not a finite vector")
+    probabilities = np.empty_like(values)
+    positive = values >= 0.0
+    probabilities[positive] = 1.0 / (1.0 + np.exp(-values[positive]))
+    exp_values = np.exp(values[~positive])
+    probabilities[~positive] = exp_values / (1.0 + exp_values)
+    return probabilities
+
+
+def _binary_probability_mass_choice(positive_probability, credits):
+    """Quantize cumulative Bernoulli mass without a selected cutoff."""
+    probability = float(positive_probability)
+    credits = np.asarray(credits, dtype=np.float64).copy()
+    if (
+        not math.isfinite(probability) or probability < 0.0
+        or probability > 1.0 or credits.shape != (2,)
+        or not np.all(np.isfinite(credits))
+    ):
+        raise RuntimeError("invalid trigger probability mass")
+    credits += np.asarray([1.0 - probability, probability])
+    choice = int(np.argmax(credits))
+    credits[choice] -= 1.0
+    return choice, credits
+
+
+def _mass_hurdle_counts(
+    trigger_logits, log_excess_means, pc_keys, states=None,
+):
+    """Causally decode learned hurdle mass and unbounded positive excess."""
+    probabilities = _sigmoid_probabilities(trigger_logits)
+    excess_means = _poisson_means(log_excess_means)
+    if len(probabilities) != len(excess_means) or len(probabilities) != len(pc_keys):
+        raise RuntimeError("request hurdle/PC row counts differ")
+    states = {} if states is None else {
+        key: (np.asarray(value[0], dtype=np.float64).copy(), float(value[1]))
+        for key, value in states.items()
+    }
+    counts = np.zeros(len(probabilities), dtype=np.int64)
+    maximum = float(np.iinfo(np.int64).max)
+    for index, (probability, excess_mean, pc) in enumerate(zip(
+        probabilities, excess_means, pc_keys
+    )):
+        trigger_credits, excess_residual = states.get(
+            pc, (np.zeros(2, dtype=np.float64), 0.0)
         )
-    weights = float(len(labels)) / (2.0 * frequencies)
-    if not np.all(np.isfinite(weights)):
-        raise RuntimeError("non-finite data-derived hurdle weights")
-    return weights.astype(np.float32)
+        trigger, trigger_credits = _binary_probability_mass_choice(
+            probability, trigger_credits
+        )
+        if trigger:
+            total = excess_residual + float(excess_mean)
+            if not math.isfinite(total) or total > maximum - 1.0:
+                raise RuntimeError("positive request count exceeds host domain")
+            extra = int(math.floor(total))
+            excess_residual = total - float(extra)
+            counts[index] = 1 + extra
+        states[pc] = (trigger_credits, excess_residual)
+    return counts, states
 
 
 class CompactDirectDeltaDecoder(nn.Module):
-    """Lightweight free-running direct signed-delta regressor."""
+    """Lightweight free-running direct signed-delta mixture."""
 
     def __init__(self, hidden_size):
         super().__init__()
         if hidden_size < 1:
             raise ValueError("decoder hidden size must be positive")
         self.action_cell = nn.GRUCell(1, hidden_size)
-        self.delta_head = nn.Linear(hidden_size, 1)
+        self.delta_head = nn.Linear(hidden_size, 3 * MIXTURE_COMPONENTS)
 
     def begin(self, context):
         return context
 
+    def distribution(self, state):
+        raw = self.delta_head(state)
+        mix, mean, raw_scale = raw.chunk(3, dim=-1)
+        scale = F.softplus(raw_scale) + torch.finfo(raw_scale.dtype).tiny
+        return mix, mean, scale
+
     def coordinate(self, state):
-        return self.delta_head(state).squeeze(-1)
+        mix, mean, _ = self.distribution(state)
+        component = mix.argmax(dim=-1, keepdim=True)
+        return mean.gather(1, component).squeeze(1)
 
     def advance(self, state, predicted_coordinate):
         return self.action_cell(predicted_coordinate.reshape(-1, 1), state)
 
 
-class CompactPCKeyedHurdleStrideLSTM(nn.Module):
+class CompactPCKeyedMassStrideLSTM(nn.Module):
     """One shared single-layer PC-keyed LSTM with lightweight heads."""
 
     def __init__(self, feature_count, hidden_size):
@@ -314,8 +375,8 @@ class CompactPCKeyedHurdleStrideLSTM(nn.Module):
         self.encoder_lstm = nn.LSTM(
             hidden_size, hidden_size, batch_first=True
         )
-        self.emit_head = nn.Linear(hidden_size, 2)
-        self.log_count_mean = nn.Linear(hidden_size, 1)
+        self.trigger_logit = nn.Linear(hidden_size, 1)
+        self.log_positive_excess_mean = nn.Linear(hidden_size, 1)
         self.action_decoder = CompactDirectDeltaDecoder(hidden_size)
 
 
@@ -386,9 +447,7 @@ def _make_padded_batch(runtime, counts, deltas, batch, device):
     return padded_runtime, padded_counts, padded_deltas, lengths
 
 
-def _compact_hurdle_direct_delta_loss(
-    model, context, counts, deltas, gate_class_weights,
-):
+def _compact_mass_hurdle_mixture_loss(model, context, counts, deltas):
     flat_context = context.reshape(-1, context.shape[-1])
     flat_counts = counts.reshape(-1)
     flat_deltas = deltas.reshape(-1, deltas.shape[-1])
@@ -400,22 +459,23 @@ def _compact_hurdle_direct_delta_loss(
     context = flat_context[valid]
     targets = flat_counts[valid]
     target_deltas = flat_deltas[valid]
-    emit_targets = (targets > 0).to(torch.long)
-    gate_loss = F.cross_entropy(
-        model.emit_head(context), emit_targets,
-        weight=gate_class_weights, reduction="sum"
+    trigger_targets = (targets > 0).to(context.dtype)
+    trigger_logits = model.trigger_logit(context).squeeze(-1)
+    trigger_loss = F.binary_cross_entropy_with_logits(
+        trigger_logits, trigger_targets, reduction="sum",
     )
 
     positive = targets > 0
     positive_atoms = int(positive.sum().detach().item())
-    count_loss = context.new_zeros(())
+    excess_loss = context.new_zeros(())
     if positive_atoms:
-        means = model.log_count_mean(
+        log_excess = model.log_positive_excess_mean(
             context[positive]
         ).squeeze(-1)
-        log_targets = torch.log(targets[positive].to(means.dtype))
-        count_loss = F.smooth_l1_loss(
-            means, log_targets, reduction="sum"
+        excess_targets = targets[positive] - 1
+        excess_loss = F.poisson_nll_loss(
+            log_excess, excess_targets.to(log_excess.dtype), log_input=True,
+            full=False, reduction="sum",
         )
 
     action_delta_loss = context.new_zeros(())
@@ -428,11 +488,18 @@ def _compact_hurdle_direct_delta_loss(
             break
         indices = torch.nonzero(active, as_tuple=False).squeeze(1)
         active_state = state.index_select(0, indices)
-        predicted_coordinate = model.action_decoder.coordinate(active_state)
+        mix, mean, scale = model.action_decoder.distribution(active_state)
+        component = mix.argmax(dim=-1, keepdim=True)
+        predicted_coordinate = mean.gather(1, component).squeeze(1)
         target = target_deltas[active, step]
-        action_delta_loss = action_delta_loss + F.smooth_l1_loss(
-            predicted_coordinate, target, reduction="sum"
+        log_component = (
+            -0.5 * ((target.unsqueeze(1) - mean) / scale).square()
+            - torch.log(scale)
+            - 0.5 * math.log(2.0 * math.pi)
         )
+        action_delta_loss = action_delta_loss - torch.logsumexp(
+            F.log_softmax(mix, dim=-1) + log_component, dim=-1
+        ).sum()
         action_atoms += active_atoms
 
         # The teacher target above is loss-only.  State feedback uses the
@@ -442,24 +509,23 @@ def _compact_hurdle_direct_delta_loss(
         )
         state = state.index_copy(0, indices, advanced)
 
-    # Every objective is reduced to its own mean.  Their unit sum has no tuned
-    # coefficient and prevents the more numerous delta atoms from drowning the
-    # sparse gate while retaining one shared recurrent encoder.
-    mean_gate_loss = gate_loss / float(decision_atoms)
-    mean_count_loss = (
-        count_loss / float(positive_atoms)
+    # Every likelihood is reduced to its own observation mean. Their unit sum
+    # has no tuned coefficient or class-frequency reweighting.
+    mean_trigger_loss = trigger_loss / float(decision_atoms)
+    mean_excess_loss = (
+        excess_loss / float(positive_atoms)
         if positive_atoms else context.new_zeros(())
     )
     mean_action_loss = (
         action_delta_loss / float(action_atoms)
         if action_atoms else context.new_zeros(())
     )
-    return mean_gate_loss + mean_count_loss + mean_action_loss, {
-        "gate_loss_sum": float(gate_loss.detach().item()),
-        "positive_count_loss_sum": float(count_loss.detach().item()),
-        "action_delta_loss_sum": float(action_delta_loss.detach().item()),
+    return mean_trigger_loss + mean_excess_loss + mean_action_loss, {
+        "trigger_nll_sum": float(trigger_loss.detach().item()),
+        "positive_excess_nll_sum": float(excess_loss.detach().item()),
+        "action_delta_nll_sum": float(action_delta_loss.detach().item()),
         "decision_atoms": decision_atoms,
-        "positive_count_atoms": positive_atoms,
+        "positive_atoms": positive_atoms,
         "action_atoms": action_atoms,
     }
 
@@ -469,10 +535,6 @@ def train_model(
     pc_batch_size, learning_rate,
 ):
     grouped = _group_indices_by_pc(rows)
-    gate_class_weights_numpy = _data_derived_gate_class_weights(counts)
-    gate_class_weights = torch.from_numpy(
-        gate_class_weights_numpy
-    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     model.to(device)
     history = []
@@ -480,11 +542,11 @@ def train_model(
         model.train()
         recurrent_states = {}
         totals = {
-            "gate_loss_sum": 0.0,
-            "positive_count_loss_sum": 0.0,
-            "action_delta_loss_sum": 0.0,
+            "trigger_nll_sum": 0.0,
+            "positive_excess_nll_sum": 0.0,
+            "action_delta_nll_sum": 0.0,
             "decision_atoms": 0,
-            "positive_count_atoms": 0,
+            "positive_atoms": 0,
             "action_atoms": 0,
         }
         optimizer_steps = 0
@@ -497,9 +559,8 @@ def train_model(
             context = _encode_shared(
                 model, padded, lengths, recurrent_states, keys,
             )
-            loss, components = _compact_hurdle_direct_delta_loss(
-                model, context,
-                count_batch, delta_batch, gate_class_weights,
+            loss, components = _compact_mass_hurdle_mixture_loss(
+                model, context, count_batch, delta_batch,
             )
             if not torch.isfinite(loss):
                 raise RuntimeError("non-finite training loss")
@@ -510,35 +571,35 @@ def train_model(
                 totals[key] += value
         row = {
             "epoch": epoch,
-            "gate_loss_per_callback": (
-                totals["gate_loss_sum"]
+            "trigger_nll_per_callback": (
+                totals["trigger_nll_sum"]
                 / max(1, totals["decision_atoms"])
             ),
-            "positive_count_loss_per_positive_callback": (
-                totals["positive_count_loss_sum"]
-                / max(1, totals["positive_count_atoms"])
+            "positive_excess_nll_per_positive_callback": (
+                totals["positive_excess_nll_sum"]
+                / max(1, totals["positive_atoms"])
             ),
-            "action_delta_loss_per_action": (
-                totals["action_delta_loss_sum"]
+            "action_delta_nll_per_action": (
+                totals["action_delta_nll_sum"]
                 / max(1, totals["action_atoms"])
             ),
-            "gate_loss_sum": totals["gate_loss_sum"],
-            "positive_count_loss_sum": totals["positive_count_loss_sum"],
-            "action_delta_loss_sum": totals["action_delta_loss_sum"],
+            "trigger_nll_sum": totals["trigger_nll_sum"],
+            "positive_excess_nll_sum": totals["positive_excess_nll_sum"],
+            "action_delta_nll_sum": totals["action_delta_nll_sum"],
             "pc_sequences": len(grouped),
             "optimizer_steps": optimizer_steps,
         }
         history.append(row)
         print(
-            "[train:compact-keyed-lstm] epoch={} gate={:.8f} "
-            "count={:.8f} action={:.8f}".format(
-                epoch, row["gate_loss_per_callback"],
-                row["positive_count_loss_per_positive_callback"],
-                row["action_delta_loss_per_action"],
+            "[train:compact-keyed-lstm] epoch={} trigger={:.8f} "
+            "excess={:.8f} action={:.8f}".format(
+                epoch, row["trigger_nll_per_callback"],
+                row["positive_excess_nll_per_positive_callback"],
+                row["action_delta_nll_per_action"],
             ),
             flush=True,
         )
-    return history, gate_class_weights_numpy
+    return history
 
 
 def score_model(
@@ -573,25 +634,40 @@ def score_model(
     return output
 
 
-def decode(model, context_numpy, base_lines, device, chunk_len=8192):
-    if len(context_numpy) != len(base_lines):
-        raise RuntimeError("decoder row counts differ")
-    counts = np.zeros(len(base_lines), dtype=np.int64)
+def score_count_distribution(
+    model, context_numpy, device, chunk_len=8192,
+):
+    trigger_parts = []
+    excess_parts = []
     model.eval()
     with torch.no_grad():
-        for start in range(0, len(base_lines), chunk_len):
-            stop = min(start + chunk_len, len(base_lines))
-            context_chunk = torch.from_numpy(
-                context_numpy[start:stop]
-            ).to(device)
-            emit = model.emit_head(
-                context_chunk
-            ).argmax(dim=-1).cpu().numpy()
-            log_means = model.log_count_mean(
-                context_chunk
-            ).squeeze(-1).cpu().numpy()
-            positive_counts = _positive_counts_from_log_mean(log_means)
-            counts[start:stop] = np.where(emit == 1, positive_counts, 0)
+        for start in range(0, len(context_numpy), chunk_len):
+            stop = min(start + chunk_len, len(context_numpy))
+            context = torch.from_numpy(context_numpy[start:stop]).to(device)
+            trigger_parts.append(
+                model.trigger_logit(context)
+                .squeeze(-1).cpu().numpy()
+            )
+            excess_parts.append(
+                model.log_positive_excess_mean(context)
+                .squeeze(-1).cpu().numpy()
+            )
+    if not trigger_parts:
+        return np.empty(0), np.empty(0)
+    return (
+        np.concatenate(trigger_parts, axis=0),
+        np.concatenate(excess_parts, axis=0),
+    )
+
+
+def decode(model, context_numpy, counts, base_lines, device, chunk_len=8192):
+    counts = np.asarray(counts, dtype=np.int64)
+    if not (
+        len(context_numpy) == len(counts) == len(base_lines)
+    ):
+        raise RuntimeError("decoder row counts differ")
+    if np.any(counts < 0):
+        raise RuntimeError("negative decoded Stride request count")
 
     predicted_lines = [[] for _ in range(len(counts))]
     predicted_fills = [[] for _ in range(len(counts))]
@@ -631,7 +707,7 @@ def decode(model, context_numpy, base_lines, device, chunk_len=8192):
     return counts, predicted_lines, predicted_fills
 
 
-def gate_metrics(predicted_counts, target_actions):
+def trigger_metrics(predicted_counts, target_actions):
     predicted_positive = np.asarray(predicted_counts) > 0
     target_positive = np.asarray(
         [bool(items) for items in target_actions], dtype=np.bool_
@@ -658,18 +734,18 @@ def gate_metrics(predicted_counts, target_actions):
         if precision + recall else 0.0
     )
     return {
-        "gate_predicted_positive_rows": int(
+        "predicted_positive_callbacks": int(
             np.count_nonzero(predicted_positive)
         ),
-        "gate_target_positive_rows": int(
+        "normal_positive_callbacks": int(
             np.count_nonzero(target_positive)
         ),
-        "gate_true_positive_rows": true_positive,
-        "gate_false_positive_rows": false_positive,
-        "gate_false_negative_rows": false_negative,
-        "gate_positive_precision": precision,
-        "gate_positive_recall": recall,
-        "gate_positive_f1": f1,
+        "true_positive_trigger_callbacks": true_positive,
+        "false_positive_trigger_callbacks": false_positive,
+        "false_negative_trigger_callbacks": false_negative,
+        "trigger_precision": precision,
+        "trigger_recall": recall,
+        "trigger_f1": f1,
     }
 
 
@@ -718,7 +794,7 @@ def _count_summary(actions):
 
 def self_test_free_running_decoder(feature_count, hidden_size):
     torch.manual_seed(2718)
-    model = CompactPCKeyedHurdleStrideLSTM(feature_count, hidden_size)
+    model = CompactPCKeyedMassStrideLSTM(feature_count, hidden_size)
     state = model.action_decoder.begin(torch.randn(3, hidden_size))
     predicted = model.action_decoder.coordinate(state)
     advanced_a = model.action_decoder.advance(state, predicted)
@@ -736,13 +812,13 @@ def expected_parameter_count(feature_count, hidden_size):
     """Exact parameter count for the compact shared architecture."""
     return (
         11 * hidden_size * hidden_size
-        + (feature_count + 22) * hidden_size
-        + 4
+        + (feature_count + 29) * hidden_size
+        + 11
     )
 
 
 def self_test_compact_parameter_count(feature_count, hidden_size):
-    model = CompactPCKeyedHurdleStrideLSTM(feature_count, hidden_size)
+    model = CompactPCKeyedMassStrideLSTM(feature_count, hidden_size)
     observed = sum(parameter.numel() for parameter in model.parameters())
     expected = expected_parameter_count(feature_count, hidden_size)
     if observed != expected:
@@ -753,22 +829,20 @@ def self_test_compact_parameter_count(feature_count, hidden_size):
         )
 
 
-def self_test_variable_positive_count():
-    values = _positive_counts_from_log_mean(
-        np.log(np.asarray([1.0, 2.0, 9.0, 257.0]))
+def self_test_mass_hurdle_count():
+    keys = [11, 22, 11, 22, 11, 22, 11, 22]
+    logits = np.zeros(len(keys), dtype=np.float64)
+    log_excess = np.zeros(len(keys), dtype=np.float64)
+    counts, states = _mass_hurdle_counts(logits, log_excess, keys)
+    if counts.tolist() != [0, 0, 2, 2, 0, 0, 2, 2]:
+        raise RuntimeError("per-PC hurdle scheduler lost trigger/count mass")
+    if any(abs(value[1]) > 1e-12 for value in states.values()):
+        raise RuntimeError("per-PC positive-count residual mismatch")
+    large, _ = _mass_hurdle_counts(
+        np.asarray([100.0]), np.log(np.asarray([256.0])), [33]
     )
-    if values.tolist() != [1, 2, 9, 257]:
-        raise RuntimeError("positive-count decoder is not variable/unbounded")
-
-
-def self_test_data_derived_gate_balance():
-    counts = np.asarray([0, 0, 0, 2], dtype=np.int64)
-    weights = _data_derived_gate_class_weights(counts)
-    labels = counts > 0
-    negative_mass = float(weights[0] * np.count_nonzero(~labels))
-    positive_mass = float(weights[1] * np.count_nonzero(labels))
-    if not math.isclose(negative_mass, positive_mass):
-        raise RuntimeError("data-derived hurdle classes are not balanced")
+    if large.tolist() != [257]:
+        raise RuntimeError("positive count support is not unbounded")
 
 
 def self_test_pc_router():
@@ -784,7 +858,7 @@ def self_test_pc_router():
 def self_test_no_future(feature_count, hidden_size):
     """Changing future rows must not change an already encoded prefix."""
     torch.manual_seed(31415)
-    model = CompactPCKeyedHurdleStrideLSTM(feature_count, hidden_size)
+    model = CompactPCKeyedMassStrideLSTM(feature_count, hidden_size)
     rows = [(7, 100 + index, 0) for index in range(8)]
     original = np.zeros((len(rows), feature_count), dtype=np.float32)
     changed = original.copy()
@@ -835,8 +909,7 @@ def main():
     ):
         raise RuntimeError("model and batching dimensions must be positive")
 
-    self_test_variable_positive_count()
-    self_test_data_derived_gate_balance()
+    self_test_mass_hurdle_count()
     self_test_pc_router()
     self_test_free_running_decoder(
         ADDRESS_BITS * 2, max(2, args.model_size)
@@ -887,7 +960,7 @@ def main():
     train_counts, train_deltas, _ = targets_from_actions(
         [line for _, line, _ in rows["train"]], teacher["train"]
     )
-    model = CompactPCKeyedHurdleStrideLSTM(
+    model = CompactPCKeyedMassStrideLSTM(
         runtime["train"].shape[1], args.model_size
     )
     parameter_count = sum(
@@ -903,7 +976,7 @@ def main():
             )
         )
 
-    history, gate_class_weights = train_model(
+    history = train_model(
         model, rows["train"], runtime["train"],
         train_counts, train_deltas, device, args.epochs,
         args.chunk_len, args.pc_batch_size, args.learning_rate,
@@ -921,14 +994,22 @@ def main():
     )
     eval_start = len(rows["train"]) + len(rows["guard"])
     eval_context = encoded_history[eval_start:]
+    history_trigger_logits, history_log_excess = score_count_distribution(
+        model, encoded_history, device
+    )
+    history_counts, _ = _mass_hurdle_counts(
+        history_trigger_logits, history_log_excess,
+        [pc for pc, _, _ in history_rows]
+    )
+    predicted_counts = history_counts[eval_start:]
     predicted_counts, predicted_lines, predicted_fills = decode(
-        model, eval_context,
+        model, eval_context, predicted_counts,
         [line for _, line, _ in rows["eval"]], device,
     )
     behavior = behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills, teacher["eval"]
     )
-    behavior.update(gate_metrics(predicted_counts, teacher["eval"]))
+    behavior.update(trigger_metrics(predicted_counts, teacher["eval"]))
 
     normal_path = args.out_dir / "offline_stride.replay.csv"
     nn_path = args.out_dir / "offline_nn.replay.csv"
@@ -1006,7 +1087,8 @@ def main():
         "future_label_window_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
-        "data_derived_gate_class_weights_used": True,
+        "data_derived_gate_class_weights_used": False,
+        "gate_class_weighting_used": False,
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
@@ -1016,17 +1098,19 @@ def main():
             "signed cache-line deltas"
         ),
         "decision_rule": (
-            "two_class_argmax_then_rounded_exp_positive_count_then_"
-            "free_running_direct_delta"
+            "causal_per_pc_probability_mass_hurdle_then_unbounded_"
+            "positive_excess_and_free_running_delta_mixture"
         ),
-        "gate_training_objective": (
-            "training_frequency_derived_balanced_categorical_nll"
+        "gate_training_objective": "unweighted_bernoulli_nll",
+        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "request_count_training_objective": (
+            "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
-        "gate_decoding_rule": "two_class_categorical_argmax",
-        "gate_class_weights": [
-            float(value) for value in gate_class_weights
-        ],
-        "gate_training_label_statistics": {
+        "request_count_decoding_rule": (
+            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+        ),
+        "request_count_residual_scope": "dynamic_exact_pc_key",
+        "request_count_training_label_statistics": {
             "decision_callbacks": int(len(train_counts)),
             "positive_callbacks": train_positive,
             "zero_callbacks": train_zero,
@@ -1034,14 +1118,14 @@ def main():
                 float(train_positive) / float(len(train_counts))
             ),
         },
-        "positive_count_model": (
-            "learned log-count mean with rounded exponential and "
-            "unbounded positive support"
+        "request_count_model": (
+            "learned unweighted zero/positive Bernoulli plus conditional "
+            "Poisson excess with unbounded nonnegative integer support"
         ),
         "loss_design": (
-            "data-derived balanced hurdle mean plus positive log-count "
-            "mean plus direct-delta mean; unit sum without manually "
-            "tuned coefficients"
+            "unweighted trigger NLL mean plus positive-excess Poisson NLL "
+            "mean plus direct-delta mixture NLL mean; unit sum without "
+            "manually tuned coefficients"
         ),
         "training_labels": (
             "captured Stride actions; supervision and comparator replay only"
@@ -1072,8 +1156,8 @@ def main():
         ),
         "causal_no_future_self_test": "PASS",
         "pc_keyed_causality_self_test": "PASS",
-        "variable_positive_count_self_test": "PASS",
-        "data_derived_gate_balance_self_test": "PASS",
+        "probability_mass_hurdle_count_self_test": "PASS",
+        "delta_mixture_components": MIXTURE_COMPONENTS,
         "compact_parameter_self_test": "PASS",
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "cnn_temporal_layers": 0,
