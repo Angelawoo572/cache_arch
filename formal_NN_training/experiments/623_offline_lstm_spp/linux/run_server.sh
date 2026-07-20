@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_spp_mass_hurdle_fill_v13_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_spp_event_sampled_fill_v14_seed7}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -322,28 +322,34 @@ common = {
     "manual_loss_weights_used": False,
     "gate_class_weighting_used": False,
     "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+    "gate_decoding_rule": "event_local_bernoulli_sample",
     "gate_operating_point_learned_from_empirical_prior": False,
     "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "causal_probability_mass_hurdle_plus_positive_excess_residual",
-    "request_count_residual_scope": "global_demand_chronology",
+    "request_count_decoding_rule": "event_local_bernoulli_hurdle_plus_conditional_poisson_sample",
+    "request_count_residual_scope": "none_event_local",
     "fill_training_objective": "unweighted_categorical_nll",
-    "fill_decoding_rule": "causal_probability_mass_argmax",
+    "fill_decoding_rule": "event_local_categorical_sample",
     "fill_argmax_used": False,
     "fill_probability_feedback_used": True,
-    "decoder_probability_mass_carries_train_guard_history": True,
+    "decoder_probability_mass_carries_train_guard_history": False,
+    "cross_event_probability_credit_used": False,
+    "sampled_outputs_used_as_decoder_feedback": False,
+    "stochastic_decoding_reproducible": True,
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "learned_request_count": True,
     "causal_no_future_self_test": "PASS",
-    "probability_mass_hurdle_count_self_test": "PASS",
-    "fill_probability_mass_self_test": "PASS",
+    "event_local_hurdle_count_self_test": "PASS",
+    "event_local_mixture_sampling_self_test": "PASS",
+    "event_local_fill_sampling_self_test": "PASS",
+    "delta_mixture_decoding_rule": "event_local_categorical_component_sample_then_component_mean",
+    "delta_decoder_feedback_rule": "complete_mixture_expectation_same_in_training_and_inference",
     "decoder_mixture_components": 4,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_fill_v6",
     "action_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-    "model_revision": "compact_mass_hurdle_mixture_fill_v13",
+    "model_revision": "compact_event_sampled_mixture_fill_v14",
     "replay_preserves_explicit_fill_level": True,
     "source_decision_effective_external_input": [
         "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
@@ -352,6 +358,15 @@ common = {
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
+decoder_rng_seeds = metadata.get("decoder_rng_seeds")
+if (
+    not isinstance(decoder_rng_seeds, dict)
+    or set(decoder_rng_seeds) != {
+        "request_count", "delta_component", "fill_class",
+    }
+    or any(type(value) is not int for value in decoder_rng_seeds.values())
+):
+    bad["decoder_rng_seeds"] = (decoder_rng_seeds, "three reproducible integer seeds")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
 if not tag.startswith("independent_delta_spp_lstm_"):
