@@ -6,13 +6,15 @@ SPP: DEMAND(addr) and CACHE_FILL(evicted_addr). Source SPP actions are
 supervised labels and an offline comparator only; they never enter inference.
 
 The v12 independent argmax decisions collapsed to almost every callback
-issuing and every action filling LLC. A single integrated request mean would
-fix total volume but smear SPP's zero/positive events and positive-count bursts
-across neighbouring callbacks. This revision instead uses causal probability-
-mass decoders for the complete hurdle/count/fill distribution: an unweighted
-learned zero/positive hurdle, an unbounded conditional Poisson excess count,
-and a mass-preserving L2/LLC categorical decoder. None introduces a selected
-probability threshold, a degree cap, a candidate table, or source-SPP state.
+issuing and every action filling LLC. The v13 probability-mass scheduler fixed
+aggregate class frequency, but its credit state can move a trigger or fill
+choice from the callback where the model assigned it high probability to a
+later callback. This revision samples the complete event-local learned
+distribution instead: an unweighted zero/positive hurdle, an unbounded
+conditional Poisson excess count, a direct-delta mixture component, and an
+L2/LLC categorical fill. A fixed experiment seed makes the generated replay
+reproducible. None introduces a selected probability threshold, degree cap,
+candidate table, page-offset class, or source-SPP private state.
 """
 import argparse
 import csv
@@ -51,7 +53,7 @@ FILL_LEVELS = (2, 4)
 MIXTURE_COMPONENTS = 4
 RUNTIME_FEATURES = ADDRESS_BITS + 1
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_mass_hurdle_mixture_fill_v13"
+MODEL_REVISION = "compact_event_sampled_mixture_fill_v14"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -348,81 +350,64 @@ def _sigmoid_probabilities(logits):
     return probabilities
 
 
-def _binary_probability_mass_choice(positive_probability, credits):
-    probability = float(positive_probability)
-    credits = np.asarray(credits, dtype=np.float64).copy()
-    if (
-        not math.isfinite(probability) or probability < 0.0
-        or probability > 1.0 or credits.shape != (2,)
-        or not np.all(np.isfinite(credits))
-    ):
-        raise RuntimeError("invalid SPP trigger probability mass")
-    credits += np.asarray([1.0 - probability, probability])
-    choice = int(np.argmax(credits))
-    credits[choice] -= 1.0
-    return choice, credits
-
-
-def _mass_hurdle_counts(
-    trigger_logits, log_excess_means, trigger_credits=None,
-    excess_residual=0.0,
-):
-    """Decode global demand-order hurdle mass and unbounded excess count."""
+def _event_sampled_hurdle_counts(trigger_logits, log_excess_means, rng):
+    """Sample each learned hurdle/count distribution at its own demand."""
     probabilities = _sigmoid_probabilities(trigger_logits)
     excess_means = _poisson_means(log_excess_means)
     if len(probabilities) != len(excess_means):
         raise RuntimeError("SPP hurdle/count row counts differ")
-    trigger_credits = (
-        np.zeros(2, dtype=np.float64) if trigger_credits is None
-        else np.asarray(trigger_credits, dtype=np.float64).copy()
-    )
-    excess_residual = float(excess_residual)
-    if (
-        trigger_credits.shape != (2,)
-        or not np.all(np.isfinite(trigger_credits))
-        or not math.isfinite(excess_residual)
-        or excess_residual < 0.0 or excess_residual >= 1.0
-    ):
-        raise RuntimeError("invalid causal SPP count-decoder state")
+    if not hasattr(rng, "binomial") or not hasattr(rng, "poisson"):
+        raise RuntimeError("event-local SPP count sampler is not a NumPy RNG")
     counts = np.zeros(len(probabilities), dtype=np.int64)
-    maximum = float(np.iinfo(np.int64).max)
+    maximum = int(np.iinfo(np.int64).max)
     for index, (probability, excess_mean) in enumerate(zip(
         probabilities, excess_means
     )):
-        trigger, trigger_credits = _binary_probability_mass_choice(
-            probability, trigger_credits
-        )
+        try:
+            trigger = int(rng.binomial(1, float(probability)))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise RuntimeError("invalid learned SPP Bernoulli distribution") from exc
         if trigger:
-            total = excess_residual + float(excess_mean)
-            if not math.isfinite(total) or total > maximum - 1.0:
+            try:
+                extra = int(rng.poisson(float(excess_mean)))
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise RuntimeError("invalid learned SPP Poisson distribution") from exc
+            if extra < 0 or extra >= maximum:
                 raise RuntimeError("SPP positive count exceeds host domain")
-            extra = int(math.floor(total))
-            excess_residual = total - float(extra)
             counts[index] = 1 + extra
-    return counts, trigger_credits, excess_residual
+    return counts
 
 
-def _probability_mass_choice(probabilities, credits):
-    """Causal deterministic categorical quantization without a cutoff."""
+def _sample_categorical(probabilities, rng):
+    """Sample a finite learned distribution without a selected cutoff."""
     probabilities = np.asarray(probabilities, dtype=np.float64)
-    credits = np.asarray(credits, dtype=np.float64)
-    if probabilities.shape != (len(FILL_LEVELS),) or credits.shape != (
-        len(FILL_LEVELS),
-    ):
-        raise RuntimeError("fill probability-mass dimensions differ")
     if (
+        probabilities.ndim != 1 or not len(probabilities) or
         not np.all(np.isfinite(probabilities))
-        or not np.all(np.isfinite(credits))
         or np.any(probabilities < 0.0)
     ):
-        raise RuntimeError("invalid learned fill probability mass")
+        raise RuntimeError("invalid learned categorical distribution")
     total = float(probabilities.sum())
     if not math.isfinite(total) or total <= 0.0:
         raise RuntimeError("learned fill distribution has no probability mass")
-    credits = credits + probabilities / total
-    choice = int(np.argmax(credits))
-    credits[choice] -= 1.0
-    return choice, credits
+    try:
+        return int(rng.choice(
+            len(probabilities), p=probabilities / total
+        ))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise RuntimeError("failed to sample learned categorical distribution") from exc
+
+
+def _decoder_rngs(seed, count):
+    """Derive reproducible independent RNG streams from the run seed."""
+    if count < 1:
+        raise RuntimeError("decoder RNG count must be positive")
+    root = np.random.RandomState(int(seed))
+    upper = int(np.iinfo(np.int32).max)
+    seeds = root.randint(0, upper, size=count)
+    return [np.random.RandomState(int(value)) for value in seeds], [
+        int(value) for value in seeds
+    ]
 
 
 class CompactSPPActionDecoder(nn.Module):
@@ -553,10 +538,13 @@ def _structured_loss(model, context, counts, deltas, fills):
         action_atoms += active_atoms
 
         # Teacher targets above are loss-only. Recurrent feedback is the
-        # model's own modal delta and complete learned fill distribution,
-        # exactly as in offline inference. No discrete teacher fill enters.
-        component = mix.argmax(dim=-1, keepdim=True)
-        predicted_coordinate = mean.gather(1, component).squeeze(1)
+        # model's complete delta-mixture expectation and learned fill
+        # distribution, exactly as in inference. Sampled emitted actions and
+        # discrete teacher actions never enter the recurrent feedback path.
+        mixture_probabilities = F.softmax(mix, dim=-1)
+        predicted_coordinate = (
+            mixture_probabilities * mean
+        ).sum(dim=-1)
         predicted_fill_probabilities = F.softmax(fill_logits, dim=-1)
         advanced = model.decoder.advance(
             active_state, predicted_coordinate,
@@ -707,8 +695,7 @@ def advance_lstm_state(model, runtime, device, initial_state=None):
 
 def decode_actions(
     model, trigger_logits, log_excess_means, contexts, base_lines, device,
-    trigger_credits=None, excess_residual=0.0, fill_credits=None,
-    materialize=True,
+    count_rng, delta_rng, fill_rng, materialize=True,
     chunk_len=8192,
 ):
     if not (
@@ -716,18 +703,9 @@ def decode_actions(
         == len(contexts) == len(base_lines)
     ):
         raise RuntimeError("SPP decoder row counts differ")
-    counts, trigger_credits, excess_residual = _mass_hurdle_counts(
-        trigger_logits, log_excess_means,
-        trigger_credits=trigger_credits,
-        excess_residual=excess_residual,
+    counts = _event_sampled_hurdle_counts(
+        trigger_logits, log_excess_means, count_rng,
     )
-    fill_credits = (
-        np.zeros(len(FILL_LEVELS), dtype=np.float64)
-        if fill_credits is None
-        else np.asarray(fill_credits, dtype=np.float64).copy()
-    )
-    if fill_credits.shape != (len(FILL_LEVELS),):
-        raise RuntimeError("SPP fill probability-credit width changed")
     predicted_lines = (
         [[] for _ in range(len(counts))] if materialize else None
     )
@@ -739,9 +717,7 @@ def decode_actions(
         for start, stop in _iter_chunks(len(counts), chunk_len):
             state = torch.from_numpy(contexts[start:stop]).to(device)
             local_counts = counts[start:stop]
-            local_fill_probabilities = [
-                [] for _ in range(len(local_counts))
-            ]
+            local_distributions = [[] for _ in range(len(local_counts))]
             steps = int(local_counts.max()) if len(local_counts) else 0
             for step in range(steps):
                 active_numpy = np.flatnonzero(local_counts > step)
@@ -754,47 +730,39 @@ def decode_actions(
                 mix, mean, _, fill_logits = model.decoder.distribution(
                     active_state
                 )
-                component = mix.argmax(dim=-1, keepdim=True)
-                coordinate = mean.gather(1, component).squeeze(1)
+                mixture_probabilities = F.softmax(mix, dim=-1)
+                feedback_coordinate = (
+                    mixture_probabilities * mean
+                ).sum(dim=-1)
                 fill_probabilities = F.softmax(fill_logits, dim=-1)
-                coordinate_cpu = coordinate.cpu().numpy()
-                fill_cpu = fill_probabilities.cpu().numpy()
-                for local_position, value, probabilities in zip(
-                    active_numpy, coordinate_cpu, fill_cpu
+                for local_position, mixture_row, mean_row, fill_row in zip(
+                    active_numpy, mixture_probabilities.cpu().numpy(),
+                    mean.cpu().numpy(), fill_probabilities.cpu().numpy(),
                 ):
-                    global_position = start + int(local_position)
-                    delta = _coordinate_to_delta(value)
-                    if materialize:
-                        predicted_lines[global_position].append(
-                            apply_signed_line_delta(
-                                base_lines[global_position],
-                                delta,
-                            )
-                        )
-                    local_fill_probabilities[int(local_position)].append(
-                        probabilities
+                    local_distributions[int(local_position)].append(
+                        (mixture_row, mean_row, fill_row)
                     )
                 advanced = model.decoder.advance(
-                    active_state, coordinate, fill_probabilities
+                    active_state, feedback_coordinate, fill_probabilities
                 )
                 state = state.index_copy(0, active, advanced)
-            # The vectorized action loop above is step-major. Apply fill mass
-            # in actual callback-major/action-major order before the next
-            # chunk so decoder state remains strictly causal.
-            for local_position, probability_rows in enumerate(
-                local_fill_probabilities
-            ):
+            # Apply all output samples in callback-major/action-major order.
+            # Each choice belongs to the callback whose learned distribution
+            # produced it; no probability credit is carried to another event.
+            for local_position, distributions in enumerate(local_distributions):
                 global_position = start + local_position
-                for probabilities in probability_rows:
-                    choice, fill_credits = _probability_mass_choice(
-                        probabilities, fill_credits
-                    )
+                for mixture_row, mean_row, fill_row in distributions:
+                    component = _sample_categorical(mixture_row, delta_rng)
+                    fill_choice = _sample_categorical(fill_row, fill_rng)
                     if materialize:
-                        predicted_fills[global_position].append(choice)
-    return (
-        counts, predicted_lines, predicted_fills,
-        trigger_credits, excess_residual, fill_credits,
-    )
+                        delta = _coordinate_to_delta(mean_row[component])
+                        predicted_lines[global_position].append(
+                            apply_signed_line_delta(
+                                base_lines[global_position], delta,
+                            )
+                        )
+                        predicted_fills[global_position].append(fill_choice)
+    return counts, predicted_lines, predicted_fills
 
 
 
@@ -862,31 +830,45 @@ def self_test_model(hidden_size):
                 observed, expected
             )
         )
-    test_counts, trigger_credits, excess_residual = _mass_hurdle_counts(
-        np.zeros(4, dtype=np.float64),
-        np.zeros(4, dtype=np.float64),
+    low_logits = np.full(4096, -4.0, dtype=np.float64)
+    high_logits = np.full(4096, 4.0, dtype=np.float64)
+    log_excess = np.zeros(4096, dtype=np.float64)
+    test_counts = _event_sampled_hurdle_counts(
+        np.concatenate([low_logits, high_logits]),
+        np.concatenate([log_excess, log_excess]),
+        np.random.RandomState(1701),
     )
-    if test_counts.tolist() != [0, 2, 0, 2]:
-        raise RuntimeError("SPP hurdle scheduler lost trigger/count mass")
-    if (
-        not np.allclose(trigger_credits, np.zeros(2))
-        or abs(excess_residual) > 1e-12
+    repeated_counts = _event_sampled_hurdle_counts(
+        np.concatenate([low_logits, high_logits]),
+        np.concatenate([log_excess, log_excess]),
+        np.random.RandomState(1701),
+    )
+    if not np.array_equal(test_counts, repeated_counts):
+        raise RuntimeError("SPP event-local count sampling is not reproducible")
+    if np.count_nonzero(test_counts[4096:]) <= np.count_nonzero(
+        test_counts[:4096]
     ):
-        raise RuntimeError("SPP count-decoder residual mismatch")
-    large_counts, _, _ = _mass_hurdle_counts(
-        np.asarray([100.0]), np.log(np.asarray([256.0]))
+        raise RuntimeError("SPP sampling ignored learned trigger mass")
+    large_counts = _event_sampled_hurdle_counts(
+        np.asarray([100.0]), np.log(np.asarray([256.0])),
+        np.random.RandomState(2718),
     )
-    if large_counts.tolist() != [257]:
-        raise RuntimeError("SPP positive count support is not unbounded")
-    credits = np.zeros(len(FILL_LEVELS), dtype=np.float64)
-    choices = []
-    for _ in range(4):
-        choice, credits = _probability_mass_choice(
-            np.asarray([0.25, 0.75]), credits
+    if large_counts[0] <= 2:
+        raise RuntimeError("SPP positive count support appears degree capped")
+    choices_a = [
+        _sample_categorical(
+            np.asarray([0.25, 0.75]), np.random.RandomState(seed)
         )
-        choices.append(choice)
-    if choices.count(0) != 1 or choices.count(1) != 3:
-        raise RuntimeError("fill probability-mass decoder collapsed a class")
+        for seed in range(64)
+    ]
+    choices_b = [
+        _sample_categorical(
+            np.asarray([0.25, 0.75]), np.random.RandomState(seed)
+        )
+        for seed in range(64)
+    ]
+    if choices_a != choices_b or len(set(choices_a)) != len(FILL_LEVELS):
+        raise RuntimeError("SPP categorical sampling collapsed a learned class")
     loss_source = inspect.getsource(_structured_loss)
     forbidden = (
         "advance(active_state, target",
@@ -894,6 +876,7 @@ def self_test_model(hidden_size):
         "gate_" + "class_weights",
         "weight" + "=",
         "fill_logits.argmax",
+        "mix.argmax",
     )
     if any(token in loss_source for token in forbidden):
         raise RuntimeError(
@@ -1028,8 +1011,8 @@ def run_cli():
     )
 
     # Re-run the complete train -> guard -> eval chronology with fixed weights.
-    # Both the LSTM state and the two causal probability-mass decoder states
-    # cross role boundaries. Teacher actions are never fed back.
+    # LSTM state and reproducible decoder RNG streams cross role boundaries.
+    # Teacher actions are never fed back.
     encoded = {}
     recurrent_state = None
     for role in roles:
@@ -1037,9 +1020,8 @@ def run_cli():
             model, runtime[role], device, initial_state=recurrent_state
         )
 
-    trigger_credits = None
-    excess_residual = 0.0
-    fill_credits = None
+    decoder_rngs, decoder_rng_seeds = _decoder_rngs(args.seed, 3)
+    count_rng, delta_rng, fill_rng = decoder_rngs
     for role in ("train", "guard"):
         demand_positions = streams[role]["demand_positions"]
         trigger_logits, log_excess_means, contexts = (
@@ -1048,14 +1030,10 @@ def run_cli():
         base_lines = [
             line for _, _, line, _ in streams[role]["demands"]
         ]
-        (
-            _, _, _, trigger_credits, excess_residual, fill_credits,
-        ) = decode_actions(
+        decode_actions(
             model, trigger_logits, log_excess_means,
             contexts, base_lines, device,
-            trigger_credits=trigger_credits,
-            excess_residual=excess_residual,
-            fill_credits=fill_credits,
+            count_rng, delta_rng, fill_rng,
             materialize=False,
         )
 
@@ -1066,15 +1044,10 @@ def run_cli():
     base_lines = [
         line for _, _, line, _ in streams["eval"]["demands"]
     ]
-    (
-        predicted_counts, predicted_lines, predicted_fills,
-        trigger_credits, excess_residual, fill_credits,
-    ) = decode_actions(
+    predicted_counts, predicted_lines, predicted_fills = decode_actions(
         model, trigger_logits, log_excess_means,
         contexts, base_lines, device,
-        trigger_credits=trigger_credits,
-        excess_residual=excess_residual,
-        fill_credits=fill_credits,
+        count_rng, delta_rng, fill_rng,
         materialize=True,
     )
     behavior = behavior_metrics(
@@ -1119,6 +1092,12 @@ def run_cli():
         "architecture_pair_id": args.pair_id,
         "parameter_count": parameter_count,
         "seed": args.seed,
+        "decoder_rng_seeds": {
+            "request_count": decoder_rng_seeds[0],
+            "delta_component": decoder_rng_seeds[1],
+            "fill_class": decoder_rng_seeds[2],
+        },
+        "stochastic_decoding_reproducible": True,
         "epochs": args.epochs,
         "chunk_len": args.chunk_len,
         "accumulate_chunks": args.accumulate_chunks,
@@ -1175,8 +1154,8 @@ def run_cli():
             "cache-line deltas and learned fill"
         ),
         "decision_rule": (
-            "causal_probability_mass_hurdle_then_unbounded_positive_"
-            "excess_autoregressive_delta_mixture_and_fill_probability_mass"
+            "event_local_bernoulli_then_conditional_poisson_with_"
+            "categorical_delta_mixture_and_fill_sampling"
         ),
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
@@ -1189,23 +1168,31 @@ def run_cli():
         "manual_loss_weights_used": False,
         "gate_class_weighting_used": False,
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "causal_binary_probability_mass_scheduler",
+        "gate_decoding_rule": "event_local_bernoulli_sample",
         "gate_operating_point_learned_from_empirical_prior": False,
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "causal_probability_mass_hurdle_plus_positive_excess_residual"
+            "event_local_bernoulli_hurdle_plus_conditional_poisson_sample"
         ),
-        "request_count_residual_scope": "global_demand_chronology",
+        "request_count_residual_scope": "none_event_local",
         "request_count_training_label_statistics": (
             request_count_training_label_statistics
         ),
         "fill_training_objective": "unweighted_categorical_nll",
-        "fill_decoding_rule": "causal_probability_mass_argmax",
+        "fill_decoding_rule": "event_local_categorical_sample",
         "fill_argmax_used": False,
         "fill_probability_feedback_used": True,
-        "decoder_probability_mass_carries_train_guard_history": True,
+        "decoder_probability_mass_carries_train_guard_history": False,
+        "cross_event_probability_credit_used": False,
+        "sampled_outputs_used_as_decoder_feedback": False,
+        "delta_mixture_decoding_rule": (
+            "event_local_categorical_component_sample_then_component_mean"
+        ),
+        "delta_decoder_feedback_rule": (
+            "complete_mixture_expectation_same_in_training_and_inference"
+        ),
         "loss_design": (
             "unweighted trigger NLL mean plus positive-excess Poisson NLL "
             "mean plus direct-delta mixture NLL mean plus unweighted fill "
@@ -1243,8 +1230,9 @@ def run_cli():
         ),
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "causal_no_future_self_test": "PASS",
-        "probability_mass_hurdle_count_self_test": "PASS",
-        "fill_probability_mass_self_test": "PASS",
+        "event_local_hurdle_count_self_test": "PASS",
+        "event_local_mixture_sampling_self_test": "PASS",
+        "event_local_fill_sampling_self_test": "PASS",
         "cnn_temporal_layers": 0,
         "cnn_kernel_size": 0,
         "cnn_stride": 0,
