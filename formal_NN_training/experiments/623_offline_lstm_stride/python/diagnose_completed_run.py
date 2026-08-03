@@ -18,6 +18,7 @@ POLICY = "stride"
 TRACE = "623.xalancbmk_s-700B"
 DEFAULT_RUN_ID = "623_offline_lstm_stride_keyed_crn_v15_seed7"
 SOURCE_INPUTS = ["pc", "addr"]
+NEURAL_METHOD_PREFIX = "offline_independent_delta_stride_lstm_"
 EXPERIMENT = Path(__file__).resolve().parents[1]
 REPOSITORY = Path(__file__).resolve().parents[4]
 STRIDE_SOURCE = REPOSITORY / "external" / "ChampSim" / "prefetcher" / "stride.cc"
@@ -250,6 +251,15 @@ def main():
     if no_pref is None or normal is None:
         raise SystemExit("missing no-prefetch or offline-normal row")
 
+    expected_tags = {
+        method[len("offline_"):]
+        for method in rows
+        if isinstance(method, str)
+        and method.startswith(NEURAL_METHOD_PREFIX)
+    }
+    if not expected_tags:
+        raise SystemExit("matched comparison contains no Stride neural rows")
+
     records = []
     selected_metadata = []
     metadata_root = run_dir / "colab_output"
@@ -265,6 +275,13 @@ def main():
         selected_metadata.append(metadata)
     if not records:
         raise SystemExit("no Stride neural metadata found")
+    observed_tags = {record["model_tag"] for record in records}
+    if observed_tags != expected_tags:
+        raise SystemExit(
+            "Stride metadata/replay model set mismatch: observed={} expected={}".format(
+                sorted(observed_tags), sorted(expected_tags)
+            )
+        )
 
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256")
