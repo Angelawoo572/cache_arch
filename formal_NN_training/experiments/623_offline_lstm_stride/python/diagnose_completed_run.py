@@ -110,7 +110,8 @@ def analyzer_evidence_mismatches(matched, tag, metadata):
         ("runtime_encoder_sha256", metadata.get("runtime_encoder_sha256"),
          (matched.get("runtime_encoder_sha256_by_model_tag") or {}).get(tag)),
         ("normal_list_sha256", metadata.get("normal_list_sha256"),
-         (matched.get("offline_normal_list_hashes_by_model_tag") or {}).get(tag)),
+         (matched.get("offline_normal_list_hashes_by_model_tag") or {})
+         .get(POLICY, {}).get(tag)),
         ("normal_list_sha256_vs_replay", metadata.get("normal_list_sha256"),
          normal_info.get("sha256")),
         ("offline_normal_entries", metadata.get("offline_normal_entries"),
