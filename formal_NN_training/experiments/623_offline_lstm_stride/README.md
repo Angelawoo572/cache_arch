@@ -7,7 +7,7 @@ This track compares offline normal Stride with a standalone LSTM on
 
 Both methods receive the source-visible current `pc` and aligned `addr` only.
 The NN encodes the 64-bit PC and the 58-bit cache-line number losslessly (122
-features); the six always-zero byte-offset bits are not model parameters.
+features); the six always-zero byte-offset bits are omitted input features.
 Training and inference call the same encoder, and the server/analyzer fail
 closed unless field lists and encoder hashes agree.  Captured Stride requests
 are supervised labels and the offline-normal comparator, never neural inputs.
@@ -90,10 +90,14 @@ python3 python/diagnose_completed_run.py \
 ```
 
 This writes `model_diagnosis.json` and `model_diagnosis.csv`.  It verifies the
-root PASS, every model's input-contract metadata, cross-capacity encoder hash,
-and the actual ChampSim Stride source.  The source audit requires `pc` and
-`address` to be used by `invoke_prefetcher`, and requires generic `cache_hit`
-and `type` arguments to be signature-only.
+root PASS, binds current metadata/list/input hashes back to analyzer evidence,
+and checks the cross-capacity encoder hash.  It also audits the **current
+checkout** of ChampSim Stride: `pc` and `address` must be used by
+`invoke_prefetcher`, while generic `cache_hit` and `type` arguments must be
+signature-only.  The completed v15 artifacts do not record the historical
+Stride source blob SHA, so this current-checkout audit is not claimed as proof
+of which exact source blob produced the completed run; the JSON records that
+provenance boundary explicitly.
 
 ## Next controlled revision
 
