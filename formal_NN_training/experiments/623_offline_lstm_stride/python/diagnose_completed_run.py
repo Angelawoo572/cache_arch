@@ -19,6 +19,10 @@ TRACE = "623.xalancbmk_s-700B"
 DEFAULT_RUN_ID = "623_offline_lstm_stride_keyed_crn_v15_seed7"
 SOURCE_INPUTS = ["pc", "addr"]
 NEURAL_METHOD_PREFIX = "offline_independent_delta_stride_lstm_"
+EXPECTED_TAGS = {
+    "independent_delta_stride_lstm_h{}".format(size)
+    for size in (8, 16, 32, 64, 128)
+}
 EXPERIMENT = Path(__file__).resolve().parents[1]
 REPOSITORY = Path(__file__).resolve().parents[4]
 STRIDE_SOURCE = REPOSITORY / "external" / "ChampSim" / "prefetcher" / "stride.cc"
@@ -95,6 +99,51 @@ def input_contract_mismatches(metadata):
     return mismatches
 
 
+def analyzer_evidence_mismatches(matched, tag, metadata):
+    """Bind current metadata to hashes stored by the completed analyzer."""
+    mismatches = []
+    method = "offline_" + tag
+    accounting = matched.get("replay_accounting") or {}
+    nn_info = accounting.get(method) or {}
+    normal_info = accounting.get("offline_stride") or {}
+    checks = (
+        ("runtime_encoder_sha256", metadata.get("runtime_encoder_sha256"),
+         (matched.get("runtime_encoder_sha256_by_model_tag") or {}).get(tag)),
+        ("normal_list_sha256", metadata.get("normal_list_sha256"),
+         (matched.get("offline_normal_list_hashes_by_model_tag") or {}).get(tag)),
+        ("normal_list_sha256_vs_replay", metadata.get("normal_list_sha256"),
+         normal_info.get("sha256")),
+        ("offline_normal_entries", metadata.get("offline_normal_entries"),
+         normal_info.get("entries")),
+        ("nn_list_sha256", metadata.get("nn_list_sha256"),
+         nn_info.get("sha256")),
+        ("offline_nn_entries", metadata.get("offline_nn_entries"),
+         nn_info.get("entries")),
+    )
+    for field, actual, expected in checks:
+        if expected is None or actual != expected:
+            mismatches.append({
+                "field": field, "actual": actual, "expected": expected,
+            })
+    policy_inputs = (
+        (matched.get("input_provenance") or {})
+        .get("policy_inputs", {}).get(POLICY, {})
+    )
+    for role in ("train", "guard", "eval"):
+        for kind in ("stream", "candidate"):
+            key = "{}_{}_content_sha256".format(role, kind)
+            expected = policy_inputs.get(role, {}).get(kind, {}).get(
+                "content_sha256"
+            )
+            if expected is None or metadata.get(key) != expected:
+                mismatches.append({
+                    "field": key,
+                    "actual": metadata.get(key),
+                    "expected": expected,
+                })
+    return mismatches
+
+
 def audit_stride_source(path):
     """Prove that the live Stride decision uses only PC and address.
 
@@ -146,10 +195,14 @@ def audit_stride_source(path):
         "invoke_prefetcher_body_reference_counts": used,
         "effective_source_inputs": ["pc", "address"],
         "signature_only_inputs": ["cache_hit", "type"],
+        "provenance_scope": (
+            "current checkout only; the completed run did not record this "
+            "source blob SHA"
+        ),
     }
 
 
-def model_record(row, metadata, normal, no_pref):
+def model_record(row, metadata, normal, no_pref, matched):
     triggers = row.get("runtime_reachable_list_triggers")
     normal_triggers = normal.get("runtime_reachable_list_triggers")
     record = {
@@ -217,6 +270,11 @@ def model_record(row, metadata, normal, no_pref):
     mismatches = input_contract_mismatches(metadata)
     record["input_contract_verified"] = not mismatches
     record["input_contract_mismatches"] = mismatches
+    evidence_mismatches = analyzer_evidence_mismatches(
+        matched, metadata.get("model_tag"), metadata
+    )
+    record["analyzer_evidence_verified"] = not evidence_mismatches
+    record["analyzer_evidence_mismatches"] = evidence_mismatches
     return record
 
 
@@ -259,6 +317,12 @@ def main():
     }
     if not expected_tags:
         raise SystemExit("matched comparison contains no Stride neural rows")
+    if expected_tags != EXPECTED_TAGS:
+        raise SystemExit(
+            "unexpected Stride v15 model set: observed={} expected={}".format(
+                sorted(expected_tags), sorted(EXPECTED_TAGS)
+            )
+        )
 
     records = []
     selected_metadata = []
@@ -271,7 +335,7 @@ def main():
         row = rows.get("offline_" + tag)
         if row is None:
             raise SystemExit("missing replay row for {}".format(tag))
-        records.append(model_record(row, metadata, normal, no_pref))
+        records.append(model_record(row, metadata, normal, no_pref, matched))
         selected_metadata.append(metadata)
     if not records:
         raise SystemExit("no Stride neural metadata found")
@@ -289,10 +353,25 @@ def main():
     }
     contract_verified = (
         all(record["input_contract_verified"] for record in records)
+        and all(record["analyzer_evidence_verified"] for record in records)
         and len(encoder_hashes) == 1
     )
     if not contract_verified:
-        raise SystemExit("cross-model input contract verification failed")
+        problems = [{
+            "model_tag": record["model_tag"],
+            "input_contract_mismatches": record["input_contract_mismatches"],
+            "analyzer_evidence_mismatches": record[
+                "analyzer_evidence_mismatches"
+            ],
+        } for record in records if (
+            not record["input_contract_verified"]
+            or not record["analyzer_evidence_verified"]
+        )]
+        raise SystemExit(
+            "cross-model evidence verification failed: {}".format(
+                json.dumps(problems, sort_keys=True)
+            )
+        )
 
     source_audit = audit_stride_source(args.stride_source)
     best = max(records, key=lambda item: item["ipc"])
@@ -303,9 +382,11 @@ def main():
         "trace": TRACE,
         "policy": POLICY,
         "input_contract_verified": True,
+        "current_metadata_bound_to_analyzer_evidence": True,
         "cross_capacity_runtime_encoder_identical": True,
         "runtime_encoder_sha256": next(iter(encoder_hashes)),
-        "source_input_audit": source_audit,
+        "current_checkout_source_input_audit": source_audit,
+        "completed_run_source_blob_provenance_verified": False,
         "same_external_input": SOURCE_INPUTS,
         "teacher_role": (
             "captured Stride actions are supervision and comparator replay "
@@ -338,6 +419,8 @@ def main():
             "PASS validates accounting and input fairness, not NN success.",
             "Request volume, target quality, miss rate, and IPC remain separate.",
             "This schema does not directly measure harmful victim eviction.",
+            "The source audit covers the current checkout, not historical "
+            "completed-run source provenance.",
             "One trace and one seed identify a best observed point, not an optimum.",
         ],
     }
