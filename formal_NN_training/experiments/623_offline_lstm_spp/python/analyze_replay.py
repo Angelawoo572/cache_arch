@@ -1118,6 +1118,19 @@ def main():
         }
         transport_fidelity[policy] = fidelity
 
+    # trigger_entry_counts is an internal exact-accounting index keyed by
+    # (pc, line, occurrence) tuples.  Keep it in memory for the checks above,
+    # but do not place tuple-keyed state in the JSON evidence payload.
+    replay_accounting = {
+        method: {
+            "entries": info["entries"],
+            "unique_triggers": info["unique_triggers"],
+            "sha256": info["sha256"],
+            "fill_counts": info["fill_counts"],
+        }
+        for method, info in sorted(replay_lists.items())
+    }
+
     status = "FAIL" if failures else "PASS"
     payload = {
         "status": status,
@@ -1148,7 +1161,7 @@ def main():
             "no_pref", "live_spp_reference"
         ],
         "transport_fidelity": transport_fidelity,
-        "replay_accounting": replay_lists,
+        "replay_accounting": replay_accounting,
         "warnings": warnings,
         "track_guardrail": (
             "Every neural point learns an unbounded request count, direct signed "
