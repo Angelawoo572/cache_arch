@@ -1358,7 +1358,11 @@ def main():
             "fill_classes": ["FILL_L2", "FILL_LLC"],
             "decision": (
                 "stateless event-keyed Bernoulli/Poisson inverse-CDF count and "
-                "one mean-canonicalized joint delta-component/fill sample"
+                + (
+                    "guard-selected deterministic joint delta-component/fill MAP"
+                    if "v16a" in revisions else
+                    "one mean-canonicalized joint delta-component/fill sample"
+                )
             ),
             "probability_threshold": None,
             "neural_degree_cap": None,
