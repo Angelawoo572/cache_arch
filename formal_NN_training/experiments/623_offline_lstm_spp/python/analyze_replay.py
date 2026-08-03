@@ -1482,7 +1482,7 @@ def main():
             normal = by_method["offline_" + policy]
             points = []
             for tag in model_tags:
-                if not tag.startswith("joint_delta_fill_" + policy + "_"):
+                if policy_for_method("offline_" + tag) != policy:
                     continue
                 row = by_method["offline_" + tag]
                 metadata = metadata_by_tag[tag]
