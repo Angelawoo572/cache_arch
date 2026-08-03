@@ -46,3 +46,30 @@ Sacramento collect/replay/analyze uses Python 3.6 standard-library code only;
 PyTorch, NumPy, and SciPy are Colab training dependencies, not server imports.
 The committed TeX results are explicitly historical v11 evidence; v15 results
 must come from the new run ID and are currently pending.
+
+## Result status and canonical artifacts
+
+Do not use recursive `grep '"status": "PASS"'` on
+`matched_comparison.json`: the file embeds child manifests with their own
+`status` fields.  Read the root status and root failure list with:
+
+```bash
+python3 python/check_matched_comparison.py --run-id "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
+```
+
+The checker exits 0 only for a root `PASS` with an empty failure list, 1 for a
+structured root `FAIL`, 2 when analysis is not ready, and 3 for malformed or
+inconsistent JSON.
+
+This LSTM-only track produces `matched_comparison.json`,
+`matched_comparison.csv`, `insight_summary.csv`, and `replay.nohup.log`.
+It does not produce `architecture_pair_summary.csv`; cross-family comparisons
+belong outside this single-family run.
+
+If replay logs and event files already exist, regenerate only the derived
+analysis after an analyzer update:
+
+```bash
+BUILD=0 RUN_ID="623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7" \
+  bash formal_NN_training/experiments/623_offline_lstm_spp/linux/launch_server.sh analyze
+```

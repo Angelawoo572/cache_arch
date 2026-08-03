@@ -939,8 +939,15 @@ def main():
             "list entries versus simulator requested": (
                 info["entries"], row["pf_requested"]
             ),
-            "list entries versus PF events": (
-                info["entries"], row["prefetch_request_events"]
+            # The list and pf_requested count attempted actions.  PF rows are
+            # logged only after CACHE::prefetch_line passes its PQ-capacity
+            # gate, so they correspond to pf_issued rather than all attempts.
+            "simulator issued versus logged PF events": (
+                row["pf_issued"], row["prefetch_request_events"]
+            ),
+            "simulator request conservation": (
+                row["pf_requested"],
+                row["pf_issued"] + row["pf_dropped"],
             ),
             "unique list triggers versus matched triggers": (
                 info["unique_triggers"], row["matched"]
@@ -1350,9 +1357,11 @@ def main():
         }
 
     out_json = args.run_dir / "matched_comparison.json"
-    out_json.write_text(
+    tmp_json = out_json.with_name(out_json.name + ".tmp")
+    tmp_json.write_text(
         json.dumps(payload, indent=2, sort_keys=True) + "\n"
     )
+    tmp_json.replace(out_json)
     print("[{}] {}".format(status, out_json))
     if failures:
         raise SystemExit(" | ".join(failures))
@@ -1360,3 +1369,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
