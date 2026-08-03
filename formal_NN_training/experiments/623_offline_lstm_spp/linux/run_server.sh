@@ -6,13 +6,33 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-RUN_ID="${RUN_ID:-623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7}"
+EXPERIMENT_MODE="${EXPERIMENT_MODE:-v16a}"
+PARENT_RUN_ID="${PARENT_RUN_ID:-623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7}"
+if [[ "$EXPERIMENT_MODE" == v16a \
+  && "$PARENT_RUN_ID" != 623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7 ]]; then
+  echo "[error] v16A parent run must be the pinned completed v15 run" >&2
+  exit 2
+fi
+case "$EXPERIMENT_MODE" in
+  v15)
+    DEFAULT_RUN_ID="623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
+    DEFAULT_MODEL_TAGS="joint_delta_fill_spp_lstm_h8,joint_delta_fill_spp_lstm_h16,joint_delta_fill_spp_lstm_h32,joint_delta_fill_spp_lstm_h64,joint_delta_fill_spp_lstm_h128"
+    DEFAULT_BASE_TAG="joint_delta_fill_spp_lstm_h8"
+    ;;
+  v16a)
+    DEFAULT_RUN_ID="623_offline_lstm_spp_keyed_crn_joint_map_v16a_seed7"
+    DEFAULT_MODEL_TAGS="guard_joint_map_spp_lstm_h8,guard_joint_map_spp_lstm_h16,guard_joint_map_spp_lstm_h32,guard_joint_map_spp_lstm_h64,guard_joint_map_spp_lstm_h128"
+    DEFAULT_BASE_TAG="guard_joint_map_spp_lstm_h8"
+    ;;
+  *) echo "[error] EXPERIMENT_MODE must be v15 or v16a" >&2; exit 2 ;;
+esac
+RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 STAGE="${STAGE:-collect}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-joint_delta_fill_spp_lstm_h8,joint_delta_fill_spp_lstm_h16,joint_delta_fill_spp_lstm_h32,joint_delta_fill_spp_lstm_h64,joint_delta_fill_spp_lstm_h128}"
-BASE_TAG="${BASE_TAG:-joint_delta_fill_spp_lstm_h8}"
+MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
+BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -251,7 +271,75 @@ print("[PASS] SPP {} demand callbacks={} cache-fill callbacks={}".format(
 PY
 }
 
+prepare_v16a_input() {
+  local parent_run="$EXP/runs/$PARENT_RUN_ID"
+  local parent_input="$parent_run/colab_input"
+  [[ "$RUN_ID" != "$PARENT_RUN_ID" ]] || {
+    echo "[error] v16A RUN_ID must not overwrite its v15 parent" >&2
+    exit 2
+  }
+  [[ -d "$parent_input" ]] || {
+    echo "[error] missing v15 parent input $parent_input" >&2
+    exit 2
+  }
+  local role name tag parent_tag parent_dir
+  local input_files=()
+  for role in train guard eval; do
+    for name in \
+      "$TRACE.$POLICY.${role}_stream.csv.gz" \
+      "$TRACE.$POLICY.${role}_teacher_actions.csv.gz"; do
+      [[ -s "$parent_input/$name" ]] || {
+        echo "[error] missing v15 parent input $parent_input/$name" >&2
+        exit 2
+      }
+      cp -f "$parent_input/$name" "$STREAM_DIR/$name"
+      input_files+=("$name")
+    done
+  done
+  [[ -s "$parent_input/spp_source_contract.json" ]] || {
+    echo "[error] missing v15 parent source contract" >&2
+    exit 2
+  }
+  cp -f "$parent_input/spp_source_contract.json" "$SOURCE_CONTRACT_INPUT"
+  cmp -s "$SOURCE_CONTRACT_REPO" "$SOURCE_CONTRACT_INPUT" || {
+    echo "[error] repository source contract differs from v15 parent" >&2
+    exit 2
+  }
+  python3 "$VALIDATE_INPUTS" \
+    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
+    --source-contract "$SOURCE_CONTRACT_INPUT"
+  input_files+=("spp_source_contract.json" "collection_manifest.json")
+
+  for tag in "${MODEL_TAGS[@]}"; do
+    parent_tag="${tag#guard_}"
+    parent_tag="joint_delta_fill_${parent_tag#joint_map_}"
+    parent_dir="$parent_run/colab_output/$parent_tag"
+    [[ -d "$parent_dir" ]] || {
+      echo "[error] missing v15 parent output $parent_dir" >&2
+      exit 2
+    }
+    mkdir -p "$STREAM_DIR/parent_checkpoints/$parent_tag"
+    for name in model.pt run_metadata.json training_history.csv; do
+      [[ -s "$parent_dir/$name" ]] || {
+        echo "[error] missing v15 parent artifact $parent_dir/$name" >&2
+        exit 2
+      }
+      cp -f "$parent_dir/$name" \
+        "$STREAM_DIR/parent_checkpoints/$parent_tag/$name"
+      input_files+=("parent_checkpoints/$parent_tag/$name")
+    done
+  done
+  ( cd "$STREAM_DIR" && sha256sum "${input_files[@]}" > SHA256SUMS )
+  tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
+    "${input_files[@]}" SHA256SUMS
+  echo "[ready for Colab:v16A] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
+}
+
 collect() {
+  if [[ "$EXPERIMENT_MODE" == v16a ]]; then
+    prepare_v16a_input
+    return
+  fi
   [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
   if [[ "$BUILD" == 1 || ! -x "$BIN" ]]; then
     build
@@ -293,7 +381,8 @@ collect() {
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
 assert_model_metadata() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" <<'PY'
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$PARENT_RUN_ID" \
+    "$EXP/runs/$PARENT_RUN_ID" <<'PY'
 import csv
 import hashlib
 import json
@@ -303,6 +392,8 @@ from pathlib import Path
 
 metadata = json.load(open(sys.argv[1]))
 source_contract = Path(sys.argv[2])
+expected_parent_run_id = sys.argv[3]
+parent_run_dir = Path(sys.argv[4])
 tag = metadata.get("model_tag", "")
 family = metadata.get("model_family")
 common = {
@@ -394,8 +485,68 @@ common = {
     "decoder_train_sampling_performed": False,
     "decoder_guard_sampling_performed": False,
 }
+revision = metadata.get("model_revision")
+is_v16a = revision == "compact_crn_joint_delta_fill_guard_map_v16a"
+if is_v16a:
+    selected_mode = metadata.get("selected_decoder_mode")
+    common.update({
+        "operation": "redecode-v16a",
+        "model_revision": "compact_crn_joint_delta_fill_guard_map_v16a",
+        "decoder_revision": "guard_selected_deterministic_joint_map_v16a",
+        "decoder_candidate_modes": [
+            "joint_class_map", "component_peak_map"
+        ],
+        "selected_decoder_mode": selected_mode,
+        "decoder_sampling_roles": ["guard", "eval"],
+        "decoder_guard_sampling_performed": True,
+        "fill_decoding_rule": "guard_selected_joint_pair_map",
+        "joint_delta_fill_decoding_rule": selected_mode,
+        "delta_mixture_decoding_rule": (
+            "guard_selected_joint_component_then_component_mean"
+        ),
+        "weights_retrained": False,
+        "checkpoint_reused": True,
+        "decoder_only_change": True,
+        "strict_checkpoint_validation_passed": True,
+        "model_architecture_reused_unchanged": True,
+        "parent_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
+        "weights_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
+        "parent_run_id": "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7",
+        "parent_state_dict_strict_load": True,
+        "parent_input_hash_validation": "PASS",
+        "parent_encoder_hash_validation": "PASS",
+        "parent_normal_replay_validation": "PASS",
+        "guard_selection_uses_eval_labels": False,
+        "guard_selection_uses_guard_labels_only": True,
+        "guard_selected_decoder": True,
+        "joint_map_used": True,
+        "decoder_action_sampling_performed": False,
+        "decoder_count_sampling_performed": True,
+        "deterministic_joint_map_self_test": "PASS",
+        "component_peak_map_exact_mixture_mode_claimed": False,
+        "guard_selection_objective": [
+            "maximize_joint_action_f1",
+            "maximize_target_f1",
+            "maximize_trigger_f1",
+            "minimize_absolute_action_count_ratio_error",
+            "maximize_l2_joint_f1",
+            "minimize_absolute_l2_fraction_error",
+            "canonical_mode_order",
+        ],
+    })
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
+if is_v16a and metadata.get("selected_decoder_mode") not in (
+    "joint_class_map", "component_peak_map"
+):
+    bad["selected_decoder_mode"] = (
+        metadata.get("selected_decoder_mode"), "one declared v16A mode"
+    )
+if revision not in (
+    "compact_crn_joint_delta_fill_mixture_v15",
+    "compact_crn_joint_delta_fill_guard_map_v16a",
+):
+    bad["model_revision"] = (revision, "supported SPP revision")
 expected_key_fields = [
     "revision", "decoder_seed", "trace", "policy", "role",
     "event_key", "head", "action_rank",
@@ -410,18 +561,30 @@ if (
     or metadata.get("decoder_key_fields") != expected_key_fields
 ):
     bad["decoder_sampler"] = (sampler, "stateless keyed inverse-CDF CRN v1")
-for key in (
+hash_keys = [
     "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
     "decoder_eval_event_key_stream_sha256", "decoder_eval_sampling_schedule_sha256",
     "decision_router_source_sha256", "eval_decision_router_sha256",
-):
+]
+if is_v16a:
+    hash_keys.extend([
+        "decoder_guard_sampling_schedule_sha256",
+        "parent_checkpoint_sha256", "parent_run_metadata_sha256",
+        "parent_training_history_sha256", "model_checkpoint_sha256",
+        "training_history_sha256",
+    ])
+for key in hash_keys:
     value = metadata.get(key)
     if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
         bad[key] = (value, "64 lowercase hex characters")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
-if not tag.startswith("joint_delta_fill_spp_lstm_"):
-    bad["model_tag"] = (tag, "joint_delta_fill_spp_lstm_<size>")
+expected_tag_prefix = (
+    "guard_joint_map_spp_lstm_" if is_v16a else
+    "joint_delta_fill_spp_lstm_"
+)
+if not tag.startswith(expected_tag_prefix):
+    bad["model_tag"] = (tag, expected_tag_prefix + "<size>")
 expected_points = {
     ("lstm", 8): "p0",
     ("lstm", 16): "p1",
@@ -476,6 +639,31 @@ if fill_accuracy is not None and (
     bad["heldout_behavior_metrics.fill_accuracy_on_matched_targets"] = (
         fill_accuracy, "None or [0,1]"
     )
+if is_v16a:
+    selection = metadata.get("guard_decoder_selection")
+    if not isinstance(selection, dict) or set(selection) != {
+        "joint_class_map", "component_peak_map"
+    }:
+        bad["guard_decoder_selection"] = (
+            selection, "both declared v16A modes"
+        )
+    else:
+        for mode, payload in selection.items():
+            if (
+                not isinstance(payload, dict)
+                or not isinstance(payload.get("metrics"), dict)
+                or not isinstance(payload.get("selection_key"), list)
+                or len(payload.get("selection_key", [])) != 7
+            ):
+                bad["guard_decoder_selection." + mode] = (
+                    payload, "metrics plus seven-value key"
+                )
+        if not any(key.startswith("guard_decoder_selection.") for key in bad):
+            selected = max(selection, key=lambda mode: selection[mode]["selection_key"])
+            if selected != metadata.get("selected_decoder_mode"):
+                bad["guard_selected_mode"] = (
+                    metadata.get("selected_decoder_mode"), selected
+                )
 
 def inspect_replay(path, allow_empty):
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -508,6 +696,53 @@ def inspect_replay(path, allow_empty):
     return count, digest, fill_counts
 
 root = Path(sys.argv[1]).parent
+if is_v16a:
+    for name, key in (
+        ("model.pt", "model_checkpoint_sha256"),
+        ("training_history.csv", "training_history_sha256"),
+    ):
+        artifact = root / name
+        observed = (
+            hashlib.sha256(artifact.read_bytes()).hexdigest()
+            if artifact.is_file() else None
+        )
+        if metadata.get(key) != observed:
+            bad[key] = (metadata.get(key), observed)
+    if metadata.get("model_checkpoint_sha256") != metadata.get(
+        "parent_checkpoint_sha256"
+    ):
+        bad["checkpoint_byte_reuse"] = (
+            metadata.get("model_checkpoint_sha256"),
+            metadata.get("parent_checkpoint_sha256"),
+        )
+    if metadata.get("training_history_sha256") != metadata.get(
+        "parent_training_history_sha256"
+    ):
+        bad["history_byte_reuse"] = (
+            metadata.get("training_history_sha256"),
+            metadata.get("parent_training_history_sha256"),
+        )
+    parent_tag = "joint_delta_fill_spp_lstm_h{}".format(
+        metadata.get("model_size")
+    )
+    parent_dir = parent_run_dir / "colab_output" / parent_tag
+    parent_artifacts = (
+        ("model.pt", "parent_checkpoint_sha256"),
+        ("run_metadata.json", "parent_run_metadata_sha256"),
+        ("training_history.csv", "parent_training_history_sha256"),
+    )
+    if metadata.get("parent_run_id") != expected_parent_run_id:
+        bad["parent_run_id"] = (
+            metadata.get("parent_run_id"), expected_parent_run_id
+        )
+    for name, key in parent_artifacts:
+        artifact = parent_dir / name
+        observed = (
+            hashlib.sha256(artifact.read_bytes()).hexdigest()
+            if artifact.is_file() else None
+        )
+        if metadata.get(key) != observed:
+            bad["canonical_parent." + name] = (metadata.get(key), observed)
 for name, count_key, hash_key, fill_key, allow_empty in (
     ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
     ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
@@ -560,7 +795,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_joint_delta_fill_spp_lstm_*)
+    offline_joint_delta_fill_spp_lstm_*|offline_guard_joint_map_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }

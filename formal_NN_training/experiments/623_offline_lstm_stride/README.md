@@ -1,120 +1,183 @@
-# 623 Stride — compact independent LSTM v15
+# 623 Stride — compact balanced deterministic LSTM v16
 
 This track compares offline normal Stride with a standalone LSTM on
-`623.xalancbmk_s-700B` through the same keyed replay transport.
+`623.xalancbmk_s-700B` through the same keyed replay transport.  v16 is a new,
+controlled run; it does not overwrite the completed v15 negative checkpoint.
 
 ## Fair input contract
 
 Both methods receive the source-visible current `pc` and aligned `addr` only.
 The NN encodes the 64-bit PC and the 58-bit cache-line number losslessly (122
-features); the six always-zero byte-offset bits are omitted input features.
-Training and inference call the same encoder, and the server/analyzer fail
-closed unless field lists and encoder hashes agree.  Captured Stride requests
-are supervised labels and the offline-normal comparator, never neural inputs.
-The NN receives no Stride tracker state, candidates, degree, request-rate
-budget, probability cutoff, or future rows.
+features); the six always-zero byte-offset bits are omitted.  Training and
+inference call the same encoder.  Captured Stride requests are supervised
+labels and the offline-normal comparator, never neural inputs.
 
-## v15 hypothesis and completed result
+The neural policy receives no Stride tracker state, candidate bank, request
+budget, degree cap, selected probability threshold, fixed page-offset table,
+same-page rule, handcrafted semantic feature, cache hit, queue state, cycle, or
+future row.  A dynamic exact-PC map routes recurrent state without copying the
+teacher's fixed tracker capacity.
 
-The successful 602 Stride model used a frequency-balanced two-class hurdle,
-deterministic positive count, and scalar signed-log delta.  v15 deliberately
-tested a different hypothesis: an unweighted Bernoulli hurdle, conditional
-Poisson excess, and sampled three-component delta mixture would better model
-623's sparse teacher.  The completed seed-7 run rejects that hypothesis.
+## Why v16 changes the v15 heads
 
-An exact-PC dynamic map routes callbacks through one compact LSTM.  Count and
-mean-sorted mixture-component draws are inverse-CDF samples keyed by trace,
-policy, role, evaluation decision index, head, action rank, and decoder seed.
-There is no mutable cross-event RNG state.  Every capacity consequently receives
-the same event-local random quantiles (common random numbers), while recurrent
-feedback uses the complete learned mixture expectation in training and
-inference.  `--decoder-seed` is independent of the training seed.
+The completed v15 root comparison is `PASS`, so its input, transport, and
+counter accounting reconcile.  It is nevertheless a valid negative model
+result:
 
-The exact capacity sweep is h8/h16/h32/h64/h128 with
-1,923/5,243/16,107/54,731/199,563 parameters.
+- offline normal Stride reaches IPC 0.353400; the best v15 neural point (h64)
+  reaches 0.353230;
+- h16/h32/h128 collapse to only 978/1,761/9,669 requests;
+- h64 nearly matches normal request volume (164,128 versus 166,147) but reaches
+  many more trigger rows, averaging 1.471 actions per reached trigger rather
+  than normal's 1.973;
+- h64 selected accuracy is 0.005589 versus 0.016943 and coverage is 0.001750
+  versus 0.005134;
+- v15 trains mixture means and scales, but replay emits only a rounded selected
+  component mean, so learned scale cannot improve the emitted address.
 
-The root comparison is `PASS`, so transport and counter accounting reconcile.
-Nevertheless, offline normal Stride remains best: IPC 0.353400 versus 0.353230
-for the best neural point (h64).  h16/h32/h128 emit only 978/1,761/9,669
-requests.  Even h64 obtains 164,128 requests, close to normal's 166,147, but
-selected accuracy falls from 0.016943 to 0.005589 and coverage from 0.005134 to
-0.001750.  This is a valid negative result, not an analyzer failure.
+Those diagnostics support a 602-style **head/objective/decoder** correction,
+not a wholesale copy of the 602 network.  v16 retains the 623 lossless encoder,
+exact-PC state routing, complete train→guard→evaluation chronology, and keyed
+replay transport.  It replaces only the failed stochastic heads:
 
-The count factorization is also miscalibrated.  Normal emits 166,147 actions
-from 84,200 reached positive triggers (1.973 actions/trigger), while h64 emits
-164,128 from 111,571 (1.471 actions/trigger).  It matches aggregate traffic by
-firing on more trigger rows, not by recovering normal's degree behavior.  The
-mixture likelihood learns both means and scales, but replay emits only a
-rounded selected component mean; the learned scale is discarded.  Increasing
-hidden size does not repair either train/decode mismatch.
+- a two-class zero/positive gate trained with inverse-frequency weights derived
+  from the v16 training split, giving each observed class equal aggregate loss
+  mass;
+- deterministic two-class argmax, with no tuned probability threshold;
+- a deterministic positive log-count regressor decoded by rounded exponent,
+  with positive integer support and no degree cap;
+- a scalar signed-log cache-line-delta regressor decoded by deterministic
+  rounding;
+- the emitted scalar coordinate is the autoregressive feedback in both
+  training and inference; teacher deltas contribute loss only.
+
+The guard split is causal recurrent-history warm-up and audit only.  It is not
+called validation and does not select a checkpoint.
+
+This is a diagnosis-backed hypothesis, not a promised IPC improvement.  The
+normal Stride teacher itself is only 0.000190 IPC above no-prefetch on this
+trace, so v16 must still be judged by replayed miss rate, target quality, and
+IPC rather than offline loss alone.
+
+## Architecture points and identifiers
+
+The capacity tags remain unchanged because the run ID and model revision scope
+the artifacts:
+
+| Tag suffix | Hidden size | Parameters |
+|---|---:|---:|
+| `h8` | 8 | 1,860 |
+| `h16` | 16 | 5,124 |
+| `h32` | 32 | 15,876 |
+| `h64` | 64 | 54,276 |
+| `h128` | 128 | 198,660 |
+
+For runtime feature count `F=122`, the exact compact-model formula is
+`11H^2 + (F + 22)H + 4 = 11H^2 + 144H + 4`.  Training and analysis assert the
+measured count at every point.
 
 Input revision: `stride_source_input_variable_delta_free_running_v9`  
-Model revision: `compact_pc_keyed_crn_event_sampled_mixture_v15`  
-Default run: `623_offline_lstm_stride_keyed_crn_v15_seed7`
+Model revision: `compact_pc_keyed_balanced_deterministic_scalar_v16`  
+Default run: `623_offline_lstm_stride_compact_hurdle_v16_seed7`
 
-Run `linux/launch_server.sh collect`, train with the A100 notebook, and copy the
-output archive into the canonical run directory.  `launch_server.sh replay`
-then safely installs that archive automatically before replay and analysis; no
-interactive Python extraction command is required.
-Sacramento collect/replay/analyze uses Python 3.6 standard-library code only;
-PyTorch, NumPy, and SciPy are Colab training dependencies, not server imports.
-The committed TeX results are explicitly historical v9 evidence.  They must
-not be relabeled as v15; the completed v15 artifacts are a separate negative
-checkpoint under the run ID above.
+The A100 notebook trains h8/h16/h32/h64/h128 with 12 epochs, chunk length 256,
+PC batch size 128, learning rate 0.002, and seed 7.  Tags remain
+`independent_delta_stride_lstm_h<size>`.
 
-## Result status and canonical artifacts
+## Reuse the matched v15 inputs; do not recollect
 
-Do not use recursive `grep '"status": "PASS"'` on
-`matched_comparison.json`: the file embeds child manifests with their own
-`status` fields.  Read the root status and root failure list with:
+v16 has the same input revision, trace split, logger schema, effective external
+fields, and teacher labels as v15.  Reuse the already validated v15
+`colab_input` byte-for-byte.  Before launching any v16 stage, create only the
+new input copy and renamed upload archive below.  The existence checks prevent
+an accidental merge into an old or partial v16 input directory; nothing under
+the v15 run is modified.
 
 ```bash
-python3 python/check_matched_comparison.py --run-id "623_offline_lstm_stride_keyed_crn_v15_seed7"
+cd ~/cache
+
+export EXP=formal_NN_training/experiments/623_offline_lstm_stride
+export OLD_RUN=623_offline_lstm_stride_keyed_crn_v15_seed7
+export RUN_ID=623_offline_lstm_stride_compact_hurdle_v16_seed7
+export OLD_RUN_DIR="$EXP/runs/$OLD_RUN"
+export NEW_RUN_DIR="$EXP/runs/$RUN_ID"
+
+test -d "$OLD_RUN_DIR/colab_input"
+test -s "$OLD_RUN_DIR/$OLD_RUN.colab_input.tar.gz"
+test ! -e "$NEW_RUN_DIR/colab_input"
+test ! -e "$NEW_RUN_DIR/$RUN_ID.colab_input.tar.gz"
+
+mkdir -p "$NEW_RUN_DIR"
+cp -a "$OLD_RUN_DIR/colab_input" "$NEW_RUN_DIR/colab_input"
+cp -p \
+  "$OLD_RUN_DIR/$OLD_RUN.colab_input.tar.gz" \
+  "$NEW_RUN_DIR/$RUN_ID.colab_input.tar.gz"
+
+cmp "$OLD_RUN_DIR/$OLD_RUN.colab_input.tar.gz" \
+  "$NEW_RUN_DIR/$RUN_ID.colab_input.tar.gz"
+diff -qr "$OLD_RUN_DIR/colab_input" "$NEW_RUN_DIR/colab_input"
+
+python3 "$EXP/python/validate_collected_inputs.py" \
+  --input-dir "$NEW_RUN_DIR/colab_input" \
+  --manifest-out "$NEW_RUN_DIR/colab_input/collection_manifest.json"
+```
+
+`cmp` and `diff` print nothing on success; the validator prints `[PASS]`.  Upload
+`$NEW_RUN_DIR/$RUN_ID.colab_input.tar.gz` to
+`colab/623_offline_lstm_stride_A100.ipynb`.  After training, place the downloaded
+`$RUN_ID.colab_output.tar.gz` at `$NEW_RUN_DIR/$RUN_ID.colab_output.tar.gz`.
+Then launch replay; do not run `collect`.  The replay stage installs only the
+v16 model outputs, creates fresh v16 simulation logs/events, and invokes
+analysis after every simulation finishes.
+
+```bash
+cd ~/cache
+
+BUILD=0 RUN_ID="$RUN_ID" bash "$EXP/linux/launch_server.sh" replay
+tail -f "$NEW_RUN_DIR/replay.nohup.log"
+```
+
+`launch_server.sh replay` installs the archive before simulation.
+Sacramento-side replay/analyze remains Python 3.6 standard-library compatible.
+The v16 launcher defaults to `replay`; `collect` remains available only when
+named explicitly.
+Do not launch `analyze` concurrently with the background replay.  Use the
+standalone `analyze` stage only after replay has exited when regenerating
+derived reports from already complete logs/events.
+
+Read only the root result status and failure list with:
+
+```bash
+python3 "$EXP/python/check_matched_comparison.py" --run-id "$RUN_ID"
 ```
 
 The checker exits 0 only for a root `PASS` with an empty failure list, 1 for a
 structured root `FAIL`, 2 when analysis is not ready, and 3 for malformed or
-inconsistent JSON.
+inconsistent JSON.  This LSTM-only track produces `matched_comparison.json`,
+`matched_comparison.csv`, `insight_summary.csv`, and `replay.nohup.log`; it does
+not produce `architecture_pair_summary.csv`.
 
-This LSTM-only track produces `matched_comparison.json`,
-`matched_comparison.csv`, `insight_summary.csv`, and `replay.nohup.log`.
-It does not produce `architecture_pair_summary.csv`; cross-family comparisons
-belong outside this single-family run.
-
-Generate a fail-closed diagnosis from the existing PASS artifacts without
-training or replay:
+After a completed root-PASS v16 run, the default diagnosis command is:
 
 ```bash
-python3 python/diagnose_completed_run.py \
-  --run-id "623_offline_lstm_stride_keyed_crn_v15_seed7"
+python3 "$EXP/python/diagnose_completed_run.py"
 ```
 
-This writes `model_diagnosis.json` and `model_diagnosis.csv`.  It verifies the
-root PASS, binds current metadata/list/input hashes back to analyzer evidence,
-and checks the cross-capacity encoder hash.  It also audits the **current
-checkout** of ChampSim Stride: `pc` and `address` must be used by
-`invoke_prefetcher`, while generic `cache_hit` and `type` arguments must be
-signature-only.  The completed v15 artifacts do not record the historical
-Stride source blob SHA, so this current-checkout audit is not claimed as proof
-of which exact source blob produced the completed run; the JSON records that
-provenance boundary explicitly.
-
-## Next controlled revision
-
-Do not overwrite v15.  A Stride v16 should keep the 623 lossless 122-bit
-encoder, exact-PC state router, train/guard/eval chronology, keyed transport,
-and all audits.  Change only the failed heads/objectives/decoder to the
-602-proven method: data-derived balanced categorical hurdle, deterministic
-rounded positive log-count, and deterministic scalar signed-log delta with
-free-running feedback.  Guard must either select/check a checkpoint or be
-named warm-up; it must not be described as validation while it only warms
-recurrent state.  Use a new model revision and run ID, and change the Python
-entrypoint, notebook assertions, and server metadata assertions atomically.
-
-If replay logs and event files already exist, regenerate only the derived
-analysis after an analyzer update:
+To diagnose the preserved v15 checkpoint explicitly:
 
 ```bash
-BUILD=0 RUN_ID="623_offline_lstm_stride_keyed_crn_v15_seed7" \
-  bash formal_NN_training/experiments/623_offline_lstm_stride/linux/launch_server.sh analyze
+python3 "$EXP/python/diagnose_completed_run.py" \
+  --run-id 623_offline_lstm_stride_keyed_crn_v15_seed7
 ```
+
+The analyzer and diagnosis tool accept either supported model revision, but
+fail closed if capacities are mixed within one run.  The diagnosis binds model
+metadata and replay-list hashes to analyzer evidence and audits the **current
+checkout** of ChampSim Stride.  Neither completed v15 nor newly generated v16
+metadata records the historical Stride source blob SHA, so the current-source
+audit is not proof of the source blob that produced an earlier collection.
+
+The committed TeX results remain historical v9 evidence.  They must not be
+relabeled as v15 or v16.  The v15 run remains under
+`623_offline_lstm_stride_keyed_crn_v15_seed7`; v16 writes only under its new run
+ID.

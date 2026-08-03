@@ -5,6 +5,7 @@ import csv
 import gzip
 import hashlib
 import json
+import math
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -14,7 +15,8 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
+V15_MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
+V16_MODEL_REVISION = "compact_pc_keyed_balanced_deterministic_scalar_v16"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
@@ -28,7 +30,14 @@ EXPECTED_POINTS = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-EXPECTED_PARAMETERS = {8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563}
+EXPECTED_PARAMETERS_BY_REVISION = {
+    V15_MODEL_REVISION: {
+        8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563,
+    },
+    V16_MODEL_REVISION: {
+        8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
+    },
+}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
@@ -428,16 +437,6 @@ def validate_metadata(metadata, tag, inputs, failures):
         "future_label_window_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
-        "data_derived_gate_class_weights_used": False,
-        "gate_class_weighting_used": False,
-        "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
-        "request_count_training_objective": (
-            "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
-        ),
-        "request_count_decoding_rule": (
-            "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf"
-        ),
         "request_count_residual_scope": "none_event_local",
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
@@ -445,25 +444,13 @@ def validate_metadata(metadata, tag, inputs, failures):
         "nn_generates_own_target_addresses": True,
         "training_chunks_shuffled": False,
         "causal_no_future_self_test": "PASS",
-        "event_keyed_crn_self_test": "PASS",
-        "event_keyed_hurdle_count_self_test": "PASS",
-        "canonicalized_mixture_sampling_self_test": "PASS",
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
         "sampled_outputs_used_as_decoder_feedback": False,
-        "stochastic_decoding_reproducible": True,
-        "delta_mixture_decoding_rule": (
-            "event_keyed_mean_sorted_categorical_inverse_cdf_then_component_mean"
-        ),
-        "delta_decoder_feedback_rule": (
-            "complete_mixture_expectation_same_in_training_and_inference"
-        ),
-        "delta_mixture_components": 3,
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
-        "model_revision": MODEL_REVISION,
         "neural_role": "standalone_direct_action_prefetcher",
         "track_model_family": TRACK_MODEL_FAMILY,
         "runtime_feature_count": 122,
@@ -473,16 +460,11 @@ def validate_metadata(metadata, tag, inputs, failures):
         "runtime_pc_bits": 64,
         "runtime_line_number_bits": 58,
         "runtime_constant_offset_bits_removed": 6,
-        "common_random_numbers_across_capacities": True,
-        "strict_common_random_numbers_across_capacities": True,
         "cross_event_rng_state_used": False,
-        "decoder_sampling_roles": ["eval"],
         "decoder_train_sampling_performed": False,
         "decoder_guard_sampling_performed": False,
-        "decoder_event_key_definition": "zero_based_eval_demand_idx",
         "decoder_event_key_uses_teacher_information": False,
         "decoder_action_rank_origin": 0,
-        "decoder_key_includes_sampler_revision": True,
     }
     for key, expected in common.items():
         if metadata.get(key) != expected:
@@ -491,29 +473,172 @@ def validate_metadata(metadata, tag, inputs, failures):
                     tag, key, metadata.get(key), expected
                 )
             )
+    revision = metadata.get("model_revision")
+    revision_common = {
+        V15_MODEL_REVISION: {
+            "data_derived_gate_class_weights_used": False,
+            "gate_class_weighting_used": False,
+            "gate_training_objective": "unweighted_bernoulli_nll",
+            "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
+            "request_count_training_objective": (
+                "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
+            ),
+            "request_count_decoding_rule": (
+                "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf"
+            ),
+            "event_keyed_crn_self_test": "PASS",
+            "event_keyed_hurdle_count_self_test": "PASS",
+            "canonicalized_mixture_sampling_self_test": "PASS",
+            "stochastic_decoding_reproducible": True,
+            "delta_mixture_decoding_rule": (
+                "event_keyed_mean_sorted_categorical_inverse_cdf_then_"
+                "component_mean"
+            ),
+            "delta_decoder_feedback_rule": (
+                "complete_mixture_expectation_same_in_training_and_inference"
+            ),
+            "delta_mixture_components": 3,
+            "common_random_numbers_across_capacities": True,
+            "strict_common_random_numbers_across_capacities": True,
+            "decoder_sampling_roles": ["eval"],
+            "decoder_event_key_definition": "zero_based_eval_demand_idx",
+            "decoder_key_includes_sampler_revision": True,
+        },
+        V16_MODEL_REVISION: {
+            "data_derived_gate_class_weights_used": True,
+            "gate_class_weighting_used": True,
+            "gate_training_objective": (
+                "data_derived_frequency_balanced_two_class_cross_entropy"
+            ),
+            "gate_decoding_rule": "deterministic_two_class_argmax",
+            "request_count_training_objective": (
+                "balanced_two_class_hurdle_plus_positive_log_count_smooth_l1"
+            ),
+            "request_count_decoding_rule": (
+                "deterministic_gate_argmax_plus_rounded_exp_positive_log_count"
+            ),
+            "event_keyed_crn_self_test": "NOT_APPLICABLE",
+            "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
+            "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
+            "deterministic_decoding_reproducible": True,
+            "stochastic_decoding_reproducible": False,
+            "delta_mixture_decoding_rule": None,
+            "delta_decoder_feedback_rule": (
+                "emitted_scalar_coordinate_same_in_training_and_inference"
+            ),
+            "delta_mixture_components": 0,
+            "common_random_numbers_across_capacities": False,
+            "strict_common_random_numbers_across_capacities": False,
+            "decoder_sampling_roles": [],
+            "decoder_event_key_definition": None,
+            "decoder_key_includes_sampler_revision": False,
+            "deterministic_decoding": True,
+            "stochastic_decoding": False,
+            "guard_role": "causal_input_history_warmup_and_audit_only",
+            "deterministic_count_and_balance_self_test": "PASS",
+            "gate_class_weights_source": (
+                "train_zero_positive_frequencies_equal_aggregate_loss_mass"
+            ),
+        },
+    }
+    profile = revision_common.get(revision)
+    if profile is None:
+        failures.append("{} unsupported model revision {!r}".format(tag, revision))
+    else:
+        for key, expected in profile.items():
+            if metadata.get(key) != expected:
+                failures.append(
+                    "{} metadata {}={!r}; expected {!r}".format(
+                        tag, key, metadata.get(key), expected
+                    )
+                )
+
+    if revision == V16_MODEL_REVISION:
+        statistics = (
+            metadata.get("request_count_training_label_statistics") or {}
+        )
+        decision_callbacks = statistics.get("decision_callbacks")
+        positive_callbacks = statistics.get("positive_callbacks")
+        zero_callbacks = statistics.get("zero_callbacks")
+        weights = metadata.get("gate_class_weights")
+        valid_statistics = (
+            isinstance(decision_callbacks, int)
+            and not isinstance(decision_callbacks, bool)
+            and isinstance(positive_callbacks, int)
+            and not isinstance(positive_callbacks, bool)
+            and isinstance(zero_callbacks, int)
+            and not isinstance(zero_callbacks, bool)
+            and decision_callbacks > 0
+            and positive_callbacks > 0
+            and zero_callbacks > 0
+            and positive_callbacks + zero_callbacks == decision_callbacks
+        )
+        valid_weights = isinstance(weights, list) and len(weights) == 2
+        if not valid_statistics or not valid_weights:
+            failures.append(
+                "{} invalid data-derived gate class-weight evidence".format(tag)
+            )
+        else:
+            expected_weights = [
+                float(decision_callbacks) / (2.0 * zero_callbacks),
+                float(decision_callbacks) / (2.0 * positive_callbacks),
+            ]
+            if any(
+                not isinstance(actual, (int, float))
+                or isinstance(actual, bool)
+                or not math.isfinite(float(actual))
+                or not math.isclose(
+                    float(actual), expected,
+                    rel_tol=1e-6, abs_tol=1e-7,
+                )
+                for actual, expected in zip(weights, expected_weights)
+            ):
+                failures.append(
+                    "{} gate class weights {!r}; expected {!r}".format(
+                        tag, weights, expected_weights
+                    )
+                )
+            diagnostic_weights = (
+                metadata.get("request_count_decoder_diagnostics") or {}
+            ).get("gate_class_weights")
+            if diagnostic_weights != weights:
+                failures.append(
+                    "{} gate class weights differ between metadata and "
+                    "decoder diagnostics".format(tag)
+                )
+
     sampler = metadata.get("decoder_sampler")
     expected_key_fields = [
         "revision", "decoder_seed", "trace", "policy", "role",
         "event_key", "head", "action_rank",
     ]
-    if (
-        not isinstance(sampler, dict)
-        or sampler.get("sampler_revision")
-        != "sha256_event_keyed_inverse_cdf_crn_v1"
-        or sampler.get("key_fields") != expected_key_fields
-        or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
-        or sampler.get("cross_event_rng_state") is not False
-        or metadata.get("decoder_key_fields") != expected_key_fields
-    ):
-        failures.append("{} keyed decoder sampler contract mismatch".format(tag))
-    for key in (
-        "decoder_event_key_stream_sha256",
-        "decoder_sampler_source_sha256",
-        "decoder_sampler_key_schedule_sha256",
-        "decoder_sampling_schedule_sha256",
-        "training_state_router_sha256",
-        "inference_state_router_sha256",
-    ):
+    if revision == V15_MODEL_REVISION:
+        if (
+            not isinstance(sampler, dict)
+            or sampler.get("sampler_revision")
+            != "sha256_event_keyed_inverse_cdf_crn_v1"
+            or sampler.get("key_fields") != expected_key_fields
+            or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
+            or sampler.get("cross_event_rng_state") is not False
+            or metadata.get("decoder_key_fields") != expected_key_fields
+        ):
+            failures.append("{} keyed decoder sampler contract mismatch".format(tag))
+        hash_keys = (
+            "decoder_event_key_stream_sha256",
+            "decoder_sampler_source_sha256",
+            "decoder_sampler_key_schedule_sha256",
+            "decoder_sampling_schedule_sha256",
+            "training_state_router_sha256",
+            "inference_state_router_sha256",
+        )
+    else:
+        if sampler is not None or metadata.get("decoder_key_fields") != []:
+            failures.append("{} unexpected stochastic decoder state".format(tag))
+        hash_keys = (
+            "training_state_router_sha256",
+            "inference_state_router_sha256",
+        )
+    for key in hash_keys:
         value = metadata.get(key)
         if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
             failures.append("{} invalid {}".format(tag, key))
@@ -540,7 +665,9 @@ def validate_metadata(metadata, tag, inputs, failures):
     else:
         if metadata.get("architecture_pair_id") != point:
             failures.append("{} architecture group mismatch".format(tag))
-        expected_parameters = EXPECTED_PARAMETERS.get(metadata.get("model_size"))
+        expected_parameters = EXPECTED_PARAMETERS_BY_REVISION.get(
+            revision, {}
+        ).get(metadata.get("model_size"))
         if metadata.get("parameter_count") != expected_parameters:
             failures.append(
                 "{} parameter count {!r}; expected {!r}".format(
@@ -817,6 +944,21 @@ def main():
                 )
             )
 
+    observed_model_revisions = {
+        metadata.get("model_revision")
+        for metadata in metadata_by_tag.values()
+    }
+    observed_model_revision = (
+        next(iter(observed_model_revisions))
+        if len(observed_model_revisions) == 1 else None
+    )
+    if len(observed_model_revisions) != 1:
+        failures.append(
+            "neural points do not share one model revision: {}".format(
+                sorted(repr(value) for value in observed_model_revisions)
+            )
+        )
+
     rows_by_method = {row["method"]: row for row in rows}
     for method in ["offline_" + POLICY] + [
         "offline_" + tag for tag in model_tags
@@ -1000,11 +1142,31 @@ def main():
     }
 
     status = "FAIL" if failures else "PASS"
+    direct_action_contracts = {
+        V15_MODEL_REVISION: (
+            "The neural model learns an unweighted zero/positive hurdle, an "
+            "unbounded conditional Poisson excess count, and an autoregressive "
+            "mixture over direct signed cache-line deltas. Stateless SHA-256 "
+            "event-keyed inverse-CDF sampling supplies common random numbers "
+            "across capacities and uses no selected threshold, fixed page-offset "
+            "table, same-page rule, or Stride degree cap."
+        ),
+        V16_MODEL_REVISION: (
+            "The neural model learns a training-frequency-balanced categorical "
+            "zero/positive gate, a deterministic unbounded positive log-count, "
+            "and autoregressive scalar signed-log cache-line deltas. Argmax and "
+            "rounding decode the actions deterministically; emitted scalar "
+            "coordinates are fed back in both training and inference. There is "
+            "no selected threshold, candidate bank, fixed page-offset table, "
+            "same-page rule, or Stride degree cap."
+        ),
+    }
     payload = {
         "status": status,
         "fair_comparison_claim_allowed": not failures,
         "trace": TRACE,
         "model_family_track": TRACK_MODEL_FAMILY,
+        "model_revision": observed_model_revision,
         "trace_selection": {
             "reason": (
                 "On historical 623 data, stride is approximately neutral "
@@ -1039,13 +1201,9 @@ def main():
             "Captured Stride actions and learned neural actions are replayed "
             "through the same PC-line-occ ListReplayer."
         ),
-        "direct_action_contract": (
-            "The neural model learns an unweighted zero/positive hurdle, an "
-            "unbounded conditional Poisson excess count, and an autoregressive "
-            "mixture over direct signed cache-line deltas. Stateless SHA-256 "
-            "event-keyed inverse-CDF sampling supplies common random numbers "
-            "across capacities and uses no selected threshold, fixed page-offset "
-            "table, same-page rule, or Stride degree cap."
+        "direct_action_contract": direct_action_contracts.get(
+            observed_model_revision,
+            "Unsupported or mixed model revision; no direct-action claim.",
         ),
         "model_input_guardrail": {
             "normal_stride_private_state": [

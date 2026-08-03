@@ -14,12 +14,17 @@ TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
 POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
+V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
+V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
+MODEL_REVISION = V15_MODEL_REVISION
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
-    "joint_delta_fill_spp_lstm_h8,joint_delta_fill_spp_lstm_h16,"
-    "joint_delta_fill_spp_lstm_h32,joint_delta_fill_spp_lstm_h64,"
-    "joint_delta_fill_spp_lstm_h128"
+    "guard_joint_map_spp_lstm_h8,guard_joint_map_spp_lstm_h16,"
+    "guard_joint_map_spp_lstm_h32,guard_joint_map_spp_lstm_h64,"
+    "guard_joint_map_spp_lstm_h128"
+)
+MODEL_TAG_PREFIXES = (
+    "joint_delta_fill_spp_lstm_", "guard_joint_map_spp_lstm_",
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -342,13 +347,15 @@ def parse_events(path):
 def policy_for_method(method):
     if method == "offline_" + POLICY or method.startswith(
         "offline_joint_delta_fill_spp_"
-    ):
+    ) or method.startswith("offline_guard_joint_map_spp_"):
         return POLICY
     return ""
 
 
 def model_tag_for_method(method):
-    if method.startswith("offline_joint_delta_fill_spp_"):
+    if method.startswith(
+        "offline_joint_delta_fill_spp_"
+    ) or method.startswith("offline_guard_joint_map_spp_"):
         return method[len("offline_"):]
     return ""
 
@@ -427,6 +434,8 @@ def add_comparison_metrics(rows, failures):
 
 def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     policy = POLICY
+    revision = metadata.get("model_revision")
+    is_v16a = revision == V16A_MODEL_REVISION
     common = {
         "trace": TRACE,
         "model_tag": tag,
@@ -542,6 +551,71 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "decoder_key_includes_sampler_revision": True,
         "track_model_family": TRACK_MODEL_FAMILY,
     }
+    if is_v16a:
+        selected_mode = metadata.get("selected_decoder_mode")
+        common.update({
+            "operation": "redecode-v16a",
+            "model_revision": V16A_MODEL_REVISION,
+            "decoder_revision": (
+                "guard_selected_deterministic_joint_map_v16a"
+            ),
+            "decoder_candidate_modes": [
+                "joint_class_map", "component_peak_map"
+            ],
+            "selected_decoder_mode": selected_mode,
+            "decoder_sampling_roles": ["guard", "eval"],
+            "decoder_guard_sampling_performed": True,
+            "fill_decoding_rule": "guard_selected_joint_pair_map",
+            "joint_delta_fill_decoding_rule": selected_mode,
+            "delta_mixture_decoding_rule": (
+                "guard_selected_joint_component_then_component_mean"
+            ),
+            "weights_retrained": False,
+            "checkpoint_reused": True,
+            "decoder_only_change": True,
+            "strict_checkpoint_validation_passed": True,
+            "model_architecture_reused_unchanged": True,
+            "parent_model_revision": V15_MODEL_REVISION,
+            "weights_model_revision": V15_MODEL_REVISION,
+            "parent_run_id": (
+                "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
+            ),
+            "parent_state_dict_strict_load": True,
+            "parent_input_hash_validation": "PASS",
+            "parent_encoder_hash_validation": "PASS",
+            "parent_normal_replay_validation": "PASS",
+            "guard_selection_uses_eval_labels": False,
+            "guard_selection_uses_guard_labels_only": True,
+            "guard_selected_decoder": True,
+            "joint_map_used": True,
+            "decoder_action_sampling_performed": False,
+            "decoder_count_sampling_performed": True,
+            "deterministic_joint_map_self_test": "PASS",
+            "component_peak_map_exact_mixture_mode_claimed": False,
+            "guard_selection_objective": [
+                "maximize_joint_action_f1",
+                "maximize_target_f1",
+                "maximize_trigger_f1",
+                "minimize_absolute_action_count_ratio_error",
+                "maximize_l2_joint_f1",
+                "minimize_absolute_l2_fraction_error",
+                "canonical_mode_order",
+            ],
+        })
+    if revision not in (V15_MODEL_REVISION, V16A_MODEL_REVISION):
+        failures.append("{} unsupported model revision {!r}".format(
+            tag, revision
+        ))
+    expected_prefix = (
+        "guard_joint_map_spp_lstm_" if is_v16a else
+        "joint_delta_fill_spp_lstm_"
+    )
+    if not tag.startswith(expected_prefix):
+        failures.append("{} tag/revision prefix mismatch".format(tag))
+    if is_v16a and metadata.get("selected_decoder_mode") not in (
+        "joint_class_map", "component_peak_map"
+    ):
+        failures.append("{} invalid selected v16A decoder mode".format(tag))
     for key, expected in common.items():
         if metadata.get(key) != expected:
             failures.append(
@@ -565,7 +639,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         or metadata.get("decoder_sampler_key_fields") != expected_key_fields
     ):
         failures.append("{} keyed decoder sampler contract mismatch".format(tag))
-    for key in (
+    hash_keys = [
         "decoder_sampler_source_sha256",
         "decoder_sampler_key_schedule_sha256",
         "decoder_eval_event_key_stream_sha256",
@@ -574,7 +648,15 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "train_decision_router_sha256",
         "guard_decision_router_sha256",
         "eval_decision_router_sha256",
-    ):
+    ]
+    if is_v16a:
+        hash_keys.extend([
+            "decoder_guard_sampling_schedule_sha256",
+            "parent_checkpoint_sha256", "parent_run_metadata_sha256",
+            "parent_training_history_sha256", "model_checkpoint_sha256",
+            "training_history_sha256",
+        ])
+    for key in hash_keys:
         value = metadata.get(key)
         if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
             failures.append("{} invalid {}".format(tag, key))
@@ -590,6 +672,11 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "count_exact_match_rate", "target_precision", "target_recall",
         "target_f1",
     )
+    if is_v16a:
+        required_behavior += (
+            "joint_action_f1", "l2_joint_f1", "predicted_l2_fraction",
+            "teacher_l2_fraction", "trigger_f1",
+        )
     if not isinstance(behavior, dict):
         failures.append("{} lacks held-out behavior audit".format(tag))
     else:
@@ -603,6 +690,39 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             or fill_accuracy < 0 or fill_accuracy > 1
         ):
             failures.append("{} invalid fill behavior accuracy".format(tag))
+        action_ratio = behavior.get("predicted_to_normal_action_ratio")
+        if is_v16a and (
+            not isinstance(action_ratio, (int, float)) or action_ratio < 0
+        ):
+            failures.append("{} invalid action-count ratio".format(tag))
+    if is_v16a:
+        selection = metadata.get("guard_decoder_selection")
+        if not isinstance(selection, dict) or set(selection) != {
+            "joint_class_map", "component_peak_map"
+        }:
+            failures.append("{} invalid guard decoder audit".format(tag))
+        else:
+            valid_selection = True
+            for mode, payload in selection.items():
+                if (
+                    not isinstance(payload, dict)
+                    or not isinstance(payload.get("metrics"), dict)
+                    or not isinstance(payload.get("selection_key"), list)
+                    or len(payload.get("selection_key", [])) != 7
+                ):
+                    valid_selection = False
+                    failures.append(
+                        "{} invalid guard audit for {}".format(tag, mode)
+                    )
+            if valid_selection:
+                chosen = max(
+                    selection,
+                    key=lambda mode: selection[mode]["selection_key"],
+                )
+                if chosen != metadata.get("selected_decoder_mode"):
+                    failures.append(
+                        "{} guard decoder selection was not maximal".format(tag)
+                    )
     family = metadata.get("model_family")
     if family != TRACK_MODEL_FAMILY:
         failures.append(
@@ -676,8 +796,14 @@ def main():
     if not model_tags:
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
-        if not tag.startswith("joint_delta_fill_spp_lstm_"):
+        if not tag.startswith(MODEL_TAG_PREFIXES):
             raise SystemExit("invalid model tag {}".format(tag))
+    revisions = {
+        "v16a" if tag.startswith("guard_joint_map_spp_lstm_") else "v15"
+        for tag in model_tags
+    }
+    if len(revisions) != 1:
+        raise SystemExit("do not mix v15 and v16A tags in one matched run")
 
     methods = [
         "no_pref",
@@ -703,7 +829,7 @@ def main():
             continue
         if method == "offline_spp" or method.startswith(
             "offline_joint_delta_fill_spp_"
-        ):
+        ) or method.startswith("offline_guard_joint_map_spp_"):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
                 failures.append(
@@ -894,6 +1020,44 @@ def main():
         validate_metadata(
             metadata, tag, input_info, source_contract_hash, failures
         )
+        if metadata.get("model_revision") == V16A_MODEL_REVISION:
+            for name, key in (
+                ("model.pt", "model_checkpoint_sha256"),
+                ("training_history.csv", "training_history_sha256"),
+            ):
+                artifact = colab_root / tag / name
+                observed = sha256(artifact) if artifact.is_file() else None
+                if metadata.get(key) != observed:
+                    failures.append("{} {} byte hash mismatch".format(tag, name))
+            if metadata.get("model_checkpoint_sha256") != metadata.get(
+                "parent_checkpoint_sha256"
+            ):
+                failures.append("{} did not reuse parent checkpoint bytes".format(tag))
+            if metadata.get("training_history_sha256") != metadata.get(
+                "parent_training_history_sha256"
+            ):
+                failures.append("{} did not reuse parent history bytes".format(tag))
+            parent_tag = "joint_delta_fill_spp_lstm_h{}".format(
+                metadata.get("model_size")
+            )
+            parent_dir = (
+                args.run_dir.parent
+                / metadata.get("parent_run_id", "")
+                / "colab_output" / parent_tag
+            )
+            for name, key in (
+                ("model.pt", "parent_checkpoint_sha256"),
+                ("run_metadata.json", "parent_run_metadata_sha256"),
+                ("training_history.csv", "parent_training_history_sha256"),
+            ):
+                artifact = parent_dir / name
+                observed = sha256(artifact) if artifact.is_file() else None
+                if metadata.get(key) != observed:
+                    failures.append(
+                        "{} canonical parent {} hash mismatch".format(
+                            tag, name
+                        )
+                    )
         behavior = metadata.get("heldout_behavior_metrics", {})
         for row in rows:
             if row.get("model_tag") == tag:
@@ -1139,6 +1303,10 @@ def main():
         "closed_loop_live_claim_allowed": False,
         "trace": TRACE,
         "model_family_track": TRACK_MODEL_FAMILY,
+        "model_revision": (
+            V16A_MODEL_REVISION if "v16a" in revisions
+            else V15_MODEL_REVISION
+        ),
         "trace_selection": {
             "reason": (
                 "SPP is evaluated in its own matched track because its "
@@ -1152,9 +1320,11 @@ def main():
         "primary_comparisons": {
             "spp_track": [
                 "offline_spp",
-                "offline_joint_delta_fill_spp_{}_<capacity>".format(
-                    TRACK_MODEL_FAMILY
-                ),
+                (
+                    "offline_guard_joint_map_spp_{}_<capacity>"
+                    if "v16a" in revisions else
+                    "offline_joint_delta_fill_spp_{}_<capacity>"
+                ).format(TRACK_MODEL_FAMILY),
             ],
         },
         "context_reference_only": [

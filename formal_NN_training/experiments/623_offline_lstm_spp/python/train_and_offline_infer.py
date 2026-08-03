@@ -5,13 +5,12 @@ The model consumes exactly the chronological external callbacks used by source
 SPP: DEMAND(addr) and CACHE_FILL(evicted_addr). Source SPP actions are
 supervised labels and an offline comparator only; they never enter inference.
 
-This v15 revision samples every event from a stateless SHA-256-keyed inverse-CDF
-schedule.  Hidden-size points therefore share strict common random numbers:
-one model's earlier count can no longer shift any later callback's draw.  The
-action head is a joint distribution over delta-mixture component and L2/LLC
-fill, so it can learn their dependence.  Input addresses are represented
-losslessly as 58 cache-line-number bits plus callback kind; the six alignment
-bits that were identically zero in v14 are removed.  None of these changes
+The preserved v15 operation samples every event from a stateless SHA-256-keyed
+inverse-CDF schedule.  v16A strictly reuses those weights and guard-selects
+between joint-class MAP and learned-scale-aware component-peak MAP; it does not
+retrain.  Both operations keep the same joint delta-component/L2-or-LLC head,
+keyed hurdle/Poisson request count, free-running expectation feedback, and
+lossless 58 cache-line-number bits plus callback kind.  Neither operation
 introduces a selected probability threshold, degree cap, candidate table,
 page-offset class, source-SPP private state, or forbidden replay identity.
 """
@@ -24,8 +23,9 @@ import json
 import math
 import platform
 import random
+import shutil
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 # Make direct execution robust in Colab and on Sacramento.  Python otherwise
@@ -59,7 +59,15 @@ MIXTURE_COMPONENTS = 4
 LINE_ADDRESS_BITS = ADDRESS_BITS - CACHE_LINE_SHIFT
 RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
+V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
+V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
+MODEL_REVISION = V15_MODEL_REVISION
+V15_OPERATION = "train-v15"
+V16A_OPERATION = "redecode-v16a"
+SAMPLED_JOINT_MODE = "sampled_joint"
+V16A_DECODER_MODES = ("joint_class_map", "component_peak_map")
+V16A_DECODER_REVISION = "guard_selected_deterministic_joint_map_v16a"
+V15_PARENT_RUN_ID = "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -426,6 +434,46 @@ def canonical_joint_pair_order(means):
     ))
 
 
+def deterministic_joint_pair(joint_logits, means, scales, decoder_mode):
+    """Select one learned joint class without a threshold or candidate bank.
+
+    ``joint_class_map`` maximizes the learned joint class probability.
+    ``component_peak_map`` maximizes the density at each component mean, which
+    is proportional to p(component, fill) / scale.  It is deliberately named
+    component-peak MAP: it is not claimed to solve the exact Gaussian-mixture
+    mode.  Canonical mean/fill/component order resolves exact ties.
+    """
+    logits = np.asarray(joint_logits, dtype=np.float64)
+    means = np.asarray(means, dtype=np.float64)
+    scales = np.asarray(scales, dtype=np.float64)
+    expected = (MIXTURE_COMPONENTS, len(FILL_LEVELS))
+    if (
+        logits.shape != expected
+        or means.shape != (MIXTURE_COMPONENTS,)
+        or scales.shape != (MIXTURE_COMPONENTS,)
+        or not np.all(np.isfinite(logits))
+        or not np.all(np.isfinite(means))
+        or not np.all(np.isfinite(scales))
+        or np.any(scales <= 0.0)
+        or decoder_mode not in V16A_DECODER_MODES
+    ):
+        raise RuntimeError("invalid deterministic SPP joint distribution")
+    order = canonical_joint_pair_order(means)
+    if decoder_mode == "joint_class_map":
+        scores = {
+            pair: float(logits[pair[0], pair[1]]) for pair in order
+        }
+    else:
+        scores = {
+            pair: (
+                float(logits[pair[0], pair[1]])
+                - math.log(float(scales[pair[0]]))
+            )
+            for pair in order
+        }
+    return max(order, key=lambda pair: scores[pair])
+
+
 class CompactSPPActionDecoder(nn.Module):
     """Threshold-free decoder with joint delta-component/fill probabilities."""
 
@@ -726,13 +774,15 @@ def advance_lstm_state(model, runtime, device, initial_state=None):
 def decode_actions(
     model, trigger_logits, log_excess_means, contexts, base_lines, device,
     event_keys, decoder_seed, role, materialize=True,
-    chunk_len=8192,
+    chunk_len=8192, decoder_mode=SAMPLED_JOINT_MODE,
 ):
     if not (
         len(trigger_logits) == len(log_excess_means)
         == len(contexts) == len(base_lines) == len(event_keys)
     ):
         raise RuntimeError("SPP decoder row counts differ")
+    if decoder_mode not in (SAMPLED_JOINT_MODE,) + V16A_DECODER_MODES:
+        raise RuntimeError("unknown SPP decoder mode {}".format(decoder_mode))
     counts = event_keyed_hurdle_counts(
         _sigmoid_probabilities(trigger_logits),
         _poisson_means(log_excess_means),
@@ -758,31 +808,43 @@ def decode_actions(
                     device=device, dtype=torch.long
                 )
                 active_state = state.index_select(0, active)
-                joint_logits, mean, _ = model.decoder.distribution(active_state)
+                joint_logits, mean, scale = model.decoder.distribution(
+                    active_state
+                )
                 (
                     joint_probabilities, feedback_coordinate,
                     fill_probabilities,
                 ) = model.decoder.marginals(joint_logits, mean)
                 if materialize:
-                    for local_position, joint_row, mean_row in zip(
-                        active_numpy, joint_probabilities.cpu().numpy(),
-                        mean.cpu().numpy(),
+                    for (
+                        local_position, raw_joint_row, joint_row,
+                        mean_row, scale_row,
+                    ) in zip(
+                        active_numpy, joint_logits.cpu().numpy(),
+                        joint_probabilities.cpu().numpy(), mean.cpu().numpy(),
+                        scale.cpu().numpy(),
                     ):
                         global_position = start + int(local_position)
-                        pair_order = canonical_joint_pair_order(mean_row)
-                        ordered_pairs = np.asarray([
-                            joint_row[component, fill_class]
-                            for component, fill_class in pair_order
-                        ], dtype=np.float64)
-                        pair_choice = categorical_icdf(
-                            ordered_pairs,
-                            keyed_uniform(
-                                decoder_seed, TRACE, POLICY, role,
-                                event_keys[global_position],
-                                "joint_delta_fill", step,
-                            ),
-                        )
-                        component, fill_choice = pair_order[pair_choice]
+                        if decoder_mode == SAMPLED_JOINT_MODE:
+                            pair_order = canonical_joint_pair_order(mean_row)
+                            ordered_pairs = np.asarray([
+                                joint_row[component, fill_class]
+                                for component, fill_class in pair_order
+                            ], dtype=np.float64)
+                            pair_choice = categorical_icdf(
+                                ordered_pairs,
+                                keyed_uniform(
+                                    decoder_seed, TRACE, POLICY, role,
+                                    event_keys[global_position],
+                                    "joint_delta_fill", step,
+                                ),
+                            )
+                            component, fill_choice = pair_order[pair_choice]
+                        else:
+                            component, fill_choice = deterministic_joint_pair(
+                                raw_joint_row,
+                                mean_row, scale_row, decoder_mode,
+                            )
                         delta = _coordinate_to_delta(mean_row[component])
                         predicted_lines[global_position].append(
                             apply_signed_line_delta(
@@ -797,7 +859,9 @@ def decode_actions(
     return counts, predicted_lines, predicted_fills
 
 
-def decoder_sampling_coordinates(event_keys, counts):
+def decoder_sampling_coordinates(
+    event_keys, counts, decoder_mode=SAMPLED_JOINT_MODE,
+):
     """Enumerate the exact stateless coordinates consumed by this replay."""
     if len(event_keys) != len(counts):
         raise RuntimeError("SPP schedule row counts differ")
@@ -808,8 +872,11 @@ def decoder_sampling_coordinates(event_keys, counts):
             raise RuntimeError("SPP schedule contains a negative action count")
         coordinates.append((event_key, "request_trigger", 0))
         coordinates.append((event_key, "request_excess", 0))
-        for action_rank in range(count):
-            coordinates.append((event_key, "joint_delta_fill", action_rank))
+        if decoder_mode == SAMPLED_JOINT_MODE:
+            for action_rank in range(count):
+                coordinates.append((
+                    event_key, "joint_delta_fill", action_rank
+                ))
     return coordinates
 
 
@@ -866,6 +933,111 @@ def trigger_behavior_metrics(predicted_counts, teacher_actions):
             int(predicted.sum()), int(normal.sum())
         ),
     }
+
+
+def joint_action_metrics(predicted_lines, predicted_fills, teacher_actions):
+    """Measure address/fill pairs, including the rare L2 class, exactly."""
+    if not (
+        len(predicted_lines) == len(predicted_fills) == len(teacher_actions)
+    ):
+        raise RuntimeError("SPP joint metric row counts differ")
+    true_positive = 0
+    predicted_total = 0
+    teacher_total = 0
+    l2_predicted = 0
+    l2_teacher = 0
+    l2_true_positive = 0
+    for lines, fill_classes, truth_items in zip(
+        predicted_lines, predicted_fills, teacher_actions
+    ):
+        if len(lines) != len(fill_classes):
+            raise RuntimeError("SPP predicted line/fill counts differ")
+        predicted = Counter()
+        teacher = Counter()
+        for line, fill_class in zip(lines, fill_classes):
+            fill_class = int(fill_class)
+            if fill_class < 0 or fill_class >= len(FILL_LEVELS):
+                raise RuntimeError("SPP prediction uses unknown fill class")
+            predicted[(int(line), FILL_LEVELS[fill_class])] += 1
+        for line, fill_level in truth_items:
+            if fill_level not in FILL_LEVELS:
+                raise RuntimeError("SPP teacher uses unknown fill level")
+            teacher[(int(line), int(fill_level))] += 1
+        intersection = predicted & teacher
+        true_positive += int(sum(intersection.values()))
+        predicted_total += int(sum(predicted.values()))
+        teacher_total += int(sum(teacher.values()))
+        l2_predicted += int(sum(
+            count for (_, fill), count in predicted.items() if fill == 2
+        ))
+        l2_teacher += int(sum(
+            count for (_, fill), count in teacher.items() if fill == 2
+        ))
+        l2_true_positive += int(sum(
+            count for (_, fill), count in intersection.items() if fill == 2
+        ))
+
+    def ratio(numerator, denominator):
+        return float(numerator) / float(denominator) if denominator else 0.0
+
+    precision = ratio(true_positive, predicted_total)
+    recall = ratio(true_positive, teacher_total)
+    l2_precision = ratio(l2_true_positive, l2_predicted)
+    l2_recall = ratio(l2_true_positive, l2_teacher)
+    return {
+        "joint_true_positive_actions": true_positive,
+        "joint_action_precision": precision,
+        "joint_action_recall": recall,
+        "joint_action_f1": ratio(
+            2.0 * precision * recall, precision + recall
+        ),
+        "predicted_l2_actions": l2_predicted,
+        "teacher_l2_actions": l2_teacher,
+        "l2_joint_true_positive_actions": l2_true_positive,
+        "l2_joint_precision": l2_precision,
+        "l2_joint_recall": l2_recall,
+        "l2_joint_f1": ratio(
+            2.0 * l2_precision * l2_recall,
+            l2_precision + l2_recall,
+        ),
+        "predicted_l2_fraction": ratio(l2_predicted, predicted_total),
+        "teacher_l2_fraction": ratio(l2_teacher, teacher_total),
+    }
+
+
+def complete_behavior_metrics(
+    predicted_counts, predicted_lines, predicted_fills, teacher_actions,
+):
+    metrics = behavior_metrics(
+        predicted_counts, predicted_lines, predicted_fills,
+        teacher_actions, fill_levels=FILL_LEVELS,
+    )
+    metrics.update(trigger_behavior_metrics(predicted_counts, teacher_actions))
+    metrics.update(joint_action_metrics(
+        predicted_lines, predicted_fills, teacher_actions
+    ))
+    return metrics
+
+
+def guard_selection_key(metrics, decoder_mode):
+    """Fixed lexicographic guard objective; no threshold is selected."""
+    mode_priority = -V16A_DECODER_MODES.index(decoder_mode)
+    action_ratio_error = abs(
+        float(metrics["predicted_to_normal_action_ratio"]) - 1.0
+    )
+    l2_fraction_error = abs(
+        float(metrics["predicted_l2_fraction"])
+        - float(metrics["teacher_l2_fraction"])
+    )
+    return (
+        float(metrics["joint_action_f1"]),
+        float(metrics["target_f1"]),
+        float(metrics["trigger_f1"]),
+        -action_ratio_error,
+        float(metrics["l2_joint_f1"]),
+        -l2_fraction_error,
+        mode_priority,
+    )
 
 
 def joint_label_diagnostics(targets):
@@ -980,6 +1152,7 @@ def self_test_model(hidden_size):
     decoder_source = inspect.getsource(decode_actions)
     decoder_required = (
         "canonical_joint_pair_order", "joint_delta_fill", "keyed_uniform",
+        "deterministic_joint_pair", "decoder_mode",
     )
     if any(token not in decoder_source for token in decoder_required):
         raise RuntimeError("joint keyed SPP decoder evidence missing")
@@ -989,6 +1162,32 @@ def self_test_model(hidden_size):
         (0, 0), (1, 0), (0, 1), (1, 1),
     ]:
         raise RuntimeError("SPP joint pair canonicalization order changed")
+    test_logits = np.asarray([
+        [1.0, 0.0], [2.0, 3.0], [-1.0, -2.0], [-3.0, -4.0]
+    ])
+    test_means = np.asarray([0.0, 1.0, 2.0, 3.0])
+    unit_scales = np.ones(MIXTURE_COMPONENTS)
+    if deterministic_joint_pair(
+        test_logits, test_means, unit_scales, "joint_class_map"
+    ) != (1, 1):
+        raise RuntimeError("SPP joint-class MAP self-test failed")
+    peak_scales = np.asarray([0.01, 1.0, 1.0, 1.0])
+    if deterministic_joint_pair(
+        test_logits, test_means, peak_scales, "component_peak_map"
+    ) != (0, 0):
+        raise RuntimeError("SPP component-peak MAP ignored learned scale")
+    tied_logits = np.zeros((MIXTURE_COMPONENTS, len(FILL_LEVELS)))
+    if deterministic_joint_pair(
+        tied_logits, test_means, unit_scales, "joint_class_map"
+    ) != (0, 0):
+        raise RuntimeError("SPP deterministic MAP tie order changed")
+    callback_metrics = joint_action_metrics(
+        [[11], []], [[0], []], [[], [(11, 2)]]
+    )
+    if callback_metrics["joint_true_positive_actions"] != 0:
+        raise RuntimeError(
+            "SPP guard metric matched an action across callback identities"
+        )
 
     encoded = _unsigned_bits([0, 1, (1 << LINE_ADDRESS_BITS) - 1],
                              LINE_ADDRESS_BITS)
@@ -1011,15 +1210,143 @@ def self_test_model(hidden_size):
         raise RuntimeError("future callback changed a prior LSTM state")
 
 
-def model_tag(family, size):
+def validate_and_load_v15_parent(
+    model, args, stream_paths, action_paths, source_contract, device,
+):
+    """Fail closed before re-decoding any v15 checkpoint as v16A."""
+    required_paths = (
+        args.parent_model, args.parent_metadata, args.parent_training_history,
+    )
+    if any(path is None or not Path(path).is_file() for path in required_paths):
+        raise RuntimeError("v16A requires all three v15 parent artifacts")
+    if args.parent_run_id != V15_PARENT_RUN_ID:
+        raise RuntimeError("v16A parent run identity is not the pinned v15 run")
+    parent_metadata = json.loads(Path(args.parent_metadata).read_text())
+    expected_tag = "joint_delta_fill_spp_lstm_h{}".format(args.model_size)
+    exact_metadata = {
+        "trace": TRACE,
+        "model_tag": expected_tag,
+        "model_family": "lstm",
+        "model_size": args.model_size,
+        "architecture_pair_id": args.pair_id,
+        "parameter_count": expected_parameter_count(args.model_size),
+        "runtime_feature_count": RUNTIME_FEATURES,
+        "model_revision": V15_MODEL_REVISION,
+        "experiment_revision": EXPERIMENT_REVISION,
+        "decoder_seed": args.decoder_seed,
+        "source_decision_effective_external_input": SOURCE_INPUTS,
+        "training_runtime_fields": SOURCE_INPUTS,
+        "inference_runtime_fields": SOURCE_INPUTS,
+        "teacher_actions_are_model_inputs": False,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "closed_loop_live_claim_allowed": False,
+        "same_source_input_offline_claim_allowed": True,
+    }
+    failures = []
+    for key, expected in exact_metadata.items():
+        if parent_metadata.get(key) != expected:
+            failures.append(
+                "parent metadata {} {!r} != {!r}".format(
+                    key, parent_metadata.get(key), expected
+                )
+            )
+    encoder_hash = runtime_encoder_sha256()
+    for key in (
+        "runtime_encoder_sha256", "training_runtime_encoder_sha256",
+        "inference_runtime_encoder_sha256",
+    ):
+        if parent_metadata.get(key) != encoder_hash:
+            failures.append("parent {} differs from current encoder".format(key))
+    if parent_metadata.get("decision_router_source_sha256") != (
+        decision_router_source_sha256()
+    ):
+        failures.append("parent decision-router source hash changed")
+    if parent_metadata.get("source_contract") != source_contract:
+        failures.append("parent source contract payload changed")
+    if parent_metadata.get("source_contract_sha256") != sha256(
+        args.source_contract
+    ):
+        failures.append("parent source contract byte hash changed")
+    for role in ("train", "guard", "eval"):
+        checks = {
+            role + "_stream_gzip_sha256": sha256(stream_paths[role]),
+            role + "_stream_content_sha256": gzip_content_sha256(
+                stream_paths[role]
+            ),
+            role + "_teacher_actions_gzip_sha256": sha256(
+                action_paths[role]
+            ),
+            role + "_teacher_actions_content_sha256": gzip_content_sha256(
+                action_paths[role]
+            ),
+        }
+        for key, expected in checks.items():
+            if parent_metadata.get(key) != expected:
+                failures.append("parent input hash mismatch: {}".format(key))
+    if failures:
+        raise RuntimeError("; ".join(failures))
+
+    payload = torch.load(str(args.parent_model), map_location=device)
+    if not isinstance(payload, dict) or "state_dict" not in payload:
+        raise RuntimeError("v15 parent checkpoint payload is malformed")
+    expected_payload = {
+        "model_family": "lstm",
+        "model_size": args.model_size,
+        "runtime_features": RUNTIME_FEATURES,
+        "fill_levels": FILL_LEVELS,
+        "mixture_components": MIXTURE_COMPONENTS,
+        "joint_delta_fill_classes": MIXTURE_COMPONENTS * len(FILL_LEVELS),
+        "decoder_seed": args.decoder_seed,
+        "sampler_revision": SAMPLER_REVISION,
+        "experiment_revision": EXPERIMENT_REVISION,
+        "model_revision": V15_MODEL_REVISION,
+    }
+    for key, expected in expected_payload.items():
+        observed = payload.get(key)
+        if key == "fill_levels":
+            observed = tuple(observed) if observed is not None else None
+        if observed != expected:
+            raise RuntimeError(
+                "parent checkpoint {} {!r} != {!r}".format(
+                    key, observed, expected
+                )
+            )
+    model.load_state_dict(payload["state_dict"], strict=True)
+    if sum(parameter.numel() for parameter in model.parameters()) != (
+        expected_parameter_count(args.model_size)
+    ):
+        raise RuntimeError("strictly loaded v15 parameter count changed")
+    history_path = Path(args.parent_training_history)
+    with history_path.open(newline="") as handle:
+        history = list(csv.DictReader(handle))
+    if not history:
+        raise RuntimeError("v15 parent training history is empty")
+    return {
+        "metadata": parent_metadata,
+        "checkpoint_sha256": sha256(args.parent_model),
+        "metadata_sha256": sha256(args.parent_metadata),
+        "training_history_sha256": sha256(args.parent_training_history),
+        "history": parent_metadata.get("train_history", history),
+    }
+
+
+def model_tag(family, size, operation=V15_OPERATION):
     if family != "lstm":
         raise RuntimeError("623 SPP track is LSTM-only")
-    return "joint_delta_fill_spp_lstm_h{}".format(size)
+    if operation == V15_OPERATION:
+        return "joint_delta_fill_spp_lstm_h{}".format(size)
+    if operation == V16A_OPERATION:
+        return "guard_joint_map_spp_lstm_h{}".format(size)
+    raise RuntimeError("unknown SPP operation {}".format(operation))
 
 
 def run_cli():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", required=True, choices=[POLICY])
+    parser.add_argument(
+        "--operation", choices=[V15_OPERATION, V16A_OPERATION],
+        default=V15_OPERATION,
+    )
     for role in ("train", "guard", "eval"):
         parser.add_argument("--{}-stream".format(role), required=True, type=Path)
         parser.add_argument(
@@ -1040,6 +1367,10 @@ def run_cli():
     parser.add_argument("--accumulate-chunks", type=int, default=16)
     parser.add_argument("--learning-rate", type=float, default=0.002)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--parent-model", type=Path)
+    parser.add_argument("--parent-metadata", type=Path)
+    parser.add_argument("--parent-training-history", type=Path)
+    parser.add_argument("--parent-run-id")
     args = parser.parse_args()
     if args.decoder_seed is None:
         args.decoder_seed = args.seed
@@ -1119,6 +1450,7 @@ def run_cli():
     )
     if parameter_count != expected_parameter_count(args.model_size):
         raise RuntimeError("measured compact SPP parameter count changed")
+    model.to(device)
 
     train_counts, train_deltas, train_fills = context_targets["train"]
     train_decision_counts = train_counts[train_counts >= 0]
@@ -1133,21 +1465,77 @@ def run_cli():
             float(train_positive_callbacks) / float(len(train_decision_counts))
         ),
     }
-    history = train_model(
-        model, runtime["train"], train_counts, train_deltas, train_fills,
-        len(streams["train"]["context"]), device, args.epochs,
-        args.chunk_len, args.accumulate_chunks, args.learning_rate,
-    )
+    parent = None
+    if args.operation == V15_OPERATION:
+        history = train_model(
+            model, runtime["train"], train_counts, train_deltas, train_fills,
+            len(streams["train"]["context"]), device, args.epochs,
+            args.chunk_len, args.accumulate_chunks, args.learning_rate,
+        )
+    else:
+        parent = validate_and_load_v15_parent(
+            model, args, stream_paths, action_paths, source_contract, device,
+        )
+        history = parent["history"]
 
     # Re-run the complete train -> guard -> eval input chronology with fixed
     # weights.  Only the global LSTM state crosses role boundaries.  Decoder
-    # draws are stateless and only the eval role is decoded; train/guard burns
-    # are neither necessary nor allowed under the keyed schedule.
+    # draws are stateless.  v15 decodes eval only; v16A decodes guard solely to
+    # select its action MAP rule, then decodes eval.  Train burns are never
+    # necessary under the keyed schedule.
     encoded = {}
     recurrent_state = None
     for role in roles:
         encoded[role], recurrent_state = score_lstm(
             model, runtime[role], device, initial_state=recurrent_state
+        )
+
+    guard_decoder_selection = {}
+    guard_counts_reference = None
+    guard_decoder_coordinates = []
+    selected_decoder_mode = SAMPLED_JOINT_MODE
+    if args.operation == V16A_OPERATION:
+        guard_positions = streams["guard"]["demand_positions"]
+        guard_trigger, guard_excess, guard_contexts = (
+            value[guard_positions] for value in encoded["guard"]
+        )
+        guard_lines = [
+            line for _, _, line, _ in streams["guard"]["demands"]
+        ]
+        for decoder_mode in V16A_DECODER_MODES:
+            (
+                guard_counts, guard_predictions, guard_fills,
+            ) = decode_actions(
+                model, guard_trigger, guard_excess, guard_contexts,
+                guard_lines, device, event_keys["guard"],
+                args.decoder_seed, "guard", materialize=True,
+                decoder_mode=decoder_mode,
+            )
+            if guard_counts_reference is None:
+                guard_counts_reference = guard_counts.copy()
+            elif not np.array_equal(guard_counts_reference, guard_counts):
+                raise RuntimeError(
+                    "guard decoder modes changed the shared count draws"
+                )
+            guard_metrics = complete_behavior_metrics(
+                guard_counts, guard_predictions, guard_fills,
+                normal["guard"],
+            )
+            guard_decoder_selection[decoder_mode] = {
+                "metrics": guard_metrics,
+                "selection_key": list(guard_selection_key(
+                    guard_metrics, decoder_mode
+                )),
+            }
+        selected_decoder_mode = max(
+            V16A_DECODER_MODES,
+            key=lambda mode: guard_selection_key(
+                guard_decoder_selection[mode]["metrics"], mode
+            ),
+        )
+        guard_decoder_coordinates = decoder_sampling_coordinates(
+            event_keys["guard"], guard_counts_reference,
+            decoder_mode=selected_decoder_mode,
         )
 
     demand_positions = streams["eval"]["demand_positions"]
@@ -1161,18 +1549,16 @@ def run_cli():
         model, trigger_logits, log_excess_means,
         contexts, base_lines, device,
         event_keys["eval"], args.decoder_seed, "eval",
-        materialize=True,
+        materialize=True, decoder_mode=selected_decoder_mode,
     )
     decoder_coordinates = decoder_sampling_coordinates(
-        event_keys["eval"], predicted_counts
+        event_keys["eval"], predicted_counts,
+        decoder_mode=selected_decoder_mode,
     )
-    behavior = behavior_metrics(
+    behavior = complete_behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills,
-        normal["eval"], fill_levels=FILL_LEVELS,
+        normal["eval"],
     )
-    behavior.update(trigger_behavior_metrics(
-        predicted_counts, normal["eval"]
-    ))
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     normal_path = args.out_dir / "offline_spp.replay.csv"
@@ -1184,24 +1570,68 @@ def run_cli():
         nn_path, streams["eval"]["demands"],
         predicted_lines, predicted_fills,
     )
-    write_table(args.out_dir / "training_history.csv", history)
-    torch.save({
-        "state_dict": model.state_dict(),
-        "model_family": "lstm",
-        "model_size": args.model_size,
-        "runtime_features": RUNTIME_FEATURES,
-        "fill_levels": FILL_LEVELS,
-        "mixture_components": MIXTURE_COMPONENTS,
-        "joint_delta_fill_classes": (
-            MIXTURE_COMPONENTS * len(FILL_LEVELS)
-        ),
-        "decoder_seed": args.decoder_seed,
-        "sampler_revision": SAMPLER_REVISION,
-        "experiment_revision": EXPERIMENT_REVISION,
-        "model_revision": MODEL_REVISION,
-    }, args.out_dir / "model.pt")
+    history_path = args.out_dir / "training_history.csv"
+    model_path = args.out_dir / "model.pt"
+    if args.operation == V15_OPERATION:
+        write_table(history_path, history)
+        torch.save({
+            "state_dict": model.state_dict(),
+            "model_family": "lstm",
+            "model_size": args.model_size,
+            "runtime_features": RUNTIME_FEATURES,
+            "fill_levels": FILL_LEVELS,
+            "mixture_components": MIXTURE_COMPONENTS,
+            "joint_delta_fill_classes": (
+                MIXTURE_COMPONENTS * len(FILL_LEVELS)
+            ),
+            "decoder_seed": args.decoder_seed,
+            "sampler_revision": SAMPLER_REVISION,
+            "experiment_revision": EXPERIMENT_REVISION,
+            "model_revision": V15_MODEL_REVISION,
+        }, model_path)
+    else:
+        shutil.copyfile(str(args.parent_training_history), str(history_path))
+        shutil.copyfile(str(args.parent_model), str(model_path))
+        if sha256(model_path) != parent["checkpoint_sha256"]:
+            raise RuntimeError("v16A checkpoint copy changed parent bytes")
+        if sha256(history_path) != parent["training_history_sha256"]:
+            raise RuntimeError("v16A history copy changed parent bytes")
+        parent_metadata = parent["metadata"]
+        parent_normal_checks = {
+            "offline_normal_entries": normal_entries,
+            "offline_normal_triggers": normal_triggers,
+            "offline_normal_fill_counts": normal_fill_counts,
+            "normal_list_sha256": sha256(normal_path),
+        }
+        for key, observed in parent_normal_checks.items():
+            if parent_metadata.get(key) != observed:
+                raise RuntimeError(
+                    "v16A normal replay differs from parent: {}".format(key)
+                )
 
-    tag = model_tag("lstm", args.model_size)
+    active_model_revision = (
+        V15_MODEL_REVISION if args.operation == V15_OPERATION
+        else V16A_MODEL_REVISION
+    )
+    tag = model_tag("lstm", args.model_size, args.operation)
+    is_v16a = args.operation == V16A_OPERATION
+    training_metadata = parent["metadata"] if is_v16a else {}
+    effective_epochs = training_metadata.get("epochs", args.epochs)
+    effective_chunk_len = training_metadata.get("chunk_len", args.chunk_len)
+    effective_accumulate_chunks = training_metadata.get(
+        "accumulate_chunks", args.accumulate_chunks
+    )
+    effective_learning_rate = training_metadata.get(
+        "learning_rate", args.learning_rate
+    )
+    decoder_sampling_roles = ["guard", "eval"] if is_v16a else ["eval"]
+    decision_rule = (
+        "keyed_bernoulli_then_conditional_poisson_with_guard_selected_"
+        "deterministic_joint_map"
+        if is_v16a else
+        "keyed_bernoulli_then_conditional_poisson_with_single_"
+        "joint_delta_component_fill_inverse_cdf_sample"
+    )
     metadata = {
         "trace": TRACE,
         "model_tag": tag,
@@ -1260,23 +1690,35 @@ def run_cli():
             args.decoder_seed, TRACE, POLICY, "eval", decoder_coordinates
         ),
         "decoder_eval_sampling_coordinates": len(decoder_coordinates),
+        "decoder_guard_sampling_schedule_sha256": (
+            sampling_schedule_sha256(
+                args.decoder_seed, TRACE, POLICY, "guard",
+                guard_decoder_coordinates,
+            ) if is_v16a else None
+        ),
+        "decoder_guard_sampling_coordinates": (
+            len(guard_decoder_coordinates) if is_v16a else 0
+        ),
         "common_random_numbers_across_capacities": True,
         "strict_common_random_numbers_across_capacities": True,
         "cross_event_rng_state_used": False,
         "train_guard_decoder_rng_burn_used": False,
-        "decoder_sampling_roles": ["eval"],
+        "decoder_sampling_roles": decoder_sampling_roles,
         "decoder_train_sampling_performed": False,
-        "decoder_guard_sampling_performed": False,
+        "decoder_guard_sampling_performed": is_v16a,
         "keyed_sampling_self_test": "PASS",
         "stochastic_decoding": (
+            "stateless SHA-256 keyed hurdle/count sampling plus "
+            "guard-selected deterministic joint action MAP"
+            if is_v16a else
             "stateless SHA-256 event-keyed inverse-CDF "
             "common-random-number sampling"
         ),
         "stochastic_decoding_reproducible": True,
-        "epochs": args.epochs,
-        "chunk_len": args.chunk_len,
-        "accumulate_chunks": args.accumulate_chunks,
-        "learning_rate": args.learning_rate,
+        "epochs": effective_epochs,
+        "chunk_len": effective_chunk_len,
+        "accumulate_chunks": effective_accumulate_chunks,
+        "learning_rate": effective_learning_rate,
         "guard_rows": len(streams["guard"]["context"]),
         "eval_rows": len(streams["eval"]["context"]),
         "guard_demand_callbacks": len(streams["guard"]["demands"]),
@@ -1331,10 +1773,7 @@ def run_cli():
             "zero-or-unbounded-positive count plus direct signed "
             "cache-line deltas and learned fill"
         ),
-        "decision_rule": (
-            "keyed_bernoulli_then_conditional_poisson_with_single_"
-            "joint_delta_component_fill_inverse_cdf_sample"
-        ),
+        "decision_rule": decision_rule,
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
         "neural_degree_cap": None,
@@ -1367,6 +1806,7 @@ def run_cli():
             "unweighted_joint_delta_component_fill_mixture_nll"
         ),
         "joint_delta_fill_decoding_rule": (
+            selected_decoder_mode if is_v16a else
             "event_keyed_mean_sorted_joint_pair_inverse_cdf"
         ),
         "joint_component_canonicalization": (
@@ -1375,13 +1815,18 @@ def run_cli():
         "fill_training_objective": (
             "joint_with_delta_component_unweighted_mixture_nll"
         ),
-        "fill_decoding_rule": "single_joint_delta_fill_pair_sample",
+        "fill_decoding_rule": (
+            "guard_selected_joint_pair_map" if is_v16a else
+            "single_joint_delta_fill_pair_sample"
+        ),
         "fill_argmax_used": False,
         "fill_probability_feedback_used": True,
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
         "sampled_outputs_used_as_decoder_feedback": False,
         "delta_mixture_decoding_rule": (
+            "guard_selected_joint_component_then_component_mean"
+            if is_v16a else
             "single_joint_component_fill_sample_then_component_mean"
         ),
         "delta_decoder_feedback_rule": (
@@ -1425,7 +1870,7 @@ def run_cli():
         "inference_history_mode": (
             "fresh_state_then_complete_train_guard_eval_chronology"
         ),
-        "decoder_roles_sampled": ["eval"],
+        "decoder_roles_sampled": decoder_sampling_roles,
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "causal_no_future_self_test": "PASS",
         "event_local_hurdle_count_self_test": "PASS",
@@ -1439,7 +1884,7 @@ def run_cli():
         "cnn_processes_complete_stream_in_order": False,
         "cnn_chunking_changes_visible_history": False,
         "experiment_revision": EXPERIMENT_REVISION,
-        "model_revision": MODEL_REVISION,
+        "model_revision": active_model_revision,
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "canonicalization_mode": CANONICALIZATION_MODE,
@@ -1472,6 +1917,70 @@ def run_cli():
         "torch": torch.__version__,
         "numpy": np.__version__,
     }
+    metadata.update({
+        "operation": args.operation,
+        "decoder_revision": (
+            V16A_DECODER_REVISION if is_v16a else
+            "keyed_joint_inverse_cdf_v15"
+        ),
+        "decoder_candidate_modes": (
+            list(V16A_DECODER_MODES) if is_v16a
+            else [SAMPLED_JOINT_MODE]
+        ),
+        "selected_decoder_mode": selected_decoder_mode,
+        "guard_decoder_selection": (
+            guard_decoder_selection if is_v16a else {}
+        ),
+        "guard_selection_objective": (
+            [
+                "maximize_joint_action_f1",
+                "maximize_target_f1",
+                "maximize_trigger_f1",
+                "minimize_absolute_action_count_ratio_error",
+                "maximize_l2_joint_f1",
+                "minimize_absolute_l2_fraction_error",
+                "canonical_mode_order",
+            ] if is_v16a else []
+        ),
+        "guard_selection_uses_eval_labels": False,
+        "guard_selection_uses_guard_labels_only": is_v16a,
+        "guard_selected_decoder": is_v16a,
+        "deterministic_joint_map_self_test": "PASS",
+        "component_peak_map_uses_learned_scale": (
+            selected_decoder_mode == "component_peak_map"
+        ),
+        "component_peak_map_exact_mixture_mode_claimed": False,
+        "joint_map_used": is_v16a,
+        "decoder_action_sampling_performed": not is_v16a,
+        "decoder_count_sampling_performed": True,
+        "weights_retrained": not is_v16a,
+        "checkpoint_reused": is_v16a,
+        "decoder_only_change": is_v16a,
+        "strict_checkpoint_validation_passed": is_v16a,
+        "model_architecture_reused_unchanged": is_v16a,
+        "model_checkpoint_sha256": sha256(model_path),
+        "training_history_sha256": sha256(history_path),
+    })
+    if is_v16a:
+        metadata.update({
+            "parent_model_revision": V15_MODEL_REVISION,
+            "weights_model_revision": V15_MODEL_REVISION,
+            "parent_model_tag": parent["metadata"]["model_tag"],
+            "parent_run_id": args.parent_run_id,
+            "parent_checkpoint_sha256": parent["checkpoint_sha256"],
+            "parent_run_metadata_sha256": parent["metadata_sha256"],
+            "parent_training_history_sha256": (
+                parent["training_history_sha256"]
+            ),
+            "parent_checkpoint_payload_model_revision": V15_MODEL_REVISION,
+            "parent_input_hash_validation": "PASS",
+            "parent_encoder_hash_validation": "PASS",
+            "parent_normal_replay_validation": "PASS",
+            "parent_state_dict_strict_load": True,
+            "guard_selection_key": guard_decoder_selection[
+                selected_decoder_mode
+            ]["selection_key"],
+        })
     for role in roles:
         metadata[role + "_decision_router_sha256"] = decision_router_sha256(
             streams[role]

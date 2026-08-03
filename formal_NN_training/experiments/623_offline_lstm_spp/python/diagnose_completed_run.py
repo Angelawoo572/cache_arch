@@ -14,11 +14,18 @@ from pathlib import Path
 
 POLICY = "spp"
 TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
-NEURAL_METHOD_PREFIX = "offline_joint_delta_fill_spp_lstm_"
-EXPECTED_TAGS = {
-    "joint_delta_fill_spp_lstm_h{}".format(size)
-    for size in (8, 16, 32, 64, 128)
+DEFAULT_RUN_ID = "623_offline_lstm_spp_keyed_crn_joint_map_v16a_seed7"
+V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
+V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
+REVISION_PROFILES = {
+    V15_MODEL_REVISION: (
+        "offline_joint_delta_fill_spp_lstm_",
+        "joint_delta_fill_spp_lstm_h{}",
+    ),
+    V16A_MODEL_REVISION: (
+        "offline_guard_joint_map_spp_lstm_",
+        "guard_joint_map_spp_lstm_h{}",
+    ),
 }
 SOURCE_INPUTS = [
     "callback_kind",
@@ -227,6 +234,19 @@ def model_record(row, metadata, normal, no_pref, matched):
         "joint_delta_fill_training_label_diagnostics",
         "offline_normal_fill_level_counts",
         "offline_nn_fill_level_counts",
+        "decoder_revision",
+        "decoder_candidate_modes",
+        "selected_decoder_mode",
+        "guard_decoder_selection",
+        "guard_selection_objective",
+        "parent_run_id",
+        "parent_model_revision",
+        "weights_model_revision",
+        "parent_checkpoint_sha256",
+        "parent_run_metadata_sha256",
+        "parent_training_history_sha256",
+        "weights_retrained",
+        "checkpoint_reused",
     )
     for key in diagnostic_keys:
         if key in metadata:
@@ -266,6 +286,16 @@ def main():
         )
     if matched.get("trace") != TRACE:
         raise SystemExit("unexpected trace in {}".format(matched_path))
+    model_revision = matched.get("model_revision", V15_MODEL_REVISION)
+    profile = REVISION_PROFILES.get(model_revision)
+    if profile is None:
+        raise SystemExit("unsupported SPP model revision {}".format(
+            model_revision
+        ))
+    neural_method_prefix, tag_template = profile
+    expected_model_tags = {
+        tag_template.format(size) for size in (8, 16, 32, 64, 128)
+    }
 
     rows = {
         row.get("method"): row for row in matched.get("rows", [])
@@ -279,14 +309,14 @@ def main():
         method[len("offline_"):]
         for method in rows
         if isinstance(method, str)
-        and method.startswith(NEURAL_METHOD_PREFIX)
+        and method.startswith(neural_method_prefix)
     }
     if not expected_tags:
         raise SystemExit("matched comparison contains no SPP neural rows")
-    if expected_tags != EXPECTED_TAGS:
+    if expected_tags != expected_model_tags:
         raise SystemExit(
-            "unexpected SPP v15 model set: observed={} expected={}".format(
-                sorted(expected_tags), sorted(EXPECTED_TAGS)
+            "unexpected SPP model set: observed={} expected={}".format(
+                sorted(expected_tags), sorted(expected_model_tags)
             )
         )
 
@@ -346,6 +376,7 @@ def main():
         "source_matched_comparison_status": matched.get("status"),
         "trace": TRACE,
         "policy": POLICY,
+        "model_revision": model_revision,
         "input_contract_verified": True,
         "current_metadata_bound_to_analyzer_evidence": True,
         "cross_capacity_runtime_encoder_identical": True,

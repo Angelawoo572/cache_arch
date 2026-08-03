@@ -16,7 +16,7 @@ from pathlib import Path
 
 POLICY = "stride"
 TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_stride_keyed_crn_v15_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_stride_compact_hurdle_v16_seed7"
 SOURCE_INPUTS = ["pc", "addr"]
 NEURAL_METHOD_PREFIX = "offline_independent_delta_stride_lstm_"
 EXPECTED_TAGS = {
@@ -209,6 +209,7 @@ def model_record(row, metadata, normal, no_pref, matched):
     record = {
         "method": row.get("method"),
         "model_tag": metadata.get("model_tag"),
+        "model_revision": metadata.get("model_revision"),
         "model_size": metadata.get("model_size"),
         "parameter_count": metadata.get("parameter_count"),
         "ipc": row.get("ipc"),
@@ -255,6 +256,14 @@ def model_record(row, metadata, normal, no_pref, matched):
         ),
     }
     diagnostic_keys = (
+        "deterministic_decoding",
+        "deterministic_decoding_reproducible",
+        "gate_class_weights",
+        "gate_class_weights_source",
+        "gate_training_objective",
+        "gate_decoding_rule",
+        "request_count_training_objective",
+        "request_count_decoding_rule",
         "request_count_training_label_statistics",
         "request_count_decoder_diagnostics",
         "heldout_behavior_metrics",
@@ -320,7 +329,7 @@ def main():
         raise SystemExit("matched comparison contains no Stride neural rows")
     if expected_tags != EXPECTED_TAGS:
         raise SystemExit(
-            "unexpected Stride v15 model set: observed={} expected={}".format(
+            "unexpected Stride model set: observed={} expected={}".format(
                 sorted(expected_tags), sorted(EXPECTED_TAGS)
             )
         )
@@ -352,6 +361,26 @@ def main():
         metadata.get("runtime_encoder_sha256")
         for metadata in selected_metadata
     }
+    model_revisions = {
+        metadata.get("model_revision") for metadata in selected_metadata
+    }
+    if len(model_revisions) != 1 or None in model_revisions:
+        raise SystemExit(
+            "Stride metadata does not share one model revision: {}".format(
+                sorted(repr(value) for value in model_revisions)
+            )
+        )
+    model_revision = next(iter(model_revisions))
+    analyzer_model_revision = matched.get("model_revision")
+    if (
+        analyzer_model_revision is not None
+        and analyzer_model_revision != model_revision
+    ):
+        raise SystemExit(
+            "analyzer/metadata model revision mismatch: {!r} != {!r}".format(
+                analyzer_model_revision, model_revision
+            )
+        )
     contract_verified = (
         all(record["input_contract_verified"] for record in records)
         and all(record["analyzer_evidence_verified"] for record in records)
@@ -382,6 +411,7 @@ def main():
         "source_matched_comparison_status": matched.get("status"),
         "trace": TRACE,
         "policy": POLICY,
+        "model_revision": model_revision,
         "input_contract_verified": True,
         "current_metadata_bound_to_analyzer_evidence": True,
         "cross_capacity_runtime_encoder_identical": True,
@@ -436,7 +466,8 @@ def main():
         flatten("", record, flat)
         flat_records.append(flat)
     preferred = [
-        "method", "model_tag", "model_size", "parameter_count",
+        "method", "model_tag", "model_revision", "model_size",
+        "parameter_count",
         "ipc", "ipc_delta_vs_offline_normal", "ipc_delta_vs_no_pref",
         "l2_load_miss_rate", "l2_miss_rate_delta_vs_offline_normal",
         "pf_requested", "request_ratio_vs_offline_normal",

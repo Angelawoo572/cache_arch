@@ -6,8 +6,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_keyed_crn_v15_seed7}"
-STAGE="${STAGE:-collect}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_compact_hurdle_v16_seed7}"
+STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
@@ -203,6 +203,7 @@ assert_model_metadata() {
 import csv
 import hashlib
 import json
+import math
 import re
 import sys
 from pathlib import Path
@@ -236,12 +237,13 @@ common = {
     "future_label_window_used": False,
     "handcrafted_semantic_features_used": False,
     "manual_loss_weights_used": False,
-    "data_derived_gate_class_weights_used": False,
-    "gate_class_weighting_used": False,
-    "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
-    "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf",
+    "data_derived_gate_class_weights_used": True,
+    "gate_class_weighting_used": True,
+    "gate_training_objective": "data_derived_frequency_balanced_two_class_cross_entropy",
+    "gate_decoding_rule": "deterministic_two_class_argmax",
+    "gate_class_weights_source": "train_zero_positive_frequencies_equal_aggregate_loss_mass",
+    "request_count_training_objective": "balanced_two_class_hurdle_plus_positive_log_count_smooth_l1",
+    "request_count_decoding_rule": "deterministic_gate_argmax_plus_rounded_exp_positive_log_count",
     "request_count_residual_scope": "none_event_local",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
@@ -249,51 +251,76 @@ common = {
     "nn_generates_own_target_addresses": True,
     "training_chunks_shuffled": False,
     "causal_no_future_self_test": "PASS",
-    "event_keyed_crn_self_test": "PASS",
-    "event_keyed_hurdle_count_self_test": "PASS",
-    "canonicalized_mixture_sampling_self_test": "PASS",
+    "event_keyed_crn_self_test": "NOT_APPLICABLE",
+    "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
+    "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
+    "deterministic_count_and_balance_self_test": "PASS",
     "decoder_probability_mass_carries_train_guard_history": False,
     "cross_event_probability_credit_used": False,
     "sampled_outputs_used_as_decoder_feedback": False,
-    "stochastic_decoding_reproducible": True,
-    "delta_mixture_decoding_rule": "event_keyed_mean_sorted_categorical_inverse_cdf_then_component_mean",
-    "delta_decoder_feedback_rule": "complete_mixture_expectation_same_in_training_and_inference",
-    "delta_mixture_components": 3,
+    "deterministic_decoding_reproducible": True,
+    "stochastic_decoding_reproducible": False,
+    "delta_mixture_decoding_rule": None,
+    "delta_training_objective": "scalar_signed_log_delta_smooth_l1",
+    "delta_decoding_rule": "deterministic_rounded_scalar_signed_log_delta",
+    "delta_decoder_feedback_rule": "emitted_scalar_coordinate_same_in_training_and_inference",
+    "delta_mixture_components": 0,
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_crn_event_sampled_mixture_v15",
+    "model_revision": "compact_pc_keyed_balanced_deterministic_scalar_v16",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
     "runtime_feature_count": 122,
     "runtime_encoding": "lossless uint64 PC plus lossless 58-bit cache-line number",
-    "common_random_numbers_across_capacities": True,
-    "strict_common_random_numbers_across_capacities": True,
+    "deterministic_decoding": True,
+    "stochastic_decoding": False,
+    "common_random_numbers_across_capacities": False,
+    "strict_common_random_numbers_across_capacities": False,
     "cross_event_rng_state_used": False,
-    "decoder_sampling_roles": ["eval"],
+    "decoder_sampling_roles": [],
     "decoder_train_sampling_performed": False,
     "decoder_guard_sampling_performed": False,
 }
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
-expected_key_fields = [
-    "revision", "decoder_seed", "trace", "policy", "role",
-    "event_key", "head", "action_rank",
-]
-sampler = metadata.get("decoder_sampler")
+statistics = metadata.get("request_count_training_label_statistics") or {}
+weights = metadata.get("gate_class_weights")
+decision_callbacks = statistics.get("decision_callbacks")
+positive_callbacks = statistics.get("positive_callbacks")
+zero_callbacks = statistics.get("zero_callbacks")
 if (
-    not isinstance(sampler, dict)
-    or sampler.get("sampler_revision") != "sha256_event_keyed_inverse_cdf_crn_v1"
-    or sampler.get("key_fields") != expected_key_fields
-    or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
-    or sampler.get("cross_event_rng_state") is not False
-    or metadata.get("decoder_key_fields") != expected_key_fields
+    not isinstance(decision_callbacks, int)
+    or not isinstance(positive_callbacks, int)
+    or not isinstance(zero_callbacks, int)
+    or decision_callbacks <= 0
+    or positive_callbacks <= 0
+    or zero_callbacks <= 0
+    or positive_callbacks + zero_callbacks != decision_callbacks
+    or not isinstance(weights, list)
+    or len(weights) != 2
 ):
-    bad["decoder_sampler"] = (sampler, "stateless keyed inverse-CDF CRN v1")
+    bad["gate_class_weights"] = (
+        {"statistics": statistics, "weights": weights},
+        "two inverse-frequency weights from a nonempty two-class train split",
+    )
+else:
+    expected_weights = [
+        float(decision_callbacks) / (2.0 * zero_callbacks),
+        float(decision_callbacks) / (2.0 * positive_callbacks),
+    ]
+    if any(
+        not isinstance(actual, (int, float))
+        or isinstance(actual, bool)
+        or not math.isfinite(float(actual))
+        or not math.isclose(
+            float(actual), expected, rel_tol=1e-6, abs_tol=1e-7
+        )
+        for actual, expected in zip(weights, expected_weights)
+    ):
+        bad["gate_class_weights"] = (weights, expected_weights)
 for key in (
-    "decoder_event_key_stream_sha256", "decoder_sampler_source_sha256",
-    "decoder_sampler_key_schedule_sha256", "decoder_sampling_schedule_sha256",
     "training_state_router_sha256", "inference_state_router_sha256",
 ):
     value = metadata.get(key)
@@ -310,7 +337,7 @@ expected_points = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-expected_parameters = {8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563}
+expected_parameters = {8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")

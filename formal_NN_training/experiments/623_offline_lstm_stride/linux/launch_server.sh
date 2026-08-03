@@ -4,8 +4,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_keyed_crn_v15_seed7}"
-STAGE="${1:-${STAGE:-collect}}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_compact_hurdle_v16_seed7}"
+STAGE="${1:-${STAGE:-replay}}"
 CANONICAL_RUN_DIR="$EXP/runs/$RUN_ID"
 if [[ -n "${RUN_DIR:-}" && "$RUN_DIR" != "$CANONICAL_RUN_DIR" ]]; then
   echo "[isolation] ignoring foreign RUN_DIR=$RUN_DIR" >&2
