@@ -34,9 +34,11 @@ inference.
 The exact capacity sweep is h8/h16/h32/h64/h128 with
 2,682/6,242/16,050/46,418/150,162 parameters.
 
-The root comparison is `PASS`, so fill-preserving transport and counter
-accounting reconcile.  It is still a negative performance result: offline SPP
-has IPC 0.353900, while the best neural point h64 has 0.353270.  Unlike Stride,
+The root comparison is `PASS`, so aggregate action transport and simulator
+counter accounting reconcile.  It does not independently prove per-fill-class
+runtime conservation or victim pollution.  It is still a negative performance
+result: offline SPP has IPC 0.353900, while the best neural point h64 has
+0.353270.  Unlike Stride,
 request count has not collapsed: normal emits 804,086 actions from 707,263
 reached triggers (1.137 actions/trigger), and the neural points emit
 722,778--781,796 actions at 1.066--1.088 actions/trigger.
@@ -90,14 +92,19 @@ python3 python/diagnose_completed_run.py \
   --run-id "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
 ```
 
-This writes `model_diagnosis.json` and `model_diagnosis.csv`, preserving
-request, target-quality, fill, and cache-lifecycle evidence as separate fields.
+This writes `model_diagnosis.json` and `model_diagnosis.csv`, binds current
+metadata/list/input hashes to analyzer evidence, and keeps request,
+target-quality, fill, and cache-lifecycle evidence separate.  Full replay-list
+fill totals and runtime issued-event fill counts are distinct domains; the
+diagnosis does not silently equate them.
 
 ## Next controlled revision
 
-Do not blindly copy the 602 SPP topology and do not overwrite v15.  The 623
-normal labels contain only about two percent L2 fills, so a separate uncalibrated
-fill argmax can collapse to all LLC.  First use `model_diagnosis.json` to inspect
+Do not blindly copy the 602 SPP topology and do not overwrite v15.  The v15
+metadata reports 16,044 L2 versus 788,042 LLC normal-list actions (about two
+percent L2); the diagnosis binds those list totals to analyzer replay-list
+hashes before using them.  A separate uncalibrated fill argmax can therefore
+collapse to all LLC.  First use `model_diagnosis.json` to inspect
 normal/NN fill counts, held-out joint-label behavior, useful/useless/late/drop
 counters, and delta/fill dependence.  The lowest-risk v16 ablation keeps the
 current input, global state, count model, and joint delta/fill head, but compares
