@@ -41,7 +41,12 @@ FINISHED = re.compile(
 )
 REPLAYER = re.compile(
     r"emitted\s+(\d+)\s+(?:candidates|actions) over\s+(\d+)\s+runtime ROI L2 LOAD "
-    r"accesses \((\d+)\s+matched PC-line-occ triggers"
+    r"accesses \((\d+)\s+matched PC-line-occ triggers;\s+"
+    r"(\d+)\s+loaded trigger keys"
+)
+REPLAYER_LOADED = re.compile(
+    r"loaded\s+(\d+)\s+direct actions across\s+(\d+)\s+"
+    r"PC-line-occ triggers"
 )
 
 
@@ -74,7 +79,7 @@ def stream_hashes(path):
 
 def replay_list_info(path, allow_empty=False):
     count = 0
-    triggers = set()
+    trigger_entry_counts = defaultdict(int)
     fill_counts = {"FILL_L2": 0, "FILL_LLC": 0}
     with Path(path).open(newline="") as handle:
         reader = csv.reader(handle)
@@ -119,13 +124,14 @@ def replay_list_info(path, allow_empty=False):
                 "FILL_L2" if fill_level == 2 else "FILL_LLC"
             ] += 1
             trigger = (pc, line, occurrence)
-            triggers.add(trigger)
+            trigger_entry_counts[trigger] += 1
             count += 1
     if count <= 0 and not allow_empty:
         raise RuntimeError("empty SPP replay list")
     return {
         "entries": count,
-        "unique_triggers": len(triggers),
+        "unique_triggers": len(trigger_entry_counts),
+        "trigger_entry_counts": dict(trigger_entry_counts),
         "sha256": sha256(path),
         "fill_counts": fill_counts,
     }
@@ -135,6 +141,7 @@ def parse_log(path):
     stats = {}
     text = path.read_text(errors="ignore")
     emitted = callbacks = matched = 0
+    loaded_entries = loaded_triggers = dumped_loaded_triggers = 0
     for raw in text.splitlines():
         match = KV.match(raw.strip())
         if match:
@@ -149,6 +156,11 @@ def parse_log(path):
             emitted = int(match.group(1))
             callbacks = int(match.group(2))
             matched = int(match.group(3))
+            dumped_loaded_triggers = int(match.group(4))
+        match = REPLAYER_LOADED.search(raw)
+        if match:
+            loaded_entries = int(match.group(1))
+            loaded_triggers = int(match.group(2))
 
     def value(key, fallback=0.0):
         return stats.get(key, fallback)
@@ -174,6 +186,9 @@ def parse_log(path):
         "emitted": emitted,
         "callbacks": callbacks,
         "matched": matched,
+        "loaded_entries": loaded_entries,
+        "loaded_triggers": loaded_triggers,
+        "dumped_loaded_triggers": dumped_loaded_triggers,
         "l2_loads": l2_loads,
         "l2_load_miss": l2_miss,
         "l2_load_miss_rate": div(l2_miss, l2_loads),
@@ -216,6 +231,8 @@ def parse_events(path):
     last_event_id = -1
     latest_demand_event_id = None
     latest_demand_identity = None
+    runtime_occurrences = defaultdict(int)
+    runtime_trigger_keys = set()
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
@@ -296,6 +313,10 @@ def parse_events(path):
                 raise RuntimeError("demand self-trigger event mismatch")
             latest_demand_event_id = event_id
             latest_demand_identity = demand_identity
+            pair = (int(row["ip"]), int(row["line"]))
+            occurrence = runtime_occurrences[pair]
+            runtime_occurrences[pair] += 1
+            runtime_trigger_keys.add((pair[0], pair[1], occurrence))
             result["demand_l2_loads"] += 1
             if int(row["hit"]):
                 result["demand_l2_hits"] += 1
@@ -314,6 +335,7 @@ def parse_events(path):
         result["prefetch_useful_demand_hits"]
         + result["prefetch_late_demand_misses"],
     )
+    result["_runtime_trigger_keys"] = runtime_trigger_keys
     return result
 
 
@@ -668,6 +690,7 @@ def main():
     colab_root = args.run_dir / "colab_output"
     failures = []
     rows = []
+    runtime_trigger_keys_by_method = {}
 
     for method in methods:
         log_path = logs / (TRACE + "." + method + ".log")
@@ -698,7 +721,11 @@ def main():
         }
         row.update(parse_log(log_path))
         try:
-            row.update(parse_events(event_path))
+            event_metrics = parse_events(event_path)
+            runtime_trigger_keys_by_method[method] = event_metrics.pop(
+                "_runtime_trigger_keys"
+            )
+            row.update(event_metrics)
         except Exception as exc:
             failures.append("{} event parse failed: {}".format(method, exc))
         if row["ipc"] <= 0 or row["instructions"] <= 0:
@@ -932,25 +959,59 @@ def main():
         if row is None or info is None:
             failures.append("{} lacks replay accounting inputs".format(method))
             continue
+        runtime_keys = runtime_trigger_keys_by_method.get(method)
+        if runtime_keys is None:
+            failures.append("{} lacks runtime trigger keys".format(method))
+            continue
+        trigger_entry_counts = info["trigger_entry_counts"]
+        reachable_keys = set(trigger_entry_counts).intersection(runtime_keys)
+        reachable_entries = sum(
+            trigger_entry_counts[key] for key in reachable_keys
+        )
+        reachable_triggers = len(reachable_keys)
+        row["replay_list_entries"] = info["entries"]
+        row["replay_list_triggers"] = info["unique_triggers"]
+        row["runtime_reachable_list_entries"] = reachable_entries
+        row["runtime_reachable_list_triggers"] = reachable_triggers
+        row["runtime_unreached_list_entries"] = (
+            info["entries"] - reachable_entries
+        )
+        row["runtime_unreached_list_triggers"] = (
+            info["unique_triggers"] - reachable_triggers
+        )
+        # A replay list is keyed to the source-evaluation callback domain.
+        # A separate intervention run can observe a different set of runtime
+        # PC-line-occ keys.  Validate the loaded table against the complete
+        # list and the emitted/requested counts against the exact intersection.
         checks = {
-            "list entries versus replayer emitted": (
-                info["entries"], row["emitted"]
+            "list entries versus replayer loaded entries": (
+                info["entries"], row["loaded_entries"]
             ),
-            "list entries versus simulator requested": (
-                info["entries"], row["pf_requested"]
+            "unique list triggers versus replayer loaded triggers": (
+                info["unique_triggers"], row["loaded_triggers"]
             ),
-            # The list and pf_requested count attempted actions.  PF rows are
-            # logged only after CACHE::prefetch_line passes its PQ-capacity
-            # gate, so they correspond to pf_issued rather than all attempts.
+            "replayer loaded triggers at startup versus final dump": (
+                row["loaded_triggers"], row["dumped_loaded_triggers"]
+            ),
+            "runtime-reachable list entries versus replayer emitted": (
+                reachable_entries, row["emitted"]
+            ),
+            "runtime-reachable list triggers versus replayer matched": (
+                reachable_triggers, row["matched"]
+            ),
+            "replayer emitted versus simulator requested": (
+                row["emitted"], row["pf_requested"]
+            ),
+            # Emitted and pf_requested count attempted actions for triggers
+            # actually reached in this replay.  PF rows are logged only after
+            # CACHE::prefetch_line passes its PQ-capacity gate, so they
+            # correspond to pf_issued rather than all attempts.
             "simulator issued versus logged PF events": (
                 row["pf_issued"], row["prefetch_request_events"]
             ),
             "simulator request conservation": (
                 row["pf_requested"],
                 row["pf_issued"] + row["pf_dropped"],
-            ),
-            "unique list triggers versus matched triggers": (
-                info["unique_triggers"], row["matched"]
             ),
             "replayer callbacks versus L2 loads": (
                 row["callbacks"], row["l2_loads"]
@@ -999,6 +1060,10 @@ def main():
         "prefetch_fill_llc_events", "cache_fill_feedback_events",
         "event_selected_accuracy_proxy",
         "event_coverage_vs_no_pref_l2_miss", "event_timeliness_proxy",
+        "replay_list_entries", "replay_list_triggers",
+        "runtime_reachable_list_entries", "runtime_reachable_list_triggers",
+        "runtime_unreached_list_entries", "runtime_unreached_list_triggers",
+        "loaded_entries", "loaded_triggers", "dumped_loaded_triggers",
         "matched", "emitted", "callbacks", *behavior_fields,
         "log", "event_log",
     ]
@@ -1369,4 +1434,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
