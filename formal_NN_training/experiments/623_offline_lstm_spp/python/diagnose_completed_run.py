@@ -15,6 +15,7 @@ from pathlib import Path
 POLICY = "spp"
 TRACE = "623.xalancbmk_s-700B"
 DEFAULT_RUN_ID = "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
+NEURAL_METHOD_PREFIX = "offline_joint_delta_fill_spp_lstm_"
 SOURCE_INPUTS = [
     "callback_kind",
     "invoke_prefetcher.addr",
@@ -209,6 +210,15 @@ def main():
     if no_pref is None or normal is None:
         raise SystemExit("missing no-prefetch or offline-normal row")
 
+    expected_tags = {
+        method[len("offline_"):]
+        for method in rows
+        if isinstance(method, str)
+        and method.startswith(NEURAL_METHOD_PREFIX)
+    }
+    if not expected_tags:
+        raise SystemExit("matched comparison contains no SPP neural rows")
+
     records = []
     selected_metadata = []
     metadata_root = run_dir / "colab_output"
@@ -224,6 +234,13 @@ def main():
         selected_metadata.append(metadata)
     if not records:
         raise SystemExit("no SPP neural metadata found")
+    observed_tags = {record["model_tag"] for record in records}
+    if observed_tags != expected_tags:
+        raise SystemExit(
+            "SPP metadata/replay model set mismatch: observed={} expected={}".format(
+                sorted(observed_tags), sorted(expected_tags)
+            )
+        )
 
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256")
