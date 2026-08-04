@@ -10,8 +10,9 @@ import json
 import sys
 from pathlib import Path
 
+from model_contract import RUN_ID
 
-DEFAULT_RUN_ID = "623_offline_lstm_stride_natural_hurdle_v18_seed7"
+DEFAULT_RUN_ID = RUN_ID
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
 
 
