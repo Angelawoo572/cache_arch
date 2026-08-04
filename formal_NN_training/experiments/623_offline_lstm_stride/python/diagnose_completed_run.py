@@ -13,15 +13,13 @@ import json
 import re
 from pathlib import Path
 
+from model_contract import POLICY, RUN_ID, TRACE, model_points_description
 
-POLICY = "stride"
-TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_stride_natural_hurdle_v18_seed7"
+DEFAULT_RUN_ID = RUN_ID
 SOURCE_INPUTS = ["pc", "addr"]
-NEURAL_METHOD_PREFIX = "offline_independent_delta_stride_lstm_"
+NEURAL_METHOD_PREFIX = "offline_global_local_grammar_stride_lstm_"
 EXPECTED_TAGS = {
-    "independent_delta_stride_lstm_h{}".format(size)
-    for size in (8, 16, 32, 64, 128)
+    point["model_tag"] for point in model_points_description()["points"]
 }
 EXPERIMENT = Path(__file__).resolve().parents[1]
 REPOSITORY = Path(__file__).resolve().parents[4]
@@ -72,6 +70,8 @@ def input_contract_mismatches(metadata):
         "normal_policy_private_state_used_as_model_inputs": False,
         "normal_policy_outputs_used_as_training_targets": True,
         "future_label_window_used": False,
+        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
+        "teacher_prefix_tokens_mutate_main_rollout_state": False,
     }
     mismatches = []
     for key, value in expected.items():
@@ -258,6 +258,10 @@ def model_record(row, metadata, normal, no_pref, matched):
     diagnostic_keys = (
         "deterministic_decoding",
         "deterministic_decoding_reproducible",
+        "stochastic_decoding",
+        "stochastic_decoding_reproducible",
+        "common_random_numbers_across_capacities",
+        "decoder_sampler",
         "gate_class_weights",
         "gate_class_weights_source",
         "gate_empirical_prior",
@@ -270,6 +274,25 @@ def model_record(row, metadata, normal, no_pref, matched):
         "request_count_decoding_rule",
         "request_count_training_label_statistics",
         "request_count_decoder_diagnostics",
+        "decoder_previous_teacher_action_used_as_main_rollout_input",
+        "decoder_previous_teacher_action_input_scope",
+        "teacher_prefix_tokens_condition_loss_logits",
+        "teacher_prefix_tokens_recurrently_advance_loss_branch_state",
+        "teacher_prefix_tokens_mutate_main_rollout_state",
+        "teacher_prefix_branch_role",
+        "sampled_prefix_branch_role",
+        "delta_training_objective",
+        "delta_decoding_rule",
+        "delta_decoder_feedback_rule",
+        "delta_codec",
+        "gradient_accumulation_weighting",
+        "sampler_uniform_grid_bits",
+        "sampler_minimum_open_midpoint_uniform",
+        "fail_closed_nontermination_watchdog_ranks",
+        "nontermination_watchdog_is_policy_degree_cap",
+        "successful_run_hit_nontermination_watchdog",
+        "encoder_diagnostics",
+        "learned_local_validity_gate",
         "heldout_behavior_metrics",
         "train_action_summary",
         "guard_action_summary",
