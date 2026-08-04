@@ -4,11 +4,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
-TRACE="623.xalancbmk_s-700B"
-POLICY="spp"
-DEFAULT_RUN_ID="623_offline_lstm_spp_hard_distinct_v18_seed7"
-DEFAULT_MODEL_TAGS="hard_distinct_delta_fill_spp_lstm_h8,hard_distinct_delta_fill_spp_lstm_h16,hard_distinct_delta_fill_spp_lstm_h32,hard_distinct_delta_fill_spp_lstm_h64,hard_distinct_delta_fill_spp_lstm_h128"
-DEFAULT_BASE_TAG="hard_distinct_delta_fill_spp_lstm_h8"
+MODEL_POINTS_SCRIPT="$EXP/python/model_points_v19.py"
+TRACE="$(python3 "$MODEL_POINTS_SCRIPT" --field trace)"
+POLICY="$(python3 "$MODEL_POINTS_SCRIPT" --field policy)"
+DEFAULT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field run_id)"
+DEFAULT_MODEL_TAGS="$(python3 "$MODEL_POINTS_SCRIPT" --tags-csv)"
+DEFAULT_BASE_TAG="$(python3 "$MODEL_POINTS_SCRIPT" --base-tag)"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
@@ -49,7 +50,8 @@ require_repo_file() {
 }
 for required_file in \
   "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
-  "$ANALYZE" "$INSTALL_COLAB_OUTPUT" "$SOURCE_CONTRACT_REPO"; do
+  "$ANALYZE" "$INSTALL_COLAB_OUTPUT" "$SOURCE_CONTRACT_REPO" \
+  "$MODEL_POINTS_SCRIPT"; do
   require_repo_file "$required_file"
 done
 
@@ -293,29 +295,47 @@ collect() {
   echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
 }
 
+validate_preserved_inputs() {
+  local validated_manifest
+  validated_manifest="$(mktemp "$RUN_DIR/.spp_collection_manifest.XXXXXX")"
+  if ! python3 "$VALIDATE_INPUTS" \
+    --input-dir "$STREAM_DIR" --manifest-out "$validated_manifest" \
+    --source-contract "$SOURCE_CONTRACT_INPUT"; then
+    rm -f "$validated_manifest"
+    return 1
+  fi
+  if ! cmp -s "$COLLECTION_MANIFEST" "$validated_manifest"; then
+    rm -f "$validated_manifest"
+    echo "[error] collected SPP input manifest no longer reproduces byte-for-byte" >&2
+    return 1
+  fi
+  rm -f "$validated_manifest"
+  ( cd "$STREAM_DIR" && sha256sum -c SHA256SUMS )
+}
+
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-assert_model_metadata() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" <<'PY'
+assert_model_metadata_v18_legacy() {
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" <<'PY'
 import csv
 import hashlib
 import json
 import re
+import runpy
 import sys
 from pathlib import Path
 
 metadata_path = Path(sys.argv[1])
 source_contract = Path(sys.argv[2])
+point_contract = runpy.run_path(sys.argv[3])["describe_model_points"]()
 metadata = json.loads(metadata_path.read_text())
 root = metadata_path.parent
 tag = metadata.get("model_tag", "")
 family = metadata.get("model_family")
-source_inputs = [
-    "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
-]
+source_inputs = point_contract["external_input_fields"]
 common = {
-    "trace": "623.xalancbmk_s-700B",
-    "matched_normal_prefetcher": "spp",
+    "trace": point_contract["trace"],
+    "matched_normal_prefetcher": point_contract["policy"],
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
     "operation": "train-v18",
@@ -614,6 +634,211 @@ if bad:
     raise SystemExit("invalid 623 SPP v18 metadata: {}".format(bad))
 PY
 }
+
+assert_model_metadata_v19() {
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" <<'PY'
+import csv
+import hashlib
+import json
+import re
+import runpy
+import sys
+from pathlib import Path
+
+metadata_path = Path(sys.argv[1])
+source_contract = Path(sys.argv[2])
+point_contract = runpy.run_path(sys.argv[3])["describe_model_points"]()
+metadata = json.loads(metadata_path.read_text())
+root = metadata_path.parent
+source_inputs = point_contract["external_input_fields"]
+expected = {
+    "run_id": point_contract["run_id"],
+    "trace": point_contract["trace"],
+    "matched_normal_prefetcher": point_contract["policy"],
+    "neural_role": "standalone_direct_action_prefetcher",
+    "model_family": "lstm",
+    "track_model_family": "lstm",
+    "operation": point_contract["operation"],
+    "experiment_revision": point_contract["experiment_revision"],
+    "model_revision": point_contract["model_revision"],
+    "decoder_revision": point_contract["decoder_revision"],
+    "source_decision_effective_external_input": source_inputs,
+    "training_runtime_fields": source_inputs,
+    "inference_runtime_fields": source_inputs,
+    "runtime_feature_count": point_contract["runtime_feature_count"],
+    "same_external_input_contract": True,
+    "training_inference_input_encoder_identical": True,
+    "decoder_training_mode": "sampled_rank_grammar_rollout_with_separate_teacher_prefix_output_nll",
+    "decoder_previous_teacher_action_used_as_input": True,
+    "decoder_previous_teacher_action_used_as_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
+    "decoder_previous_teacher_action_used_as_main_rollout_input": False,
+    "teacher_count_role": "labels_STOP_or_EMIT_only_at_ranks_reached_by_sampled_rollout",
+    "teacher_count_used_as_decoder_feedback": False,
+    "teacher_prefix_role": "loss_only_exact_autoregressive_target_likelihood_branch",
+    "teacher_prefix_advances_loss_only_likelihood_byte_state": True,
+    "teacher_prefix_used_as_main_rollout_recurrent_feedback": False,
+    "teacher_target_conditions_loss_only_fill_factor": True,
+    "teacher_action_values_used_as_main_rollout_recurrent_feedback": False,
+    "model_does_not_use_pc": True,
+    "model_input_is_causal_external_event_sequence_only": True,
+    "cache_fill_feedback_used_as_raw_external_input": True,
+    "teacher_actions_are_model_inputs": False,
+    "teacher_actions_are_model_inputs_scope": "external_or_runtime_inference_inputs_only",
+    "teacher_actions_used_as_supervised_output_conditioning": True,
+    "normal_policy_outputs_used_as_model_inputs": False,
+    "normal_policy_candidates_used_as_model_inputs": False,
+    "normal_policy_private_state_used_as_model_inputs": False,
+    "normal_policy_outputs_used_as_training_targets": True,
+    "normal_policy_request_rate_used_as_budget": False,
+    "probability_threshold_used": False,
+    "threshold_related_hardcodes_used": False,
+    "neural_degree_cap": None,
+    "gate_training_objective": None,
+    "gate_decoding_rule": None,
+    "request_count_training_objective": "rankwise_unweighted_stop_emit_categorical_nll",
+    "request_count_decoding_rule": "first_keyed_learned_STOP_token_ends_action_sequence",
+    "request_count_sampling_performed": True,
+    "stop_emit_sampling_rule": "event_rank_keyed_categorical_inverse_cdf",
+    "stop_emit_sampler_representability_check": "STOP_mass_strictly_above_open_uniform_half_bin",
+    "action_rollout_fail_closed_watchdog_ranks": point_contract["action_rollout_watchdog_ranks"],
+    "action_rollout_watchdog_role": "error_without_replay_not_truncation_or_forced_STOP",
+    "action_rollout_watchdog_is_neural_degree_cap": False,
+    "delta_mixture_components": 0,
+    "delta_training_objective": "exact_autoregressive_teacher_prefix_canonical_leb128_nll_with_sampled_history_duplicate_support",
+    "delta_decoding_rule": "keyed_exact_signed_zigzag_canonical_leb128",
+    "delta_zero_allowed": True,
+    "self_target_actions_allowed": True,
+    "delta_legality_constraints": ["distinct_target_within_callback"],
+    "delta_legality_fallback": None,
+    "duplicate_target_handling": "mask_categorical_probability_and_renormalize",
+    "duplicate_prefix_feasibility_mask_used": True,
+    "fill_training_objective": "unweighted_two_class_cross_entropy_conditioned_on_teacher_target_loss_only",
+    "fill_conditioned_on_actual_emitted_target": True,
+    "fill_argmax_used": False,
+    "optimizer_gradient_normalization": "total_categorical_atom_count_per_accumulation_group",
+    "routed_demand_fill_recurrent_paths": True,
+    "page_local_causal_state": True,
+    "common_random_numbers_across_capacities": True,
+    "strict_common_random_numbers_across_capacities": True,
+    "cross_event_rng_state_used": False,
+    "decoder_sampling_roles": ["train", "eval"],
+    "decoder_train_sampling_performed": True,
+    "decoder_guard_sampling_performed": False,
+    "decoder_count_sampling_performed": True,
+    "sampled_outputs_used_as_decoder_feedback": True,
+    "decoder_previous_teacher_action_used_as_input": True,
+    "weights_retrained": True,
+    "checkpoint_reused": False,
+    "guard_selected_decoder": False,
+    "same_source_input_offline_claim_allowed": True,
+    "closed_loop_live_claim_allowed": False,
+    "keyed_sampling_self_test": "PASS",
+    "rank_stop_emit_grammar_self_test": "PASS",
+    "exact_leb128_codec_self_test": "PASS",
+    "duplicate_prefix_no_dead_end_self_test": "PASS",
+    "teacher_prefix_state_isolation_self_test": "PASS",
+    "stop_sampler_representability_self_test": "PASS",
+    "always_emit_watchdog_self_test": "PASS",
+    "integer_csv_exactness_self_test": "PASS",
+    "target_conditioned_fill_self_test": "PASS",
+    "routed_page_state_self_test": "PASS",
+    "collection_manifest_role": "historical_input_package_provenance_only",
+    "collection_manifest_decoder_fields_are_current_contract": False,
+}
+bad = {
+    key: (metadata.get(key), value)
+    for key, value in expected.items() if metadata.get(key) != value
+}
+points = {
+    (item["size"], item["pair_id"], item["tag"]): item["parameter_count"]
+    for item in point_contract["points"]
+}
+point = (
+    metadata.get("model_size"), metadata.get("architecture_pair_id"),
+    metadata.get("model_tag"),
+)
+if point not in points or metadata.get("parameter_count") != points.get(point):
+    bad["model_point"] = (point, "pinned v19 point")
+if metadata.get("model_point_contract") != point_contract:
+    bad["model_point_contract"] = (metadata.get("model_point_contract"), point_contract)
+encoder_hashes = {
+    metadata.get("runtime_encoder_sha256"),
+    metadata.get("training_runtime_encoder_sha256"),
+    metadata.get("inference_runtime_encoder_sha256"),
+}
+if len(encoder_hashes) != 1 or re.fullmatch(r"[0-9a-f]{64}", next(iter(encoder_hashes), "")) is None:
+    bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared SHA256")
+for key in (
+    "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
+    "decoder_eval_event_key_stream_sha256", "decoder_eval_sampling_schedule_sha256",
+    "decoder_train_sampling_schedule_sha256", "decision_router_source_sha256",
+    "train_decision_router_sha256", "guard_decision_router_sha256",
+    "eval_decision_router_sha256", "model_checkpoint_sha256",
+    "training_history_sha256",
+):
+    if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
+        bad[key] = (metadata.get(key), "SHA256")
+if not source_contract.is_file():
+    bad["source_contract"] = (None, str(source_contract))
+else:
+    observed = hashlib.sha256(source_contract.read_bytes()).hexdigest()
+    if metadata.get("source_contract_sha256") != observed:
+        bad["source_contract_sha256"] = (metadata.get("source_contract_sha256"), observed)
+
+def replay_info(path, allow_empty):
+    count = 0
+    fills = {"FILL_L2": 0, "FILL_LLC": 0}
+    with path.open(newline="") as handle:
+        reader = csv.reader(handle)
+        if next(reader, None) != ["pc", "line", "occ", "prefetch_addr", "fill_level"]:
+            raise SystemExit("invalid replay header {}".format(path))
+        for fields in reader:
+            if len(fields) != 5 or int(fields[4], 0) not in (2, 4):
+                raise SystemExit("invalid replay row {}".format(path))
+            fills["FILL_L2" if int(fields[4], 0) == 2 else "FILL_LLC"] += 1
+            count += 1
+    if not allow_empty and not count:
+        raise SystemExit("empty normal replay")
+    return count, hashlib.sha256(path.read_bytes()).hexdigest(), fills
+
+for name, count_key, hash_key, fill_key, allow_empty in (
+    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
+    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
+):
+    path = root / name
+    if not path.is_file():
+        bad[name] = (None, "present")
+        continue
+    count, digest, fills = replay_info(path, allow_empty)
+    for key, actual in ((count_key, count), (hash_key, digest), (fill_key, fills)):
+        if metadata.get(key) != actual:
+            bad[key] = (metadata.get(key), actual)
+legality = metadata.get("action_legality_diagnostics")
+if (
+    not isinstance(legality, dict)
+    or legality.get("duplicate_target_actions") != 0
+    or legality.get("self_target_actions_allowed") is not True
+    or legality.get("delta_legality_fallback") is not None
+    or metadata.get("offline_nn_entries")
+       != metadata.get("materialized_distinct_action_count")
+    or metadata.get("raw_predicted_action_count")
+       != metadata.get("materialized_distinct_action_count")
+):
+    bad["action_legality_diagnostics"] = (legality, "v19 exact distinct action accounting")
+if (
+    not isinstance(metadata.get("peak_persistent_recurrent_state_bytes"), int)
+    or metadata.get("peak_persistent_recurrent_state_bytes") <= 0
+    or not isinstance(metadata.get("dynamic_page_state_pages"), int)
+    or metadata.get("dynamic_page_state_pages") <= 0
+):
+    bad["dynamic_state_accounting"] = (
+        metadata.get("peak_persistent_recurrent_state_bytes"),
+        metadata.get("dynamic_page_state_pages"),
+    )
+if bad:
+    raise SystemExit("invalid 623 SPP v19 metadata: {}".format(bad))
+PY
+}
 run_method() {
   local method="$1"
   local log="$LOG_DIR/$TRACE.$method.log"
@@ -646,7 +871,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_hard_distinct_delta_fill_spp_lstm_*)
+    offline_routed_grammar_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -665,9 +890,7 @@ run_method() {
 
 require_colab_outputs() {
   local tag
-  python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
-    --source-contract "$SOURCE_CONTRACT_INPUT"
+  validate_preserved_inputs
   python3 "$INSTALL_COLAB_OUTPUT" \
     --archive "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
     --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
@@ -679,14 +902,12 @@ require_colab_outputs() {
         exit 2
       }
     done
-    assert_model_metadata "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v19 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 
 analyze() {
-  python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
-    --source-contract "$SOURCE_CONTRACT_INPUT"
+  validate_preserved_inputs
   python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV"
 }
 
