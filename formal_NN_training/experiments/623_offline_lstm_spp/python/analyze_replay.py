@@ -9,28 +9,27 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from model_points_v19 import (
+    EXPERIMENT_REVISION, EXTERNAL_INPUT_FIELDS, MODEL_REVISION as V19_MODEL_REVISION,
+    POLICY, TRACE, describe_model_points,
+)
 
-TRACE = "623.xalancbmk_s-700B"
-POLICY = "spp"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
 V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
 V18_MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
-MODEL_REVISION = V18_MODEL_REVISION
+MODEL_REVISION = V19_MODEL_REVISION
 TRACK_MODEL_FAMILY = "lstm"
-DEFAULT_MODEL_TAGS = (
-    "hard_distinct_delta_fill_spp_lstm_h8,"
-    "hard_distinct_delta_fill_spp_lstm_h16,"
-    "hard_distinct_delta_fill_spp_lstm_h32,"
-    "hard_distinct_delta_fill_spp_lstm_h64,"
-    "hard_distinct_delta_fill_spp_lstm_h128"
+V19_POINT_CONTRACT = describe_model_points()
+DEFAULT_MODEL_TAGS = ",".join(
+    point["tag"] for point in V19_POINT_CONTRACT["points"]
 )
 MODEL_TAG_PREFIXES = (
     "joint_delta_fill_spp_lstm_", "guard_joint_map_spp_lstm_",
     "factorized_delta_fill_spp_lstm_",
     "hard_distinct_delta_fill_spp_lstm_",
+    "routed_grammar_spp_lstm_",
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -52,12 +51,14 @@ EXPECTED_PARAMETERS_BY_REVISION = {
     V18_MODEL_REVISION: {
         8: 2664, 16: 6208, 32: 15984, 64: 46288, 128: 149904,
     },
+    V19_MODEL_REVISION: {
+        point["size"]: point["parameter_count"]
+        for point in V19_POINT_CONTRACT["points"]
+    },
 }
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
-SOURCE_INPUTS = [
-    "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
-]
+SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
 KV = re.compile(r"^([A-Za-z0-9_]+)\s+([-+0-9.eE]+)\s*$")
 FINISHED = re.compile(
     r"Finished CPU\s+0\s+instructions:\s+(\d+)\s+cycles:\s+(\d+)\s+"
@@ -370,6 +371,8 @@ def policy_for_method(method):
         "offline_factorized_delta_fill_spp_"
     ) or method.startswith(
         "offline_hard_distinct_delta_fill_spp_"
+    ) or method.startswith(
+        "offline_routed_grammar_spp_"
     ):
         return POLICY
     return ""
@@ -382,6 +385,8 @@ def model_tag_for_method(method):
         "offline_factorized_delta_fill_spp_"
     ) or method.startswith(
         "offline_hard_distinct_delta_fill_spp_"
+    ) or method.startswith(
+        "offline_routed_grammar_spp_"
     ):
         return method[len("offline_"):]
     return ""
@@ -459,9 +464,199 @@ def add_comparison_metrics(rows, failures):
             )
 
 
+def validate_v19_metadata(metadata, tag, inputs, source_contract_hash, failures):
+    expected = {
+        "run_id": V19_POINT_CONTRACT["run_id"],
+        "trace": TRACE,
+        "model_tag": tag,
+        "matched_normal_prefetcher": POLICY,
+        "model_family": "lstm",
+        "track_model_family": "lstm",
+        "operation": V19_POINT_CONTRACT["operation"],
+        "experiment_revision": V19_POINT_CONTRACT["experiment_revision"],
+        "model_revision": V19_POINT_CONTRACT["model_revision"],
+        "decoder_revision": V19_POINT_CONTRACT["decoder_revision"],
+        "neural_role": "standalone_direct_action_prefetcher",
+        "source_decision_effective_external_input": SOURCE_INPUTS,
+        "training_runtime_fields": SOURCE_INPUTS,
+        "inference_runtime_fields": SOURCE_INPUTS,
+        "runtime_feature_count": V19_POINT_CONTRACT["runtime_feature_count"],
+        "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "decoder_training_mode": "sampled_rank_grammar_rollout_with_separate_teacher_prefix_output_nll",
+        "decoder_previous_teacher_action_used_as_input": True,
+        "decoder_previous_teacher_action_used_as_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
+        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
+        "teacher_count_role": "labels_STOP_or_EMIT_only_at_ranks_reached_by_sampled_rollout",
+        "teacher_count_used_as_decoder_feedback": False,
+        "teacher_prefix_role": "loss_only_exact_autoregressive_target_likelihood_branch",
+        "teacher_prefix_advances_loss_only_likelihood_byte_state": True,
+        "teacher_prefix_used_as_main_rollout_recurrent_feedback": False,
+        "teacher_target_conditions_loss_only_fill_factor": True,
+        "teacher_action_values_used_as_main_rollout_recurrent_feedback": False,
+        "model_does_not_use_pc": True,
+        "pc_is_replay_transport_only": True,
+        "model_input_is_causal_external_event_sequence_only": True,
+        "cache_fill_feedback_used_as_raw_external_input": True,
+        "cache_fill_private_state_used_as_model_input": False,
+        "teacher_actions_are_model_inputs": False,
+        "teacher_actions_are_model_inputs_scope": "external_or_runtime_inference_inputs_only",
+        "teacher_actions_used_as_supervised_output_conditioning": True,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "normal_policy_request_rate_used_as_budget": False,
+        "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
+        "neural_degree_cap": None,
+        "handcrafted_semantic_features_used": True,
+        "causal_derived_features_use_external_input_only": True,
+        "external_input_fields_unchanged": True,
+        "manual_loss_weights_used": False,
+        "gate_training_objective": None,
+        "gate_decoding_rule": None,
+        "request_count_training_objective": "rankwise_unweighted_stop_emit_categorical_nll",
+        "request_count_decoding_rule": "first_keyed_learned_STOP_token_ends_action_sequence",
+        "request_count_sampling_performed": True,
+        "stop_emit_sampling_rule": "event_rank_keyed_categorical_inverse_cdf",
+        "stop_emit_sampler_representability_check": "STOP_mass_strictly_above_open_uniform_half_bin",
+        "action_rollout_fail_closed_watchdog_ranks": V19_POINT_CONTRACT["action_rollout_watchdog_ranks"],
+        "action_rollout_watchdog_role": "error_without_replay_not_truncation_or_forced_STOP",
+        "action_rollout_watchdog_is_neural_degree_cap": False,
+        "delta_mixture_components": 0,
+        "delta_training_objective": "exact_autoregressive_teacher_prefix_canonical_leb128_nll_with_sampled_history_duplicate_support",
+        "delta_decoding_rule": "keyed_exact_signed_zigzag_canonical_leb128",
+        "delta_zero_allowed": True,
+        "self_target_actions_allowed": True,
+        "delta_legality_constraints": ["distinct_target_within_callback"],
+        "delta_legality_fallback": None,
+        "duplicate_target_handling": "mask_categorical_probability_and_renormalize",
+        "duplicate_prefix_feasibility_mask_used": True,
+        "fill_training_objective": "unweighted_two_class_cross_entropy_conditioned_on_teacher_target_loss_only",
+        "fill_conditioned_on_actual_emitted_target": True,
+        "fill_argmax_used": False,
+        "optimizer_gradient_normalization": "total_categorical_atom_count_per_accumulation_group",
+        "routed_demand_fill_recurrent_paths": True,
+        "page_local_causal_state": True,
+        "common_random_numbers_across_capacities": True,
+        "strict_common_random_numbers_across_capacities": True,
+        "cross_event_rng_state_used": False,
+        "decoder_sampling_roles": ["train", "eval"],
+        "decoder_train_sampling_performed": True,
+        "decoder_guard_sampling_performed": False,
+        "decoder_count_sampling_performed": True,
+        "sampled_outputs_used_as_decoder_feedback": True,
+        "decoder_previous_teacher_action_used_as_input": True,
+        "weights_retrained": True,
+        "checkpoint_reused": False,
+        "guard_selected_decoder": False,
+        "same_source_input_offline_claim_allowed": True,
+        "closed_loop_live_claim_allowed": False,
+        "keyed_sampling_self_test": "PASS",
+        "rank_stop_emit_grammar_self_test": "PASS",
+        "exact_leb128_codec_self_test": "PASS",
+        "duplicate_prefix_no_dead_end_self_test": "PASS",
+        "teacher_prefix_state_isolation_self_test": "PASS",
+        "stop_sampler_representability_self_test": "PASS",
+        "always_emit_watchdog_self_test": "PASS",
+        "integer_csv_exactness_self_test": "PASS",
+        "target_conditioned_fill_self_test": "PASS",
+        "routed_page_state_self_test": "PASS",
+        "training_state_mode": "chronological_stateful_tbptt",
+        "training_state_carried_across_chunks": True,
+        "training_state_detached_between_chunks": True,
+        "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
+        "collection_manifest_role": "historical_input_package_provenance_only",
+        "collection_manifest_decoder_fields_are_current_contract": False,
+    }
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            failures.append(
+                "{} metadata {}={!r}; expected {!r}".format(
+                    tag, key, metadata.get(key), value
+                )
+            )
+    expected_points = {
+        (item["size"], item["pair_id"], item["tag"]): item["parameter_count"]
+        for item in V19_POINT_CONTRACT["points"]
+    }
+    point = (
+        metadata.get("model_size"), metadata.get("architecture_pair_id"), tag,
+    )
+    if point not in expected_points or metadata.get("parameter_count") != expected_points.get(point):
+        failures.append("{} invalid v19 architecture/parameter point".format(tag))
+    if metadata.get("model_point_contract") != V19_POINT_CONTRACT:
+        failures.append("{} model-point contract differs from trainer source".format(tag))
+    hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    if len(hashes) != 1 or re.fullmatch(r"[0-9a-f]{64}", next(iter(hashes), "")) is None:
+        failures.append("{} train/inference encoder hash mismatch".format(tag))
+    for key in (
+        "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
+        "decoder_eval_event_key_stream_sha256", "decoder_eval_sampling_schedule_sha256",
+        "decoder_train_sampling_schedule_sha256", "decision_router_source_sha256",
+        "train_decision_router_sha256", "guard_decision_router_sha256",
+        "eval_decision_router_sha256", "model_checkpoint_sha256",
+        "training_history_sha256",
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
+            failures.append("{} invalid {}".format(tag, key))
+    if metadata.get("source_contract_sha256") != source_contract_hash:
+        failures.append("{} SPP source-contract SHA256 mismatch".format(tag))
+    sampler = metadata.get("decoder_sampler")
+    if (
+        not isinstance(sampler, dict)
+        or sampler.get("sampler_revision") != "sha256_event_keyed_inverse_cdf_crn_v1"
+        or sampler.get("key_fields") != list(metadata.get("decoder_key_fields") or [])
+        or sampler.get("cross_event_rng_state") is not False
+    ):
+        failures.append("{} keyed decoder sampler contract mismatch".format(tag))
+    behavior = metadata.get("heldout_behavior_metrics")
+    for key in (
+        "count_exact_match_rate", "target_precision", "target_recall", "target_f1",
+        "joint_action_f1", "l2_joint_f1", "predicted_l2_fraction",
+        "teacher_l2_fraction", "trigger_f1",
+    ):
+        value = behavior.get(key) if isinstance(behavior, dict) else None
+        if not isinstance(value, (int, float)) or value < 0 or value > 1:
+            failures.append("{} invalid behavior metric {}".format(tag, key))
+    legality = metadata.get("action_legality_diagnostics")
+    if (
+        not isinstance(legality, dict)
+        or legality.get("duplicate_target_actions") != 0
+        or legality.get("self_target_actions_allowed") is not True
+        or legality.get("delta_legality_fallback") is not None
+        or metadata.get("offline_nn_entries")
+           != metadata.get("materialized_distinct_action_count")
+        or metadata.get("raw_predicted_action_count")
+           != metadata.get("materialized_distinct_action_count")
+    ):
+        failures.append("{} invalid v19 action legality audit".format(tag))
+    if (
+        not isinstance(metadata.get("peak_persistent_recurrent_state_bytes"), int)
+        or metadata.get("peak_persistent_recurrent_state_bytes") <= 0
+        or not isinstance(metadata.get("dynamic_page_state_pages"), int)
+        or metadata.get("dynamic_page_state_pages") <= 0
+    ):
+        failures.append("{} invalid dynamic recurrent-state accounting".format(tag))
+    for role in ("train", "guard", "eval"):
+        for kind in ("stream", "teacher_actions"):
+            key = role + "_" + kind + "_content_sha256"
+            expected_hash = inputs.get(POLICY, {}).get(role, {}).get(kind, {}).get("content_sha256")
+            if metadata.get(key) != expected_hash:
+                failures.append("{} {} {} content SHA256 mismatch".format(tag, role, kind))
+
+
 def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     policy = POLICY
     revision = metadata.get("model_revision")
+    if revision == V19_MODEL_REVISION:
+        validate_v19_metadata(metadata, tag, inputs, source_contract_hash, failures)
+        return
     is_v16a = revision == V16A_MODEL_REVISION
     is_v17 = revision == V17_MODEL_REVISION
     is_v18 = revision == V18_MODEL_REVISION
@@ -977,6 +1172,7 @@ def main():
         if not tag.startswith(MODEL_TAG_PREFIXES):
             raise SystemExit("invalid model tag {}".format(tag))
     revisions = {
+        "v19" if tag.startswith("routed_grammar_spp_lstm_") else
         "v18" if tag.startswith("hard_distinct_delta_fill_spp_lstm_") else
         "v16a" if tag.startswith("guard_joint_map_spp_lstm_") else
         "v17" if tag.startswith("factorized_delta_fill_spp_lstm_") else
@@ -1014,6 +1210,8 @@ def main():
             "offline_factorized_delta_fill_spp_"
         ) or method.startswith(
             "offline_hard_distinct_delta_fill_spp_"
+        ) or method.startswith(
+            "offline_routed_grammar_spp_"
         ):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
@@ -1204,7 +1402,7 @@ def main():
             metadata, tag, input_info, source_contract_hash, failures
         )
         if metadata.get("model_revision") in (
-            V17_MODEL_REVISION, V18_MODEL_REVISION,
+            V17_MODEL_REVISION, V18_MODEL_REVISION, V19_MODEL_REVISION,
         ):
             for name, key in (
                 ("model.pt", "model_checkpoint_sha256"),
@@ -1500,7 +1698,8 @@ def main():
         "trace": TRACE,
         "model_family_track": TRACK_MODEL_FAMILY,
         "model_revision": (
-            V18_MODEL_REVISION if "v18" in revisions
+            V19_MODEL_REVISION if "v19" in revisions
+            else V18_MODEL_REVISION if "v18" in revisions
             else V16A_MODEL_REVISION if "v16a" in revisions
             else V17_MODEL_REVISION if "v17" in revisions
             else V15_MODEL_REVISION
@@ -1512,13 +1711,15 @@ def main():
             ),
             "historical_ipc_context": {
                 "no_pref": 0.35321,
-                "spp": 0.35391,
+                POLICY: 0.35391,
             },
         },
         "primary_comparisons": {
             "spp_track": [
                 "offline_spp",
                 (
+                    "offline_routed_grammar_spp_{}_<capacity>"
+                    if "v19" in revisions else
                     "offline_hard_distinct_delta_fill_spp_{}_<capacity>"
                     if "v18" in revisions else
                     "offline_guard_joint_map_spp_{}_<capacity>"
@@ -1536,8 +1737,8 @@ def main():
         "replay_accounting": replay_accounting,
         "warnings": warnings,
         "track_guardrail": (
-            "Every neural point learns an unbounded request count, direct signed "
-            "cache-line deltas, and fill level from the same chronological DEMAND(addr) and "
+            "Every neural point learns a rank-wise STOP/EMIT sequence, exact signed "
+            "cache-line increments, and target-conditioned fill from the same chronological DEMAND(addr) and "
             "CACHE_FILL(evicted_addr) external callback stream. "
             "No fixed page-offset interface or captured SPP action is an inference input."
         ),
@@ -1551,12 +1752,17 @@ def main():
         ),
         "direct_action_contract": {
             "count_distribution": (
+                "rank-wise learned STOP/EMIT categorical grammar"
+                if "v19" in revisions else
                 "deterministic raw hurdle plus rounded conditional excess mean"
                 if "v18" in revisions else
                 "unweighted Bernoulli hurdle plus conditional Poisson excess "
                 "with non-negative unbounded support"
             ),
             "target_and_fill_distribution": (
+                "exact signed ZigZag/canonical-LEB128 increment followed by "
+                "fill conditioned on the actual emitted target"
+                if "v19" in revisions else
                 "factorized four-component signed-delta mixture and "
                 "two-class fill head" if (
                     "v17" in revisions or "v18" in revisions
@@ -1566,6 +1772,9 @@ def main():
             "fill_classes": ["FILL_L2", "FILL_LLC"],
             "decision": (
                 (
+                    "stateless event/rank-keyed learned STOP/EMIT, exact "
+                    "LEB128 increment, and target-conditioned fill"
+                    if "v19" in revisions else
                     "deterministic raw count, scale-aware hard quantized "
                     "distinct delta, and event-keyed hard fill draw"
                     if "v18" in revisions else
@@ -1573,7 +1782,7 @@ def main():
                 )
                 + (
                     ""
-                    if "v18" in revisions else
+                    if ("v18" in revisions or "v19" in revisions) else
                     "guard-selected deterministic joint delta-component/fill MAP"
                     if "v16a" in revisions else
                     "deterministic modal delta-component mean plus one "
@@ -1625,6 +1834,17 @@ def main():
             ),
         },
         "architecture_contract": (
+            {
+                "name": "routed demand/fill plus page-local stateful LSTM",
+                "history": "complete train then guard then evaluation chronology",
+                "training": "chronological TBPTT with routed/page state carried and detached",
+                "causal_derived_features": [
+                    "raw line-derived page key", "log1p page reuse age",
+                ],
+                "decoder": "rank STOP/EMIT, exact ZigZag/LEB128 increment, then target-conditioned fill",
+                "dynamic_state_reported_separately": True,
+            }
+            if "v19" in revisions else
             {
                 "name": "causal residual temporal convolutional network",
                 "temporal_convolution_layers": 2,
