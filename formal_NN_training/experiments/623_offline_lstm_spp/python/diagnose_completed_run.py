@@ -14,10 +14,11 @@ from pathlib import Path
 
 POLICY = "spp"
 TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_spp_factorized_fill_v17_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_spp_hard_distinct_v18_seed7"
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
 V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
+V18_MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
 REVISION_PROFILES = {
     V15_MODEL_REVISION: (
         "offline_joint_delta_fill_spp_lstm_",
@@ -30,6 +31,10 @@ REVISION_PROFILES = {
     V17_MODEL_REVISION: (
         "offline_factorized_delta_fill_spp_lstm_",
         "factorized_delta_fill_spp_lstm_h{}",
+    ),
+    V18_MODEL_REVISION: (
+        "offline_hard_distinct_delta_fill_spp_lstm_",
+        "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = [
@@ -243,6 +248,14 @@ def model_record(row, metadata, normal, no_pref, matched):
         "fill_training_objective",
         "fill_decoding_rule",
         "factorized_delta_fill_heads",
+        "action_legality_diagnostics",
+        "raw_predicted_action_count",
+        "materialized_distinct_action_count",
+        "teacher_count_role",
+        "delta_decoder_feedback_rule",
+        "fill_decoder_feedback_rule",
+        "keyed_fill_uniform_dtype",
+        "address_confidence_fill_heuristic_used",
         "offline_normal_fill_level_counts",
         "offline_nn_fill_level_counts",
         "decoder_revision",
