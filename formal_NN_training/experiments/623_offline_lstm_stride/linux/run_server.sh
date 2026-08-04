@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_natural_hurdle_v18_seed7}"
 STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -218,7 +218,7 @@ common = {
     "source_decision_effective_external_input": ["pc", "addr"],
     "same_external_input_contract": True,
     "training_inference_input_encoder_identical": True,
-    "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+    "decoder_training_mode": "teacher_count_scheduled_loss_with_free_running_self_action_feedback",
     "decoder_previous_teacher_action_used_as_input": False,
     "decoder_free_running_self_test": "PASS",
     "training_runtime_fields": ["pc", "addr"],
@@ -237,15 +237,18 @@ common = {
     "future_label_window_used": False,
     "handcrafted_semantic_features_used": False,
     "manual_loss_weights_used": False,
-    "data_derived_gate_class_weights_used": True,
-    "gate_class_weighting_used": True,
-    "gate_training_objective": "data_derived_frequency_balanced_two_class_cross_entropy",
-    "gate_decoding_rule": "prior_corrected_deterministic_two_class_argmax",
-    "gate_prior_correction": "subtract_log_training_class_weight_before_argmax",
-    "gate_prior_correction_self_test": "PASS",
-    "gate_class_weights_source": "train_zero_positive_frequencies_equal_aggregate_loss_mass",
-    "request_count_training_objective": "balanced_two_class_hurdle_plus_positive_log_count_smooth_l1",
-    "request_count_decoding_rule": "prior_corrected_gate_argmax_plus_rounded_exp_positive_log_count",
+    "data_derived_gate_class_weights_used": False,
+    "gate_class_weighting_used": False,
+    "gate_training_objective": "natural_frequency_unweighted_two_class_cross_entropy",
+    "gate_decoding_rule": "raw_deterministic_two_class_argmax",
+    "gate_prior_correction": None,
+    "gate_prior_correction_self_test": "NOT_APPLICABLE",
+    "gate_class_weights_source": None,
+    "gate_empirical_prior_source": "train_zero_positive_frequencies",
+    "gate_bias_initialization": "log_train_empirical_zero_positive_prior",
+    "gate_prior_bias_initialization_self_test": "PASS",
+    "request_count_training_objective": "natural_frequency_two_class_hurdle_plus_positive_log_count_smooth_l1",
+    "request_count_decoding_rule": "raw_gate_argmax_plus_rounded_exp_positive_log_count",
     "request_count_residual_scope": "none_event_local",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
@@ -256,7 +259,8 @@ common = {
     "event_keyed_crn_self_test": "NOT_APPLICABLE",
     "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
     "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
-    "deterministic_count_and_balance_self_test": "PASS",
+    "deterministic_count_and_balance_self_test": "NOT_APPLICABLE",
+    "deterministic_count_and_natural_gate_self_test": "PASS",
     "decoder_probability_mass_carries_train_guard_history": False,
     "cross_event_probability_credit_used": False,
     "sampled_outputs_used_as_decoder_feedback": False,
@@ -271,7 +275,7 @@ common = {
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_prior_corrected_hurdle_scalar_v17",
+    "model_revision": "compact_pc_keyed_natural_hurdle_scalar_v18",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
     "runtime_feature_count": 122,
@@ -288,30 +292,41 @@ common = {
 bad = {key: (metadata.get(key), expected) for key, expected in common.items()
        if metadata.get(key) != expected}
 statistics = metadata.get("request_count_training_label_statistics") or {}
-weights = metadata.get("gate_class_weights")
+prior = metadata.get("gate_empirical_prior")
+initial_bias = metadata.get("gate_initial_bias")
 decision_callbacks = statistics.get("decision_callbacks")
 positive_callbacks = statistics.get("positive_callbacks")
 zero_callbacks = statistics.get("zero_callbacks")
 if (
     not isinstance(decision_callbacks, int)
+    or isinstance(decision_callbacks, bool)
     or not isinstance(positive_callbacks, int)
+    or isinstance(positive_callbacks, bool)
     or not isinstance(zero_callbacks, int)
+    or isinstance(zero_callbacks, bool)
     or decision_callbacks <= 0
     or positive_callbacks <= 0
     or zero_callbacks <= 0
     or positive_callbacks + zero_callbacks != decision_callbacks
-    or not isinstance(weights, list)
-    or len(weights) != 2
+    or not isinstance(prior, list)
+    or len(prior) != 2
+    or not isinstance(initial_bias, list)
+    or len(initial_bias) != 2
 ):
-    bad["gate_class_weights"] = (
-        {"statistics": statistics, "weights": weights},
-        "two inverse-frequency weights from a nonempty two-class train split",
+    bad["gate_empirical_prior"] = (
+        {
+            "statistics": statistics,
+            "prior": prior,
+            "initial_bias": initial_bias,
+        },
+        "empirical prior and log-prior bias from a nonempty two-class split",
     )
 else:
-    expected_weights = [
-        float(decision_callbacks) / (2.0 * zero_callbacks),
-        float(decision_callbacks) / (2.0 * positive_callbacks),
+    expected_prior = [
+        float(zero_callbacks) / float(decision_callbacks),
+        float(positive_callbacks) / float(decision_callbacks),
     ]
+    expected_bias = [math.log(value) for value in expected_prior]
     if any(
         not isinstance(actual, (int, float))
         or isinstance(actual, bool)
@@ -319,9 +334,32 @@ else:
         or not math.isclose(
             float(actual), expected, rel_tol=1e-6, abs_tol=1e-7
         )
-        for actual, expected in zip(weights, expected_weights)
+        for actual, expected in zip(prior, expected_prior)
     ):
-        bad["gate_class_weights"] = (weights, expected_weights)
+        bad["gate_empirical_prior"] = (prior, expected_prior)
+    if any(
+        not isinstance(actual, (int, float))
+        or isinstance(actual, bool)
+        or not math.isfinite(float(actual))
+        or not math.isclose(
+            float(actual), expected, rel_tol=1e-6, abs_tol=1e-7
+        )
+        for actual, expected in zip(initial_bias, expected_bias)
+    ):
+        bad["gate_initial_bias"] = (initial_bias, expected_bias)
+    diagnostics = metadata.get("request_count_decoder_diagnostics") or {}
+    if diagnostics.get("gate_empirical_prior") != prior:
+        bad["diagnostic_gate_empirical_prior"] = (
+            diagnostics.get("gate_empirical_prior"), prior,
+        )
+    if diagnostics.get("gate_initial_bias") != initial_bias:
+        bad["diagnostic_gate_initial_bias"] = (
+            diagnostics.get("gate_initial_bias"), initial_bias,
+        )
+if metadata.get("gate_class_weights") is not None:
+    bad["gate_class_weights"] = (
+        metadata.get("gate_class_weights"), None,
+    )
 for key in (
     "training_state_router_sha256", "inference_state_router_sha256",
 ):
