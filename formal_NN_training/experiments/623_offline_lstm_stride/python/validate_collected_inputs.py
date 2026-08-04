@@ -8,19 +8,18 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from model_contract import (
+    EXPERIMENT_REVISION, POLICY, TRACE, parse_exact_integer,
+)
 
-TRACE = "623.xalancbmk_s-700B"
-POLICY = "stride"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
 SOURCE_STRIDE_PAGE_LINES = 64
 
 
 def as_int(value):
-    text = str(value).strip()
-    return int(text, 16) if text.lower().startswith("0x") else int(float(text))
+    return parse_exact_integer(value)
 
 
 def sha256(path):
