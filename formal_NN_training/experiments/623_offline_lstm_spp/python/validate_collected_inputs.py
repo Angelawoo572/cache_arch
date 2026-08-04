@@ -8,26 +8,17 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
+from model_points_v19 import (
+    CACHE_LINE_BYTES, EXPERIMENT_REVISION, EXTERNAL_INPUT_FIELDS,
+    PAGE_BYTES, POLICY, TRACE, exact_int as as_int,
+)
 
-TRACE = "623.xalancbmk_s-700B"
-POLICY = "spp"
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-SOURCE_SPP_PAGE_LINES = 64
+SOURCE_SPP_PAGE_LINES = PAGE_BYTES // CACHE_LINE_BYTES
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
-SOURCE_INPUTS = [
-    "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
-]
-
-
-def as_int(value):
-    text = str(value).strip()
-    try:
-        return int(text, 0)
-    except ValueError:
-        return int(float(text))
+SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
 
 
 def sha256(path):
