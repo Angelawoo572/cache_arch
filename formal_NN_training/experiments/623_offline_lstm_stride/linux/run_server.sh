@@ -4,15 +4,16 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
-TRACE="623.xalancbmk_s-700B"
-POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_natural_hurdle_v18_seed7}"
+TRAINER="$EXP/python/train_and_offline_infer.py"
+MODEL_POINT_CONTRACT="$(python3 "$TRAINER" --describe-model-points)"
+TRACE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["trace"])' <<< "$MODEL_POINT_CONTRACT")"
+POLICY="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["policy"])' <<< "$MODEL_POINT_CONTRACT")"
+DEFAULT_RUN_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])' <<< "$MODEL_POINT_CONTRACT")"
+RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
-MODEL_TAGS_CSV="${MODEL_TAGS:-independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,independent_delta_stride_lstm_h32,independent_delta_stride_lstm_h64,independent_delta_stride_lstm_h128}"
-BASE_TAG="${BASE_TAG:-independent_delta_stride_lstm_h8}"
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -32,6 +33,11 @@ ANALYZE="$EXP/python/analyze_replay.py"
 INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 
+DEFAULT_MODEL_TAGS="$(python3 -c 'import json,sys; print(",".join(p["model_tag"] for p in json.load(sys.stdin)["points"]))' <<< "$MODEL_POINT_CONTRACT")"
+DEFAULT_BASE_TAG="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["points"][0]["model_tag"])' <<< "$MODEL_POINT_CONTRACT")"
+MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
+BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
+
 IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
@@ -44,7 +50,7 @@ require_repo_file() {
 }
 for required_file in \
   "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
-  "$ANALYZE" "$INSTALL_COLAB_OUTPUT"; do
+  "$ANALYZE" "$TRAINER" "$INSTALL_COLAB_OUTPUT"; do
   require_repo_file "$required_file"
 done
 
@@ -196,22 +202,244 @@ collect() {
   echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
 }
 
+validate_preserved_inputs() {
+  local validated_manifest
+  validated_manifest="$(mktemp "$RUN_DIR/.stride_collection_manifest.XXXXXX")"
+  if ! python3 "$VALIDATE_INPUTS" \
+    --input-dir "$STREAM_DIR" --manifest-out "$validated_manifest"; then
+    rm -f "$validated_manifest"
+    return 1
+  fi
+  if ! cmp -s "$COLLECTION_MANIFEST" "$validated_manifest"; then
+    rm -f "$validated_manifest"
+    echo "[error] collected Stride input manifest no longer reproduces byte-for-byte" >&2
+    return 1
+  fi
+  rm -f "$validated_manifest"
+  ( cd "$STREAM_DIR" && sha256sum -c SHA256SUMS )
+}
+
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
 assert_model_metadata() {
-  python3 - "$1" "$POLICY" <<'PY'
+  python3 - "$1" "$POLICY" "$TRAINER" <<'PY'
 import csv
 import hashlib
 import json
 import math
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 metadata = json.load(open(sys.argv[1]))
 policy = sys.argv[2]
+model_contract = json.loads(subprocess.check_output(
+    [sys.executable, sys.argv[3], "--describe-model-points"], text=True
+))
 tag = metadata.get("model_tag", "")
 family = metadata.get("model_family")
+if metadata.get("model_revision") == model_contract["model_revision"]:
+    expected = {
+        "trace": model_contract["trace"],
+        "matched_normal_prefetcher": policy,
+        "source_decision_effective_external_input": ["pc", "addr"],
+        "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "training_runtime_fields": ["pc", "addr"],
+        "inference_runtime_fields": ["pc", "addr"],
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "normal_policy_request_rate_used_as_budget": False,
+        "normal_policy_constants_used_by_neural_inference": False,
+        "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
+        "neural_degree_cap": None,
+        "same_page_rule_used_by_neural_inference": False,
+        "future_label_window_used": False,
+        "derived_features_use_teacher_or_future": False,
+        "manual_loss_weights_used": False,
+        "training_regularization_used": False,
+        "inference_policy_hardcodes_used": False,
+        "decoder_training_mode": model_contract["decoder_training_mode"],
+        "decoder_previous_teacher_action_used_as_input": True,
+        "decoder_previous_teacher_action_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
+        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
+        "teacher_prefix_tokens_condition_loss_logits": True,
+        "teacher_prefix_tokens_recurrently_advance_loss_branch_state": True,
+        "teacher_prefix_tokens_mutate_main_rollout_state": False,
+        "decoder_free_running_self_test": "PASS",
+        "request_count_training_objective": model_contract["request_count_training_objective"],
+        "request_count_decoding_rule": "stateless_event_rank_keyed_categorical_inverse_cdf_until_STOP",
+        "gate_training_objective": "NOT_APPLICABLE_no_separate_hurdle_gate",
+        "gate_decoding_rule": "NOT_APPLICABLE_STOP_EMIT_is_action_token",
+        "poisson_objective_used": False,
+        "poisson_decoder_used": False,
+        "gmm_objective_used": False,
+        "gmm_decoder_used": False,
+        "delta_mixture_components": 0,
+        "delta_training_objective": model_contract["delta_training_objective"],
+        "delta_decoding_rule": "stateless_keyed_inverse_cdf_exact_ZigZag_LEB128_signed_increment",
+        "delta_decoder_feedback_rule": "main_rollout_uses_only_actual_hard_sampled_STOP_EMIT_payload_bits_continuation_tokens",
+        "delta_codec": "signed_ZigZag_then_canonical_LEB128",
+        "delta_codec_max_bytes": model_contract["leb128_max_bytes"],
+        "delta_codec_complete_signed_bits": model_contract["line_number_bits"],
+        "sampled_outputs_used_as_decoder_feedback": True,
+        "deterministic_decoding": False,
+        "stochastic_decoding": True,
+        "stochastic_decoding_reproducible": True,
+        "common_random_numbers_across_capacities": True,
+        "strict_common_random_numbers_across_capacities": True,
+        "cross_event_rng_state_used": False,
+        "decoder_sampling_roles": ["train", "eval"],
+        "decoder_train_sampling_performed": True,
+        "decoder_guard_sampling_performed": False,
+        "decoder_event_key_uses_teacher_information": False,
+        "decoder_key_includes_sampler_revision": True,
+        "runtime_feature_count": model_contract["runtime_feature_count"],
+        "raw_runtime_feature_count": model_contract["raw_runtime_feature_count"],
+        "pc_local_runtime_feature_count": model_contract["pc_local_runtime_feature_count"],
+        "learned_local_validity_gate": True,
+        "training_state_mode": "chronological_global_and_pc_local_tbptt",
+        "training_state_carried_across_chunks": True,
+        "training_state_detached_between_chunks": True,
+        "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
+        "event_keyed_crn_self_test": "PASS",
+        "rankwise_stop_emit_self_test": "PASS",
+        "zigzag_leb128_exact_codec_self_test": "PASS",
+        "main_rollout_isolation_self_test": "PASS",
+        "teacher_prefix_loss_isolation_self_test": "PASS",
+        "stop_sampler_representability_self_test": "PASS",
+        "always_emit_nontermination_watchdog_self_test": "PASS",
+        "fail_closed_nontermination_watchdog_ranks": model_contract["nontermination_watchdog_ranks"],
+        "nontermination_watchdog_is_policy_degree_cap": False,
+        "successful_run_hit_nontermination_watchdog": False,
+        "sampler_minimum_open_midpoint_uniform": model_contract["sampler_min_uniform"],
+        "experiment_revision": model_contract["experiment_revision"],
+        "model_revision": model_contract["model_revision"],
+        "neural_role": "standalone_direct_action_prefetcher",
+        "track_model_family": "lstm",
+    }
+    bad = {
+        key: (metadata.get(key), value)
+        for key, value in expected.items() if metadata.get(key) != value
+    }
+    expected_points = {
+        point["model_size"]: point for point in model_contract["points"]
+    }
+    point = expected_points.get(metadata.get("model_size"))
+    if family != "lstm" or point is None:
+        bad["model_point"] = (
+            (family, metadata.get("model_size")), sorted(expected_points)
+        )
+    else:
+        if metadata.get("architecture_pair_id") != point["architecture_pair_id"]:
+            bad["architecture_pair_id"] = (
+                metadata.get("architecture_pair_id"), point["architecture_pair_id"]
+            )
+        if metadata.get("parameter_count") != point["parameter_count"]:
+            bad["parameter_count"] = (
+                metadata.get("parameter_count"), point["parameter_count"]
+            )
+    expected_tag = point["model_tag"] if point else None
+    if tag != expected_tag:
+        bad["model_tag"] = (tag, expected_tag)
+    encoder_hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    if (
+        len(encoder_hashes) != 1
+        or re.fullmatch(r"[0-9a-f]{64}", str(next(iter(encoder_hashes)))) is None
+    ):
+        bad["runtime_encoder_sha256"] = (
+            encoder_hashes, "one shared 64-hex digest"
+        )
+    for key in (
+        "training_state_router_sha256", "inference_state_router_sha256",
+        "decoder_sampler_source_sha256", "decoder_sampling_schedule_sha256",
+        "delta_codec_source_sha256",
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key))) is None:
+            bad[key] = (metadata.get(key), "64 lowercase hex characters")
+    if metadata.get("training_state_router_sha256") != metadata.get(
+        "inference_state_router_sha256"
+    ):
+        bad["state_router_hash_equality"] = (
+            metadata.get("training_state_router_sha256"),
+            metadata.get("inference_state_router_sha256"),
+        )
+    expected_key_fields = [
+        "sampler_revision", "decoder_seed", "trace", "policy", "role",
+        "epoch", "event_index", "action_rank", "field", "codec_position",
+    ]
+    sampler = metadata.get("decoder_sampler") or {}
+    if (
+        sampler.get("sampler_revision")
+        != "splitmix64_event_rank_field_inverse_cdf_crn_v2"
+        or sampler.get("key_fields") != expected_key_fields
+        or sampler.get("categorical_method") != "inverse_cdf"
+        or sampler.get("cross_event_rng_state") is not False
+        or metadata.get("decoder_key_fields") != expected_key_fields
+    ):
+        bad["decoder_sampler"] = (
+            sampler, "pinned stateless v19 inverse-CDF sampler"
+        )
+    statistics = metadata.get("request_count_training_label_statistics") or {}
+    if (
+        not isinstance(statistics.get("decision_callbacks"), int)
+        or statistics.get("decision_callbacks", 0) <= 0
+        or statistics.get("positive_callbacks", 0) <= 0
+        or statistics.get("zero_callbacks", 0) <= 0
+        or statistics.get("positive_callbacks", 0)
+        + statistics.get("zero_callbacks", 0)
+        != statistics.get("decision_callbacks")
+    ):
+        bad["request_count_training_label_statistics"] = (
+            statistics, "nonempty natural STOP/EMIT labels"
+        )
+
+    def inspect_replay(path, allow_empty):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        count = 0
+        with path.open(newline="") as handle:
+            reader = csv.reader(handle)
+            if next(reader, None) != ["pc", "line", "occ", "prefetch_addr"]:
+                raise SystemExit("invalid stride replay header in {}".format(path))
+            for line_number, fields in enumerate(reader, 2):
+                if len(fields) != 4:
+                    raise SystemExit("invalid replay row {}".format(line_number))
+                pc, line, occ, address = (
+                    int(fields[0], 0), int(fields[1], 0),
+                    int(fields[2], 10), int(fields[3], 0),
+                )
+                if min(pc, line, occ, address) < 0 or address % 64:
+                    raise SystemExit("unaligned/negative replay row")
+                count += 1
+        if count <= 0 and not allow_empty:
+            raise SystemExit("empty replay list {}".format(path))
+        return count, digest
+
+    root = Path(sys.argv[1]).parent
+    for name, count_key, hash_key, allow_empty in (
+        ("offline_stride.replay.csv", "offline_normal_entries", "normal_list_sha256", False),
+        ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", True),
+    ):
+        path = root / name
+        if not path.is_file():
+            bad[name] = ("missing", "validated replay list")
+            continue
+        count, digest = inspect_replay(path, allow_empty)
+        if metadata.get(count_key) != count:
+            bad[count_key] = (metadata.get(count_key), count)
+        if metadata.get(hash_key) != digest:
+            bad[hash_key] = (metadata.get(hash_key), digest)
+    if bad:
+        raise SystemExit("invalid 623 stride v19 metadata: {}".format(bad))
+    raise SystemExit(0)
 common = {
     "trace": "623.xalancbmk_s-700B",
     "matched_normal_prefetcher": policy,
@@ -482,7 +710,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_independent_delta_stride_lstm_*)
+    offline_global_local_grammar_stride_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -501,8 +729,7 @@ run_method() {
 
 require_colab_outputs() {
   local tag
-  python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
+  validate_preserved_inputs
   python3 "$INSTALL_COLAB_OUTPUT" \
     --archive "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
     --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
@@ -519,8 +746,7 @@ require_colab_outputs() {
 }
 
 analyze() {
-  python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST"
+  validate_preserved_inputs
   python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV"
 }
 
