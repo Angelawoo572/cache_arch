@@ -10,20 +10,20 @@ import re
 from collections import defaultdict
 from pathlib import Path
 
+from model_contract import (
+    EXPERIMENT_REVISION, MODEL_REVISION as V19_MODEL_REVISION,
+    POLICY, RUN_ID, TRACE, model_points_description,
+)
 
-TRACE = "623.xalancbmk_s-700B"
-POLICY = "stride"
 POLICIES = (POLICY,)
-EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
 V15_MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
 V16_MODEL_REVISION = "compact_pc_keyed_balanced_deterministic_scalar_v16"
 V17_MODEL_REVISION = "compact_pc_keyed_prior_corrected_hurdle_scalar_v17"
 V18_MODEL_REVISION = "compact_pc_keyed_natural_hurdle_scalar_v18"
 TRACK_MODEL_FAMILY = "lstm"
-DEFAULT_MODEL_TAGS = (
-    "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
-    "independent_delta_stride_lstm_h32,independent_delta_stride_lstm_h64,"
-    "independent_delta_stride_lstm_h128"
+V19_CONTRACT = model_points_description()
+DEFAULT_MODEL_TAGS = ",".join(
+    point["model_tag"] for point in V19_CONTRACT["points"]
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -44,6 +44,10 @@ EXPECTED_PARAMETERS_BY_REVISION = {
     },
     V18_MODEL_REVISION: {
         8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
+    },
+    V19_MODEL_REVISION: {
+        point["model_size"]: point["parameter_count"]
+        for point in V19_CONTRACT["points"]
     },
 }
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
@@ -334,13 +338,20 @@ def parse_events(path):
 
 def policy_for_method(method):
     normal = "offline_" + POLICY
-    if method == normal or method.startswith("offline_independent_delta_" + POLICY + "_"):
+    if (
+        method == normal
+        or method.startswith("offline_independent_delta_" + POLICY + "_")
+        or method.startswith("offline_global_local_grammar_" + POLICY + "_")
+    ):
         return POLICY
     return ""
 
 
 def model_tag_for_method(method):
-    if method.startswith("offline_independent_delta_" + POLICY + "_"):
+    if (
+        method.startswith("offline_independent_delta_" + POLICY + "_")
+        or method.startswith("offline_global_local_grammar_" + POLICY + "_")
+    ):
         return method[len("offline_"):]
     return ""
 
@@ -417,7 +428,205 @@ def add_comparison_metrics(rows, failures):
             )
 
 
+def validate_v19_metadata(metadata, tag, inputs, failures):
+    """Fail closed on the redesigned global/local action-grammar contract."""
+    expected = {
+        "trace": TRACE,
+        "model_tag": tag,
+        "matched_normal_prefetcher": POLICY,
+        "source_decision_effective_external_input": ["pc", "addr"],
+        "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "training_runtime_fields": ["pc", "addr"],
+        "inference_runtime_fields": ["pc", "addr"],
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "normal_policy_request_rate_used_as_budget": False,
+        "normal_policy_constants_used_by_neural_inference": False,
+        "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
+        "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
+        "future_label_window_used": False,
+        "derived_features_use_teacher_or_future": False,
+        "manual_loss_weights_used": False,
+        "training_regularization_used": False,
+        "inference_policy_hardcodes_used": False,
+        "learned_request_count": True,
+        "nn_generates_own_target_addresses": True,
+        "decoder_training_mode": V19_CONTRACT["decoder_training_mode"],
+        "decoder_previous_teacher_action_used_as_input": True,
+        "decoder_previous_teacher_action_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
+        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
+        "teacher_prefix_tokens_condition_loss_logits": True,
+        "teacher_prefix_tokens_recurrently_advance_loss_branch_state": True,
+        "teacher_prefix_tokens_mutate_main_rollout_state": False,
+        "decoder_free_running_self_test": "PASS",
+        "request_count_training_objective": V19_CONTRACT[
+            "request_count_training_objective"
+        ],
+        "request_count_decoding_rule": "stateless_event_rank_keyed_categorical_inverse_cdf_until_STOP",
+        "gate_training_objective": "NOT_APPLICABLE_no_separate_hurdle_gate",
+        "gate_decoding_rule": "NOT_APPLICABLE_STOP_EMIT_is_action_token",
+        "poisson_objective_used": False,
+        "poisson_decoder_used": False,
+        "gmm_objective_used": False,
+        "gmm_decoder_used": False,
+        "delta_mixture_components": 0,
+        "delta_training_objective": V19_CONTRACT[
+            "delta_training_objective"
+        ],
+        "delta_decoding_rule": "stateless_keyed_inverse_cdf_exact_ZigZag_LEB128_signed_increment",
+        "delta_decoder_feedback_rule": "main_rollout_uses_only_actual_hard_sampled_STOP_EMIT_payload_bits_continuation_tokens",
+        "delta_codec": "signed_ZigZag_then_canonical_LEB128",
+        "delta_codec_max_bytes": V19_CONTRACT["leb128_max_bytes"],
+        "delta_codec_complete_signed_bits": V19_CONTRACT["line_number_bits"],
+        "sampled_outputs_used_as_decoder_feedback": True,
+        "deterministic_decoding": False,
+        "stochastic_decoding": True,
+        "stochastic_decoding_reproducible": True,
+        "common_random_numbers_across_capacities": True,
+        "strict_common_random_numbers_across_capacities": True,
+        "cross_event_rng_state_used": False,
+        "decoder_sampling_roles": ["train", "eval"],
+        "decoder_train_sampling_performed": True,
+        "decoder_guard_sampling_performed": False,
+        "decoder_event_key_uses_teacher_information": False,
+        "decoder_action_rank_origin": 0,
+        "decoder_key_includes_sampler_revision": True,
+        "runtime_feature_count": V19_CONTRACT["runtime_feature_count"],
+        "raw_runtime_feature_count": V19_CONTRACT[
+            "raw_runtime_feature_count"
+        ],
+        "pc_local_runtime_feature_count": V19_CONTRACT[
+            "pc_local_runtime_feature_count"
+        ],
+        "learned_local_validity_gate": True,
+        "training_chunks_shuffled": False,
+        "training_state_mode": "chronological_global_and_pc_local_tbptt",
+        "training_state_carried_across_chunks": True,
+        "training_state_detached_between_chunks": True,
+        "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
+        "causal_no_future_self_test": "PASS",
+        "event_keyed_crn_self_test": "PASS",
+        "rankwise_stop_emit_self_test": "PASS",
+        "zigzag_leb128_exact_codec_self_test": "PASS",
+        "main_rollout_isolation_self_test": "PASS",
+        "teacher_prefix_loss_isolation_self_test": "PASS",
+        "stop_sampler_representability_self_test": "PASS",
+        "always_emit_nontermination_watchdog_self_test": "PASS",
+        "fail_closed_nontermination_watchdog_ranks": V19_CONTRACT[
+            "nontermination_watchdog_ranks"
+        ],
+        "nontermination_watchdog_is_policy_degree_cap": False,
+        "successful_run_hit_nontermination_watchdog": False,
+        "sampler_minimum_open_midpoint_uniform": V19_CONTRACT[
+            "sampler_min_uniform"
+        ],
+        "decoder_probability_mass_carries_train_guard_history": False,
+        "cross_event_probability_credit_used": False,
+        "cnn_architecture_self_test": "NOT_APPLICABLE",
+        "cnn_temporal_layers": 0,
+        "event_logger_schema": EVENT_LOGGER_SCHEMA,
+        "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
+        "experiment_revision": EXPERIMENT_REVISION,
+        "model_revision": V19_MODEL_REVISION,
+        "neural_role": "standalone_direct_action_prefetcher",
+        "track_model_family": TRACK_MODEL_FAMILY,
+    }
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            failures.append(
+                "{} metadata {}={!r}; expected {!r}".format(
+                    tag, key, metadata.get(key), value
+                )
+            )
+    points = {
+        point["model_size"]: point for point in V19_CONTRACT["points"]
+    }
+    size = metadata.get("model_size")
+    point = points.get(size)
+    if metadata.get("model_family") != "lstm" or point is None:
+        failures.append("{} is not a pinned v19 LSTM point".format(tag))
+    elif (
+        metadata.get("architecture_pair_id")
+        != point["architecture_pair_id"]
+        or metadata.get("parameter_count") != point["parameter_count"]
+        or tag != point["model_tag"]
+    ):
+        failures.append("{} v19 point/tag/parameter mismatch".format(tag))
+
+    expected_key_fields = [
+        "sampler_revision", "decoder_seed", "trace", "policy", "role",
+        "epoch", "event_index", "action_rank", "field", "codec_position",
+    ]
+    sampler = metadata.get("decoder_sampler") or {}
+    if (
+        sampler.get("sampler_revision")
+        != "splitmix64_event_rank_field_inverse_cdf_crn_v2"
+        or sampler.get("key_fields") != expected_key_fields
+        or sampler.get("categorical_method") != "inverse_cdf"
+        or sampler.get("cross_event_rng_state") is not False
+        or metadata.get("decoder_key_fields") != expected_key_fields
+    ):
+        failures.append("{} keyed v19 sampler contract mismatch".format(tag))
+    for key in (
+        "runtime_encoder_sha256", "training_runtime_encoder_sha256",
+        "inference_runtime_encoder_sha256", "training_state_router_sha256",
+        "inference_state_router_sha256", "decoder_sampler_source_sha256",
+        "decoder_sampling_schedule_sha256", "delta_codec_source_sha256",
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key))) is None:
+            failures.append("{} invalid {}".format(tag, key))
+    if len({
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }) != 1:
+        failures.append("{} train/inference encoder hash mismatch".format(tag))
+    if metadata.get("training_state_router_sha256") != metadata.get(
+        "inference_state_router_sha256"
+    ):
+        failures.append("{} train/inference state router mismatch".format(tag))
+    for key in (
+        "peak_training_recurrent_state_bytes_float32",
+        "peak_inference_recurrent_state_bytes_float32",
+    ):
+        if not isinstance(metadata.get(key), int) or metadata.get(key) <= 0:
+            failures.append("{} invalid {}".format(tag, key))
+    statistics = metadata.get("request_count_training_label_statistics") or {}
+    if (
+        not isinstance(statistics.get("decision_callbacks"), int)
+        or statistics.get("decision_callbacks", 0) <= 0
+        or statistics.get("positive_callbacks", 0) <= 0
+        or statistics.get("zero_callbacks", 0) <= 0
+        or statistics.get("positive_callbacks", 0)
+        + statistics.get("zero_callbacks", 0)
+        != statistics.get("decision_callbacks")
+    ):
+        failures.append("{} invalid natural sequence label evidence".format(tag))
+    for role in ("train", "guard", "eval"):
+        for kind in ("stream", "candidate"):
+            key = role + "_" + kind + "_content_sha256"
+            expected_hash = (
+                inputs.get(POLICY, {}).get(role, {}).get(kind, {})
+                .get("content_sha256")
+            )
+            if metadata.get(key) != expected_hash:
+                failures.append(
+                    "{} {} {} content SHA256 mismatch".format(
+                        tag, role, kind
+                    )
+                )
+
+
 def validate_metadata(metadata, tag, inputs, failures):
+    if metadata.get("model_revision") == V19_MODEL_REVISION:
+        validate_v19_metadata(metadata, tag, inputs, failures)
+        return
     policy = POLICY
     common = {
         "trace": TRACE,
@@ -906,7 +1115,10 @@ def main():
     if not model_tags:
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
-        if not tag.startswith("independent_delta_stride_lstm_"):
+        if not (
+            tag.startswith("independent_delta_stride_lstm_")
+            or tag.startswith("global_local_grammar_stride_lstm_")
+        ):
             raise SystemExit("invalid model tag {}".format(tag))
 
     methods = [
@@ -1356,6 +1568,16 @@ def main():
             "selected threshold, request budget, candidate bank, fixed "
             "page-offset table, same-page rule, or Stride degree cap."
         ),
+        V19_MODEL_REVISION: (
+            "The neural model fuses a chronological global LSTM with an "
+            "exact-PC local LSTM through a learned soft validity gate. A "
+            "rank-wise STOP/EMIT grammar learns request count, and exact "
+            "signed incremental targets use ZigZag plus LEB128. Stateless "
+            "event/rank/field-keyed inverse-CDF sampling provides hard "
+            "self-feedback and strict common random numbers. There is no "
+            "hurdle, selected threshold, Poisson count, GMM, request budget, "
+            "same-page table, or degree cap."
+        ),
     }
     payload = {
         "status": status,
@@ -1377,9 +1599,7 @@ def main():
         "primary_comparisons": {
             "stride_track": [
                 "offline_stride",
-                "offline_independent_delta_stride_{}_<capacity>".format(
-                    TRACK_MODEL_FAMILY
-                ),
+                "offline_<configured standalone Stride LSTM model tag>",
             ],
         },
         "context_reference_only": [
@@ -1407,7 +1627,8 @@ def main():
             ],
             "direct_nn_inputs": [
                 "lossless uint64 PC and 58-bit cache-line-number encodings",
-                "causal address/PC history represented by the model itself",
+                "causal same-PC delta/reuse-age from the same PC/address history",
+                "chronological global and dynamically routed PC-local state",
             ],
             "not_nn_inputs": [
                 "normal Stride candidates", "cycle", "hit/miss", "queue state",
@@ -1430,9 +1651,11 @@ def main():
             }
             if TRACK_MODEL_FAMILY == "cnn"
             else {
-                "name": "stateful LSTM",
+                "name": "chronological global plus exact-PC local LSTM",
                 "history": "complete train then guard then evaluation chronology",
                 "training": "chronological TBPTT with state carried and detached",
+                "local_validity": "learned soft sigmoid fusion gate",
+                "action_decoder": "sampled STOP/EMIT plus exact ZigZag/LEB128 increment",
             }
         ),
         "metric_definitions": {
@@ -1493,7 +1716,12 @@ def main():
             normal = by_method["offline_" + policy]
             points = []
             for tag in model_tags:
-                if not tag.startswith("independent_delta_" + policy + "_"):
+                if not (
+                    tag.startswith("independent_delta_" + policy + "_")
+                    or tag.startswith(
+                        "global_local_grammar_" + policy + "_"
+                    )
+                ):
                     continue
                 row = by_method["offline_" + tag]
                 metadata = metadata_by_tag[tag]
