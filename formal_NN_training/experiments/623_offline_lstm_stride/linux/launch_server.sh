@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_natural_hurdle_v18_seed7}"
 STAGE="${1:-${STAGE:-replay}}"
 CANONICAL_RUN_DIR="$EXP/runs/$RUN_ID"
 if [[ -n "${RUN_DIR:-}" && "$RUN_DIR" != "$CANONICAL_RUN_DIR" ]]; then
