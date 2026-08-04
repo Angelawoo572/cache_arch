@@ -1230,11 +1230,20 @@ def self_test_model(hidden_size):
     else:
         raise RuntimeError("SPP count decoder accepted int64 overflow")
 
-    if (
-        _coordinate_to_delta(math.log1p(LINE_ADDRESS_HALF_RANGE))
-        != -LINE_ADDRESS_HALF_RANGE
-        or _coordinate_to_delta(-math.log1p(LINE_ADDRESS_HALF_RANGE))
-        != -LINE_ADDRESS_HALF_RANGE
+    # Test the exact int64 modulo boundary directly.  A float coordinate
+    # cannot round-trip 2^57 exactly through log1p/expm1 (Python 3.12 returns
+    # 2^57 - 48 here), so using that lossy transform as a canonicalization
+    # self-test makes every run fail before training starts.
+    half_range_inputs = torch.tensor(
+        [LINE_ADDRESS_HALF_RANGE, -LINE_ADDRESS_HALF_RANGE],
+        dtype=torch.int64,
+    )
+    half_range_expected = torch.full(
+        (2,), -LINE_ADDRESS_HALF_RANGE, dtype=torch.int64,
+    )
+    if not torch.equal(
+        _canonicalize_signed_delta_tensor(half_range_inputs),
+        half_range_expected,
     ):
         raise RuntimeError("SPP signed half-range canonicalization changed")
 
