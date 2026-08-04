@@ -13,23 +13,17 @@ import gzip
 from collections import defaultdict
 from pathlib import Path
 
+from model_points_v19 import (
+    ADDRESS_BITS, CACHE_LINE_SHIFT, PAGE_BYTES, CACHE_LINE_BYTES, POLICY,
+    TRACE, exact_int as as_int,
+)
 
-TRACE = "623.xalancbmk_s-700B"
-POLICY = "spp"
-LOG2_BLOCK_SIZE = 6
-SOURCE_SPP_PAGE_LINES = 64
+LOG2_BLOCK_SIZE = CACHE_LINE_SHIFT
+SOURCE_SPP_PAGE_LINES = PAGE_BYTES // CACHE_LINE_BYTES
 LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
-NO_TRIGGER = (1 << 64) - 1
-
-
-def as_int(value):
-    text = str(value).strip()
-    try:
-        return int(text, 0)
-    except ValueError:
-        return int(float(text))
+NO_TRIGGER = (1 << ADDRESS_BITS) - 1
 
 
 def fail(message, event_id=None):
