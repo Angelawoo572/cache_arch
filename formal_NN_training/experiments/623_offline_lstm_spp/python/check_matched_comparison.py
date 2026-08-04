@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_RUN_ID = "623_offline_lstm_spp_factorized_fill_v17_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_spp_hard_distinct_v18_seed7"
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
 
 
@@ -56,4 +56,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
