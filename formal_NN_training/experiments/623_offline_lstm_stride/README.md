@@ -1,72 +1,76 @@
-# 623 Stride — natural-frequency compact LSTM v18
+# 623 Stride — chronological global/local action-grammar LSTM v19
 
 This directory is the active matched-input Stride experiment for
 `623.xalancbmk_s-700B`. Normal Stride and the standalone NN receive the same
 source-visible `pc` and current aligned `addr`. Captured Stride actions are
-supervised labels and the offline-normal replay; they are never runtime inputs.
+supervised sequence labels and the offline-normal replay only; they never enter
+the runtime encoder, main rollout state, sampler key, or inference decoder.
+Teacher codec prefixes recurrently advance only the isolated loss-branch
+likelihood state described below.
 
-## Frozen experiment boundary
+## What v19 changes
 
-The NN input remains a lossless 64-bit PC plus 58-bit cache-line number. A
-dynamic exact-PC map routes one single-layer LSTM state per observed PC without
-copying Stride's fixed tracker capacity. Train, guard, and evaluation remain
-chronological; guard is recurrent warm-up/audit only. The positive log-count,
-scalar signed-log direct-delta decoder, and emitted-coordinate free-running
-feedback are unchanged.
+v18's per-PC-only encoder and separate hurdle / rounded positive count /
+scalar signed-log delta heads did not reproduce Stride's actions even when IPC
+rounded to the same six decimals. v19 changes the learning problem rather than
+adding a selected threshold:
 
-Normal actions schedule the supervised action ranks during training. At each
-rank, however, the value fed back to the action decoder is its own prediction,
-never the teacher delta. Inference uses the same self-action feedback.
-
-## Why v17 did not solve the gate
-
-v17 correctly removed the artificial balanced prior at decode, but the measured
-result shows that post-hoc correction did not calibrate the learned positive
-tail:
-
-- all five v17 neural points requested more than normal Stride: 188,344--271,250
-  requests versus 166,147, or about 1.13--1.63 times normal;
-- false-positive trigger callbacks remained larger than false negatives;
-- increasing hidden size from 8 to 128 did not produce monotonic IPC gains;
-- every v17 point remained below offline Stride by 0.00001--0.00009 IPC.
-
-This evidence rules out another capacity increase as the next controlled test.
-v18 removes inverse-frequency weighting and the matching post-hoc correction.
-The gate now uses natural-frequency, unweighted two-class cross-entropy. Its
-bias is initialized to the log empirical zero/positive prior of the training
-split, the model is moved to the selected device before that initialization,
-and Adam is constructed only afterward. Inference deterministically takes the
-raw two-logit argmax.
-
-There is still no probability threshold, request budget, candidate table,
-same-page rule, fixed page-offset class, Stride degree cap, or normal-policy
-private state. v18 is a gate-objective test, not a claim that its IPC must win.
+1. A global LSTM processes every callback in original chronology, so phase and
+   intervening-PC activity remain visible.
+2. A second LSTM is dynamically routed by exact PC. Its causal input adds
+   lossless same-PC signed delta, same-PC reuse age, and a history-valid bit,
+   all derived from the same `pc+addr` history.
+3. A learned sigmoid validity gate softly controls how much PC-local context is
+   fused with the global context. It does not reproduce Stride's 64-entry
+   tracker, replacement rule, confidence, or degree.
+4. A learned rank-wise `STOP/EMIT` grammar determines both zero requests and
+   sequence length. There is no hurdle, Poisson count, rounded mean,
+   probability threshold, request budget, or degree cap.
+5. Each emitted target is an increment: rank 1 is relative to the current
+   demand line and each later rank is relative to the prior emitted line. The
+   exact signed 58-bit integer is ZigZag encoded and then generated as canonical
+   LEB128. Small strides normally require one byte; the full address domain is
+   representable in at most nine bytes. There is no GMM or scalar rounding.
+6. Every categorical choice uses stateless event/rank/field-keyed inverse-CDF
+   sampling. The key excludes model capacity and teacher values, giving strict
+   common random numbers across the two sizes. A loss-only teacher-prefix
+   branch computes the full canonical autoregressive codec NLL from the actual
+   rank state/origin. Teacher tokens recurrently advance only that isolated
+   likelihood state and cannot mutate the main rollout; main recurrent
+   feedback and the next-rank origin always use the model's own hard sampled
+   `STOP/EMIT`, payload, and continuation tokens.
+7. The float64 inverse-CDF sampler fails closed if `STOP` has no representable
+   53-bit interval. A nontermination watchdog derived from that grid precision
+   raises without producing a replay; it never truncates a sequence or forces
+   `STOP`, and is not a policy degree cap.
 
 Input revision: `stride_source_input_variable_delta_free_running_v9`  
-Model revision: `compact_pc_keyed_natural_hurdle_scalar_v18`  
-Default run: `623_offline_lstm_stride_natural_hurdle_v18_seed7`
+Model revision: `chronological_global_pc_local_stop_emit_leb128_v19`  
+Default run: `623_offline_lstm_stride_global_local_grammar_v19_seed7`
 
-| Tag suffix | Hidden size | Parameters |
-|---|---:|---:|
-| `h8` | 8 | 1,860 |
-| `h16` | 16 | 5,124 |
-| `h32` | 32 | 15,876 |
-| `h64` | 64 | 54,276 |
-| `h128` | 128 | 198,660 |
+The two pinned points are `h8/p0` and `h16/p1`, both below 10,000 trainable
+parameters. Their tags, projection widths, exact counts, revisions, runtime
+feature widths, and derived formula have one source of truth:
 
-The exact formula remains `11H^2 + 144H + 4`.
+```bash
+python3 formal_NN_training/experiments/623_offline_lstm_stride/python/model_contract.py
+```
 
-## Reuse the validated v17 input; do not recollect
+The formula uses `E=H/2` and derives the projection term from the runtime
+feature widths. Metadata also reports the dynamic recurrent-state footprint:
+one global `(h,c)` pair plus one local `(h,c)` pair per observed PC.
 
-The data, labels, split, chronology, and replay transport are intentionally
-unchanged. Reuse the completed v17 input byte-for-byte under the v18 run ID:
+## Reuse v18 input byte-for-byte; do not recollect
+
+The raw streams, captured labels, splits, chronology, hashes, and replay
+transport are unchanged. Reuse the completed v18 package under the v19 run ID:
 
 ```bash
 cd ~/cache
 
 export EXP=formal_NN_training/experiments/623_offline_lstm_stride
-export SOURCE_RUN=623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7
-export RUN_ID=623_offline_lstm_stride_natural_hurdle_v18_seed7
+export SOURCE_RUN=623_offline_lstm_stride_natural_hurdle_v18_seed7
+export RUN_ID=623_offline_lstm_stride_global_local_grammar_v19_seed7
 export SOURCE_DIR="$EXP/runs/$SOURCE_RUN"
 export RUN_DIR="$EXP/runs/$RUN_ID"
 
@@ -82,19 +86,24 @@ cp -p "$SOURCE_DIR/$SOURCE_RUN.colab_input.tar.gz" \
 cmp "$SOURCE_DIR/$SOURCE_RUN.colab_input.tar.gz" \
   "$RUN_DIR/$RUN_ID.colab_input.tar.gz"
 diff -qr "$SOURCE_DIR/colab_input" "$RUN_DIR/colab_input"
-
-python3 "$EXP/python/validate_collected_inputs.py" \
-  --input-dir "$RUN_DIR/colab_input" \
-  --manifest-out "$RUN_DIR/colab_input/collection_manifest.json"
 ```
 
-The reused `collection_manifest.json` records input-package provenance under
-the unchanged v9 input revision. Its historical decoder wording is not the v18
-model-output contract; `run_metadata.json` and `data/stream_contract.json` are.
+The reused `collection_manifest.json` intentionally retains the v9 input
+revision and its historical decoder wording. The v19 output contract is pinned
+by `data/stream_contract.json`, the Colab assertions, and each
+`run_metadata.json`.
 
-Upload the renamed input archive to
-`colab/623_offline_lstm_stride_A100.ipynb`. Put the downloaded output archive
-at `$RUN_DIR/$RUN_ID.colab_output.tar.gz`, then run:
+Run `colab/623_offline_lstm_stride_A100.ipynb` on one A100. It trains only the
+two pinned points with `chunk_len=1024`, gradient accumulation over 16 chunks,
+and ten epochs. Accumulated gradients are weighted by the exact number of
+categorical atoms, so each optimizer window matches the global natural
+sequence NLL. Put the downloaded archive at:
+
+```text
+$RUN_DIR/$RUN_ID.colab_output.tar.gz
+```
+
+Then replay and diagnose:
 
 ```bash
 BUILD=0 RUN_ID="$RUN_ID" bash "$EXP/linux/launch_server.sh" replay
@@ -105,5 +114,5 @@ python3 "$EXP/python/diagnose_completed_run.py" --run-id "$RUN_ID"
 ```
 
 Do not run `collect`, and do not launch `analyze` concurrently with replay.
-The analyzer preserves v15, v16, and v17 metadata support; defaults and the
-current contract are v18.
+PASS certifies input fairness, metadata, and replay accounting; IPC and action
+quality still decide whether the redesign succeeds.
