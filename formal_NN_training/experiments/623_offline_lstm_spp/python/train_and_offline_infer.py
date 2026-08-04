@@ -5,14 +5,16 @@ The model consumes exactly the chronological external callbacks used by source
 SPP: DEMAND(addr) and CACHE_FILL(evicted_addr). Source SPP actions are
 supervised labels and an offline comparator only; they never enter inference.
 
-The v17 model keeps the 623-proven keyed hurdle/Poisson request count, but
-factorizes target-address and fill placement.  A four-component direct-delta
-mixture emits its modal component mean, while a dedicated learned fill head
-uses a stateless keyed categorical draw so the rare L2 class cannot disappear
-under joint MAP.  Free-running feedback uses the model's expected delta and
-fill probabilities in both training and inference.  No threshold, degree cap,
-candidate table, page class, source-SPP private state, or teacher action is an
-inference input.
+The v18 model keeps one global LSTM and the factorized target/fill heads, but
+repairs the two decoder failures measured in v17.  Request count is the raw
+deterministic hurdle decision plus the rounded learned conditional excess
+mean.  Each action rank selects a scale-aware, hard-quantized, distinct,
+non-self delta and feeds that actual hard value to the next rank.  The learned
+fill posterior still uses a stateless keyed categorical draw, and its actual
+hard one-hot choice is recurrent feedback.  Training uses straight-through
+feedback for both hard values; teacher count only schedules loss-bearing
+ranks.  No threshold, degree cap, candidate table, page class, source-SPP
+private state, or teacher action is an inference input.
 """
 import argparse
 import csv
@@ -45,7 +47,7 @@ from formal_NN_training.common.threshold_free_policy import (
 )
 from formal_NN_training.common.keyed_sampling import (
     KEY_FIELDS, SAMPLER_REVISION,
-    categorical_icdf, event_keyed_hurdle_counts, key_stream_sha256,
+    categorical_icdf, key_stream_sha256,
     key_schedule_sha256, keyed_uniform, sampler_metadata, sampler_source_sha256,
     sampling_schedule_sha256, self_test_keyed_crn,
 )
@@ -56,10 +58,13 @@ POLICY = "spp"
 FILL_LEVELS = (2, 4)
 MIXTURE_COMPONENTS = 4
 LINE_ADDRESS_BITS = ADDRESS_BITS - CACHE_LINE_SHIFT
+LINE_ADDRESS_MODULUS = 1 << LINE_ADDRESS_BITS
+LINE_ADDRESS_HALF_RANGE = 1 << (LINE_ADDRESS_BITS - 1)
 RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
-OPERATION = "train-v17"
+MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
+DECODER_REVISION = "hard_distinct_delta_keyed_fill_v18"
+OPERATION = "train-v18"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
@@ -319,6 +324,38 @@ def decision_router_source_sha256():
     ).encode()).hexdigest()
 
 
+def keyed_fill_uniforms(event_keys, counts, decoder_seed, role):
+    """Materialize role/rank fill draws as float64, never model float32."""
+    counts = np.asarray(counts, dtype=np.int64)
+    if len(event_keys) != len(counts) or np.any(counts < 0):
+        raise RuntimeError("SPP fill-uniform schedule rows differ")
+    width = int(counts.max()) if len(counts) else 0
+    uniforms = np.full((len(counts), width), np.nan, dtype=np.float64)
+    coordinates = []
+    for row, (event_key, count) in enumerate(zip(event_keys, counts)):
+        for action_rank in range(int(count)):
+            value = np.float64(keyed_uniform(
+                decoder_seed, TRACE, POLICY, role, event_key,
+                "fill_level", action_rank,
+            ))
+            if not np.isfinite(value) or value < 0.0 or value >= 1.0:
+                raise RuntimeError("keyed SPP fill uniform left [0,1)")
+            uniforms[row, action_rank] = value
+            coordinates.append((event_key, "fill_level", action_rank))
+    return uniforms, coordinates
+
+
+def expand_decision_uniforms(uniforms, positions, context_count):
+    positions = np.asarray(positions, dtype=np.int64)
+    if len(uniforms) != len(positions):
+        raise RuntimeError("decision fill-uniform positions differ")
+    expanded = np.full(
+        (context_count, uniforms.shape[1]), np.nan, dtype=np.float64
+    )
+    expanded[positions] = uniforms
+    return expanded
+
+
 def write_table(path, rows):
     with Path(path).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
@@ -380,40 +417,165 @@ def _coordinate_to_delta(coordinate):
         magnitude = math.expm1(abs(coordinate))
     except OverflowError as exc:
         raise RuntimeError("neural delta exceeds uint64 address domain") from exc
-    half_range = 1 << (ADDRESS_BITS - CACHE_LINE_SHIFT - 1)
-    if not math.isfinite(magnitude) or magnitude > half_range:
+    if not math.isfinite(magnitude) or magnitude > LINE_ADDRESS_HALF_RANGE:
         raise RuntimeError("neural delta exceeds uint64 address domain")
     integer = int(round(magnitude))
-    return -integer if coordinate < 0 else integer
+    signed = -integer if coordinate < 0 else integer
+    # +2^57 and -2^57 materialize the same target in the 58-bit line domain.
+    # Canonicalize both to -2^57 before self/duplicate legality checks.
+    return (
+        (signed + LINE_ADDRESS_HALF_RANGE) % LINE_ADDRESS_MODULUS
+        - LINE_ADDRESS_HALF_RANGE
+    )
 
 
-def _poisson_means(log_rates):
-    values = np.asarray(log_rates, dtype=np.float64)
+def _rounded_excess_means(log_means):
+    """Decode a conditional excess mean without Bernoulli/Poisson draws."""
+    values = np.asarray(log_means, dtype=np.float64)
     if values.ndim != 1 or not np.all(np.isfinite(values)):
         raise RuntimeError("SPP positive-count log mean is not finite")
-    limit = math.log(float(np.iinfo(np.int64).max))
-    if np.any(values > limit):
+    safe_max = np.nextafter(float(1 << 63), -np.inf)
+    limit = math.log(safe_max)
+    if np.any(values >= limit):
         raise RuntimeError("SPP positive-count mean exceeds host domain")
     means = np.exp(values)
-    if not np.all(np.isfinite(means)) or np.any(means < 0.0):
+    if (
+        not np.all(np.isfinite(means)) or np.any(means < 0.0)
+        or np.any(means > safe_max)
+    ):
         raise RuntimeError("SPP positive-count mean is outside numeric domain")
-    return means
+    return np.rint(means).astype(np.int64)
 
 
-def _sigmoid_probabilities(logits):
-    values = np.asarray(logits, dtype=np.float64)
-    if values.ndim != 1 or not np.all(np.isfinite(values)):
+def _deterministic_hurdle_counts(trigger_logits, log_excess_means):
+    """Use the raw hurdle side and rounded conditional excess expectation."""
+    logits = np.asarray(trigger_logits, dtype=np.float64)
+    if logits.ndim != 1 or not np.all(np.isfinite(logits)):
         raise RuntimeError("SPP trigger logits are not a finite vector")
-    probabilities = np.empty_like(values)
-    positive = values >= 0.0
-    probabilities[positive] = 1.0 / (1.0 + np.exp(-values[positive]))
-    exp_values = np.exp(values[~positive])
-    probabilities[~positive] = exp_values / (1.0 + exp_values)
-    return probabilities
+    excess = _rounded_excess_means(log_excess_means)
+    if logits.shape != excess.shape:
+        raise RuntimeError("SPP trigger/excess row counts differ")
+    counts = np.zeros(len(logits), dtype=np.int64)
+    positive = logits >= 0.0
+    counts[positive] = 1 + excess[positive]
+    return counts
+
+
+def _canonicalize_signed_delta_tensor(values):
+    values = values.to(torch.int64)
+    return torch.remainder(
+        values + LINE_ADDRESS_HALF_RANGE, LINE_ADDRESS_MODULUS
+    ) - LINE_ADDRESS_HALF_RANGE
+
+
+def _quantize_coordinate_tensor(coordinates):
+    if not torch.isfinite(coordinates).all():
+        raise RuntimeError("neural delta coordinate is not finite")
+    magnitudes = torch.expm1(coordinates.abs())
+    if (
+        not torch.isfinite(magnitudes).all()
+        or (magnitudes > LINE_ADDRESS_HALF_RANGE).any()
+    ):
+        raise RuntimeError("neural delta exceeds uint64 address domain")
+    integers = torch.round(magnitudes).to(torch.int64)
+    signed = torch.where(coordinates < 0, -integers, integers)
+    return _canonicalize_signed_delta_tensor(signed)
+
+
+def _nearest_legal_delta(top_delta, used_deltas):
+    """Project only when all learned component means violate action legality."""
+    selected = torch.zeros_like(top_delta)
+    unresolved = torch.ones_like(top_delta, dtype=torch.bool)
+    history_width = used_deltas.shape[1]
+    # At most history_width prior deltas plus zero are forbidden.  The ordered
+    # +/- neighborhood below contains more candidates than forbidden values.
+    offsets = [0]
+    for radius in range(1, history_width + 2):
+        offsets.extend((radius, -radius))
+    for offset in offsets:
+        candidate = _canonicalize_signed_delta_tensor(top_delta + offset)
+        legal = candidate != 0
+        if history_width:
+            legal = legal & ~(
+                candidate.unsqueeze(1) == used_deltas
+            ).any(dim=1)
+        take = unresolved & legal
+        selected = torch.where(take, candidate, selected)
+        unresolved = unresolved & ~take
+    if bool(unresolved.any()):
+        raise RuntimeError("could not materialize a legal distinct SPP delta")
+    return selected
+
+
+def select_hard_action_feedback(
+    mix_logits, mean, scale, fill_logits, fill_uniforms, used_deltas,
+):
+    """Shared training/inference hard action selector with ST feedback.
+
+    Component peak density (log mixture mass minus log scale) gives a
+    scale-aware order.  Quantized component means are tried in that order.
+    Nonzero and per-callback distinctness are legality only; if every learned
+    mean collides, the nearest signed delta is used solely to materialize a
+    legal action.  No teacher/private state, candidate bank, page rule, or
+    normal-policy constant participates.
+    """
+    if (
+        mix_logits.shape != mean.shape or mean.shape != scale.shape
+        or mix_logits.shape[1] != MIXTURE_COMPONENTS
+        or fill_logits.shape[0] != mix_logits.shape[0]
+        or fill_uniforms.shape != (mix_logits.shape[0],)
+        or fill_uniforms.dtype != torch.float64
+        or used_deltas.shape[0] != mix_logits.shape[0]
+    ):
+        raise RuntimeError("hard SPP action selector shape/dtype changed")
+    if not torch.isfinite(scale).all() or (scale <= 0).any():
+        raise RuntimeError("hard SPP action selector received invalid scale")
+
+    peak_score = F.log_softmax(mix_logits, dim=-1) - torch.log(scale)
+    order = torch.argsort(
+        peak_score, dim=-1, descending=True, stable=True
+    )
+    ordered_mean = mean.gather(1, order)
+    ordered_delta = _quantize_coordinate_tensor(ordered_mean)
+    legal = ordered_delta != 0
+    if used_deltas.shape[1]:
+        legal = legal & ~(
+            ordered_delta.unsqueeze(2) == used_deltas.unsqueeze(1)
+        ).any(dim=2)
+    has_legal = legal.any(dim=1)
+    first_legal = legal.to(torch.int64).argmax(dim=1)
+    row = torch.arange(len(mean), device=mean.device)
+    chosen_order_position = torch.where(
+        has_legal, first_legal, torch.zeros_like(first_legal)
+    )
+    hard_delta = ordered_delta[row, chosen_order_position]
+    fallback = _nearest_legal_delta(ordered_delta[:, 0], used_deltas)
+    hard_delta = torch.where(has_legal, hard_delta, fallback)
+    chosen_component = order[row, chosen_order_position]
+    soft_coordinate = mean[row, chosen_component]
+    hard_coordinate = torch.sign(hard_delta).to(mean.dtype) * torch.log1p(
+        hard_delta.abs().to(mean.dtype)
+    )
+    coordinate_feedback = (
+        hard_coordinate + soft_coordinate - soft_coordinate.detach()
+    )
+
+    # Preserve the 64-bit keyed uniform all the way through the CDF compare.
+    fill_probabilities64 = F.softmax(fill_logits.to(torch.float64), dim=-1)
+    fill_cdf64 = fill_probabilities64.cumsum(dim=-1)
+    hard_fill = (
+        fill_uniforms.unsqueeze(1) >= fill_cdf64
+    ).sum(dim=1).clamp(max=len(FILL_LEVELS) - 1)
+    hard_fill_one_hot = F.one_hot(
+        hard_fill.to(torch.long), len(FILL_LEVELS)
+    ).to(fill_logits.dtype)
+    soft_fill = F.softmax(fill_logits, dim=-1)
+    fill_feedback = hard_fill_one_hot + soft_fill - soft_fill.detach()
+    return hard_delta, hard_fill, coordinate_feedback, fill_feedback
 
 
 class CompactSPPActionDecoder(nn.Module):
-    """Threshold-free factorized direct-delta and rare-fill decoder."""
+    """Factorized delta/fill heads with hard complete-action feedback."""
 
     def __init__(self, hidden_size):
         super().__init__()
@@ -430,23 +592,12 @@ class CompactSPPActionDecoder(nn.Module):
         scale = F.softplus(raw_scale) + torch.finfo(raw_scale.dtype).tiny
         return mix, mean, scale, self.fill_head(state)
 
-    @staticmethod
-    def marginals(mix_logits, mean, fill_logits):
-        component_probabilities = F.softmax(mix_logits, dim=-1)
-        fill_probabilities = F.softmax(fill_logits, dim=-1)
-        expected_coordinate = (
-            component_probabilities * mean
-        ).sum(dim=-1)
-        return expected_coordinate, fill_probabilities
-
-    def advance(
-        self, state, predicted_coordinate, predicted_fill_probabilities,
-    ):
-        if predicted_fill_probabilities.shape[-1] != len(FILL_LEVELS):
-            raise RuntimeError("predicted fill probability width changed")
+    def advance(self, state, hard_coordinate, hard_fill_one_hot):
+        if hard_fill_one_hot.shape[-1] != len(FILL_LEVELS):
+            raise RuntimeError("hard fill feedback width changed")
         feedback = torch.cat([
-            predicted_coordinate.reshape(-1, 1),
-            predicted_fill_probabilities.to(predicted_coordinate.dtype),
+            hard_coordinate.reshape(-1, 1),
+            hard_fill_one_hot.to(hard_coordinate.dtype),
         ], dim=-1)
         return self.action_cell(feedback, state)
 
@@ -482,11 +633,14 @@ def _iter_chunks(length, width):
         yield start, min(length, start + width)
 
 
-def _structured_loss(model, context, counts, deltas, fills):
+def _structured_loss(model, context, counts, deltas, fills, fill_uniforms):
     flat_context = context.reshape(-1, context.shape[-1])
     flat_counts = counts.reshape(-1)
     flat_deltas = deltas.reshape(-1, deltas.shape[-1])
     flat_fills = fills.reshape(-1, fills.shape[-1])
+    flat_fill_uniforms = fill_uniforms.reshape(
+        -1, fill_uniforms.shape[-1]
+    )
     valid = flat_counts >= 0
     decision_atoms = int(valid.sum().detach().item())
     if not decision_atoms:
@@ -496,6 +650,7 @@ def _structured_loss(model, context, counts, deltas, fills):
     decision_counts = flat_counts[valid]
     decision_deltas = flat_deltas[valid]
     decision_fills = flat_fills[valid]
+    decision_fill_uniforms = flat_fill_uniforms[valid]
 
     trigger_targets = (decision_counts > 0).to(decision_context.dtype)
     trigger_logits = model.decoder.trigger_logit(
@@ -521,6 +676,10 @@ def _structured_loss(model, context, counts, deltas, fills):
     fill_sum = context.new_zeros(())
     action_atoms = 0
     state = decision_context
+    used_deltas = torch.zeros(
+        (len(decision_context), decision_deltas.shape[1]),
+        dtype=torch.int64, device=decision_context.device,
+    )
     for step in range(decision_deltas.shape[1]):
         active = decision_counts > step
         active_atoms = int(active.sum().detach().item())
@@ -546,15 +705,20 @@ def _structured_loss(model, context, counts, deltas, fills):
         )
         action_atoms += active_atoms
 
-        # The loss uses teacher delta/fill labels, but recurrent feedback uses
-        # the two learned marginals in both training and inference.  Neither
-        # sampled outputs nor teacher actions are fed back.
-        predicted_coordinate, predicted_fill_probabilities = (
-            model.decoder.marginals(mix_logits, mean, fill_logits)
+        # Teacher count only schedules which ranks receive loss.  The shared
+        # selector below uses no teacher action value: it materializes the
+        # model's own legal delta and keyed fill draw.  Its forward values are
+        # the actual hard action; straight-through terms preserve gradients.
+        active_used = used_deltas.index_select(0, indices)[:, :step]
+        hard_delta, _, coordinate_feedback, fill_feedback = (
+            select_hard_action_feedback(
+                mix_logits, mean, scale, fill_logits,
+                decision_fill_uniforms[active, step], active_used,
+            )
         )
+        used_deltas[indices, step] = hard_delta.detach()
         advanced = model.decoder.advance(
-            active_state, predicted_coordinate,
-            predicted_fill_probabilities,
+            active_state, coordinate_feedback, fill_feedback,
         )
         state = state.index_copy(0, indices, advanced)
 
@@ -583,7 +747,7 @@ def _structured_loss(model, context, counts, deltas, fills):
 
 
 def train_model(
-    model, runtime, counts, deltas, fills, fit_end, device, epochs,
+    model, runtime, counts, deltas, fills, fill_uniforms, fit_end, device, epochs,
     chunk_len, accumulate_chunks, learning_rate,
 ):
     model.to(device)
@@ -592,6 +756,7 @@ def train_model(
     count_tensor = torch.from_numpy(counts).to(torch.long)
     delta_tensor = torch.from_numpy(deltas).to(torch.float32)
     fill_tensor = torch.from_numpy(fills).to(torch.long)
+    fill_uniform_tensor = torch.from_numpy(fill_uniforms).to(torch.float64)
     chunks = list(_iter_chunks(fit_end, chunk_len))
     history = []
     for epoch in range(1, epochs + 1):
@@ -619,6 +784,7 @@ def train_model(
                 cb = count_tensor[start:stop].unsqueeze(0).to(device)
                 db = delta_tensor[start:stop].unsqueeze(0).to(device)
                 fb = fill_tensor[start:stop].unsqueeze(0).to(device)
+                ub = fill_uniform_tensor[start:stop].unsqueeze(0).to(device)
                 context, state = model.encode(xb, state)
                 state = _detach_state(state)
                 if not np.any(counts[start:stop] >= 0):
@@ -626,7 +792,7 @@ def train_model(
                     # but they carry no SPP decision loss.
                     continue
                 loss, components = _structured_loss(
-                    model, context, cb, db, fb
+                    model, context, cb, db, fb, ub
                 )
                 if not torch.isfinite(loss):
                     raise RuntimeError("non-finite SPP training loss")
@@ -712,10 +878,8 @@ def decode_actions(
         == len(contexts) == len(base_lines) == len(event_keys)
     ):
         raise RuntimeError("SPP decoder row counts differ")
-    counts = event_keyed_hurdle_counts(
-        _sigmoid_probabilities(trigger_logits),
-        _poisson_means(log_excess_means),
-        event_keys, decoder_seed, TRACE, POLICY, role,
+    counts = _deterministic_hurdle_counts(
+        trigger_logits, log_excess_means,
     )
     predicted_lines = (
         [[] for _ in range(len(counts))] if materialize else None
@@ -729,6 +893,9 @@ def decode_actions(
             state = torch.from_numpy(contexts[start:stop]).to(device)
             local_counts = counts[start:stop]
             steps = int(local_counts.max()) if len(local_counts) else 0
+            used_deltas = torch.zeros(
+                (len(local_counts), steps), dtype=torch.int64, device=device
+            )
             for step in range(steps):
                 active_numpy = np.flatnonzero(local_counts > step)
                 if not len(active_numpy):
@@ -737,53 +904,53 @@ def decode_actions(
                     device=device, dtype=torch.long
                 )
                 active_state = state.index_select(0, active)
-                mix_logits, mean, _, fill_logits = model.decoder.distribution(
+                mix_logits, mean, scale, fill_logits = model.decoder.distribution(
                     active_state
                 )
-                feedback_coordinate, fill_probabilities = (
-                    model.decoder.marginals(mix_logits, mean, fill_logits)
+                fill_uniforms = torch.from_numpy(np.asarray([
+                    np.float64(keyed_uniform(
+                        decoder_seed, TRACE, POLICY, role,
+                        event_keys[start + int(local_position)],
+                        "fill_level", step,
+                    ))
+                    for local_position in active_numpy
+                ], dtype=np.float64)).to(device=device, dtype=torch.float64)
+                active_used = used_deltas.index_select(0, active)[:, :step]
+                hard_delta, hard_fill, feedback_coordinate, fill_feedback = (
+                    select_hard_action_feedback(
+                        mix_logits, mean, scale, fill_logits,
+                        fill_uniforms, active_used,
+                    )
                 )
+                used_deltas[active, step] = hard_delta
                 if materialize:
-                    for local_position, mix_row, mean_row, fill_row in zip(
-                        active_numpy, mix_logits.cpu().numpy(),
-                        mean.cpu().numpy(), fill_probabilities.cpu().numpy(),
+                    for local_position, delta, fill_choice in zip(
+                        active_numpy, hard_delta.cpu().numpy(),
+                        hard_fill.cpu().numpy(),
                     ):
                         global_position = start + int(local_position)
-                        component = int(np.argmax(mix_row))
-                        fill_choice = categorical_icdf(
-                            np.asarray(fill_row, dtype=np.float64),
-                            keyed_uniform(
-                                decoder_seed, TRACE, POLICY, role,
-                                event_keys[global_position],
-                                "fill_level", step,
-                            ),
-                        )
-                        delta = _coordinate_to_delta(mean_row[component])
                         predicted_lines[global_position].append(
                             apply_signed_line_delta(
-                                base_lines[global_position], delta,
+                                base_lines[global_position], int(delta),
                             )
                         )
-                        predicted_fills[global_position].append(fill_choice)
+                        predicted_fills[global_position].append(
+                            int(fill_choice)
+                        )
                 advanced = model.decoder.advance(
-                    active_state, feedback_coordinate, fill_probabilities
+                    active_state, feedback_coordinate, fill_feedback
                 )
                 state = state.index_copy(0, active, advanced)
     return counts, predicted_lines, predicted_fills
 
 
-def decoder_sampling_coordinates(event_keys, counts):
+def decoder_sampling_coordinates(event_keys, materialized_lines):
     """Enumerate the exact stateless coordinates consumed by this replay."""
-    if len(event_keys) != len(counts):
+    if len(event_keys) != len(materialized_lines):
         raise RuntimeError("SPP schedule row counts differ")
     coordinates = []
-    for event_key, count in zip(event_keys, counts):
-        count = int(count)
-        if count < 0:
-            raise RuntimeError("SPP schedule contains a negative action count")
-        coordinates.append((event_key, "request_trigger", 0))
-        coordinates.append((event_key, "request_excess", 0))
-        for action_rank in range(count):
+    for event_key, lines in zip(event_keys, materialized_lines):
+        for action_rank in range(len(lines)):
             coordinates.append((event_key, "fill_level", action_rank))
     return coordinates
 
@@ -913,6 +1080,57 @@ def joint_action_metrics(predicted_lines, predicted_fills, teacher_actions):
     }
 
 
+def action_legality_diagnostics(base_lines, raw_counts, predicted_lines):
+    if not (
+        len(base_lines) == len(raw_counts) == len(predicted_lines)
+    ):
+        raise RuntimeError("SPP legality audit row counts differ")
+    materialized_counts = np.asarray(
+        [len(lines) for lines in predicted_lines], dtype=np.int64
+    )
+    raw_counts = np.asarray(raw_counts, dtype=np.int64)
+    self_targets = 0
+    duplicate_targets = 0
+    for base_line, lines in zip(base_lines, predicted_lines):
+        seen = set()
+        for target_line in lines:
+            difference = (
+                int(target_line) - int(base_line)
+            ) % LINE_ADDRESS_MODULUS
+            if difference >= LINE_ADDRESS_HALF_RANGE:
+                difference -= LINE_ADDRESS_MODULUS
+            if difference == 0:
+                self_targets += 1
+            if difference in seen:
+                duplicate_targets += 1
+            seen.add(difference)
+    if self_targets or duplicate_targets:
+        raise RuntimeError(
+            "hard SPP action legality failed: self={} duplicate={}".format(
+                self_targets, duplicate_targets
+            )
+        )
+    if np.any(materialized_counts > raw_counts):
+        raise RuntimeError("materialized SPP count exceeds raw decoder count")
+    return {
+        "raw_predicted_action_count": int(raw_counts.sum()),
+        "materialized_distinct_action_count": int(
+            materialized_counts.sum()
+        ),
+        "raw_positive_callback_count": int((raw_counts > 0).sum()),
+        "materialized_positive_callback_count": int(
+            (materialized_counts > 0).sum()
+        ),
+        "count_to_materialized_shortfall": int(
+            raw_counts.sum() - materialized_counts.sum()
+        ),
+        "self_target_actions": self_targets,
+        "duplicate_target_actions": duplicate_targets,
+        "canonical_signed_delta_bits": LINE_ADDRESS_BITS,
+        "positive_half_range_canonicalized_to_negative": True,
+    }
+
+
 def complete_behavior_metrics(
     predicted_counts, predicted_lines, predicted_fills, teacher_actions,
 ):
@@ -995,36 +1213,69 @@ def self_test_model(hidden_size):
             raise RuntimeError("missing factorized SPP head {}".format(required))
 
     self_test_keyed_crn()
-    low_logits = np.full(4096, -4.0, dtype=np.float64)
-    high_logits = np.full(4096, 4.0, dtype=np.float64)
-    log_excess = np.zeros(4096, dtype=np.float64)
-    test_keys = ["self_test={}".format(index) for index in range(8192)]
-    probabilities = _sigmoid_probabilities(
-        np.concatenate([low_logits, high_logits])
+    test_counts = _deterministic_hurdle_counts(
+        np.asarray([-4.0, 4.0]), np.asarray([0.0, 0.0])
     )
-    excess_means = _poisson_means(
-        np.concatenate([log_excess, log_excess])
+    if not np.array_equal(test_counts, np.asarray([0, 2])):
+        raise RuntimeError("SPP raw deterministic hurdle/count changed")
+    large_counts = _deterministic_hurdle_counts(
+        np.asarray([1.0]), np.asarray([math.log(256.0)])
     )
-    test_counts = event_keyed_hurdle_counts(
-        probabilities, excess_means, test_keys, 1701,
-        TRACE, POLICY, "self_test",
-    )
-    repeated_counts = event_keyed_hurdle_counts(
-        probabilities, excess_means, test_keys, 1701,
-        TRACE, POLICY, "self_test",
-    )
-    if not np.array_equal(test_counts, repeated_counts):
-        raise RuntimeError("SPP keyed count sampling is not reproducible")
-    if np.count_nonzero(test_counts[4096:]) <= np.count_nonzero(
-        test_counts[:4096]
-    ):
-        raise RuntimeError("SPP sampling ignored learned trigger mass")
-    large_counts = event_keyed_hurdle_counts(
-        np.asarray([1.0]), np.asarray([256.0]), ["large_count"],
-        2718, TRACE, POLICY, "self_test",
-    )
-    if large_counts[0] <= 2:
+    if large_counts[0] != 257:
         raise RuntimeError("SPP positive count support appears degree capped")
+    try:
+        _rounded_excess_means(np.asarray([math.log(float(1 << 63))]))
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("SPP count decoder accepted int64 overflow")
+
+    if (
+        _coordinate_to_delta(math.log1p(LINE_ADDRESS_HALF_RANGE))
+        != -LINE_ADDRESS_HALF_RANGE
+        or _coordinate_to_delta(-math.log1p(LINE_ADDRESS_HALF_RANGE))
+        != -LINE_ADDRESS_HALF_RANGE
+    ):
+        raise RuntimeError("SPP signed half-range canonicalization changed")
+
+    mix = torch.zeros((1, MIXTURE_COMPONENTS), dtype=torch.float32)
+    means = torch.tensor([[
+        0.0, math.log1p(2.0), math.log1p(2.0), math.log1p(3.0),
+    ]], dtype=torch.float32)
+    scales = torch.tensor([[10.0, 0.1, 0.2, 0.3]], dtype=torch.float32)
+    fill_logits = torch.log(torch.tensor(
+        [[0.02, 0.98]], dtype=torch.float32
+    ))
+    hard_delta, hard_fill, coordinate_feedback, fill_feedback = (
+        select_hard_action_feedback(
+            mix, means, scales, fill_logits,
+            torch.tensor([0.01], dtype=torch.float64),
+            torch.tensor([[2]], dtype=torch.int64),
+        )
+    )
+    if (
+        int(hard_delta.item()) != 3 or int(hard_fill.item()) != 0
+        or not torch.allclose(
+            coordinate_feedback.detach(),
+            torch.tensor([math.log1p(3.0)], dtype=torch.float32),
+        )
+        or not torch.equal(
+            fill_feedback.detach(), torch.tensor([[1.0, 0.0]])
+        )
+    ):
+        raise RuntimeError("SPP shared hard action selector changed")
+    tied_delta, _, _, _ = select_hard_action_feedback(
+        torch.zeros((1, MIXTURE_COMPONENTS), dtype=torch.float32),
+        torch.tensor([[
+            math.log1p(4.0), math.log1p(5.0),
+            math.log1p(6.0), math.log1p(7.0),
+        ]], dtype=torch.float32),
+        torch.ones((1, MIXTURE_COMPONENTS), dtype=torch.float32),
+        fill_logits, torch.tensor([0.50], dtype=torch.float64),
+        torch.empty((1, 0), dtype=torch.int64),
+    )
+    if int(tied_delta.item()) != 4:
+        raise RuntimeError("SPP equal-score component tie is not stable")
 
     if categorical_icdf(np.asarray([0.02, 0.98]), 0.01) != 0:
         raise RuntimeError("SPP keyed fill draw lost the rare L2 class")
@@ -1044,20 +1295,21 @@ def self_test_model(hidden_size):
             )
     for required in (
         "F.cross_entropy", "torch.logsumexp",
-        "model.decoder.marginals",
+        "select_hard_action_feedback",
     ):
         if required not in loss_source:
             raise RuntimeError("factorized SPP training evidence missing")
 
     decoder_source = inspect.getsource(decode_actions)
     for required in (
-        "categorical_icdf", "keyed_uniform", '"fill_level"',
-        "np.argmax(mix_row)",
+        "keyed_uniform", '"fill_level"',
+        "select_hard_action_feedback",
     ):
         if required not in decoder_source:
             raise RuntimeError("factorized keyed SPP decoder evidence missing")
     if (
-        "np.argmax(fill" in decoder_source
+        "event_keyed_hurdle_counts" in decoder_source
+        or "np.argmax(fill" in decoder_source
         or "raw_event_id" in decoder_source
         or "RandomState" in decoder_source
     ):
@@ -1096,7 +1348,7 @@ def self_test_model(hidden_size):
 def model_tag(family, size):
     if family != "lstm" or size not in MODEL_POINTS["lstm"]:
         raise RuntimeError("unsupported SPP model point")
-    return "factorized_delta_fill_spp_lstm_h{}".format(size)
+    return "hard_distinct_delta_fill_spp_lstm_h{}".format(size)
 
 
 def run_cli():
@@ -1199,6 +1451,14 @@ def run_cli():
         )
         for role in roles
     }
+    train_fill_uniforms, train_decoder_coordinates = keyed_fill_uniforms(
+        event_keys["train"], decision_targets["train"][0],
+        args.decoder_seed, "train",
+    )
+    context_train_fill_uniforms = expand_decision_uniforms(
+        train_fill_uniforms, streams["train"]["demand_positions"],
+        len(streams["train"]["context"]),
+    )
 
     model = CompactSPPLSTM(RUNTIME_FEATURES, args.model_size)
     parameter_count = sum(
@@ -1224,7 +1484,8 @@ def run_cli():
     }
     history = train_model(
         model, runtime["train"], train_counts, train_deltas, train_fills,
-        len(streams["train"]["context"]), device, args.epochs,
+        context_train_fill_uniforms, len(streams["train"]["context"]),
+        device, args.epochs,
         args.chunk_len, args.accumulate_chunks, args.learning_rate,
     )
 
@@ -1251,7 +1512,10 @@ def run_cli():
         materialize=True,
     )
     decoder_coordinates = decoder_sampling_coordinates(
-        event_keys["eval"], predicted_counts
+        event_keys["eval"], predicted_lines
+    )
+    action_legality = action_legality_diagnostics(
+        base_lines, predicted_counts, predicted_lines
     )
     behavior = complete_behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills,
@@ -1285,6 +1549,7 @@ def run_cli():
         "sampler_revision": SAMPLER_REVISION,
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
+        "decoder_revision": DECODER_REVISION,
     }, model_path)
 
     tag = model_tag("lstm", args.model_size)
@@ -1322,14 +1587,14 @@ def run_cli():
         "operation": OPERATION,
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
-        "decoder_revision": "factorized_delta_keyed_fill_v17",
+        "decoder_revision": DECODER_REVISION,
         "weights_retrained": True,
         "checkpoint_reused": False,
         "decoder_only_change": False,
         "guard_selected_decoder": False,
         "joint_map_used": False,
         "selected_decoder_mode": (
-            "deterministic_modal_delta_component_plus_keyed_fill_draw"
+            "scale_aware_hard_distinct_delta_plus_keyed_hard_fill"
         ),
         "decoder_candidate_modes": [],
         "decoder_sampler": sampler_metadata(),
@@ -1359,22 +1624,29 @@ def run_cli():
             args.decoder_seed, TRACE, POLICY, "eval", decoder_coordinates
         ),
         "decoder_eval_sampling_coordinates": len(decoder_coordinates),
+        "decoder_train_sampling_schedule_sha256": sampling_schedule_sha256(
+            args.decoder_seed, TRACE, POLICY, "train",
+            train_decoder_coordinates,
+        ),
+        "decoder_train_sampling_coordinates": len(
+            train_decoder_coordinates
+        ),
         "decoder_guard_sampling_schedule_sha256": None,
         "decoder_guard_sampling_coordinates": 0,
         "common_random_numbers_across_capacities": True,
         "strict_common_random_numbers_across_capacities": True,
         "cross_event_rng_state_used": False,
         "train_guard_decoder_rng_burn_used": False,
-        "decoder_sampling_roles": ["eval"],
-        "decoder_roles_sampled": ["eval"],
-        "decoder_train_sampling_performed": False,
+        "decoder_sampling_roles": ["train", "eval"],
+        "decoder_roles_sampled": ["train", "eval"],
+        "decoder_train_sampling_performed": True,
         "decoder_guard_sampling_performed": False,
         "decoder_action_sampling_performed": True,
-        "decoder_count_sampling_performed": True,
+        "decoder_count_sampling_performed": False,
         "keyed_sampling_self_test": "PASS",
         "stochastic_decoding": (
-            "stateless SHA-256 event-keyed hurdle/count/fill inverse-CDF "
-            "sampling; deterministic modal delta component mean"
+            "stateless SHA-256 event-keyed fill inverse-CDF only; "
+            "deterministic raw count and hard distinct delta"
         ),
         "stochastic_decoding_reproducible": True,
         "epochs": args.epochs,
@@ -1404,10 +1676,12 @@ def run_cli():
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
         "decoder_training_mode": (
-            "free_running_autoregressive_same_as_inference"
+            "teacher_count_scheduled_loss_with_hard_self_action_feedback"
         ),
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_free_running_self_test": "PASS",
+        "teacher_count_role": "schedules_loss_bearing_action_ranks_only",
+        "teacher_count_used_as_decoder_feedback": False,
         "runtime_encoder_entrypoint": (
             "623_offline_lstm_spp.train_and_offline_infer.runtime_array"
         ),
@@ -1437,9 +1711,9 @@ def run_cli():
             "cache-line deltas and learned fill"
         ),
         "decision_rule": (
-            "event_keyed_bernoulli_then_conditional_poisson_count; "
-            "deterministic_modal_delta_component_mean; "
-            "event_keyed_fill_categorical_inverse_cdf"
+            "deterministic_raw_hurdle_plus_rounded_conditional_excess_mean; "
+            "scale_aware_hard_quantized_distinct_nonzero_delta; "
+            "event_keyed_hard_fill_categorical_inverse_cdf"
         ),
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
@@ -1452,13 +1726,13 @@ def run_cli():
         "manual_loss_weights_used": False,
         "gate_class_weighting_used": False,
         "gate_training_objective": "unweighted_bernoulli_nll",
-        "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
+        "gate_decoding_rule": "deterministic_raw_logit_sign",
         "gate_operating_point_learned_from_empirical_prior": False,
         "request_count_training_objective": (
             "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll"
         ),
         "request_count_decoding_rule": (
-            "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf"
+            "deterministic_raw_hurdle_plus_rounded_conditional_excess_mean"
         ),
         "request_count_residual_scope": "none_event_local",
         "request_count_training_label_statistics": (
@@ -1476,10 +1750,10 @@ def run_cli():
             "four_component_signed_log_delta_mixture_nll"
         ),
         "delta_mixture_decoding_rule": (
-            "deterministic_modal_component_then_component_mean"
+            "component_peak_density_order_then_hard_quantized_legal_delta"
         ),
         "delta_decoding_rule": (
-            "deterministic_modal_component_then_component_mean"
+            "component_peak_density_order_then_hard_quantized_legal_delta"
         ),
         "fill_training_objective": (
             "unweighted_two_class_cross_entropy"
@@ -1488,12 +1762,33 @@ def run_cli():
             "event_keyed_categorical_inverse_cdf"
         ),
         "fill_argmax_used": False,
-        "fill_probability_feedback_used": True,
+        "fill_probability_feedback_used": False,
+        "hard_fill_one_hot_feedback_used": True,
+        "keyed_fill_uniform_dtype": "float64",
+        "address_confidence_fill_heuristic_used": False,
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
-        "sampled_outputs_used_as_decoder_feedback": False,
+        "sampled_outputs_used_as_decoder_feedback": True,
         "delta_decoder_feedback_rule": (
-            "factorized_distribution_expectation_same_in_training_and_inference"
+            "actual_hard_quantized_emitted_delta_with_straight_through_training"
+        ),
+        "fill_decoder_feedback_rule": (
+            "actual_keyed_hard_fill_one_hot_with_straight_through_training"
+        ),
+        "straight_through_hard_action_feedback_used": True,
+        "delta_component_order_score": "log_mixture_mass_minus_log_scale",
+        "delta_component_score_tie_break": (
+            "ascending_component_index_stable"
+        ),
+        "delta_legality_constraints": [
+            "nonzero_signed_delta", "distinct_target_within_callback",
+        ],
+        "delta_legality_fallback": (
+            "nearest_signed_delta_only_if_all_component_means_are_illegal"
+        ),
+        "delta_legality_uses_teacher_or_private_state": False,
+        "signed_delta_canonicalization": (
+            "58_bit_modulo_with_positive_half_range_mapped_to_negative"
         ),
         "loss_design": (
             "unweighted trigger NLL mean plus positive-excess Poisson NLL "
@@ -1533,7 +1828,8 @@ def run_cli():
             "fresh_state_then_complete_train_guard_eval_chronology"
         ),
         "causal_no_future_self_test": "PASS",
-        "event_local_hurdle_count_self_test": "PASS",
+        "deterministic_hurdle_count_self_test": "PASS",
+        "hard_distinct_action_feedback_self_test": "PASS",
         "factorized_delta_fill_sampling_self_test": "PASS",
         "joint_delta_fill_sampling_self_test": "NOT_APPLICABLE",
         "cnn_architecture_self_test": "NOT_APPLICABLE",
@@ -1559,6 +1855,10 @@ def run_cli():
             "matched-input open-loop offline comparison only; live NN actions "
             "were not used to regenerate cache-fill feedback"
         ),
+        "collection_manifest_role": (
+            "historical_input_package_provenance_only"
+        ),
+        "collection_manifest_decoder_fields_are_current_contract": False,
         "source_contract_sha256": sha256(args.source_contract),
         "offline_normal_entries": normal_entries,
         "offline_normal_triggers": normal_triggers,
@@ -1568,6 +1868,13 @@ def run_cli():
         "offline_nn_triggers": nn_triggers,
         "offline_nn_fill_counts": nn_fill_counts,
         "offline_nn_fill_level_counts": nn_fill_counts,
+        "action_legality_diagnostics": action_legality,
+        "raw_predicted_action_count": action_legality[
+            "raw_predicted_action_count"
+        ],
+        "materialized_distinct_action_count": action_legality[
+            "materialized_distinct_action_count"
+        ],
         "normal_list_sha256": sha256(normal_path),
         "nn_list_sha256": sha256(nn_path),
         "heldout_behavior_metrics": behavior,
