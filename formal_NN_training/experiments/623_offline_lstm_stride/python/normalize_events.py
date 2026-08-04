@@ -13,17 +13,15 @@ import gzip
 from collections import defaultdict
 from pathlib import Path
 
+from model_contract import POLICY, TRACE, parse_exact_integer
 
-TRACE = "623.xalancbmk_s-700B"
-POLICY = "stride"
 LOG2_BLOCK_SIZE = 6
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
 
 
 def as_int(value):
-    value = str(value).strip()
-    return int(value, 16) if value.lower().startswith("0x") else int(float(value))
+    return parse_exact_integer(value)
 
 
 def fail(message, event_id=None):
