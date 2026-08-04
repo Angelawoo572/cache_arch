@@ -4,16 +4,15 @@
 Training and inference receive exactly the source-visible PC and cache-line
 address.  Teacher requests supervise the model but are never inference inputs.
 
-This v17 revision keeps the compact 623 input/state organization and balanced
-training objective, but restores the empirical gate prior before deterministic
-decode without adding capacity, a threshold, a degree limit, a candidate
-table, a page rule, or normal-policy state:
+This v18 revision keeps the compact 623 input/state organization, but trains
+the hurdle gate at its natural frequency and decodes its raw logits without
+adding capacity, a threshold, a degree limit, a candidate table, a page rule,
+or normal-policy state:
 
 * recurrent state is dynamically routed by the observed PC, with no fixed
   tracker capacity;
-* a data-derived frequency-balanced two-class hurdle prevents training
-  collapse, then subtracting log class weights before argmax removes the
-  artificial equal-class prior without a selected probability cutoff;
+* an unweighted two-class cross-entropy gate is initialized from the empirical
+  training zero/positive prior and decoded by deterministic raw-logit argmax;
 * a deterministic rounded positive log-count preserves variable, unbounded
   count support while recovering the teacher's nearly always-two degree;
 * one shared single-layer LSTM supplies both decision and action context;
@@ -53,7 +52,7 @@ from formal_NN_training.common.threshold_free_policy import (
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "compact_pc_keyed_prior_corrected_hurdle_scalar_v17"
+MODEL_REVISION = "compact_pc_keyed_natural_hurdle_scalar_v18"
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = ["pc", "addr"]
@@ -291,18 +290,39 @@ def _positive_counts_from_log_mean(log_means):
     return counts
 
 
-def _data_derived_gate_class_weights(counts):
-    """Give the two observed hurdle classes equal aggregate loss mass."""
+def _train_gate_empirical_prior(counts):
+    """Return the natural zero/positive frequency of the training split."""
     labels = (np.asarray(counts, dtype=np.int64) > 0).astype(np.int64)
     frequencies = np.bincount(labels, minlength=2).astype(np.float64)
     if np.any(frequencies == 0):
         raise RuntimeError(
             "hurdle training requires observed zero and positive rows"
         )
-    weights = float(len(labels)) / (2.0 * frequencies)
-    if not np.all(np.isfinite(weights)):
-        raise RuntimeError("non-finite data-derived hurdle weights")
-    return weights.astype(np.float32)
+    prior = frequencies / float(len(labels))
+    if not np.all(np.isfinite(prior)) or not math.isclose(
+        float(prior.sum()), 1.0
+    ):
+        raise RuntimeError("invalid empirical hurdle prior")
+    return prior.astype(np.float64)
+
+
+def _initialize_gate_bias_from_empirical_prior(model, empirical_prior):
+    """Initialize gate logits to the training split's natural class prior."""
+    prior = np.asarray(empirical_prior, dtype=np.float64)
+    if (
+        prior.shape != (2,) or not np.all(np.isfinite(prior))
+        or np.any(prior <= 0.0)
+        or not math.isclose(float(prior.sum()), 1.0)
+    ):
+        raise RuntimeError("invalid gate prior for bias initialization")
+    bias = torch.log(torch.as_tensor(
+        prior,
+        dtype=model.emit_head.bias.dtype,
+        device=model.emit_head.bias.device,
+    ))
+    with torch.no_grad():
+        model.emit_head.bias.copy_(bias)
+    return bias.detach().cpu().numpy().astype(np.float64)
 
 
 class CompactDirectDeltaDecoder(nn.Module):
@@ -408,8 +428,8 @@ def _make_padded_batch(runtime, counts, deltas, batch, device):
     return padded_runtime, padded_counts, padded_deltas, lengths
 
 
-def _compact_balanced_deterministic_loss(
-    model, context, counts, deltas, gate_class_weights,
+def _compact_natural_frequency_deterministic_loss(
+    model, context, counts, deltas,
 ):
     flat_context = context.reshape(-1, context.shape[-1])
     flat_counts = counts.reshape(-1)
@@ -424,8 +444,7 @@ def _compact_balanced_deterministic_loss(
     target_deltas = flat_deltas[valid]
     emit_targets = (targets > 0).to(torch.long)
     gate_loss = F.cross_entropy(
-        model.emit_head(context), emit_targets,
-        weight=gate_class_weights, reduction="sum",
+        model.emit_head(context), emit_targets, reduction="sum",
     )
 
     positive = targets > 0
@@ -466,9 +485,9 @@ def _compact_balanced_deterministic_loss(
         )
         state = state.index_copy(0, indices, advanced)
 
-    # Each objective is reduced to its own observation mean.  The class
-    # weights are derived only from the two observed training frequencies;
-    # there is no hand-tuned coefficient or inference threshold.
+    # Each objective is reduced to its own observation mean.  The gate sees
+    # every callback at its natural frequency; there is no class weighting,
+    # hand-tuned coefficient, inference threshold, or request-rate budget.
     mean_gate_loss = gate_loss / float(decision_atoms)
     mean_count_loss = (
         count_loss / float(positive_atoms)
@@ -493,12 +512,14 @@ def train_model(
     pc_batch_size, learning_rate,
 ):
     grouped = _group_indices_by_pc(rows)
-    gate_class_weights_numpy = _data_derived_gate_class_weights(counts)
-    gate_class_weights = torch.from_numpy(
-        gate_class_weights_numpy
-    ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    gate_empirical_prior = _train_gate_empirical_prior(counts)
+    # Moving the module must precede both bias initialization and optimizer
+    # construction so Adam owns the exact parameters trained on this device.
     model.to(device)
+    gate_initial_bias = _initialize_gate_bias_from_empirical_prior(
+        model, gate_empirical_prior,
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     history = []
     for epoch in range(1, epochs + 1):
         model.train()
@@ -521,9 +542,8 @@ def train_model(
             context = _encode_shared(
                 model, padded, lengths, recurrent_states, keys,
             )
-            loss, components = _compact_balanced_deterministic_loss(
+            loss, components = _compact_natural_frequency_deterministic_loss(
                 model, context, count_batch, delta_batch,
-                gate_class_weights,
             )
             if not torch.isfinite(loss):
                 raise RuntimeError("non-finite training loss")
@@ -554,7 +574,8 @@ def train_model(
         }
         history.append(row)
         print(
-            "[train:balanced-deterministic-lstm] epoch={} gate={:.8f} "
+            "[train:natural-frequency-deterministic-lstm] epoch={} "
+            "gate={:.8f} "
             "count={:.8f} action={:.8f}".format(
                 epoch, row["gate_loss_per_callback"],
                 row["positive_count_loss_per_positive_callback"],
@@ -562,7 +583,7 @@ def train_model(
             ),
             flush=True,
         )
-    return history, gate_class_weights_numpy
+    return history, gate_empirical_prior, gate_initial_bias
 
 
 def score_model(
@@ -597,28 +618,8 @@ def score_model(
     return output
 
 
-def _prior_corrected_gate_scores(gate_scores, gate_class_weights):
-    """Undo the artificial class prior introduced by balanced gate loss.
-
-    Weighted cross-entropy learns logits proportional to ``w_y p(y|x)``.
-    Subtracting ``log(w_y)`` before argmax recovers the empirical-prior
-    decision without a tuned threshold or request-rate budget.
-    """
-    scores = np.asarray(gate_scores, dtype=np.float64)
-    weights = np.asarray(gate_class_weights, dtype=np.float64)
-    if (
-        scores.ndim != 2 or scores.shape[1] != 2
-        or weights.shape != (2,)
-        or not np.all(np.isfinite(scores))
-        or not np.all(np.isfinite(weights))
-        or np.any(weights <= 0.0)
-    ):
-        raise RuntimeError("invalid prior-corrected gate inputs")
-    return scores - np.log(weights.reshape(1, 2))
-
-
 def decode(
-    model, context_numpy, base_lines, gate_class_weights, device,
+    model, context_numpy, base_lines, device,
     chunk_len=8192,
 ):
     if len(context_numpy) != len(base_lines):
@@ -635,10 +636,7 @@ def decode(
             log_counts = model.log_positive_count(
                 context
             ).squeeze(-1).cpu().numpy()
-            corrected_scores = _prior_corrected_gate_scores(
-                scores, gate_class_weights,
-            )
-            emit = corrected_scores.argmax(axis=1)
+            emit = scores.argmax(axis=1)
             counts[start:stop] = np.where(
                 emit == 1,
                 _positive_counts_from_log_mean(log_counts),
@@ -774,7 +772,8 @@ def _count_summary(actions):
 
 
 def count_decoder_diagnostics(
-    gate_scores, positive_log_counts, decoded_counts, gate_class_weights,
+    gate_scores, positive_log_counts, decoded_counts, gate_empirical_prior,
+    gate_initial_bias,
 ):
     """Report the deterministic hurdle and positive-count operating point."""
     gate_scores = np.asarray(gate_scores, dtype=np.float64)
@@ -782,29 +781,36 @@ def count_decoder_diagnostics(
         positive_log_counts, dtype=np.float64
     )
     decoded_counts = np.asarray(decoded_counts, dtype=np.int64)
-    gate_class_weights = np.asarray(gate_class_weights, dtype=np.float64)
+    gate_empirical_prior = np.asarray(
+        gate_empirical_prior, dtype=np.float64
+    )
+    gate_initial_bias = np.asarray(gate_initial_bias, dtype=np.float64)
     if not (
         gate_scores.shape == (len(decoded_counts), 2)
         and len(positive_log_counts) == len(decoded_counts)
-        and gate_class_weights.shape == (2,)
+        and gate_empirical_prior.shape == (2,)
+        and gate_initial_bias.shape == (2,)
     ):
         raise RuntimeError("count diagnostic vector lengths differ")
-    if np.any(decoded_counts < 0) or not np.all(np.isfinite(gate_scores)):
+    if (
+        np.any(decoded_counts < 0)
+        or not np.all(np.isfinite(gate_scores))
+        or not np.all(np.isfinite(gate_empirical_prior))
+        or not np.all(np.isfinite(gate_initial_bias))
+    ):
         raise RuntimeError("invalid deterministic count diagnostics")
     positive = decoded_counts[decoded_counts > 0]
     distribution = Counter(int(value) for value in decoded_counts)
     raw_margins = gate_scores[:, 1] - gate_scores[:, 0]
-    corrected_scores = _prior_corrected_gate_scores(
-        gate_scores, gate_class_weights,
-    )
-    corrected_margins = corrected_scores[:, 1] - corrected_scores[:, 0]
     return {
         "callbacks": int(len(decoded_counts)),
-        "gate_class_weights": [float(value) for value in gate_class_weights],
+        "gate_empirical_prior": [
+            float(value) for value in gate_empirical_prior
+        ],
+        "gate_initial_bias": [
+            float(value) for value in gate_initial_bias
+        ],
         "mean_raw_emit_logit_margin": float(raw_margins.mean()),
-        "mean_prior_corrected_emit_logit_margin": float(
-            corrected_margins.mean()
-        ),
         "decoded_positive_callbacks": int(np.count_nonzero(decoded_counts)),
         "decoded_total_actions": int(decoded_counts.sum()),
         "decoded_mean_actions_per_callback": float(decoded_counts.mean()),
@@ -866,26 +872,25 @@ def self_test_compact_parameter_count(feature_count, hidden_size):
         )
 
 
-def self_test_deterministic_count_and_balance():
+def self_test_deterministic_count_and_natural_gate():
     values = _positive_counts_from_log_mean(
         np.log(np.asarray([1.0, 2.0, 9.0, 257.0]))
     )
     if values.tolist() != [1, 2, 9, 257]:
         raise RuntimeError("positive-count decoder is capped or non-variable")
     counts = np.asarray([0, 0, 0, 2], dtype=np.int64)
-    weights = _data_derived_gate_class_weights(counts)
-    labels = counts > 0
-    negative_mass = float(weights[0] * np.count_nonzero(~labels))
-    positive_mass = float(weights[1] * np.count_nonzero(labels))
-    if not math.isclose(negative_mass, positive_mass):
-        raise RuntimeError("data-derived hurdle classes are not balanced")
-    # Equal balanced-posterior logits correspond to the empirical 3:1 class
-    # prior after correction, so the decoded class must be zero here.
-    corrected = _prior_corrected_gate_scores(
-        np.zeros((1, 2), dtype=np.float64), weights,
-    )
-    if int(corrected.argmax(axis=1)[0]) != 0:
-        raise RuntimeError("gate prior correction did not restore class prior")
+    prior = _train_gate_empirical_prior(counts)
+    if not np.allclose(prior, np.asarray([0.75, 0.25])):
+        raise RuntimeError("natural hurdle prior is not empirical frequency")
+    model = CompactPCKeyedDeterministicStrideLSTM(2, 2)
+    bias = _initialize_gate_bias_from_empirical_prior(model, prior)
+    initial_probability = torch.softmax(
+        model.emit_head.bias.detach(), dim=0
+    ).cpu().numpy()
+    if not np.allclose(initial_probability, prior, atol=1e-7):
+        raise RuntimeError("gate bias does not initialize to empirical prior")
+    if not np.allclose(bias, np.log(prior), atol=1e-7):
+        raise RuntimeError("gate prior-bias initialization is not log prior")
 
 
 def self_test_pc_router():
@@ -952,7 +957,7 @@ def main():
     ):
         raise RuntimeError("model and batching dimensions must be positive")
 
-    self_test_deterministic_count_and_balance()
+    self_test_deterministic_count_and_natural_gate()
     self_test_pc_router()
     self_test_free_running_decoder(
         RUNTIME_FEATURES, max(2, args.model_size)
@@ -1019,7 +1024,7 @@ def main():
             )
         )
 
-    history, gate_class_weights = train_model(
+    history, gate_empirical_prior, gate_initial_bias = train_model(
         model, rows["train"], runtime["train"],
         train_counts, train_deltas, device, args.epochs,
         args.chunk_len, args.pc_batch_size, args.learning_rate,
@@ -1042,11 +1047,11 @@ def main():
         eval_gate_scores, eval_positive_log_counts,
     ) = decode(
         model, eval_context,
-        [line for _, line, _ in rows["eval"]], gate_class_weights, device,
+        [line for _, line, _ in rows["eval"]], device,
     )
     count_diagnostics = count_decoder_diagnostics(
         eval_gate_scores, eval_positive_log_counts, predicted_counts,
-        gate_class_weights,
+        gate_empirical_prior, gate_initial_bias,
     )
     behavior = behavior_metrics(
         predicted_counts, predicted_lines, predicted_fills, teacher["eval"]
@@ -1126,7 +1131,8 @@ def main():
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
         "decoder_training_mode": (
-            "free_running_autoregressive_same_as_inference"
+            "teacher_count_scheduled_loss_with_free_running_"
+            "self_action_feedback"
         ),
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_free_running_self_test": "PASS",
@@ -1155,8 +1161,8 @@ def main():
         "future_label_window_used": False,
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
-        "data_derived_gate_class_weights_used": True,
-        "gate_class_weighting_used": True,
+        "data_derived_gate_class_weights_used": False,
+        "gate_class_weighting_used": False,
         "training_regularization_used": False,
         "inference_policy_hardcodes_used": False,
         "learned_request_count": True,
@@ -1166,31 +1172,37 @@ def main():
             "signed cache-line deltas"
         ),
         "decision_rule": (
-            "balanced_two_class_prior_corrected_argmax_then_"
+            "natural_frequency_two_class_raw_argmax_then_"
             "deterministic_rounded_positive_log_count_then_scalar_"
             "signed_log_delta"
         ),
         "gate_training_objective": (
-            "data_derived_frequency_balanced_two_class_cross_entropy"
+            "natural_frequency_unweighted_two_class_cross_entropy"
         ),
         "gate_decoding_rule": (
-            "prior_corrected_deterministic_two_class_argmax"
+            "raw_deterministic_two_class_argmax"
         ),
-        "gate_prior_correction": (
-            "subtract_log_training_class_weight_before_argmax"
-        ),
-        "gate_prior_correction_self_test": "PASS",
-        "gate_class_weights_source": (
-            "train_zero_positive_frequencies_equal_aggregate_loss_mass"
-        ),
-        "gate_class_weights": [
-            float(value) for value in gate_class_weights
+        "gate_prior_correction": None,
+        "gate_prior_correction_self_test": "NOT_APPLICABLE",
+        "gate_class_weights_source": None,
+        "gate_class_weights": None,
+        "gate_empirical_prior_source": "train_zero_positive_frequencies",
+        "gate_empirical_prior": [
+            float(value) for value in gate_empirical_prior
         ],
+        "gate_bias_initialization": (
+            "log_train_empirical_zero_positive_prior"
+        ),
+        "gate_initial_bias": [
+            float(value) for value in gate_initial_bias
+        ],
+        "gate_prior_bias_initialization_self_test": "PASS",
         "request_count_training_objective": (
-            "balanced_two_class_hurdle_plus_positive_log_count_smooth_l1"
+            "natural_frequency_two_class_hurdle_plus_positive_"
+            "log_count_smooth_l1"
         ),
         "request_count_decoding_rule": (
-            "prior_corrected_gate_argmax_plus_rounded_exp_"
+            "raw_gate_argmax_plus_rounded_exp_"
             "positive_log_count"
         ),
         "request_count_residual_scope": "none_event_local",
@@ -1204,11 +1216,12 @@ def main():
             ),
         },
         "request_count_model": (
-            "learned balanced zero/positive categorical plus deterministic "
+            "learned natural-frequency zero/positive categorical plus "
+            "deterministic "
             "positive log-count with unbounded positive integer support"
         ),
         "loss_design": (
-            "data-derived balanced gate CE mean plus positive log-count "
+            "natural-frequency unweighted gate CE mean plus positive log-count "
             "smooth-L1 mean plus scalar signed-log delta smooth-L1 mean; "
             "unit sum without manually tuned coefficients"
         ),
@@ -1263,7 +1276,8 @@ def main():
         "event_keyed_crn_self_test": "NOT_APPLICABLE",
         "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
         "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
-        "deterministic_count_and_balance_self_test": "PASS",
+        "deterministic_count_and_balance_self_test": "NOT_APPLICABLE",
+        "deterministic_count_and_natural_gate_self_test": "PASS",
         "decoder_probability_mass_carries_train_guard_history": False,
         "cross_event_probability_credit_used": False,
         "sampled_outputs_used_as_decoder_feedback": False,
