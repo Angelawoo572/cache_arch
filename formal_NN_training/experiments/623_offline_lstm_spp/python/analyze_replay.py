@@ -17,18 +17,20 @@ EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_runnin
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
 V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
-MODEL_REVISION = V17_MODEL_REVISION
+V18_MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
+MODEL_REVISION = V18_MODEL_REVISION
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
-    "factorized_delta_fill_spp_lstm_h8,"
-    "factorized_delta_fill_spp_lstm_h16,"
-    "factorized_delta_fill_spp_lstm_h32,"
-    "factorized_delta_fill_spp_lstm_h64,"
-    "factorized_delta_fill_spp_lstm_h128"
+    "hard_distinct_delta_fill_spp_lstm_h8,"
+    "hard_distinct_delta_fill_spp_lstm_h16,"
+    "hard_distinct_delta_fill_spp_lstm_h32,"
+    "hard_distinct_delta_fill_spp_lstm_h64,"
+    "hard_distinct_delta_fill_spp_lstm_h128"
 )
 MODEL_TAG_PREFIXES = (
     "joint_delta_fill_spp_lstm_", "guard_joint_map_spp_lstm_",
     "factorized_delta_fill_spp_lstm_",
+    "hard_distinct_delta_fill_spp_lstm_",
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -45,6 +47,9 @@ EXPECTED_PARAMETERS_BY_REVISION = {
         8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162,
     },
     V17_MODEL_REVISION: {
+        8: 2664, 16: 6208, 32: 15984, 64: 46288, 128: 149904,
+    },
+    V18_MODEL_REVISION: {
         8: 2664, 16: 6208, 32: 15984, 64: 46288, 128: 149904,
     },
 }
@@ -363,6 +368,8 @@ def policy_for_method(method):
         "offline_joint_delta_fill_spp_"
     ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
         "offline_factorized_delta_fill_spp_"
+    ) or method.startswith(
+        "offline_hard_distinct_delta_fill_spp_"
     ):
         return POLICY
     return ""
@@ -373,6 +380,8 @@ def model_tag_for_method(method):
         "offline_joint_delta_fill_spp_"
     ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
         "offline_factorized_delta_fill_spp_"
+    ) or method.startswith(
+        "offline_hard_distinct_delta_fill_spp_"
     ):
         return method[len("offline_"):]
     return ""
@@ -455,6 +464,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     revision = metadata.get("model_revision")
     is_v16a = revision == V16A_MODEL_REVISION
     is_v17 = revision == V17_MODEL_REVISION
+    is_v18 = revision == V18_MODEL_REVISION
     common = {
         "trace": TRACE,
         "model_tag": tag,
@@ -661,14 +671,98 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             "decoder_action_sampling_performed": True,
             "decoder_count_sampling_performed": True,
         })
+    elif is_v18:
+        common.pop("event_local_hurdle_count_self_test")
+        common.update({
+            "operation": "train-v18",
+            "decoder_revision": "hard_distinct_delta_keyed_fill_v18",
+            "decoder_candidate_modes": [],
+            "selected_decoder_mode": (
+                "scale_aware_hard_distinct_delta_plus_keyed_hard_fill"
+            ),
+            "decoder_training_mode": (
+                "teacher_count_scheduled_loss_with_hard_self_action_feedback"
+            ),
+            "teacher_count_role": "schedules_loss_bearing_action_ranks_only",
+            "teacher_count_used_as_decoder_feedback": False,
+            "gate_decoding_rule": "deterministic_raw_logit_sign",
+            "request_count_decoding_rule": (
+                "deterministic_raw_hurdle_plus_rounded_conditional_excess_mean"
+            ),
+            "fill_training_objective": (
+                "unweighted_two_class_cross_entropy"
+            ),
+            "fill_decoding_rule": "event_keyed_categorical_inverse_cdf",
+            "fill_probability_feedback_used": False,
+            "hard_fill_one_hot_feedback_used": True,
+            "keyed_fill_uniform_dtype": "float64",
+            "address_confidence_fill_heuristic_used": False,
+            "joint_delta_fill_sampling_self_test": "NOT_APPLICABLE",
+            "factorized_delta_fill_sampling_self_test": "PASS",
+            "deterministic_hurdle_count_self_test": "PASS",
+            "hard_distinct_action_feedback_self_test": "PASS",
+            "delta_mixture_decoding_rule": (
+                "component_peak_density_order_then_hard_quantized_legal_delta"
+            ),
+            "delta_decoder_feedback_rule": (
+                "actual_hard_quantized_emitted_delta_with_straight_through_training"
+            ),
+            "fill_decoder_feedback_rule": (
+                "actual_keyed_hard_fill_one_hot_with_straight_through_training"
+            ),
+            "straight_through_hard_action_feedback_used": True,
+            "delta_component_order_score": (
+                "log_mixture_mass_minus_log_scale"
+            ),
+            "delta_component_score_tie_break": (
+                "ascending_component_index_stable"
+            ),
+            "delta_legality_constraints": [
+                "nonzero_signed_delta", "distinct_target_within_callback",
+            ],
+            "delta_legality_fallback": (
+                "nearest_signed_delta_only_if_all_component_means_are_illegal"
+            ),
+            "delta_legality_uses_teacher_or_private_state": False,
+            "signed_delta_canonicalization": (
+                "58_bit_modulo_with_positive_half_range_mapped_to_negative"
+            ),
+            "joint_delta_fill_dependency_modeled": False,
+            "joint_delta_fill_class_count": 0,
+            "joint_pair_classes": 0,
+            "joint_delta_fill_training_objective": None,
+            "joint_delta_fill_decoding_rule": None,
+            "joint_component_canonicalization": None,
+            "delta_mixture_components": 4,
+            "delta_training_objective": (
+                "four_component_signed_log_delta_mixture_nll"
+            ),
+            "weights_retrained": True,
+            "checkpoint_reused": False,
+            "decoder_only_change": False,
+            "guard_selected_decoder": False,
+            "joint_map_used": False,
+            "decoder_sampling_roles": ["train", "eval"],
+            "decoder_train_sampling_performed": True,
+            "decoder_guard_sampling_performed": False,
+            "decoder_action_sampling_performed": True,
+            "decoder_count_sampling_performed": False,
+            "sampled_outputs_used_as_decoder_feedback": True,
+            "collection_manifest_role": (
+                "historical_input_package_provenance_only"
+            ),
+            "collection_manifest_decoder_fields_are_current_contract": False,
+        })
     if revision not in (
         V15_MODEL_REVISION, V16A_MODEL_REVISION, V17_MODEL_REVISION,
+        V18_MODEL_REVISION,
     ):
         failures.append("{} unsupported model revision {!r}".format(
             tag, revision
         ))
     expected_prefix = (
         "guard_joint_map_spp_lstm_" if is_v16a else
+        "hard_distinct_delta_fill_spp_lstm_" if is_v18 else
         "factorized_delta_fill_spp_lstm_" if is_v17 else
         "joint_delta_fill_spp_lstm_"
     )
@@ -718,10 +812,12 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             "parent_training_history_sha256", "model_checkpoint_sha256",
             "training_history_sha256",
         ])
-    elif is_v17:
+    elif is_v17 or is_v18:
         hash_keys.extend([
             "model_checkpoint_sha256", "training_history_sha256",
         ])
+    if is_v18:
+        hash_keys.append("decoder_train_sampling_schedule_sha256")
     for key in hash_keys:
         value = metadata.get(key)
         if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
@@ -738,7 +834,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "count_exact_match_rate", "target_precision", "target_recall",
         "target_f1",
     )
-    if is_v16a or is_v17:
+    if is_v16a or is_v17 or is_v18:
         required_behavior += (
             "joint_action_f1", "l2_joint_f1", "predicted_l2_fraction",
             "teacher_l2_fraction", "trigger_f1",
@@ -757,10 +853,24 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         ):
             failures.append("{} invalid fill behavior accuracy".format(tag))
         action_ratio = behavior.get("predicted_to_normal_action_ratio")
-        if (is_v16a or is_v17) and (
+        if (is_v16a or is_v17 or is_v18) and (
             not isinstance(action_ratio, (int, float)) or action_ratio < 0
         ):
             failures.append("{} invalid action-count ratio".format(tag))
+    if is_v18:
+        legality = metadata.get("action_legality_diagnostics")
+        if (
+            not isinstance(legality, dict)
+            or legality.get("self_target_actions") != 0
+            or legality.get("duplicate_target_actions") != 0
+            or metadata.get("raw_predicted_action_count")
+            != legality.get("raw_predicted_action_count")
+            or metadata.get("materialized_distinct_action_count")
+            != legality.get("materialized_distinct_action_count")
+            or metadata.get("offline_nn_entries")
+            != metadata.get("materialized_distinct_action_count")
+        ):
+            failures.append("{} invalid hard-action legality audit".format(tag))
     if is_v16a:
         selection = metadata.get("guard_decoder_selection")
         if not isinstance(selection, dict) or set(selection) != {
@@ -867,6 +977,7 @@ def main():
         if not tag.startswith(MODEL_TAG_PREFIXES):
             raise SystemExit("invalid model tag {}".format(tag))
     revisions = {
+        "v18" if tag.startswith("hard_distinct_delta_fill_spp_lstm_") else
         "v16a" if tag.startswith("guard_joint_map_spp_lstm_") else
         "v17" if tag.startswith("factorized_delta_fill_spp_lstm_") else
         "v15"
@@ -901,6 +1012,8 @@ def main():
             "offline_joint_delta_fill_spp_"
         ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
             "offline_factorized_delta_fill_spp_"
+        ) or method.startswith(
+            "offline_hard_distinct_delta_fill_spp_"
         ):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
@@ -999,8 +1112,6 @@ def main():
             "teacher_actions_are_model_inputs": False,
             "same_external_input_contract": True,
             "training_inference_input_encoder_identical": True,
-            "decoder_training_mode": "free_running_autoregressive_same_as_inference",
-            "decoder_previous_teacher_action_used_as_input": False,
             "normal_policy_outputs_used_as_model_inputs": False,
             "normal_policy_candidates_used_as_model_inputs": False,
             "normal_policy_private_state_used_as_model_inputs": False,
@@ -1092,7 +1203,9 @@ def main():
         validate_metadata(
             metadata, tag, input_info, source_contract_hash, failures
         )
-        if metadata.get("model_revision") == V17_MODEL_REVISION:
+        if metadata.get("model_revision") in (
+            V17_MODEL_REVISION, V18_MODEL_REVISION,
+        ):
             for name, key in (
                 ("model.pt", "model_checkpoint_sha256"),
                 ("training_history.csv", "training_history_sha256"),
@@ -1387,7 +1500,8 @@ def main():
         "trace": TRACE,
         "model_family_track": TRACK_MODEL_FAMILY,
         "model_revision": (
-            V16A_MODEL_REVISION if "v16a" in revisions
+            V18_MODEL_REVISION if "v18" in revisions
+            else V16A_MODEL_REVISION if "v16a" in revisions
             else V17_MODEL_REVISION if "v17" in revisions
             else V15_MODEL_REVISION
         ),
@@ -1405,6 +1519,8 @@ def main():
             "spp_track": [
                 "offline_spp",
                 (
+                    "offline_hard_distinct_delta_fill_spp_{}_<capacity>"
+                    if "v18" in revisions else
                     "offline_guard_joint_map_spp_{}_<capacity>"
                     if "v16a" in revisions else
                     "offline_factorized_delta_fill_spp_{}_<capacity>"
@@ -1435,18 +1551,29 @@ def main():
         ),
         "direct_action_contract": {
             "count_distribution": (
+                "deterministic raw hurdle plus rounded conditional excess mean"
+                if "v18" in revisions else
                 "unweighted Bernoulli hurdle plus conditional Poisson excess "
                 "with non-negative unbounded support"
             ),
             "target_and_fill_distribution": (
                 "factorized four-component signed-delta mixture and "
-                "two-class fill head" if "v17" in revisions else
+                "two-class fill head" if (
+                    "v17" in revisions or "v18" in revisions
+                ) else
                 "joint four-component signed-delta by two-fill-class mixture"
             ),
             "fill_classes": ["FILL_L2", "FILL_LLC"],
             "decision": (
-                "stateless event-keyed Bernoulli/Poisson inverse-CDF count and "
+                (
+                    "deterministic raw count, scale-aware hard quantized "
+                    "distinct delta, and event-keyed hard fill draw"
+                    if "v18" in revisions else
+                    "stateless event-keyed Bernoulli/Poisson inverse-CDF count and "
+                )
                 + (
+                    ""
+                    if "v18" in revisions else
                     "guard-selected deterministic joint delta-component/fill MAP"
                     if "v16a" in revisions else
                     "deterministic modal delta-component mean plus one "
@@ -1544,6 +1671,10 @@ def main():
         "input_provenance": {
             "current_input_dir": str(input_dir),
             "collection_manifest": collection_manifest,
+            "collection_manifest_role": (
+                "historical_input_package_provenance_only"
+            ),
+            "collection_manifest_decoder_fields_are_current_contract": False,
             "spp_source_contract_sha256": source_contract_hash,
             "policy_inputs": input_info,
         },
