@@ -11,14 +11,16 @@ import csv
 import json
 from pathlib import Path
 
+from model_points_v19 import (
+    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as V19_MODEL_REVISION, POLICY,
+    RUN_ID as DEFAULT_RUN_ID, TRACE, describe_model_points,
+)
 
-POLICY = "spp"
-TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_spp_hard_distinct_v18_seed7"
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
 V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
 V18_MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
+V19_POINT_CONTRACT = describe_model_points()
 REVISION_PROFILES = {
     V15_MODEL_REVISION: (
         "offline_joint_delta_fill_spp_lstm_",
@@ -36,12 +38,12 @@ REVISION_PROFILES = {
         "offline_hard_distinct_delta_fill_spp_lstm_",
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
+    V19_MODEL_REVISION: (
+        "offline_routed_grammar_spp_lstm_",
+        "routed_grammar_spp_lstm_h{}",
+    ),
 }
-SOURCE_INPUTS = [
-    "callback_kind",
-    "invoke_prefetcher.addr",
-    "cache_fill.evicted_addr",
-]
+SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
 EXPERIMENT = Path(__file__).resolve().parents[1]
 
 
@@ -245,9 +247,18 @@ def model_record(row, metadata, normal, no_pref, matched):
         "training_joint_label_diagnostics",
         "delta_training_objective",
         "delta_mixture_decoding_rule",
+        "delta_decoding_rule",
+        "delta_codec",
+        "duplicate_target_handling",
         "fill_training_objective",
         "fill_decoding_rule",
+        "fill_conditioned_on_actual_emitted_target",
         "factorized_delta_fill_heads",
+        "routed_demand_fill_recurrent_paths",
+        "page_local_causal_state",
+        "page_state_validity_rule",
+        "dynamic_page_state_pages",
+        "peak_persistent_recurrent_state_bytes",
         "action_legality_diagnostics",
         "raw_predicted_action_count",
         "materialized_distinct_action_count",
@@ -317,9 +328,12 @@ def main():
             model_revision
         ))
     neural_method_prefix, tag_template = profile
-    expected_model_tags = {
-        tag_template.format(size) for size in (8, 16, 32, 64, 128)
-    }
+    model_sizes = tuple(
+        point["size"] for point in V19_POINT_CONTRACT["points"]
+    ) if model_revision == V19_MODEL_REVISION else (
+        8, 16, 32, 64, 128
+    )
+    expected_model_tags = {tag_template.format(size) for size in model_sizes}
 
     rows = {
         row.get("method"): row for row in matched.get("rows", [])
