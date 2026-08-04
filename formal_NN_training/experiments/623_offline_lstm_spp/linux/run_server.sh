@@ -6,9 +6,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-DEFAULT_RUN_ID="623_offline_lstm_spp_factorized_fill_v17_seed7"
-DEFAULT_MODEL_TAGS="factorized_delta_fill_spp_lstm_h8,factorized_delta_fill_spp_lstm_h16,factorized_delta_fill_spp_lstm_h32,factorized_delta_fill_spp_lstm_h64,factorized_delta_fill_spp_lstm_h128"
-DEFAULT_BASE_TAG="factorized_delta_fill_spp_lstm_h8"
+DEFAULT_RUN_ID="623_offline_lstm_spp_hard_distinct_v18_seed7"
+DEFAULT_MODEL_TAGS="hard_distinct_delta_fill_spp_lstm_h8,hard_distinct_delta_fill_spp_lstm_h16,hard_distinct_delta_fill_spp_lstm_h32,hard_distinct_delta_fill_spp_lstm_h64,hard_distinct_delta_fill_spp_lstm_h128"
+DEFAULT_BASE_TAG="hard_distinct_delta_fill_spp_lstm_h8"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
@@ -318,9 +318,9 @@ common = {
     "matched_normal_prefetcher": "spp",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
-    "operation": "train-v17",
-    "model_revision": "compact_crn_factorized_delta_keyed_fill_v17",
-    "decoder_revision": "factorized_delta_keyed_fill_v17",
+    "operation": "train-v18",
+    "model_revision": "compact_crn_hard_distinct_delta_keyed_fill_v18",
+    "decoder_revision": "hard_distinct_delta_keyed_fill_v18",
     "model_does_not_use_pc": True,
     "pc_is_replay_transport_only": True,
     "model_input_is_causal_external_event_sequence_only": True,
@@ -330,9 +330,11 @@ common = {
     "teacher_actions_are_model_inputs": False,
     "same_external_input_contract": True,
     "training_inference_input_encoder_identical": True,
-    "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+    "decoder_training_mode": "teacher_count_scheduled_loss_with_hard_self_action_feedback",
     "decoder_previous_teacher_action_used_as_input": False,
     "decoder_free_running_self_test": "PASS",
+    "teacher_count_role": "schedules_loss_bearing_action_ranks_only",
+    "teacher_count_used_as_decoder_feedback": False,
     "training_runtime_fields": source_inputs,
     "inference_runtime_fields": source_inputs,
     "normal_policy_outputs_used_as_model_inputs": False,
@@ -354,9 +356,9 @@ common = {
     "manual_loss_weights_used": False,
     "gate_class_weighting_used": False,
     "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
+    "gate_decoding_rule": "deterministic_raw_logit_sign",
     "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf",
+    "request_count_decoding_rule": "deterministic_raw_hurdle_plus_rounded_conditional_excess_mean",
     "request_count_residual_scope": "none_event_local",
     "joint_delta_fill_dependency_modeled": False,
     "joint_pair_classes": 0,
@@ -364,21 +366,35 @@ common = {
     "joint_delta_fill_decoding_rule": None,
     "delta_mixture_components": 4,
     "delta_training_objective": "four_component_signed_log_delta_mixture_nll",
-    "delta_mixture_decoding_rule": "deterministic_modal_component_then_component_mean",
+    "delta_mixture_decoding_rule": "component_peak_density_order_then_hard_quantized_legal_delta",
     "fill_training_objective": "unweighted_two_class_cross_entropy",
     "fill_decoding_rule": "event_keyed_categorical_inverse_cdf",
     "fill_argmax_used": False,
-    "fill_probability_feedback_used": True,
-    "delta_decoder_feedback_rule": "factorized_distribution_expectation_same_in_training_and_inference",
+    "fill_probability_feedback_used": False,
+    "hard_fill_one_hot_feedback_used": True,
+    "keyed_fill_uniform_dtype": "float64",
+    "address_confidence_fill_heuristic_used": False,
+    "delta_decoder_feedback_rule": "actual_hard_quantized_emitted_delta_with_straight_through_training",
+    "fill_decoder_feedback_rule": "actual_keyed_hard_fill_one_hot_with_straight_through_training",
+    "straight_through_hard_action_feedback_used": True,
+    "delta_component_order_score": "log_mixture_mass_minus_log_scale",
+    "delta_component_score_tie_break": "ascending_component_index_stable",
+    "delta_legality_constraints": [
+        "nonzero_signed_delta", "distinct_target_within_callback",
+    ],
+    "delta_legality_fallback": "nearest_signed_delta_only_if_all_component_means_are_illegal",
+    "delta_legality_uses_teacher_or_private_state": False,
+    "signed_delta_canonicalization": "58_bit_modulo_with_positive_half_range_mapped_to_negative",
     "decoder_probability_mass_carries_train_guard_history": False,
     "cross_event_probability_credit_used": False,
-    "sampled_outputs_used_as_decoder_feedback": False,
+    "sampled_outputs_used_as_decoder_feedback": True,
     "stochastic_decoding_reproducible": True,
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
     "learned_request_count": True,
     "causal_no_future_self_test": "PASS",
-    "event_local_hurdle_count_self_test": "PASS",
+    "deterministic_hurdle_count_self_test": "PASS",
+    "hard_distinct_action_feedback_self_test": "PASS",
     "keyed_sampling_self_test": "PASS",
     "factorized_delta_fill_sampling_self_test": "PASS",
     "cnn_architecture_self_test": "NOT_APPLICABLE",
@@ -394,13 +410,16 @@ common = {
     "common_random_numbers_across_capacities": True,
     "strict_common_random_numbers_across_capacities": True,
     "cross_event_rng_state_used": False,
-    "decoder_sampling_roles": ["eval"],
-    "decoder_train_sampling_performed": False,
+    "decoder_sampling_roles": ["train", "eval"],
+    "decoder_train_sampling_performed": True,
     "decoder_guard_sampling_performed": False,
+    "decoder_count_sampling_performed": False,
     "guard_selected_decoder": False,
     "joint_map_used": False,
     "weights_retrained": True,
     "checkpoint_reused": False,
+    "collection_manifest_role": "historical_input_package_provenance_only",
+    "collection_manifest_decoder_fields_are_current_contract": False,
 }
 bad = {
     key: (metadata.get(key), expected)
@@ -430,6 +449,7 @@ for key in (
     "decoder_sampler_key_schedule_sha256",
     "decoder_eval_event_key_stream_sha256",
     "decoder_eval_sampling_schedule_sha256",
+    "decoder_train_sampling_schedule_sha256",
     "decision_router_source_sha256",
     "train_decision_router_sha256",
     "guard_decision_router_sha256",
@@ -445,8 +465,8 @@ for key in (
         bad[key] = (value, "64 lowercase hex characters")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
-if not tag.startswith("factorized_delta_fill_spp_lstm_h"):
-    bad["model_tag"] = (tag, "factorized_delta_fill_spp_lstm_h<size>")
+if not tag.startswith("hard_distinct_delta_fill_spp_lstm_h"):
+    bad["model_tag"] = (tag, "hard_distinct_delta_fill_spp_lstm_h<size>")
 expected_points = {
     ("lstm", 8): ("p0", 2664),
     ("lstm", 16): ("p1", 6208),
@@ -457,7 +477,7 @@ expected_points = {
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
     bad["model_point"] = (
-        (family, metadata.get("model_size")), "pinned v17 point"
+        (family, metadata.get("model_size")), "pinned v18 point"
     )
 else:
     if metadata.get("architecture_pair_id") != point[0]:
@@ -575,8 +595,23 @@ for name, key in (
     )
     if metadata.get(key) != observed:
         bad[key] = (metadata.get(key), observed)
+legality = metadata.get("action_legality_diagnostics")
+if (
+    not isinstance(legality, dict)
+    or legality.get("self_target_actions") != 0
+    or legality.get("duplicate_target_actions") != 0
+    or metadata.get("raw_predicted_action_count")
+    != legality.get("raw_predicted_action_count")
+    or metadata.get("materialized_distinct_action_count")
+    != legality.get("materialized_distinct_action_count")
+    or metadata.get("offline_nn_entries")
+    != metadata.get("materialized_distinct_action_count")
+):
+    bad["action_legality_diagnostics"] = (
+        legality, "zero self/duplicates and metadata-bound raw/materialized counts"
+    )
 if bad:
-    raise SystemExit("invalid 623 SPP v17 metadata: {}".format(bad))
+    raise SystemExit("invalid 623 SPP v18 metadata: {}".format(bad))
 PY
 }
 run_method() {
@@ -611,7 +646,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_factorized_delta_fill_spp_lstm_*)
+    offline_hard_distinct_delta_fill_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
