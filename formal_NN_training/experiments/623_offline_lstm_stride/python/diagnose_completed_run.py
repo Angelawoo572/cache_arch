@@ -16,7 +16,7 @@ from pathlib import Path
 
 POLICY = "stride"
 TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_stride_compact_hurdle_v16_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7"
 SOURCE_INPUTS = ["pc", "addr"]
 NEURAL_METHOD_PREFIX = "offline_independent_delta_stride_lstm_"
 EXPECTED_TAGS = {

@@ -16,15 +16,19 @@ POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
-MODEL_REVISION = V15_MODEL_REVISION
+V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
+MODEL_REVISION = V17_MODEL_REVISION
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
-    "guard_joint_map_spp_lstm_h8,guard_joint_map_spp_lstm_h16,"
-    "guard_joint_map_spp_lstm_h32,guard_joint_map_spp_lstm_h64,"
-    "guard_joint_map_spp_lstm_h128"
+    "factorized_delta_fill_spp_lstm_h8,"
+    "factorized_delta_fill_spp_lstm_h16,"
+    "factorized_delta_fill_spp_lstm_h32,"
+    "factorized_delta_fill_spp_lstm_h64,"
+    "factorized_delta_fill_spp_lstm_h128"
 )
 MODEL_TAG_PREFIXES = (
     "joint_delta_fill_spp_lstm_", "guard_joint_map_spp_lstm_",
+    "factorized_delta_fill_spp_lstm_",
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -33,7 +37,17 @@ EXPECTED_POINTS = {
     ("lstm", 64): "p3",
     ("lstm", 128): "p4",
 }
-EXPECTED_PARAMETERS = {8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162}
+EXPECTED_PARAMETERS_BY_REVISION = {
+    V15_MODEL_REVISION: {
+        8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162,
+    },
+    V16A_MODEL_REVISION: {
+        8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162,
+    },
+    V17_MODEL_REVISION: {
+        8: 2664, 16: 6208, 32: 15984, 64: 46288, 128: 149904,
+    },
+}
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ACTION_ATTACHMENT_MODE = "explicit_trigger_event_id"
 SOURCE_INPUTS = [
@@ -347,7 +361,9 @@ def parse_events(path):
 def policy_for_method(method):
     if method == "offline_" + POLICY or method.startswith(
         "offline_joint_delta_fill_spp_"
-    ) or method.startswith("offline_guard_joint_map_spp_"):
+    ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
+        "offline_factorized_delta_fill_spp_"
+    ):
         return POLICY
     return ""
 
@@ -355,7 +371,9 @@ def policy_for_method(method):
 def model_tag_for_method(method):
     if method.startswith(
         "offline_joint_delta_fill_spp_"
-    ) or method.startswith("offline_guard_joint_map_spp_"):
+    ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
+        "offline_factorized_delta_fill_spp_"
+    ):
         return method[len("offline_"):]
     return ""
 
@@ -436,6 +454,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     policy = POLICY
     revision = metadata.get("model_revision")
     is_v16a = revision == V16A_MODEL_REVISION
+    is_v17 = revision == V17_MODEL_REVISION
     common = {
         "trace": TRACE,
         "model_tag": tag,
@@ -512,7 +531,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
-        "model_revision": MODEL_REVISION,
+        "model_revision": revision,
         "neural_role": "standalone_direct_action_prefetcher",
         "replay_preserves_explicit_fill_level": True,
         "source_decision_effective_external_input": SOURCE_INPUTS,
@@ -602,12 +621,55 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
                 "canonical_mode_order",
             ],
         })
-    if revision not in (V15_MODEL_REVISION, V16A_MODEL_REVISION):
+    elif is_v17:
+        common.update({
+            "operation": "train-v17",
+            "decoder_revision": "factorized_delta_keyed_fill_v17",
+            "decoder_candidate_modes": [],
+            "selected_decoder_mode": (
+                "deterministic_modal_delta_component_plus_keyed_fill_draw"
+            ),
+            "fill_training_objective": (
+                "unweighted_two_class_cross_entropy"
+            ),
+            "fill_decoding_rule": (
+                "event_keyed_categorical_inverse_cdf"
+            ),
+            "joint_delta_fill_sampling_self_test": "NOT_APPLICABLE",
+            "factorized_delta_fill_sampling_self_test": "PASS",
+            "delta_mixture_decoding_rule": (
+                "deterministic_modal_component_then_component_mean"
+            ),
+            "delta_decoder_feedback_rule": (
+                "factorized_distribution_expectation_same_in_training_and_inference"
+            ),
+            "joint_delta_fill_dependency_modeled": False,
+            "joint_delta_fill_class_count": 0,
+            "joint_pair_classes": 0,
+            "joint_delta_fill_training_objective": None,
+            "joint_delta_fill_decoding_rule": None,
+            "joint_component_canonicalization": None,
+            "delta_mixture_components": 4,
+            "delta_training_objective": (
+                "four_component_signed_log_delta_mixture_nll"
+            ),
+            "weights_retrained": True,
+            "checkpoint_reused": False,
+            "decoder_only_change": False,
+            "guard_selected_decoder": False,
+            "joint_map_used": False,
+            "decoder_action_sampling_performed": True,
+            "decoder_count_sampling_performed": True,
+        })
+    if revision not in (
+        V15_MODEL_REVISION, V16A_MODEL_REVISION, V17_MODEL_REVISION,
+    ):
         failures.append("{} unsupported model revision {!r}".format(
             tag, revision
         ))
     expected_prefix = (
         "guard_joint_map_spp_lstm_" if is_v16a else
+        "factorized_delta_fill_spp_lstm_" if is_v17 else
         "joint_delta_fill_spp_lstm_"
     )
     if not tag.startswith(expected_prefix):
@@ -656,6 +718,10 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
             "parent_training_history_sha256", "model_checkpoint_sha256",
             "training_history_sha256",
         ])
+    elif is_v17:
+        hash_keys.extend([
+            "model_checkpoint_sha256", "training_history_sha256",
+        ])
     for key in hash_keys:
         value = metadata.get(key)
         if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
@@ -672,7 +738,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         "count_exact_match_rate", "target_precision", "target_recall",
         "target_f1",
     )
-    if is_v16a:
+    if is_v16a or is_v17:
         required_behavior += (
             "joint_action_f1", "l2_joint_f1", "predicted_l2_fraction",
             "teacher_l2_fraction", "trigger_f1",
@@ -691,7 +757,7 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
         ):
             failures.append("{} invalid fill behavior accuracy".format(tag))
         action_ratio = behavior.get("predicted_to_normal_action_ratio")
-        if is_v16a and (
+        if (is_v16a or is_v17) and (
             not isinstance(action_ratio, (int, float)) or action_ratio < 0
         ):
             failures.append("{} invalid action-count ratio".format(tag))
@@ -736,7 +802,9 @@ def validate_metadata(metadata, tag, inputs, source_contract_hash, failures):
     else:
         if metadata.get("architecture_pair_id") != point:
             failures.append("{} architecture pair mismatch".format(tag))
-        expected_parameters = EXPECTED_PARAMETERS.get(metadata.get("model_size"))
+        expected_parameters = EXPECTED_PARAMETERS_BY_REVISION.get(
+            revision, {}
+        ).get(metadata.get("model_size"))
         if metadata.get("parameter_count") != expected_parameters:
             failures.append(
                 "{} parameter count {!r}; expected {!r}".format(
@@ -799,11 +867,13 @@ def main():
         if not tag.startswith(MODEL_TAG_PREFIXES):
             raise SystemExit("invalid model tag {}".format(tag))
     revisions = {
-        "v16a" if tag.startswith("guard_joint_map_spp_lstm_") else "v15"
+        "v16a" if tag.startswith("guard_joint_map_spp_lstm_") else
+        "v17" if tag.startswith("factorized_delta_fill_spp_lstm_") else
+        "v15"
         for tag in model_tags
     }
     if len(revisions) != 1:
-        raise SystemExit("do not mix v15 and v16A tags in one matched run")
+        raise SystemExit("do not mix SPP model revisions in one matched run")
 
     methods = [
         "no_pref",
@@ -829,7 +899,9 @@ def main():
             continue
         if method == "offline_spp" or method.startswith(
             "offline_joint_delta_fill_spp_"
-        ) or method.startswith("offline_guard_joint_map_spp_"):
+        ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
+            "offline_factorized_delta_fill_spp_"
+        ):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
                 failures.append(
@@ -1020,6 +1092,17 @@ def main():
         validate_metadata(
             metadata, tag, input_info, source_contract_hash, failures
         )
+        if metadata.get("model_revision") == V17_MODEL_REVISION:
+            for name, key in (
+                ("model.pt", "model_checkpoint_sha256"),
+                ("training_history.csv", "training_history_sha256"),
+            ):
+                artifact = colab_root / tag / name
+                observed = sha256(artifact) if artifact.is_file() else None
+                if metadata.get(key) != observed:
+                    failures.append(
+                        "{} {} byte hash mismatch".format(tag, name)
+                    )
         if metadata.get("model_revision") == V16A_MODEL_REVISION:
             for name, key in (
                 ("model.pt", "model_checkpoint_sha256"),
@@ -1305,6 +1388,7 @@ def main():
         "model_family_track": TRACK_MODEL_FAMILY,
         "model_revision": (
             V16A_MODEL_REVISION if "v16a" in revisions
+            else V17_MODEL_REVISION if "v17" in revisions
             else V15_MODEL_REVISION
         ),
         "trace_selection": {
@@ -1323,6 +1407,8 @@ def main():
                 (
                     "offline_guard_joint_map_spp_{}_<capacity>"
                     if "v16a" in revisions else
+                    "offline_factorized_delta_fill_spp_{}_<capacity>"
+                    if "v17" in revisions else
                     "offline_joint_delta_fill_spp_{}_<capacity>"
                 ).format(TRACK_MODEL_FAMILY),
             ],
@@ -1353,6 +1439,8 @@ def main():
                 "with non-negative unbounded support"
             ),
             "target_and_fill_distribution": (
+                "factorized four-component signed-delta mixture and "
+                "two-class fill head" if "v17" in revisions else
                 "joint four-component signed-delta by two-fill-class mixture"
             ),
             "fill_classes": ["FILL_L2", "FILL_LLC"],
@@ -1361,6 +1449,9 @@ def main():
                 + (
                     "guard-selected deterministic joint delta-component/fill MAP"
                     if "v16a" in revisions else
+                    "deterministic modal delta-component mean plus one "
+                    "event-keyed fill-class draw"
+                    if "v17" in revisions else
                     "one mean-canonicalized joint delta-component/fill sample"
                 )
             ),

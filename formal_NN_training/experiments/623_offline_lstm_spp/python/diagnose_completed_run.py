@@ -14,9 +14,10 @@ from pathlib import Path
 
 POLICY = "spp"
 TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_spp_keyed_crn_joint_map_v16a_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_spp_factorized_fill_v17_seed7"
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
+V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
 REVISION_PROFILES = {
     V15_MODEL_REVISION: (
         "offline_joint_delta_fill_spp_lstm_",
@@ -25,6 +26,10 @@ REVISION_PROFILES = {
     V16A_MODEL_REVISION: (
         "offline_guard_joint_map_spp_lstm_",
         "guard_joint_map_spp_lstm_h{}",
+    ),
+    V17_MODEL_REVISION: (
+        "offline_factorized_delta_fill_spp_lstm_",
+        "factorized_delta_fill_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = [
@@ -232,6 +237,12 @@ def model_record(row, metadata, normal, no_pref, matched):
         "guard_action_summary",
         "eval_action_summary",
         "joint_delta_fill_training_label_diagnostics",
+        "training_joint_label_diagnostics",
+        "delta_training_objective",
+        "delta_mixture_decoding_rule",
+        "fill_training_objective",
+        "fill_decoding_rule",
+        "factorized_delta_fill_heads",
         "offline_normal_fill_level_counts",
         "offline_nn_fill_level_counts",
         "decoder_revision",

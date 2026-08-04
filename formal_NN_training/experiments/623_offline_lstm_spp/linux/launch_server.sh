@@ -4,15 +4,9 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
-EXPERIMENT_MODE="${EXPERIMENT_MODE:-v16a}"
-case "$EXPERIMENT_MODE" in
-  v15) DEFAULT_RUN_ID="623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7" ;;
-  v16a) DEFAULT_RUN_ID="623_offline_lstm_spp_keyed_crn_joint_map_v16a_seed7" ;;
-  *) echo "[error] EXPERIMENT_MODE must be v15 or v16a" >&2; exit 2 ;;
-esac
+DEFAULT_RUN_ID="623_offline_lstm_spp_factorized_fill_v17_seed7"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
-PARENT_RUN_ID="${PARENT_RUN_ID:-623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7}"
-STAGE="${1:-${STAGE:-collect}}"
+STAGE="${1:-${STAGE:-replay}}"
 CANONICAL_RUN_DIR="$EXP/runs/$RUN_ID"
 if [[ -n "${RUN_DIR:-}" && "$RUN_DIR" != "$CANONICAL_RUN_DIR" ]]; then
   echo "[isolation] ignoring foreign RUN_DIR=$RUN_DIR" >&2
@@ -37,8 +31,6 @@ fi
 
 nohup env \
   RUN_ID="$RUN_ID" \
-  EXPERIMENT_MODE="$EXPERIMENT_MODE" \
-  PARENT_RUN_ID="$PARENT_RUN_ID" \
   RUN_DIR="$RUN_DIR" \
   STAGE="$STAGE" \
   FORCE="${FORCE:-1}" \

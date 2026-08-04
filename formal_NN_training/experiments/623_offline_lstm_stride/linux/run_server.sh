@@ -6,7 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRACE="623.xalancbmk_s-700B"
 POLICY="stride"
-RUN_ID="${RUN_ID:-623_offline_lstm_stride_compact_hurdle_v16_seed7}"
+RUN_ID="${RUN_ID:-623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7}"
 STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
@@ -240,10 +240,12 @@ common = {
     "data_derived_gate_class_weights_used": True,
     "gate_class_weighting_used": True,
     "gate_training_objective": "data_derived_frequency_balanced_two_class_cross_entropy",
-    "gate_decoding_rule": "deterministic_two_class_argmax",
+    "gate_decoding_rule": "prior_corrected_deterministic_two_class_argmax",
+    "gate_prior_correction": "subtract_log_training_class_weight_before_argmax",
+    "gate_prior_correction_self_test": "PASS",
     "gate_class_weights_source": "train_zero_positive_frequencies_equal_aggregate_loss_mass",
     "request_count_training_objective": "balanced_two_class_hurdle_plus_positive_log_count_smooth_l1",
-    "request_count_decoding_rule": "deterministic_gate_argmax_plus_rounded_exp_positive_log_count",
+    "request_count_decoding_rule": "prior_corrected_gate_argmax_plus_rounded_exp_positive_log_count",
     "request_count_residual_scope": "none_event_local",
     "training_regularization_used": False,
     "inference_policy_hardcodes_used": False,
@@ -269,7 +271,7 @@ common = {
     "event_logger_schema": "623_causal_trigger_v5",
     "candidate_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_balanced_deterministic_scalar_v16",
+    "model_revision": "compact_pc_keyed_prior_corrected_hurdle_scalar_v17",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
     "runtime_feature_count": 122,

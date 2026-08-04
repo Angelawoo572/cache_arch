@@ -1,10 +1,14 @@
 {
   "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-  "model_revision": "compact_crn_joint_delta_fill_guard_map_v16a",
-  "parent_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
-  "weights_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
+  "model_revision": "compact_crn_factorized_delta_keyed_fill_v17",
+  "operation": "train-v17",
   "event_logger_schema": "623_causal_trigger_fill_v6",
   "normal_prefetcher": "spp",
+  "decision_effective_external_input": [
+    "callback_kind",
+    "invoke_prefetcher.addr",
+    "cache_fill.evicted_addr"
+  ],
   "source_decision_effective_external_input": [
     "callback_kind",
     "invoke_prefetcher.addr",
@@ -21,7 +25,8 @@
   "track_model_family": "lstm",
   "neural_action_decoder": {
     "request_count": "stateless event-keyed Bernoulli inverse-CDF hurdle plus common-quantile Poisson inverse-CDF excess",
-    "targets_and_fill": "guard-selected deterministic joint-class MAP or learned-scale-aware component-peak MAP, followed by the selected component mean",
+    "targets": "four-component signed-log direct-delta mixture with deterministic modal-component mean",
+    "fill": "separate unweighted two-class head with stateless event-keyed categorical inverse-CDF draw",
     "fill_classes": ["FILL_L2", "FILL_LLC"],
     "fixed_page_offset_classes": null,
     "same_page_rule": false,
@@ -34,17 +39,21 @@
   "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
   "request_count_decoding_rule": "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf",
   "request_count_residual_scope": "none_event_local",
-  "joint_delta_fill_training_objective": "unweighted_joint_delta_component_fill_mixture_nll",
-  "joint_delta_fill_decoding_rule": "guard_selected_joint_class_map_or_component_peak_map",
-  "joint_delta_fill_dependency_modeled": true,
-  "fill_training_objective": "joint_with_delta_component_unweighted_mixture_nll",
-  "fill_decoding_rule": "guard_selected_joint_pair_map",
-  "delta_mixture_decoding_rule": "guard_selected_joint_component_then_component_mean",
+  "joint_delta_fill_dependency_modeled": false,
+  "joint_delta_fill_training_objective": null,
+  "joint_delta_fill_decoding_rule": null,
+  "delta_mixture_components": 4,
+  "delta_training_objective": "four_component_signed_log_delta_mixture_nll",
+  "delta_mixture_decoding_rule": "deterministic_modal_component_then_component_mean",
+  "fill_training_objective": "unweighted_two_class_cross_entropy",
+  "fill_decoding_rule": "event_keyed_categorical_inverse_cdf",
+  "fill_argmax_used": false,
   "fill_probability_feedback_used": true,
-  "delta_decoder_feedback_rule": "complete_joint_distribution_expectation_same_in_training_and_inference",
-  "stochastic_decoding": "stateless SHA-256 keyed hurdle/count sampling plus guard-selected deterministic joint action MAP",
+  "delta_decoder_feedback_rule": "factorized_distribution_expectation_same_in_training_and_inference",
+  "stochastic_decoding": "stateless SHA-256 keyed hurdle/count/fill inverse-CDF sampling plus deterministic modal delta component mean",
   "stochastic_decoding_reproducible": true,
   "common_random_numbers_across_capacities": true,
+  "strict_common_random_numbers_across_capacities": true,
   "cross_event_rng_state_used": false,
   "decoder_key_fields": ["revision", "decoder_seed", "trace", "policy", "role", "event_key", "head", "action_rank"],
   "event_key_definition": "zero-based role-local decision index plus source-visible cache-line number",
@@ -52,8 +61,6 @@
   "decoder_probability_mass_carries_train_guard_history": false,
   "cross_event_probability_credit_used": false,
   "sampled_outputs_used_as_decoder_feedback": false,
-  "decoder_mixture_components": 4,
-  "joint_pair_classes": 8,
   "captured_spp_actions_role": "fill-preserving normal replay and supervised labels only",
   "teacher_actions_are_model_inputs": false,
   "normal_private_state_is_model_input": false,
@@ -64,72 +71,27 @@
   "manual_loss_weights": false,
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
-  "training_target": "canonicalized source-SPP request count plus joint direct target and fill class as supervision only",
+  "training_target": "canonicalized source-SPP request count, direct target, and fill class as supervision only",
   "lstm": {
-    "architecture": "compact chronological LSTM plus keyed hurdle/Poisson count and joint delta-component/fill decoder",
+    "architecture": "one compact chronological LSTM plus keyed hurdle/Poisson count, factorized four-component delta mixture, and separate rare-fill head",
     "stateful_training": "chronological TBPTT over the complete demand/fill event sequence; hidden/cell values cross chunks and graph history is detached at chunk boundaries",
-    "inference_history": "fresh state followed by complete train, guard, and evaluation chronology; guard demand callbacks select the decoder mode and evaluation demand callbacks produce the reported replay"
+    "inference_history": "fresh state followed by complete train, guard, and evaluation chronology; guard is causal warm-up/audit only and evaluation demand callbacks produce replay"
   },
-  "eviction_feedback_role": "raw chronological input event only; no private SPP state and no separate eviction prediction target",
+  "eviction_feedback_role": "raw chronological source-visible input event only; no private SPP state and no separate eviction prediction target",
   "same_source_input_offline_claim_allowed": true,
   "closed_loop_live_claim_allowed": false,
+  "v16a_diagnosis": {
+    "normal_l2_fraction": "approximately 2 percent in the captured teacher list",
+    "failure": "joint deterministic MAP can remove the rare L2 placement even while request count remains high",
+    "v17_change": "retrain factorized delta and fill heads; sample learned fill probability with the existing keyed CRN schedule",
+    "dual_recurrent_state_added": false
+  },
   "architecture_points": [
-    {"pair_id": "p0", "lstm_size": 8, "parameters": 2682},
-    {"pair_id": "p1", "lstm_size": 16, "parameters": 6242},
-    {"pair_id": "p2", "lstm_size": 32, "parameters": 16050},
-    {"pair_id": "p3", "lstm_size": 64, "parameters": 46418},
-    {"pair_id": "p4", "lstm_size": 128, "parameters": 150162}
+    {"pair_id": "p0", "lstm_size": 8, "parameters": 2664},
+    {"pair_id": "p1", "lstm_size": 16, "parameters": 6208},
+    {"pair_id": "p2", "lstm_size": 32, "parameters": 15984},
+    {"pair_id": "p3", "lstm_size": 64, "parameters": 46288},
+    {"pair_id": "p4", "lstm_size": 128, "parameters": 149904}
   ],
-  "supported_model_revisions": [
-    "compact_crn_joint_delta_fill_mixture_v15",
-    "compact_crn_joint_delta_fill_guard_map_v16a"
-  ],
-  "legacy_v15_decoder_contract": {
-    "model_revision": "compact_crn_joint_delta_fill_mixture_v15",
-    "targets_and_fill": "one event-keyed inverse-CDF sample from a joint mean-canonicalized delta-component by fill-class distribution",
-    "joint_delta_fill_decoding_rule": "event_keyed_mean_sorted_joint_pair_inverse_cdf",
-    "fill_decoding_rule": "single_joint_delta_fill_pair_sample",
-    "delta_mixture_decoding_rule": "single_joint_component_fill_sample_then_component_mean",
-    "decoder_sampling_roles": ["eval"],
-    "old_run_preserved": true
-  },
-  "v16a_decoder_ablation": {
-    "run_id": "623_offline_lstm_spp_keyed_crn_joint_map_v16a_seed7",
-    "parent_run_id": "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7",
-    "model_revision": "compact_crn_joint_delta_fill_guard_map_v16a",
-    "parent_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
-    "weights_retrained": false,
-    "checkpoint_reused_with_strict_validation": true,
-    "request_count_decoder_unchanged": "stateless event-keyed Bernoulli hurdle plus conditional Poisson excess",
-    "candidate_modes": [
-      "joint_class_map",
-      "component_peak_map"
-    ],
-    "joint_class_map": "argmax of learned joint delta-component/fill probability with canonical tie order",
-    "component_peak_map": "argmax of learned joint probability divided by learned component scale, evaluated at each component mean; not an exact Gaussian-mixture mode claim",
-    "guard_selection_objective": [
-      "maximize_joint_action_f1",
-      "maximize_target_f1",
-      "maximize_trigger_f1",
-      "minimize_absolute_action_count_ratio_error",
-      "maximize_l2_joint_f1",
-      "minimize_absolute_l2_fraction_error",
-      "canonical_mode_order"
-    ],
-    "selection_data": "guard labels only; evaluation labels are never used for selection",
-    "decoder_feedback": "complete learned joint-distribution expectation, unchanged from v15 training and inference",
-    "decision_effective_external_input": [
-      "callback_kind",
-      "invoke_prefetcher.addr",
-      "cache_fill.evicted_addr"
-    ],
-    "teacher_role": "labels and audit only",
-    "comparison_semantics": "matched-input open-loop only",
-    "probability_threshold": null,
-    "degree_cap": null,
-    "candidate_bank": null,
-    "page_offset_class": null,
-    "old_run_preserved": true
-  },
   "parameter_counts": "measured and asserted exactly; never thresholded"
 }

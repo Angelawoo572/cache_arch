@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 
-DEFAULT_RUN_ID = "623_offline_lstm_stride_keyed_crn_v15_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7"
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
 
 

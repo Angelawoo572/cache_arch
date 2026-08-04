@@ -17,6 +17,7 @@ POLICIES = (POLICY,)
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
 V15_MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
 V16_MODEL_REVISION = "compact_pc_keyed_balanced_deterministic_scalar_v16"
+V17_MODEL_REVISION = "compact_pc_keyed_prior_corrected_hurdle_scalar_v17"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
@@ -35,6 +36,9 @@ EXPECTED_PARAMETERS_BY_REVISION = {
         8: 1923, 16: 5243, 32: 16107, 64: 54731, 128: 199563,
     },
     V16_MODEL_REVISION: {
+        8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
+    },
+    V17_MODEL_REVISION: {
         8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
     },
 }
@@ -540,6 +544,49 @@ def validate_metadata(metadata, tag, inputs, failures):
                 "train_zero_positive_frequencies_equal_aggregate_loss_mass"
             ),
         },
+        V17_MODEL_REVISION: {
+            "data_derived_gate_class_weights_used": True,
+            "gate_class_weighting_used": True,
+            "gate_training_objective": (
+                "data_derived_frequency_balanced_two_class_cross_entropy"
+            ),
+            "gate_decoding_rule": (
+                "prior_corrected_deterministic_two_class_argmax"
+            ),
+            "gate_prior_correction": (
+                "subtract_log_training_class_weight_before_argmax"
+            ),
+            "gate_prior_correction_self_test": "PASS",
+            "request_count_training_objective": (
+                "balanced_two_class_hurdle_plus_positive_log_count_smooth_l1"
+            ),
+            "request_count_decoding_rule": (
+                "prior_corrected_gate_argmax_plus_rounded_exp_"
+                "positive_log_count"
+            ),
+            "event_keyed_crn_self_test": "NOT_APPLICABLE",
+            "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
+            "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
+            "deterministic_decoding_reproducible": True,
+            "stochastic_decoding_reproducible": False,
+            "delta_mixture_decoding_rule": None,
+            "delta_decoder_feedback_rule": (
+                "emitted_scalar_coordinate_same_in_training_and_inference"
+            ),
+            "delta_mixture_components": 0,
+            "common_random_numbers_across_capacities": False,
+            "strict_common_random_numbers_across_capacities": False,
+            "decoder_sampling_roles": [],
+            "decoder_event_key_definition": None,
+            "decoder_key_includes_sampler_revision": False,
+            "deterministic_decoding": True,
+            "stochastic_decoding": False,
+            "guard_role": "causal_input_history_warmup_and_audit_only",
+            "deterministic_count_and_balance_self_test": "PASS",
+            "gate_class_weights_source": (
+                "train_zero_positive_frequencies_equal_aggregate_loss_mass"
+            ),
+        },
     }
     profile = revision_common.get(revision)
     if profile is None:
@@ -553,7 +600,7 @@ def validate_metadata(metadata, tag, inputs, failures):
                     )
                 )
 
-    if revision == V16_MODEL_REVISION:
+    if revision in (V16_MODEL_REVISION, V17_MODEL_REVISION):
         statistics = (
             metadata.get("request_count_training_label_statistics") or {}
         )
@@ -1159,6 +1206,14 @@ def main():
             "coordinates are fed back in both training and inference. There is "
             "no selected threshold, candidate bank, fixed page-offset table, "
             "same-page rule, or Stride degree cap."
+        ),
+        V17_MODEL_REVISION: (
+            "The neural model keeps the training-frequency-balanced gate, "
+            "positive log-count, and scalar signed-log delta, but subtracts "
+            "the log training class weights before gate argmax to restore "
+            "the empirical prior. Decode remains deterministic and uses no "
+            "selected threshold, request budget, candidate bank, fixed "
+            "page-offset table, same-page rule, or Stride degree cap."
         ),
     }
     payload = {

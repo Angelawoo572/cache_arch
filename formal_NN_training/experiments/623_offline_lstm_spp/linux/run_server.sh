@@ -6,28 +6,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 TRACE="623.xalancbmk_s-700B"
 POLICY="spp"
-EXPERIMENT_MODE="${EXPERIMENT_MODE:-v16a}"
-PARENT_RUN_ID="${PARENT_RUN_ID:-623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7}"
-if [[ "$EXPERIMENT_MODE" == v16a \
-  && "$PARENT_RUN_ID" != 623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7 ]]; then
-  echo "[error] v16A parent run must be the pinned completed v15 run" >&2
-  exit 2
-fi
-case "$EXPERIMENT_MODE" in
-  v15)
-    DEFAULT_RUN_ID="623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7"
-    DEFAULT_MODEL_TAGS="joint_delta_fill_spp_lstm_h8,joint_delta_fill_spp_lstm_h16,joint_delta_fill_spp_lstm_h32,joint_delta_fill_spp_lstm_h64,joint_delta_fill_spp_lstm_h128"
-    DEFAULT_BASE_TAG="joint_delta_fill_spp_lstm_h8"
-    ;;
-  v16a)
-    DEFAULT_RUN_ID="623_offline_lstm_spp_keyed_crn_joint_map_v16a_seed7"
-    DEFAULT_MODEL_TAGS="guard_joint_map_spp_lstm_h8,guard_joint_map_spp_lstm_h16,guard_joint_map_spp_lstm_h32,guard_joint_map_spp_lstm_h64,guard_joint_map_spp_lstm_h128"
-    DEFAULT_BASE_TAG="guard_joint_map_spp_lstm_h8"
-    ;;
-  *) echo "[error] EXPERIMENT_MODE must be v15 or v16a" >&2; exit 2 ;;
-esac
+DEFAULT_RUN_ID="623_offline_lstm_spp_factorized_fill_v17_seed7"
+DEFAULT_MODEL_TAGS="factorized_delta_fill_spp_lstm_h8,factorized_delta_fill_spp_lstm_h16,factorized_delta_fill_spp_lstm_h32,factorized_delta_fill_spp_lstm_h64,factorized_delta_fill_spp_lstm_h128"
+DEFAULT_BASE_TAG="factorized_delta_fill_spp_lstm_h8"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
-STAGE="${STAGE:-collect}"
+STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
 JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
@@ -271,75 +254,7 @@ print("[PASS] SPP {} demand callbacks={} cache-fill callbacks={}".format(
 PY
 }
 
-prepare_v16a_input() {
-  local parent_run="$EXP/runs/$PARENT_RUN_ID"
-  local parent_input="$parent_run/colab_input"
-  [[ "$RUN_ID" != "$PARENT_RUN_ID" ]] || {
-    echo "[error] v16A RUN_ID must not overwrite its v15 parent" >&2
-    exit 2
-  }
-  [[ -d "$parent_input" ]] || {
-    echo "[error] missing v15 parent input $parent_input" >&2
-    exit 2
-  }
-  local role name tag parent_tag parent_dir
-  local input_files=()
-  for role in train guard eval; do
-    for name in \
-      "$TRACE.$POLICY.${role}_stream.csv.gz" \
-      "$TRACE.$POLICY.${role}_teacher_actions.csv.gz"; do
-      [[ -s "$parent_input/$name" ]] || {
-        echo "[error] missing v15 parent input $parent_input/$name" >&2
-        exit 2
-      }
-      cp -f "$parent_input/$name" "$STREAM_DIR/$name"
-      input_files+=("$name")
-    done
-  done
-  [[ -s "$parent_input/spp_source_contract.json" ]] || {
-    echo "[error] missing v15 parent source contract" >&2
-    exit 2
-  }
-  cp -f "$parent_input/spp_source_contract.json" "$SOURCE_CONTRACT_INPUT"
-  cmp -s "$SOURCE_CONTRACT_REPO" "$SOURCE_CONTRACT_INPUT" || {
-    echo "[error] repository source contract differs from v15 parent" >&2
-    exit 2
-  }
-  python3 "$VALIDATE_INPUTS" \
-    --input-dir "$STREAM_DIR" --manifest-out "$COLLECTION_MANIFEST" \
-    --source-contract "$SOURCE_CONTRACT_INPUT"
-  input_files+=("spp_source_contract.json" "collection_manifest.json")
-
-  for tag in "${MODEL_TAGS[@]}"; do
-    parent_tag="${tag#guard_}"
-    parent_tag="joint_delta_fill_${parent_tag#joint_map_}"
-    parent_dir="$parent_run/colab_output/$parent_tag"
-    [[ -d "$parent_dir" ]] || {
-      echo "[error] missing v15 parent output $parent_dir" >&2
-      exit 2
-    }
-    mkdir -p "$STREAM_DIR/parent_checkpoints/$parent_tag"
-    for name in model.pt run_metadata.json training_history.csv; do
-      [[ -s "$parent_dir/$name" ]] || {
-        echo "[error] missing v15 parent artifact $parent_dir/$name" >&2
-        exit 2
-      }
-      cp -f "$parent_dir/$name" \
-        "$STREAM_DIR/parent_checkpoints/$parent_tag/$name"
-      input_files+=("parent_checkpoints/$parent_tag/$name")
-    done
-  done
-  ( cd "$STREAM_DIR" && sha256sum "${input_files[@]}" > SHA256SUMS )
-  tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
-    "${input_files[@]}" SHA256SUMS
-  echo "[ready for Colab:v16A] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
-}
-
 collect() {
-  if [[ "$EXPERIMENT_MODE" == v16a ]]; then
-    prepare_v16a_input
-    return
-  fi
   [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace $TRACE_FILE" >&2; exit 2; }
   if [[ "$BUILD" == 1 || ! -x "$BIN" ]]; then
     build
@@ -381,8 +296,7 @@ collect() {
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
 assert_model_metadata() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$PARENT_RUN_ID" \
-    "$EXP/runs/$PARENT_RUN_ID" <<'PY'
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" <<'PY'
 import csv
 import hashlib
 import json
@@ -390,17 +304,23 @@ import re
 import sys
 from pathlib import Path
 
-metadata = json.load(open(sys.argv[1]))
+metadata_path = Path(sys.argv[1])
 source_contract = Path(sys.argv[2])
-expected_parent_run_id = sys.argv[3]
-parent_run_dir = Path(sys.argv[4])
+metadata = json.loads(metadata_path.read_text())
+root = metadata_path.parent
 tag = metadata.get("model_tag", "")
 family = metadata.get("model_family")
+source_inputs = [
+    "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
+]
 common = {
     "trace": "623.xalancbmk_s-700B",
     "matched_normal_prefetcher": "spp",
     "neural_role": "standalone_direct_action_prefetcher",
     "track_model_family": "lstm",
+    "operation": "train-v17",
+    "model_revision": "compact_crn_factorized_delta_keyed_fill_v17",
+    "decoder_revision": "factorized_delta_keyed_fill_v17",
     "model_does_not_use_pc": True,
     "pc_is_replay_transport_only": True,
     "model_input_is_causal_external_event_sequence_only": True,
@@ -413,12 +333,8 @@ common = {
     "decoder_training_mode": "free_running_autoregressive_same_as_inference",
     "decoder_previous_teacher_action_used_as_input": False,
     "decoder_free_running_self_test": "PASS",
-    "training_runtime_fields": [
-        "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
-    ],
-    "inference_runtime_fields": [
-        "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
-    ],
+    "training_runtime_fields": source_inputs,
+    "inference_runtime_fields": source_inputs,
     "normal_policy_outputs_used_as_model_inputs": False,
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
@@ -439,14 +355,21 @@ common = {
     "gate_class_weighting_used": False,
     "gate_training_objective": "unweighted_bernoulli_nll",
     "gate_decoding_rule": "event_keyed_bernoulli_inverse_cdf",
-    "gate_operating_point_learned_from_empirical_prior": False,
     "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
     "request_count_decoding_rule": "event_keyed_bernoulli_plus_common_quantile_poisson_inverse_cdf",
     "request_count_residual_scope": "none_event_local",
-    "fill_training_objective": "joint_with_delta_component_unweighted_mixture_nll",
-    "fill_decoding_rule": "single_joint_delta_fill_pair_sample",
+    "joint_delta_fill_dependency_modeled": False,
+    "joint_pair_classes": 0,
+    "joint_delta_fill_training_objective": None,
+    "joint_delta_fill_decoding_rule": None,
+    "delta_mixture_components": 4,
+    "delta_training_objective": "four_component_signed_log_delta_mixture_nll",
+    "delta_mixture_decoding_rule": "deterministic_modal_component_then_component_mean",
+    "fill_training_objective": "unweighted_two_class_cross_entropy",
+    "fill_decoding_rule": "event_keyed_categorical_inverse_cdf",
     "fill_argmax_used": False,
     "fill_probability_feedback_used": True,
+    "delta_decoder_feedback_rule": "factorized_distribution_expectation_same_in_training_and_inference",
     "decoder_probability_mass_carries_train_guard_history": False,
     "cross_event_probability_credit_used": False,
     "sampled_outputs_used_as_decoder_feedback": False,
@@ -457,25 +380,15 @@ common = {
     "causal_no_future_self_test": "PASS",
     "event_local_hurdle_count_self_test": "PASS",
     "keyed_sampling_self_test": "PASS",
-    "joint_delta_fill_sampling_self_test": "PASS",
-    "delta_mixture_decoding_rule": "single_joint_component_fill_sample_then_component_mean",
-    "delta_decoder_feedback_rule": "complete_joint_distribution_expectation_same_in_training_and_inference",
-    "decoder_mixture_components": 4,
+    "factorized_delta_fill_sampling_self_test": "PASS",
     "cnn_architecture_self_test": "NOT_APPLICABLE",
     "event_logger_schema": "623_causal_trigger_fill_v6",
     "action_attachment_mode": "explicit_trigger_event_id",
     "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-    "model_revision": "compact_crn_joint_delta_fill_mixture_v15",
     "replay_preserves_explicit_fill_level": True,
-    "source_decision_effective_external_input": [
-        "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr"
-    ],
+    "source_decision_effective_external_input": source_inputs,
     "runtime_feature_count": 59,
     "runtime_encoding": "lossless 58-bit cache-line number plus one DEMAND/FILL kind bit",
-    "joint_delta_fill_dependency_modeled": True,
-    "joint_pair_classes": 8,
-    "joint_delta_fill_training_objective": "unweighted_joint_delta_component_fill_mixture_nll",
-    "joint_delta_fill_decoding_rule": "event_keyed_mean_sorted_joint_pair_inverse_cdf",
     "same_source_input_offline_claim_allowed": True,
     "closed_loop_live_claim_allowed": False,
     "common_random_numbers_across_capacities": True,
@@ -484,69 +397,16 @@ common = {
     "decoder_sampling_roles": ["eval"],
     "decoder_train_sampling_performed": False,
     "decoder_guard_sampling_performed": False,
+    "guard_selected_decoder": False,
+    "joint_map_used": False,
+    "weights_retrained": True,
+    "checkpoint_reused": False,
 }
-revision = metadata.get("model_revision")
-is_v16a = revision == "compact_crn_joint_delta_fill_guard_map_v16a"
-if is_v16a:
-    selected_mode = metadata.get("selected_decoder_mode")
-    common.update({
-        "operation": "redecode-v16a",
-        "model_revision": "compact_crn_joint_delta_fill_guard_map_v16a",
-        "decoder_revision": "guard_selected_deterministic_joint_map_v16a",
-        "decoder_candidate_modes": [
-            "joint_class_map", "component_peak_map"
-        ],
-        "selected_decoder_mode": selected_mode,
-        "decoder_sampling_roles": ["guard", "eval"],
-        "decoder_guard_sampling_performed": True,
-        "fill_decoding_rule": "guard_selected_joint_pair_map",
-        "joint_delta_fill_decoding_rule": selected_mode,
-        "delta_mixture_decoding_rule": (
-            "guard_selected_joint_component_then_component_mean"
-        ),
-        "weights_retrained": False,
-        "checkpoint_reused": True,
-        "decoder_only_change": True,
-        "strict_checkpoint_validation_passed": True,
-        "model_architecture_reused_unchanged": True,
-        "parent_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
-        "weights_model_revision": "compact_crn_joint_delta_fill_mixture_v15",
-        "parent_run_id": "623_offline_lstm_spp_keyed_crn_joint_fill_v15_seed7",
-        "parent_state_dict_strict_load": True,
-        "parent_input_hash_validation": "PASS",
-        "parent_encoder_hash_validation": "PASS",
-        "parent_normal_replay_validation": "PASS",
-        "guard_selection_uses_eval_labels": False,
-        "guard_selection_uses_guard_labels_only": True,
-        "guard_selected_decoder": True,
-        "joint_map_used": True,
-        "decoder_action_sampling_performed": False,
-        "decoder_count_sampling_performed": True,
-        "deterministic_joint_map_self_test": "PASS",
-        "component_peak_map_exact_mixture_mode_claimed": False,
-        "guard_selection_objective": [
-            "maximize_joint_action_f1",
-            "maximize_target_f1",
-            "maximize_trigger_f1",
-            "minimize_absolute_action_count_ratio_error",
-            "maximize_l2_joint_f1",
-            "minimize_absolute_l2_fraction_error",
-            "canonical_mode_order",
-        ],
-    })
-bad = {key: (metadata.get(key), expected) for key, expected in common.items()
-       if metadata.get(key) != expected}
-if is_v16a and metadata.get("selected_decoder_mode") not in (
-    "joint_class_map", "component_peak_map"
-):
-    bad["selected_decoder_mode"] = (
-        metadata.get("selected_decoder_mode"), "one declared v16A mode"
-    )
-if revision not in (
-    "compact_crn_joint_delta_fill_mixture_v15",
-    "compact_crn_joint_delta_fill_guard_map_v16a",
-):
-    bad["model_revision"] = (revision, "supported SPP revision")
+bad = {
+    key: (metadata.get(key), expected)
+    for key, expected in common.items()
+    if metadata.get(key) != expected
+}
 expected_key_fields = [
     "revision", "decoder_seed", "trace", "policy", "role",
     "event_key", "head", "action_rank",
@@ -554,116 +414,91 @@ expected_key_fields = [
 sampler = metadata.get("decoder_sampler")
 if (
     not isinstance(sampler, dict)
-    or sampler.get("sampler_revision") != "sha256_event_keyed_inverse_cdf_crn_v1"
+    or sampler.get("sampler_revision")
+    != "sha256_event_keyed_inverse_cdf_crn_v1"
     or sampler.get("key_fields") != expected_key_fields
     or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
     or sampler.get("cross_event_rng_state") is not False
     or metadata.get("decoder_key_fields") != expected_key_fields
+    or metadata.get("decoder_sampler_key_fields") != expected_key_fields
 ):
-    bad["decoder_sampler"] = (sampler, "stateless keyed inverse-CDF CRN v1")
-hash_keys = [
-    "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
-    "decoder_eval_event_key_stream_sha256", "decoder_eval_sampling_schedule_sha256",
-    "decision_router_source_sha256", "eval_decision_router_sha256",
-]
-if is_v16a:
-    hash_keys.extend([
-        "decoder_guard_sampling_schedule_sha256",
-        "parent_checkpoint_sha256", "parent_run_metadata_sha256",
-        "parent_training_history_sha256", "model_checkpoint_sha256",
-        "training_history_sha256",
-    ])
-for key in hash_keys:
+    bad["decoder_sampler"] = (
+        sampler, "stateless keyed inverse-CDF CRN v1"
+    )
+for key in (
+    "decoder_sampler_source_sha256",
+    "decoder_sampler_key_schedule_sha256",
+    "decoder_eval_event_key_stream_sha256",
+    "decoder_eval_sampling_schedule_sha256",
+    "decision_router_source_sha256",
+    "train_decision_router_sha256",
+    "guard_decision_router_sha256",
+    "eval_decision_router_sha256",
+    "model_checkpoint_sha256",
+    "training_history_sha256",
+):
     value = metadata.get(key)
-    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"[0-9a-f]{64}", value) is None
+    ):
         bad[key] = (value, "64 lowercase hex characters")
 if family != "lstm":
     bad["model_family"] = (family, "lstm")
-expected_tag_prefix = (
-    "guard_joint_map_spp_lstm_" if is_v16a else
-    "joint_delta_fill_spp_lstm_"
-)
-if not tag.startswith(expected_tag_prefix):
-    bad["model_tag"] = (tag, expected_tag_prefix + "<size>")
+if not tag.startswith("factorized_delta_fill_spp_lstm_h"):
+    bad["model_tag"] = (tag, "factorized_delta_fill_spp_lstm_h<size>")
 expected_points = {
-    ("lstm", 8): "p0",
-    ("lstm", 16): "p1",
-    ("lstm", 32): "p2",
-    ("lstm", 64): "p3",
-    ("lstm", 128): "p4",
+    ("lstm", 8): ("p0", 2664),
+    ("lstm", 16): ("p1", 6208),
+    ("lstm", 32): ("p2", 15984),
+    ("lstm", 64): ("p3", 46288),
+    ("lstm", 128): ("p4", 149904),
 }
-expected_parameters = {8: 2682, 16: 6242, 32: 16050, 64: 46418, 128: 150162}
 point = expected_points.get((family, metadata.get("model_size")))
 if point is None:
-    bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
+    bad["model_point"] = (
+        (family, metadata.get("model_size")), "pinned v17 point"
+    )
 else:
-    if metadata.get("architecture_pair_id") != point:
-        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point)
-expected_parameter_count = expected_parameters.get(metadata.get("model_size"))
-if metadata.get("parameter_count") != expected_parameter_count:
-    bad["parameter_count"] = (metadata.get("parameter_count"), expected_parameter_count)
+    if metadata.get("architecture_pair_id") != point[0]:
+        bad["architecture_pair_id"] = (
+            metadata.get("architecture_pair_id"), point[0]
+        )
+    if metadata.get("parameter_count") != point[1]:
+        bad["parameter_count"] = (
+            metadata.get("parameter_count"), point[1]
+        )
 encoder_hashes = {
     metadata.get("runtime_encoder_sha256"),
     metadata.get("training_runtime_encoder_sha256"),
     metadata.get("inference_runtime_encoder_sha256"),
 }
-encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+encoder_hash = (
+    next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
+)
 if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
-    bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared 64-hex digest")
-expected = {
+    bad["runtime_encoder_sha256"] = (
+        encoder_hashes, "one shared 64-hex digest"
+    )
+for key, value in {
     "training_state_mode": "chronological_stateful_tbptt",
     "training_state_carried_across_chunks": True,
     "training_state_detached_between_chunks": True,
     "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
     "cnn_temporal_layers": 0,
-}
-for key, value in expected.items():
+}.items():
     if metadata.get(key) != value:
         bad[key] = (metadata.get(key), value)
 if not source_contract.is_file():
     bad["source_contract"] = ("missing", str(source_contract))
-elif metadata.get("source_contract_sha256") != hashlib.sha256(source_contract.read_bytes()).hexdigest():
-    bad["source_contract_sha256"] = (
-        metadata.get("source_contract_sha256"),
-        hashlib.sha256(source_contract.read_bytes()).hexdigest(),
-    )
-behavior = metadata.get("heldout_behavior_metrics", {})
-for key in ("count_exact_match_rate", "target_precision", "target_recall", "target_f1"):
-    value = behavior.get(key)
-    if not isinstance(value, (int, float)) or not 0 <= value <= 1:
-        bad["heldout_behavior_metrics." + key] = (value, "[0,1]")
-fill_accuracy = behavior.get("fill_accuracy_on_matched_targets")
-if fill_accuracy is not None and (
-    not isinstance(fill_accuracy, (int, float)) or not 0 <= fill_accuracy <= 1
-):
-    bad["heldout_behavior_metrics.fill_accuracy_on_matched_targets"] = (
-        fill_accuracy, "None or [0,1]"
-    )
-if is_v16a:
-    selection = metadata.get("guard_decoder_selection")
-    if not isinstance(selection, dict) or set(selection) != {
-        "joint_class_map", "component_peak_map"
-    }:
-        bad["guard_decoder_selection"] = (
-            selection, "both declared v16A modes"
+else:
+    observed_source_hash = hashlib.sha256(
+        source_contract.read_bytes()
+    ).hexdigest()
+    if metadata.get("source_contract_sha256") != observed_source_hash:
+        bad["source_contract_sha256"] = (
+            metadata.get("source_contract_sha256"), observed_source_hash
         )
-    else:
-        for mode, payload in selection.items():
-            if (
-                not isinstance(payload, dict)
-                or not isinstance(payload.get("metrics"), dict)
-                or not isinstance(payload.get("selection_key"), list)
-                or len(payload.get("selection_key", [])) != 7
-            ):
-                bad["guard_decoder_selection." + mode] = (
-                    payload, "metrics plus seven-value key"
-                )
-        if not any(key.startswith("guard_decoder_selection.") for key in bad):
-            selected = max(selection, key=lambda mode: selection[mode]["selection_key"])
-            if selected != metadata.get("selected_decoder_mode"):
-                bad["guard_selected_mode"] = (
-                    metadata.get("selected_decoder_mode"), selected
-                )
 
 def inspect_replay(path, allow_empty):
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -671,85 +506,56 @@ def inspect_replay(path, allow_empty):
     fill_counts = {"FILL_L2": 0, "FILL_LLC": 0}
     with path.open(newline="") as handle:
         reader = csv.reader(handle)
-        header = next(reader, None)
-        if header != ["pc", "line", "occ", "prefetch_addr", "fill_level"]:
+        if next(reader, None) != [
+            "pc", "line", "occ", "prefetch_addr", "fill_level"
+        ]:
             raise SystemExit("invalid SPP replay header in {}".format(path))
         for line_number, fields in enumerate(reader, 2):
             if len(fields) != 5:
-                raise SystemExit("invalid SPP replay row {} in {}".format(line_number, path))
+                raise SystemExit(
+                    "invalid SPP replay row {}".format(line_number)
+                )
             try:
                 pc = int(fields[0], 0)
                 line = int(fields[1], 0)
-                occ = int(fields[2], 10)
+                occurrence = int(fields[2], 10)
                 address = int(fields[3], 0)
                 fill_level = int(fields[4], 0)
             except ValueError as exc:
-                raise SystemExit("invalid SPP replay integer at {}: {}".format(line_number, exc))
-            if min(pc, line, occ, address) < 0 or address % 64:
-                raise SystemExit("unaligned/negative SPP replay row {}".format(line_number))
+                raise SystemExit(
+                    "invalid SPP replay integer at {}: {}".format(
+                        line_number, exc
+                    )
+                )
+            if min(pc, line, occurrence, address) < 0 or address % 64:
+                raise SystemExit(
+                    "unaligned/negative SPP replay row {}".format(line_number)
+                )
             if fill_level not in (2, 4):
-                raise SystemExit("invalid SPP fill level at row {}".format(line_number))
-            fill_counts["FILL_L2" if fill_level == 2 else "FILL_LLC"] += 1
+                raise SystemExit(
+                    "invalid SPP fill level at row {}".format(line_number)
+                )
+            fill_counts[
+                "FILL_L2" if fill_level == 2 else "FILL_LLC"
+            ] += 1
             count += 1
     if count <= 0 and not allow_empty:
         raise SystemExit("empty SPP replay list {}".format(path))
     return count, digest, fill_counts
 
-root = Path(sys.argv[1]).parent
-if is_v16a:
-    for name, key in (
-        ("model.pt", "model_checkpoint_sha256"),
-        ("training_history.csv", "training_history_sha256"),
-    ):
-        artifact = root / name
-        observed = (
-            hashlib.sha256(artifact.read_bytes()).hexdigest()
-            if artifact.is_file() else None
-        )
-        if metadata.get(key) != observed:
-            bad[key] = (metadata.get(key), observed)
-    if metadata.get("model_checkpoint_sha256") != metadata.get(
-        "parent_checkpoint_sha256"
-    ):
-        bad["checkpoint_byte_reuse"] = (
-            metadata.get("model_checkpoint_sha256"),
-            metadata.get("parent_checkpoint_sha256"),
-        )
-    if metadata.get("training_history_sha256") != metadata.get(
-        "parent_training_history_sha256"
-    ):
-        bad["history_byte_reuse"] = (
-            metadata.get("training_history_sha256"),
-            metadata.get("parent_training_history_sha256"),
-        )
-    parent_tag = "joint_delta_fill_spp_lstm_h{}".format(
-        metadata.get("model_size")
-    )
-    parent_dir = parent_run_dir / "colab_output" / parent_tag
-    parent_artifacts = (
-        ("model.pt", "parent_checkpoint_sha256"),
-        ("run_metadata.json", "parent_run_metadata_sha256"),
-        ("training_history.csv", "parent_training_history_sha256"),
-    )
-    if metadata.get("parent_run_id") != expected_parent_run_id:
-        bad["parent_run_id"] = (
-            metadata.get("parent_run_id"), expected_parent_run_id
-        )
-    for name, key in parent_artifacts:
-        artifact = parent_dir / name
-        observed = (
-            hashlib.sha256(artifact.read_bytes()).hexdigest()
-            if artifact.is_file() else None
-        )
-        if metadata.get(key) != observed:
-            bad["canonical_parent." + name] = (metadata.get(key), observed)
 for name, count_key, hash_key, fill_key, allow_empty in (
-    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
-    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
+    (
+        "offline_spp.replay.csv", "offline_normal_entries",
+        "normal_list_sha256", "offline_normal_fill_level_counts", False,
+    ),
+    (
+        "offline_nn.replay.csv", "offline_nn_entries",
+        "nn_list_sha256", "offline_nn_fill_level_counts", True,
+    ),
 ):
     path = root / name
     if not path.is_file():
-        bad[name] = ("missing", "nonempty validated replay list")
+        bad[name] = ("missing", "validated replay list")
         continue
     count, digest, fill_counts = inspect_replay(path, allow_empty)
     if metadata.get(count_key) != count:
@@ -758,11 +564,21 @@ for name, count_key, hash_key, fill_key, allow_empty in (
         bad[hash_key] = (metadata.get(hash_key), digest)
     if metadata.get(fill_key) != fill_counts:
         bad[fill_key] = (metadata.get(fill_key), fill_counts)
+for name, key in (
+    ("model.pt", "model_checkpoint_sha256"),
+    ("training_history.csv", "training_history_sha256"),
+):
+    path = root / name
+    observed = (
+        hashlib.sha256(path.read_bytes()).hexdigest()
+        if path.is_file() else None
+    )
+    if metadata.get(key) != observed:
+        bad[key] = (metadata.get(key), observed)
 if bad:
-    raise SystemExit("invalid 623 SPP metadata: {}".format(bad))
+    raise SystemExit("invalid 623 SPP v17 metadata: {}".format(bad))
 PY
 }
-
 run_method() {
   local method="$1"
   local log="$LOG_DIR/$TRACE.$method.log"
@@ -795,7 +611,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_joint_delta_fill_spp_lstm_*|offline_guard_joint_map_spp_lstm_*)
+    offline_factorized_delta_fill_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
