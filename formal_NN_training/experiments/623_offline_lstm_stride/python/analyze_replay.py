@@ -18,6 +18,7 @@ EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
 V15_MODEL_REVISION = "compact_pc_keyed_crn_event_sampled_mixture_v15"
 V16_MODEL_REVISION = "compact_pc_keyed_balanced_deterministic_scalar_v16"
 V17_MODEL_REVISION = "compact_pc_keyed_prior_corrected_hurdle_scalar_v17"
+V18_MODEL_REVISION = "compact_pc_keyed_natural_hurdle_scalar_v18"
 TRACK_MODEL_FAMILY = "lstm"
 DEFAULT_MODEL_TAGS = (
     "independent_delta_stride_lstm_h8,independent_delta_stride_lstm_h16,"
@@ -39,6 +40,9 @@ EXPECTED_PARAMETERS_BY_REVISION = {
         8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
     },
     V17_MODEL_REVISION: {
+        8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
+    },
+    V18_MODEL_REVISION: {
         8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
     },
 }
@@ -422,7 +426,6 @@ def validate_metadata(metadata, tag, inputs, failures):
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_free_running_self_test": "PASS",
         "training_runtime_fields": ["pc", "addr"],
@@ -480,6 +483,9 @@ def validate_metadata(metadata, tag, inputs, failures):
     revision = metadata.get("model_revision")
     revision_common = {
         V15_MODEL_REVISION: {
+            "decoder_training_mode": (
+                "free_running_autoregressive_same_as_inference"
+            ),
             "data_derived_gate_class_weights_used": False,
             "gate_class_weighting_used": False,
             "gate_training_objective": "unweighted_bernoulli_nll",
@@ -509,6 +515,9 @@ def validate_metadata(metadata, tag, inputs, failures):
             "decoder_key_includes_sampler_revision": True,
         },
         V16_MODEL_REVISION: {
+            "decoder_training_mode": (
+                "free_running_autoregressive_same_as_inference"
+            ),
             "data_derived_gate_class_weights_used": True,
             "gate_class_weighting_used": True,
             "gate_training_objective": (
@@ -545,6 +554,9 @@ def validate_metadata(metadata, tag, inputs, failures):
             ),
         },
         V17_MODEL_REVISION: {
+            "decoder_training_mode": (
+                "free_running_autoregressive_same_as_inference"
+            ),
             "data_derived_gate_class_weights_used": True,
             "gate_class_weighting_used": True,
             "gate_training_objective": (
@@ -586,6 +598,56 @@ def validate_metadata(metadata, tag, inputs, failures):
             "gate_class_weights_source": (
                 "train_zero_positive_frequencies_equal_aggregate_loss_mass"
             ),
+        },
+        V18_MODEL_REVISION: {
+            "decoder_training_mode": (
+                "teacher_count_scheduled_loss_with_free_running_"
+                "self_action_feedback"
+            ),
+            "data_derived_gate_class_weights_used": False,
+            "gate_class_weighting_used": False,
+            "gate_training_objective": (
+                "natural_frequency_unweighted_two_class_cross_entropy"
+            ),
+            "gate_decoding_rule": "raw_deterministic_two_class_argmax",
+            "gate_prior_correction": None,
+            "gate_prior_correction_self_test": "NOT_APPLICABLE",
+            "gate_class_weights_source": None,
+            "gate_class_weights": None,
+            "gate_empirical_prior_source": (
+                "train_zero_positive_frequencies"
+            ),
+            "gate_bias_initialization": (
+                "log_train_empirical_zero_positive_prior"
+            ),
+            "gate_prior_bias_initialization_self_test": "PASS",
+            "request_count_training_objective": (
+                "natural_frequency_two_class_hurdle_plus_positive_"
+                "log_count_smooth_l1"
+            ),
+            "request_count_decoding_rule": (
+                "raw_gate_argmax_plus_rounded_exp_positive_log_count"
+            ),
+            "event_keyed_crn_self_test": "NOT_APPLICABLE",
+            "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
+            "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
+            "deterministic_decoding_reproducible": True,
+            "stochastic_decoding_reproducible": False,
+            "delta_mixture_decoding_rule": None,
+            "delta_decoder_feedback_rule": (
+                "emitted_scalar_coordinate_same_in_training_and_inference"
+            ),
+            "delta_mixture_components": 0,
+            "common_random_numbers_across_capacities": False,
+            "strict_common_random_numbers_across_capacities": False,
+            "decoder_sampling_roles": [],
+            "decoder_event_key_definition": None,
+            "decoder_key_includes_sampler_revision": False,
+            "deterministic_decoding": True,
+            "stochastic_decoding": False,
+            "guard_role": "causal_input_history_warmup_and_audit_only",
+            "deterministic_count_and_balance_self_test": "NOT_APPLICABLE",
+            "deterministic_count_and_natural_gate_self_test": "PASS",
         },
     }
     profile = revision_common.get(revision)
@@ -651,6 +713,76 @@ def validate_metadata(metadata, tag, inputs, failures):
             if diagnostic_weights != weights:
                 failures.append(
                     "{} gate class weights differ between metadata and "
+                    "decoder diagnostics".format(tag)
+                )
+
+    if revision == V18_MODEL_REVISION:
+        statistics = (
+            metadata.get("request_count_training_label_statistics") or {}
+        )
+        decision_callbacks = statistics.get("decision_callbacks")
+        positive_callbacks = statistics.get("positive_callbacks")
+        zero_callbacks = statistics.get("zero_callbacks")
+        prior = metadata.get("gate_empirical_prior")
+        initial_bias = metadata.get("gate_initial_bias")
+        valid_statistics = (
+            isinstance(decision_callbacks, int)
+            and not isinstance(decision_callbacks, bool)
+            and isinstance(positive_callbacks, int)
+            and not isinstance(positive_callbacks, bool)
+            and isinstance(zero_callbacks, int)
+            and not isinstance(zero_callbacks, bool)
+            and decision_callbacks > 0
+            and positive_callbacks > 0
+            and zero_callbacks > 0
+            and positive_callbacks + zero_callbacks == decision_callbacks
+        )
+        valid_vectors = (
+            isinstance(prior, list) and len(prior) == 2
+            and isinstance(initial_bias, list) and len(initial_bias) == 2
+        )
+        if not valid_statistics or not valid_vectors:
+            failures.append(
+                "{} invalid natural-frequency gate-prior evidence".format(tag)
+            )
+        else:
+            expected_prior = [
+                float(zero_callbacks) / float(decision_callbacks),
+                float(positive_callbacks) / float(decision_callbacks),
+            ]
+            expected_bias = [math.log(value) for value in expected_prior]
+            for name, actual_values, expected_values in (
+                ("gate empirical prior", prior, expected_prior),
+                ("gate initial bias", initial_bias, expected_bias),
+            ):
+                if any(
+                    not isinstance(actual, (int, float))
+                    or isinstance(actual, bool)
+                    or not math.isfinite(float(actual))
+                    or not math.isclose(
+                        float(actual), expected,
+                        rel_tol=1e-6, abs_tol=1e-7,
+                    )
+                    for actual, expected in zip(
+                        actual_values, expected_values
+                    )
+                ):
+                    failures.append(
+                        "{} {} {!r}; expected {!r}".format(
+                            tag, name, actual_values, expected_values
+                        )
+                    )
+            diagnostics = (
+                metadata.get("request_count_decoder_diagnostics") or {}
+            )
+            if diagnostics.get("gate_empirical_prior") != prior:
+                failures.append(
+                    "{} gate empirical prior differs between metadata and "
+                    "decoder diagnostics".format(tag)
+                )
+            if diagnostics.get("gate_initial_bias") != initial_bias:
+                failures.append(
+                    "{} gate initial bias differs between metadata and "
                     "decoder diagnostics".format(tag)
                 )
 
@@ -1212,6 +1344,15 @@ def main():
             "positive log-count, and scalar signed-log delta, but subtracts "
             "the log training class weights before gate argmax to restore "
             "the empirical prior. Decode remains deterministic and uses no "
+            "selected threshold, request budget, candidate bank, fixed "
+            "page-offset table, same-page rule, or Stride degree cap."
+        ),
+        V18_MODEL_REVISION: (
+            "The neural model trains its zero/positive gate with unweighted "
+            "natural-frequency cross-entropy, initializes the gate bias from "
+            "the empirical training prior, and decodes the raw logits by "
+            "deterministic argmax. Positive log-count and autoregressive "
+            "scalar signed-log delta decoding are unchanged. There is no "
             "selected threshold, request budget, candidate bank, fixed "
             "page-offset table, same-page rule, or Stride degree cap."
         ),
