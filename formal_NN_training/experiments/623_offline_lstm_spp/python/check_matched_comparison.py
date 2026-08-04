@@ -10,8 +10,8 @@ import json
 import sys
 from pathlib import Path
 
+from model_points_v19 import RUN_ID as DEFAULT_RUN_ID
 
-DEFAULT_RUN_ID = "623_offline_lstm_spp_hard_distinct_v18_seed7"
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
 
 
