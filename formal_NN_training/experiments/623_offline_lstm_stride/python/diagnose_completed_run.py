@@ -16,7 +16,7 @@ from pathlib import Path
 
 POLICY = "stride"
 TRACE = "623.xalancbmk_s-700B"
-DEFAULT_RUN_ID = "623_offline_lstm_stride_prior_corrected_hurdle_v17_seed7"
+DEFAULT_RUN_ID = "623_offline_lstm_stride_natural_hurdle_v18_seed7"
 SOURCE_INPUTS = ["pc", "addr"]
 NEURAL_METHOD_PREFIX = "offline_independent_delta_stride_lstm_"
 EXPECTED_TAGS = {
@@ -260,6 +260,10 @@ def model_record(row, metadata, normal, no_pref, matched):
         "deterministic_decoding_reproducible",
         "gate_class_weights",
         "gate_class_weights_source",
+        "gate_empirical_prior",
+        "gate_empirical_prior_source",
+        "gate_initial_bias",
+        "gate_bias_initialization",
         "gate_training_objective",
         "gate_decoding_rule",
         "request_count_training_objective",
