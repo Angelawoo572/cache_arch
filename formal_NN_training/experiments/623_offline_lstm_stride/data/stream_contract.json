@@ -1,9 +1,18 @@
 {
   "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-  "model_revision": "pc_keyed_raw_rank_stop_emit_v21",
-  "decoder_revision": "deterministic_rank_stop_emit_train_vocab_v21",
-  "run_id": "623_offline_lstm_stride_rank_stop_emit_v21_seed7",
-  "operation": "train-v21",
+  "model_revision": "pc_keyed_raw_hurdle_count_rank_delta_v22",
+  "decoder_revision": "deterministic_hurdle_log_count_train_vocab_v22",
+  "run_id": "623_offline_lstm_stride_raw_hurdle_count_v22_seed7",
+  "operation": "train-v22",
+  "decoder_training_mode": "callback_hurdle_and_positive_log_count_plus_teacher_rank_direct_delta_without_teacher_or_predicted_action_feedback",
+  "hurdle_training_objective": "TRAIN_inverse_frequency_zero_positive_cross_entropy_with_equal_aggregate_class_mass",
+  "positive_count_training_objective": "positive_only_log_count_smooth_l1",
+  "positive_count_mode": "max_1_round_exp_log_count",
+  "positive_count_support": "mathematically_unbounded_positive_integers",
+  "terminal_stop_supervised_for_every_teacher_sequence": false,
+  "decoder_previous_teacher_action_used_as_input": false,
+  "decoder_previous_predicted_action_used_as_input": false,
+  "decoder_previous_sampled_action_used_as_input": false,
   "event_logger_schema": "623_causal_trigger_v5",
   "normal_prefetcher": "stride",
   "neural_role": "standalone_direct_action_prefetcher",
@@ -35,13 +44,14 @@
     "inference_history": "fresh exact-PC state followed by complete train, guard, and evaluation chronology; only the requested suffix is decoded",
     "rank_conditioning": "fixed generic 8-value sinusoidal rank code projected and added to the current LSTM context",
     "decoder_heads": [
-      "shared binary STOP/EMIT head",
+      "callback-level binary ZERO/POSITIVE hurdle head",
+      "positive-only log-count head",
       "shared dynamic exact-delta-plus-OTHER class head",
       "shared signed-log delta coordinate head"
     ],
-    "separate_global_gate_used": false,
-    "separate_count_head_used": false,
-    "log_count_used": false
+    "separate_global_gate_used": true,
+    "separate_count_head_used": true,
+    "log_count_used": true
   },
   "model_sweep": {
     "family": "lstm",
@@ -70,20 +80,22 @@
     "cudnn_benchmark": false,
     "float32_matmul_precision": "highest"
   },
-  "rank_sequence_training": {
-    "classes": ["STOP", "EMIT"],
-    "class_indices": {"STOP": 0, "EMIT": 1},
-    "teacher_sequence": "one EMIT for every captured action followed by exactly one terminal STOP",
-    "decision_loss": "binary cross-entropy implemented as two-class categorical cross-entropy at every supervised rank",
+  "hurdle_count_training": {
+    "classes": ["ZERO", "POSITIVE"],
+    "class_indices": {"ZERO": 0, "POSITIVE": 1},
+    "hurdle_loss": "TRAIN inverse-frequency two-class cross-entropy at each callback",
     "class_weight_source": "TRAIN labels only",
     "class_weight_formula": "N/(2*N_class)",
-    "class_weight_order": ["STOP", "EMIT"],
+    "class_weight_order": ["ZERO", "POSITIVE"],
     "equal_aggregate_train_mass": true,
-    "bias_initialization": "zeros",
+    "hurdle_bias_initialization": "centered log effective weighted TRAIN class mass",
+    "positive_count_loss": "positive-only smooth-L1 on log count",
+    "positive_count_bias_initialization": "mean log positive TRAIN count",
+    "positive_count_support": "mathematically unbounded positive integers; host overflow fails closed",
     "teacher_or_predicted_action_feedback": false,
     "previous_sampled_action_feedback": false,
     "action_prefix_input": false,
-    "decoded_count": "number of consecutive EMIT decisions before first STOP"
+    "decoded_count": "ZERO gives zero; POSITIVE gives max(1, round(exp(log_count))) after finite host-domain validation"
   },
   "target_decoder": {
     "coordinate": "every target delta is relative to the current demand line, never a previous action",
@@ -110,7 +122,7 @@
     "sampling": null
   },
   "inference": {
-    "rule": "at rank zero start active; apply raw STOP/EMIT argmax; emit a current-demand-relative delta on EMIT; repeat only emitted rows at the next rank; end each row at STOP",
+    "rule": "apply raw hurdle argmax once; decode a finite positive count when POSITIVE; emit exactly that many independently rank-conditioned current-demand-relative deltas",
     "probability_threshold": null,
     "normal_request_budget": null,
     "normal_degree_cap": null,
@@ -121,7 +133,7 @@
   "decode_resource_watchdog": {
     "per_callback_actions": 4096,
     "per_role_actions": 10000000,
-    "behavior": "fail closed and raise before replay; never convert EMIT to STOP, truncate, or accept a partial role",
+    "behavior": "fail closed and raise before replay; never clip or wrap a learned count, truncate actions, or accept a partial role",
     "is_neural_degree_cap": false
   },
   "checkpoint_selection": {
@@ -141,7 +153,7 @@
     "evaluation_decode_passes": 1
   },
   "parameter_accounting": {
-    "formula": "8*H^2 + (122+8+C+13)*H + C + 3",
+    "formula": "8*H^2 + (122+8+C+14)*H + C + 4",
     "realized_delta_classes_C": "realized exact TRAIN vocabulary size plus one OTHER",
     "pre_run_planning": "model points expose maximum_parameter_count at C=256",
     "run_metadata": "records realized_delta_output_classes, realized_parameter_count, expected realized count, and maximum_parameter_count",
@@ -164,9 +176,9 @@
   "probability_threshold_used": false,
   "future_label_window": null,
   "manual_loss_weights": false,
-  "data_derived_rank_class_weights": true,
+  "data_derived_hurdle_class_weights": true,
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
-  "gradient_accumulation": "normalized by the exact number of natural STOP/EMIT, emitted-delta-class, and emitted-coordinate objective atoms",
+  "gradient_accumulation": "each hurdle, positive-count, delta-class, and delta-coordinate task is reduced by its own natural atoms; unit-sum chunk objectives are averaged over each accumulation window",
   "persistent_state_accounting": "2H float32 values per exact observed PC; reported separately from weights"
 }
