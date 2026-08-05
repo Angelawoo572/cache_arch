@@ -235,8 +235,8 @@ from pathlib import Path
 metadata = json.load(open(sys.argv[1]))
 policy = sys.argv[2]
 model_contract = json.loads(subprocess.check_output(
-    [sys.executable, sys.argv[3], "--describe-model-points"], text=True
-))
+    [sys.executable, sys.argv[3], "--describe-model-points"]
+).decode("utf-8"))
 tag = metadata.get("model_tag", "")
 family = metadata.get("model_family")
 if metadata.get("model_revision") == model_contract["model_revision"]:
