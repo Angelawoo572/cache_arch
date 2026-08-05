@@ -35,8 +35,8 @@
 \begin{infobox}[colback=orange!8,colframe=orange]
 \textbf{Historical-results boundary.}  All numerical results in this document
 are from the completed v9 artifact shown below.  The current implementation is
-\texttt{pc\_keyed\_raw\_rank\_stop\_emit\_v21} with default run
-\texttt{623\_offline\_lstm\_stride\_rank\_stop\_emit\_v21\_seed7}; its replay results
+\texttt{pc\_keyed\_raw\_hurdle\_count\_rank\_delta\_v22} with default run
+\texttt{623\_offline\_lstm\_stride\_raw\_hurdle\_count\_v22\_seed7}; its replay results
 are pending and must not be inferred from these tables.
 \end{infobox}
 \begin{center}
@@ -52,18 +52,19 @@ are pending and must not be inferred from these tables.
 Primary comparison & Offline Stride actions versus independently generated LSTM actions, replayed through the same transport and measured against the same no-prefetch baseline.\\
 Shared external input & current PC and current cache-line address, in chronological order.\\
 Neural history & one exact-PC keyed LSTM over lossless raw PC/address bits only; chronological TBPTT carries and detaches state.  No hand-engineered stride or reuse feature is a primary input.\\
-Current output model & each rank independently predicts STOP or EMIT from the callback state and rank code.  EMIT chooses a dynamic TRAIN-only exact-delta class or OTHER signed-log coordinate, all relative to the current demand.  Every teacher action and the terminal STOP are supervised; there is no separate count head or prior-action feedback.\\
+Current output model & a TRAIN-balanced learned hurdle predicts zero versus positive, a positive-only log-count predicts finite cardinality, and each scheduled rank independently chooses a dynamic TRAIN-only exact-delta class or OTHER signed-log coordinate relative to the current demand. There is no prior-action feedback.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, templates, request budget/degree, future rows, page rules, and probability thresholds. Teacher actions provide losses and the TRAIN-only learned output vocabulary, never runtime inputs.\\
-Historical run artifact & \texttt{623\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v9\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v21 or useful neural behavior.\\
+Historical run artifact & \texttt{623\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v9\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v22 or useful neural behavior.\\
 \end{tabularx}
 \end{infobox}
 
 \begin{infobox}[colback=blue!5,colframe=blue]
-\textbf{v21 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
+\textbf{v22 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
 are trained because 602 showed non-monotone capacity effects.  Sparse
-STOP/EMIT labels receive the unique TRAIN-derived inverse-frequency class
-weight that gives the two token classes equal aggregate loss mass; inference
-still uses raw argmax and no threshold.  The guard key is lexicographic
+ZERO/POSITIVE callback labels receive the unique TRAIN-derived inverse-frequency
+class weight that gives the two hurdle classes equal aggregate loss mass;
+inference uses raw argmax plus a finite deterministic log-count mode and no
+threshold.  The guard key is lexicographic
 (target F1, trigger F1, exact count, request-ratio error, train loss, epoch),
 not an averaged score.  Evaluation never selects a checkpoint, but prior 623
 iterations have already inspected this benchmark region, so the replay is not
