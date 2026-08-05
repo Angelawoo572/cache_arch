@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
-"""Torch-free source of truth for the 623 SPP v21 model points.
+"""Torch-free source of truth for the 623 SPP v22 model points.
 
 The exact delta vocabulary is learned from TRAIN labels, so its realized size
 and the corresponding parameter count are run metadata rather than constants.
 """
 import argparse
 import json
+import math
 import re
 
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
-RUN_ID = "623_offline_lstm_spp_stop_emit_vocab_v21_seed7"
+RUN_ID = "623_offline_lstm_spp_hurdle_log_count_vocab_v22_seed7"
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "global_chronological_lstm_rank_stop_emit_v21"
-DECODER_REVISION = "deterministic_stop_emit_vocab_other_fill_map_v21"
-OPERATION = "train-v21"
-MODEL_TAG_PREFIX = "stop_emit_vocab_spp_lstm_h"
+MODEL_REVISION = "global_chronological_lstm_hurdle_log_count_v22"
+DECODER_REVISION = "deterministic_hurdle_log_count_rank_delta_fill_map_v22"
+OPERATION = "train-v22"
+MODEL_TAG_PREFIX = "hurdle_count_vocab_spp_lstm_h"
 MODEL_POINTS = {"lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}}
 
 SEED = 7
@@ -34,20 +35,25 @@ RUNTIME_FEATURE_COUNT = LINE_ADDRESS_BITS + 1
 FILL_LEVELS = (2, 4)
 MAX_EXACT_DELTAS = 255
 RANK_CODE_SIZE = 4
-STOP_TOKEN = 0
-EMIT_TOKEN = 1
-TOKEN_CLASSES = 2
+ZERO_TOKEN = 0
+POSITIVE_TOKEN = 1
+HURDLE_CLASSES = 2
+MAX_POSITIVE_COUNT_DOMAIN = (1 << 63) - 1
+DECODE_PER_CALLBACK_RESOURCE_WATCHDOG = 4096
+DECODE_PER_ROLE_RESOURCE_WATCHDOG = 10000000
 EXTERNAL_INPUT_FIELDS = (
     "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
 )
 
 DECODER_TRAINING_MODE = (
-    "fully_supervised_independent_rank_stop_emit_with_terminal_stop_"
-    "and_no_action_feedback"
+    "fully_supervised_zero_positive_hurdle_and_positive_log_count_"
+    "with_independent_rank_actions_and_no_action_feedback"
 )
-TOKEN_OBJECTIVE = (
-    "natural_frequency_unweighted_binary_stop_emit_cross_entropy_"
-    "including_terminal_stop"
+HURDLE_OBJECTIVE = (
+    "natural_frequency_unweighted_zero_positive_categorical_cross_entropy"
+)
+POSITIVE_COUNT_OBJECTIVE = (
+    "unweighted_conditional_smooth_l1_on_log_positive_action_count"
 )
 DELTA_OBJECTIVE = (
     "train_vocabulary_cross_entropy_plus_all_emit_signed_log_regression"
@@ -57,8 +63,9 @@ FILL_OBJECTIVE = (
     "inverse_frequency_cross_entropy"
 )
 DECODING_RULE = (
-    "rankwise_stop_emit_MAP_until_STOP_delta_class_MAP_OTHER_signed_log_"
-    "and_TRAIN_prior_corrected_fill_MAP"
+    "zero_positive_categorical_MAP_then_finite_round_exp_positive_log_count_"
+    "and_independent_rank_delta_class_MAP_OTHER_signed_log_and_TRAIN_prior_"
+    "corrected_fill_MAP"
 )
 
 
@@ -71,13 +78,13 @@ def expected_parameter_count(hidden_size, exact_vocabulary_size):
     hidden = int(hidden_size)
     vocab = int(exact_vocabulary_size)
     if hidden not in MODEL_POINTS["lstm"] or not 0 < vocab <= MAX_EXACT_DELTAS:
-        raise ValueError("unsupported SPP v21 dimensions")
+        raise ValueError("unsupported SPP v22 dimensions")
     classes = vocab + 1
     embed = delta_embed_size(hidden)
-    # input projection + LSTM + rank fusion + STOP/EMIT + delta heads +
-    # class embedding + decoded-target/rank-conditioned fill head.
+    # input projection + LSTM + rank fusion + ZERO/POSITIVE hurdle + positive
+    # log-count + delta heads + class embedding + target/rank fill head.
     return (
-        9 * hidden * hidden + 78 * hidden + 15
+        9 * hidden * hidden + 79 * hidden + 16
         + classes * (hidden + 1 + embed) + 2 * embed
     )
 
@@ -85,8 +92,29 @@ def expected_parameter_count(hidden_size, exact_vocabulary_size):
 def model_tag(family, size):
     size = int(size)
     if family != "lstm" or size not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported SPP v21 model point")
+        raise ValueError("unsupported SPP v22 model point")
     return MODEL_TAG_PREFIX + str(size)
+
+
+def positive_count_mode(log_count):
+    """Map a finite real log-count to an unbounded positive integer mode.
+
+    The int64 boundary is a representation-domain check, not a learned-policy
+    cap.  Materialization resource guards are checked separately and abort the
+    entire decode rather than clipping this value.
+    """
+    scalar = float(log_count)
+    if not math.isfinite(scalar):
+        raise ValueError("positive log-count must be finite")
+    if scalar > math.log(MAX_POSITIVE_COUNT_DOMAIN):
+        raise ValueError("positive log-count exceeds the int64 output domain")
+    magnitude = math.exp(scalar)
+    if not math.isfinite(magnitude) or magnitude > MAX_POSITIVE_COUNT_DOMAIN:
+        raise ValueError("decoded positive count exceeds the int64 output domain")
+    result = max(1, int(math.floor(magnitude + 0.5)))
+    if result > MAX_POSITIVE_COUNT_DOMAIN:
+        raise ValueError("decoded positive count exceeds the int64 output domain")
+    return result
 
 
 def exact_int(value):
@@ -109,6 +137,25 @@ def self_test_exact_int():
         except ValueError:
             continue
         raise RuntimeError("exact integer parser accepted {!r}".format(invalid))
+
+
+def self_test_positive_count_mode():
+    cases = ((math.log(1.0), 1), (math.log(2.0), 2), (math.log(17.0), 17))
+    for encoded, expected in cases:
+        if positive_count_mode(encoded) != expected:
+            raise RuntimeError("positive log-count mode round trip failed")
+    for invalid in (float("nan"), float("inf"), -float("inf")):
+        try:
+            positive_count_mode(invalid)
+        except ValueError:
+            continue
+        raise RuntimeError("positive count mode accepted non-finite input")
+    try:
+        positive_count_mode(math.log(MAX_POSITIVE_COUNT_DOMAIN) + 1.0)
+    except ValueError:
+        pass
+    else:
+        raise RuntimeError("positive count mode accepted an out-of-domain value")
 
 
 def describe_model_points():
@@ -143,7 +190,17 @@ def describe_model_points():
             "fail_closed": True,
         },
         "decoder_training_mode": DECODER_TRAINING_MODE,
-        "stop_emit_training_objective": TOKEN_OBJECTIVE,
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "positive_count_training_objective": POSITIVE_COUNT_OBJECTIVE,
+        "positive_count_decoding_rule": (
+            "ZERO_POSITIVE_categorical_MAP_then_max_1_round_exp_predicted_"
+            "log_count_with_finite_int64_domain_check"
+        ),
+        "positive_count_support": "all_positive_integers_subject_only_to_representation_domain",
+        "maximum_positive_count_domain": MAX_POSITIVE_COUNT_DOMAIN,
+        "decode_per_callback_resource_watchdog": DECODE_PER_CALLBACK_RESOURCE_WATCHDOG,
+        "decode_per_role_resource_watchdog": DECODE_PER_ROLE_RESOURCE_WATCHDOG,
+        "decode_resource_watchdog_behavior": "fail_closed_without_truncation_or_forced_count",
         "delta_training_objective": DELTA_OBJECTIVE,
         "fill_training_objective": FILL_OBJECTIVE,
         "fill_prior_correction_at_decode_used": True,
@@ -176,9 +233,12 @@ def describe_model_points():
         "decoder_previous_sampled_action_used_as_input": False,
         "teacher_target_fill_conditioning_scope": "conditional_loss_factor_only",
         "teacher_target_used_for_loss_local_fill_conditioning": True,
-        "terminal_stop_supervised": True,
-        "stop_emit_class_weighting_used": False,
-        "stop_emit_prior_extremely_sparse": False,
+        "hurdle_class_order": ["ZERO", "POSITIVE"],
+        "hurdle_class_weighting_used": False,
+        "hurdle_prior_initialization": "zero_weights_plus_TRAIN_natural_class_log_prior_bias",
+        "positive_count_prior_initialization": "zero_weights_plus_TRAIN_mean_log_positive_count_bias",
+        "terminal_stop_supervised": False,
+        "stop_emit_head_used": False,
         "stochastic_decoding": False,
         "runtime_feature_count": RUNTIME_FEATURE_COUNT,
         "max_exact_train_delta_vocabulary": MAX_EXACT_DELTAS,
@@ -190,7 +250,7 @@ def describe_model_points():
             "trigger_f1_count_exact_fill_accuracy_negative_train_loss_earlier_epoch"
         ),
         "parameter_formula": (
-            "9*H^2 + 78*H + 15 + (V+1)*(H+1+E) + 2*E; "
+            "9*H^2 + 79*H + 16 + (V+1)*(H+1+E) + 2*E; "
             "E=max(4,H//4), 1<=V<=255"
         ),
         "parameter_count_is_dataset_dependent": True,
@@ -226,6 +286,11 @@ def main():
     contract = describe_model_points()
     if args.self_test:
         self_test_exact_int()
+        self_test_positive_count_mode()
+        if not all("v22" in value for value in (
+            RUN_ID, MODEL_REVISION, DECODER_REVISION, OPERATION,
+        )):
+            raise RuntimeError("active SPP identifiers are not consistently v22")
         for size in MODEL_POINTS["lstm"]:
             if expected_parameter_count(size, MAX_EXACT_DELTAS) <= 0:
                 raise RuntimeError("invalid maximum parameter count")
