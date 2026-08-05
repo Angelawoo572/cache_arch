@@ -16,9 +16,13 @@ the offline-normal comparison list.
 
 This is **same-input fairness**, not algorithm imitation.  It intentionally
 leaves the NN free to learn its own recurrent state and direct-address output
-distribution.  Normal output templates, page rules, thresholds, and degree are
-not neural inference rules.  A training-derived exact-delta vocabulary is an
-output representation, not a normal candidate bank, and its continuous
+distribution.  A learned zero/positive hurdle followed by a learned positive
+count is an evidence-backed factorization of the variable-length output, not a
+copy of a normal prefetcher's tracker, confidence counter, request template, or
+degree rule.  The hurdle is decoded by categorical argmax; it is not a tuned
+probability threshold.  Normal output templates, page rules, thresholds, and
+degree are not neural inference rules.  A training-derived exact-delta
+vocabulary is an output representation, not a normal candidate bank, and its continuous
 `OTHER` escape provides broad bounded cache-line-delta coverage. Only the
 TRAIN-derived categorical entries are integer-exact; the continuous escape
 does not guarantee either domain endpoint or every 58-bit integer delta.
@@ -45,15 +49,15 @@ also show that the NN can improve by deviating from its teacher, so those runs
 support the fairness protocol; they do not justify copying a normal
 prefetcher's internal state machine into the NN.
 
-| Track | Reused from 602 | Changed for 623 v21 | Evidence-based reason |
+| Track | Reused from 602 | Active 623 v22 design | Evidence-based reason |
 |---|---|---|---|
-| Stride | exact-PC causal LSTM state; sparse-label balancing; signed-line-delta output | raw PC64/line58 encoder; dynamic exact-delta+OTHER head; rankwise STOP/EMIT replaces hurdle and rounded count | 623's prior models produced mismatched/no-fill targets, while 602 capacity results were non-monotone; the primary encoder should not pre-impose a Stride feature hypothesis |
-| SPP | one global chronological demand/fill LSTM; target-conditioned fill | unweighted rankwise STOP/EMIT; independent ranks; deterministic prior-corrected fill MAP | SPP's action-token prior is dense, and v16--v18 exposed count/target and rare-fill factorization failures; keyed sampling added variance without solving them |
+| Stride | exact-PC causal LSTM state; TRAIN-derived sparse-label balancing; learned hurdle/count; signed-line-delta output | lossless raw PC64/line58 encoder; balanced learned ZERO/POSITIVE hurdle; learned positive log-count; rank-conditioned dynamic exact-delta+OTHER head | 602 shows hurdle/count can learn variable request cardinality without a fixed degree, while 623's earlier failures require raw inputs, aligned hard decoding, and stronger fail-closed accounting |
+| SPP | one global chronological demand/fill LSTM; empirical-prior hurdle/count; target-conditioned fill | natural-prior ZERO/POSITIVE hurdle; learned conditional positive log-count; independent rank delta decisions; deterministic prior-corrected fill MAP | SPP's callback-level trigger prior is not extremely sparse; natural-prior hurdle initialization avoids inventing a threshold, while deterministic decoding removes keyed-sampling variance |
 
 Thus the two 623 tracks deliberately do not share one loss recipe.  They share
-the same direct-action representation and causal/no-feedback discipline, while
-the observed TRAIN token priors determine whether STOP/EMIT balancing is
-appropriate.
+the learned hurdle/positive-count decomposition and causal/no-feedback
+discipline, while the observed TRAIN callback priors determine whether hurdle
+balancing is appropriate.
 
 ## Audited 623 history
 
@@ -64,18 +68,16 @@ an architecture to preserve:
 |---|---|---|
 | Candidate-gated LSTM/CNN | Suppress or rank captured normal candidates | Too close to the normal action interface for the independent-NN question |
 | Free-action mixture decoders | Hurdle/count and continuous delta mixtures | Several runs collapsed to no actions or poorly aligned hard decisions |
-| v15 keyed CRN | Event-local stochastic count/delta/fill sampling | Reproducible accounting, but neither LSTM track beat its matched offline normal |
-| v16--v18 decoder revisions | Balanced/deterministic gates, MAP or peak decoding, and harder feedback alignment | Repeated count/target/fill failures showed that changing only capacity or decode mode did not solve the objective/action mismatch |
-| v19 routed grammar | Global/local recurrent routing with sampled STOP/EMIT and exact LEB128 address generation | Exact addresses required a long fragile token trajectory; the replay pipeline's Python 3.6 issue was fixed, but no completed v19 model-quality replay result exists |
+| v15 keyed CRN | Event-local stochastic count/delta/fill sampling | **Completed negative:** reproducible accounting, but neither LSTM track beat its matched offline normal |
+| v16--v18 decoder revisions | Balanced/deterministic gates, MAP or peak decoding, and harder feedback alignment | **Completed negatives:** replayed runs repeatedly exposed count/target/fill failures; these results justify redesign, not a claim that all hurdle models fail |
+| v19 routed grammar | Global/local recurrent routing with sampled STOP/EMIT and exact LEB128 address generation | **Unvalidated:** plumbing was repaired, but no completed model-quality replay establishes success or failure |
+| v20 split direct-delta heads | Train-derived address support with separate trigger, rounded positive count, and target decisions | **Unvalidated:** no completed replay establishes success or failure; the possible hard-action mismatch was a design risk, not measured evidence |
 
-The v19 plumbing fix is therefore not evidence that v19 succeeds or fails.
-The active v21 redesign starts from the fairness boundary and the observed
-failures, not from the v19 grammar or the v20 gate/count factorization.  v20
-made the address support train-derived, but still trained trigger, rounded
-positive count, and target decisions as separate heads.  The hard action list
-could therefore disagree with every one of those individually reasonable
-predictions.  No completed v20 replay establishes that this mismatch was
-solved.
+The v19 plumbing fix is therefore not evidence that v19 succeeds or fails, and
+the same restraint applies to v20.  Only v15--v18 are completed negative
+evidence.  The active v22 redesign starts from the fairness boundary, the
+completed failures, and the successful 602 hurdle precedent; it does not turn
+unvalidated v19/v20 hypotheses into empirical conclusions.
 
 ## Active 623 design constraints
 
@@ -86,25 +88,25 @@ experiments/623_offline_lstm_stride/
 experiments/623_offline_lstm_spp/
 ```
 
-Both are independent direct-action LSTMs.  They share a rank-conditioned
-direct-action decoder: at each rank the network predicts `STOP` or `EMIT`, and
-an emitted action selects a TRAIN-derived exact signed-line-delta class or a
-learned continuous `OTHER` escape.  The terminal `STOP` is supervised directly,
-so trigger and request count are one learned sequence decision rather than a
-gate plus rounded count template.  Ranks are conditionally independent given
-the causal callback state and rank encoding: neither teacher nor predicted
-actions are fed back.  Inference uses deterministic argmax decisions and a
-fail-closed resource watchdog, not a probability threshold or a policy degree
-cap.  Neither decoder copies normal source templates or forces same-page
-actions.
+Both are independent direct-action LSTMs.  A learned categorical hurdle first
+chooses `ZERO` versus `POSITIVE`; on positive callbacks a learned log-count head
+predicts the request count, and independent rank-conditioned heads choose a
+TRAIN-derived exact signed-line-delta class or a learned continuous `OTHER`
+escape.  This is a neural likelihood factorization of zero inflation and
+positive cardinality.  It does not read or reproduce a normal prefetcher's
+confidence, degree, candidates, or private state.  Neither teacher nor decoded
+actions are fed back.  Inference uses deterministic argmax/rounded learned
+values and fail-closed resource watchdogs, not a probability threshold, forced
+count, truncation rule, or policy degree cap.  Neither decoder copies normal
+source templates or forces same-page actions.
 
 Stride retains the useful 602 insight that exact-PC causal recurrence matches
-the public PC/address stream, but v21 deliberately returns the primary encoder
-to lossless raw PC/address bits.  Its sparse `STOP`/`EMIT` supervision uses only
-a TRAIN-derived inverse-frequency class weight; that is a loss statistic, not
-an inference threshold.  SPP retains the 602 chronological
+the public PC/address stream, but v22 deliberately keeps the primary encoder
+at lossless raw PC/address bits.  Its sparse hurdle supervision uses only a
+TRAIN-derived inverse-frequency class weight; that is a loss statistic, not an
+inference threshold.  SPP retains the 602 chronological
 `DEMAND(addr)`/`CACHE_FILL(evicted_addr)` input and one global causal LSTM.  Its
-denser action-token prior uses unweighted `STOP`/`EMIT` loss, and its learned
+denser callback prior uses unweighted natural-frequency hurdle loss, and its learned
 fill choice is conditioned on the decoded target and rank and selected by
 argmax.  The recorded SPP fill-callback stream is source-conditioned, so the
 result is a matched-input offline comparison, not a closed-loop live-NN claim.
@@ -114,7 +116,7 @@ results were strongly non-monotone in capacity.  Guard checkpoint selection is
 lexicographic over separately reported action diagnostics; it never averages
 unlike metrics into a composite.  Evaluation rows remain excluded from
 training and checkpoint selection.  However, prior 623 iterations have already
-been inspected on this benchmark region, so a v21 replay is comparative held-out
+been inspected on this benchmark region, so a v22 replay is comparative held-out
 evidence rather than a pristine once-only confirmatory test.
 
 The exact run IDs, hidden-size points, parameter counts, objectives, and
@@ -127,9 +129,12 @@ active two-track workflow keeps track-specific collection, training, replay,
 analysis, and report scripts in their existing experiment directories; no
 cosmetic folder duplication is required.
 
-Large run data and Colab artifacts remain outside Git.  The single shared
-`common/split_colab_archive.py` helper creates or rejoins gzip archives as
-numbered parts of at most 90 MiB and verifies whole-archive and per-part SHA-256
-values from a JSON manifest.  The active notebooks can recover such parts from
-Google Drive or the Colab file chooser and use the same format for large
-outputs.
+Large run data and Colab artifacts remain outside Git.  The active notebooks
+default to one run-specific `.colab_input.tar.gz` cached in Google Drive and one
+`.colab_output.tar.gz`.  A newly supplied input may retain an older source-run
+filename: the notebook records its original name and SHA-256, validates every
+payload against `SHA256SUMS`, runs the track's collected-input validator, then
+caches the verified bytes under the current run ID.  The shared
+`common/split_colab_archive.py` format remains as an optional compatibility
+fallback when a single-file transfer is genuinely impractical; it verifies the
+whole archive and every numbered part.
