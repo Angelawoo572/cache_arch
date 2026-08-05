@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train and decode the independent matched-input 623 Stride v21 model.
+"""Train and decode the independent matched-input 623 Stride v22 model.
 
 The runtime boundary is deliberately small and auditable: only the current
 ``pc`` and aligned ``addr`` are external inputs, encoded losslessly as raw
@@ -7,14 +7,16 @@ The runtime boundary is deliberately small and auditable: only the current
 replay; they are never an encoder input, decoder prefix, candidate list,
 request budget, engineered feature, or action template.
 
-The model has one exact-PC keyed single-layer LSTM.  At every generic rank a
-shared head independently chooses STOP or EMIT.  On EMIT, another shared head
-predicts a current-demand-relative delta.  Up to 255 frequent TRAIN deltas have
-exact categorical symbols; one dynamic OTHER row carries a broad bounded
-continuous signed-log approximation.  Every teacher action and each sequence's
-terminal STOP are supervised.  No teacher or predicted action is fed to a
-later rank.  Inference is deterministic argmax until STOP, with no global gate,
-count head, probability threshold, source template, page rule, or degree cap.
+The model has one exact-PC keyed single-layer LSTM.  A callback-level learned
+two-class hurdle predicts zero versus positive actions.  On positive TRAIN
+rows, a learned log-count predicts cardinality.  A shared rank-conditioned
+head then predicts each current-demand-relative delta independently.  Up to
+255 frequent TRAIN deltas have exact categorical symbols; one dynamic OTHER
+row carries a bounded continuous signed-log approximation.  No teacher or
+predicted action is fed to a later rank.  Inference uses deterministic argmax,
+a finite rounded-exp count mode, and rankwise delta MAP, with no probability
+threshold, source template, page rule, normal budget, degree cap, or action
+feedback.
 """
 import argparse
 import csv
@@ -33,18 +35,19 @@ from pathlib import Path
 import model_contract as model_contract_module
 from model_contract import (
     ADDRESS_BITS, CACHE_LINE_BYTES, CACHE_LINE_OFFSET_BITS,
-    CAUSAL_RUNTIME_FEATURES, CHECKPOINT_SELECTION,
+    CAUSAL_RUNTIME_FEATURES, CHECKPOINT_SELECTION, COUNT_OBJECTIVE,
     DECODE_PER_CALLBACK_WATCHDOG, DECODE_PER_ROLE_WATCHDOG,
     DECODER_REVISION, DECODER_TRAINING_MODE, DECODING_RULE,
-    DELTA_OBJECTIVE, EMIT_CLASS, EXPERIMENT_REVISION,
+    DELTA_OBJECTIVE, EXPERIMENT_REVISION, HURDLE_OBJECTIVE,
     LINE_NUMBER_BITS, MAX_DELTA_OUTPUT_CLASSES, MAX_EXACT_DELTA_CLASSES,
-    MODEL_POINTS, MODEL_REVISION, OPERATION, POLICY, RANK_CODE_FEATURES,
-    RANK_DECISION_OBJECTIVE, RAW_RUNTIME_FEATURES, RUN_ID,
-    RUNTIME_FEATURES, SOURCE_INPUTS, STOP_CLASS, TRACE,
+    MAX_HOST_ACTION_COUNT, MODEL_POINTS, MODEL_REVISION, OPERATION, POLICY,
+    POSITIVE_CLASS, RANK_CODE_FEATURES, RAW_RUNTIME_FEATURES, RUN_ID,
+    RUNTIME_FEATURES, SOURCE_INPUTS, TRACE, ZERO_CLASS,
     TRAINING_ACCUMULATE_CHUNKS, TRAINING_CHUNK_LEN, TRAINING_EPOCHS,
     TRAINING_LEARNING_RATE, TRAINING_SEED,
-    expected_parameter_count, model_points_description, model_tag,
-    parse_exact_integer,
+    expected_parameter_count, hurdle_statistics_from_counts,
+    model_points_description, model_tag, parse_exact_integer,
+    positive_count_mode,
 )
 
 # This path must remain usable on a CPU-only server that validates a Colab
@@ -85,7 +88,7 @@ THRESHOLD_FREE_POLICY_SOURCE_PATH = (
 if (COMMON_ADDRESS_BITS, COMMON_CACHE_LINE_BYTES) != (
     ADDRESS_BITS, CACHE_LINE_BYTES
 ):
-    raise RuntimeError("shared address contract differs from v21 contract")
+    raise RuntimeError("shared address contract differs from v22 contract")
 
 
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
@@ -340,8 +343,11 @@ def _rank_context(model, context, rank):
     return torch.tanh(context + model.rank_projection(code))
 
 
-class RankStopEmitStrideLSTM(nn.Module):
-    def __init__(self, hidden_size, delta_class_prior):
+class RawHurdleCountStrideLSTM(nn.Module):
+    def __init__(
+        self, hidden_size, delta_class_prior, hurdle_initial_bias,
+        positive_log_count_initial_bias, delta_coordinate_initial_bias,
+    ):
         super().__init__()
         self.hidden_size = int(hidden_size)
         self.delta_output_classes = int(len(delta_class_prior))
@@ -351,7 +357,8 @@ class RankStopEmitStrideLSTM(nn.Module):
         self.input_projection = nn.Linear(RUNTIME_FEATURES, hidden_size)
         self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
         self.rank_projection = nn.Linear(RANK_CODE_FEATURES, hidden_size)
-        self.rank_decision_head = nn.Linear(hidden_size, 2)
+        self.hurdle_head = nn.Linear(hidden_size, 2)
+        self.positive_log_count_head = nn.Linear(hidden_size, 1)
         self.delta_class_head = nn.Linear(
             hidden_size, self.delta_output_classes
         )
@@ -363,11 +370,24 @@ class RankStopEmitStrideLSTM(nn.Module):
         )
         if len(delta_prior) != self.delta_output_classes or torch.any(delta_prior <= 0):
             raise ValueError("delta prior must cover every output class")
+        hurdle_bias = torch.as_tensor(
+            hurdle_initial_bias, dtype=self.hurdle_head.bias.dtype
+        )
+        scalar_biases = (
+            float(positive_log_count_initial_bias),
+            float(delta_coordinate_initial_bias),
+        )
+        if (
+            tuple(hurdle_bias.shape) != (2,)
+            or not torch.all(torch.isfinite(hurdle_bias))
+            or not all(math.isfinite(value) for value in scalar_biases)
+        ):
+            raise ValueError("TRAIN-derived decoder biases must be finite")
         with torch.no_grad():
-            # The balanced TRAIN-derived CE carries the STOP/EMIT prior.  A
-            # zero bias adds no separate hand-set or empirical gate policy.
-            self.rank_decision_head.bias.zero_()
+            self.hurdle_head.bias.copy_(hurdle_bias)
+            self.positive_log_count_head.bias.fill_(scalar_biases[0])
             self.delta_class_head.bias.copy_(torch.log(delta_prior))
+            self.delta_coordinate_head.bias.fill_(scalar_biases[1])
 
 
 def _signed_log(value):
@@ -422,27 +442,14 @@ def delta_class_prior(exact_vocabulary, frequencies):
     return [(count + 1.0) / denominator for count in counts]
 
 
-def rank_decision_statistics(actions):
-    """Derive balanced STOP/EMIT CE weights from TRAIN sequences only."""
-    stop_count = int(len(actions))
-    emit_count = int(sum(len(items) for items in actions))
-    if stop_count <= 0 or emit_count <= 0:
-        raise RuntimeError("rank decision weights require STOP and EMIT labels")
-    total = stop_count + emit_count
-    weights = [
-        total / float(2 * stop_count),
-        total / float(2 * emit_count),
-    ]
-    return {
-        "stop_labels": stop_count,
-        "emit_labels": emit_count,
-        "total_rank_decisions": total,
-        "class_weights_STOP_EMIT": weights,
-        "weighted_stop_mass": stop_count * weights[STOP_CLASS],
-        "weighted_emit_mass": emit_count * weights[EMIT_CLASS],
-        "weight_formula": "N/(2*N_class)",
-        "source": "TRAIN teacher actions plus one terminal STOP per sequence",
-    }
+def delta_coordinate_initial_bias(rows, actions):
+    values = _teacher_deltas(rows, actions)
+    if not values:
+        raise RuntimeError("delta coordinate initialization requires TRAIN actions")
+    bias = sum(_signed_log(value) for value in values) / float(len(values))
+    if not math.isfinite(bias):
+        raise RuntimeError("non-finite TRAIN delta-coordinate initialization")
+    return bias
 
 
 def vocabulary_statistics(rows, actions, exact_vocabulary):
@@ -462,105 +469,117 @@ def vocabulary_statistics(rows, actions, exact_vocabulary):
 
 def _chunk_objective(
     model, context, base_lines, actions, exact_vocabulary,
-    rank_decision_class_weights,
+    hurdle_class_weights,
 ):
     counts_numpy = np.asarray([len(items) for items in actions], dtype=np.int64)
     if model.other_delta_class != len(exact_vocabulary):
         raise RuntimeError("dynamic OTHER row differs from TRAIN vocabulary")
-    decision_weights = torch.as_tensor(
-        rank_decision_class_weights,
+    hurdle_weights = torch.as_tensor(
+        hurdle_class_weights,
         dtype=context.dtype, device=context.device,
     )
-    if decision_weights.shape != (2,) or torch.any(decision_weights <= 0):
-        raise RuntimeError("rank STOP/EMIT weights must be two positive values")
-    total = context.sum() * 0.0
-    atoms = 0
+    if hurdle_weights.shape != (2,) or torch.any(hurdle_weights <= 0):
+        raise RuntimeError("hurdle weights must be two positive values")
     components = Counter()
+    hurdle_targets = torch.from_numpy(
+        (counts_numpy > 0).astype(np.int64)
+    ).to(context.device)
+    hurdle_sum = F.cross_entropy(
+        model.hurdle_head(context), hurdle_targets,
+        weight=hurdle_weights, reduction="sum",
+    )
+    decision_atoms = len(counts_numpy)
+    positive_numpy = np.flatnonzero(counts_numpy > 0).astype(np.int64)
+    positive_atoms = len(positive_numpy)
+    count_sum = context.sum() * 0.0
+    if positive_atoms:
+        positive = torch.from_numpy(positive_numpy).to(
+            device=context.device, dtype=torch.long
+        )
+        log_count = model.positive_log_count_head(
+            context.index_select(0, positive)
+        ).squeeze(1)
+        target_log_count = torch.as_tensor(
+            np.log(counts_numpy[positive_numpy].astype(np.float64)),
+            dtype=context.dtype, device=context.device,
+        )
+        count_sum = F.smooth_l1_loss(
+            log_count, target_log_count, reduction="sum"
+        )
+
+    delta_class_sum = context.sum() * 0.0
+    coordinate_sum = context.sum() * 0.0
+    action_atoms = 0
     vocabulary_index = {
         int(delta): index for index, delta in enumerate(exact_vocabulary)
     }
     max_rank = int(counts_numpy.max()) if len(counts_numpy) else 0
     base_lines = np.asarray(base_lines, dtype=np.uint64)
-    # At rank r, sequences with count>r supervise EMIT and their delta;
-    # sequences with count==r supervise their one terminal STOP.  Sequences
-    # that stopped earlier never re-enter.  Thus every sequence contributes
-    # exactly len(actions)+1 decision labels.
-    for rank in range(max_rank + 1):
-        active_numpy = np.flatnonzero(counts_numpy >= rank).astype(np.int64)
+    # The teacher count only schedules which direct target ranks receive loss.
+    # Neither the count nor any teacher/predicted earlier action is a rank-head
+    # input.  Training and inference use the same generic rank code.
+    for rank in range(max_rank):
+        active_numpy = np.flatnonzero(counts_numpy > rank).astype(np.int64)
         if not len(active_numpy):
             continue
         active = torch.from_numpy(active_numpy).to(
             device=context.device, dtype=torch.long
         )
         rank_context = _rank_context(model, context.index_select(0, active), rank)
-        decision_targets_numpy = (
-            counts_numpy[active_numpy] > rank
-        ).astype(np.int64)
-        decision_targets = torch.from_numpy(decision_targets_numpy).to(
-            context.device
-        )
-        decision_sum = F.cross_entropy(
-            model.rank_decision_head(rank_context), decision_targets,
-            weight=decision_weights, reduction="sum",
-        )
-        total = total + decision_sum
-        atoms += len(active_numpy)
-        components["rank_decision_loss_sum"] += float(
-            decision_sum.detach().item()
-        )
-        components["rank_decision_atoms"] += len(active_numpy)
-        components["rank_stop_atoms"] += int(
-            np.count_nonzero(decision_targets_numpy == STOP_CLASS)
-        )
-        components["rank_emit_atoms"] += int(
-            np.count_nonzero(decision_targets_numpy == EMIT_CLASS)
-        )
-
-        emit_numpy = active_numpy[decision_targets_numpy == EMIT_CLASS]
-        if not len(emit_numpy):
-            continue
-        emit_mask = torch.from_numpy(
-            np.flatnonzero(decision_targets_numpy == EMIT_CLASS).astype(np.int64)
-        ).to(device=context.device, dtype=torch.long)
-        emit_context = rank_context.index_select(0, emit_mask)
         delta_values = [
             _canonical_signed_line_delta(
                 actions[row][rank], int(base_lines[row])
             )
-            for row in emit_numpy
+            for row in active_numpy
         ]
         target_classes_numpy = np.asarray([
             vocabulary_index.get(delta, model.other_delta_class)
             for delta in delta_values
         ], dtype=np.int64)
         target_classes = torch.from_numpy(target_classes_numpy).to(context.device)
-        logits = model.delta_class_head(emit_context)
-        delta_sum = F.cross_entropy(logits, target_classes, reduction="sum")
-        total = total + delta_sum
-        atoms += len(emit_numpy)
-        components["delta_class_loss_sum"] += float(delta_sum.detach().item())
-        components["delta_class_atoms"] += len(emit_numpy)
+        logits = model.delta_class_head(rank_context)
+        delta_class_sum = delta_class_sum + F.cross_entropy(
+            logits, target_classes, reduction="sum"
+        )
+        action_atoms += len(active_numpy)
 
         predicted_coordinate = model.delta_coordinate_head(
-            emit_context
+            rank_context
         ).squeeze(1)
         target_coordinate = torch.as_tensor(
             [_signed_log(delta) for delta in delta_values],
             dtype=context.dtype, device=context.device,
         )
-        coordinate_sum = F.smooth_l1_loss(
+        coordinate_sum = coordinate_sum + F.smooth_l1_loss(
             predicted_coordinate, target_coordinate, reduction="sum"
         )
-        total = total + coordinate_sum
-        atoms += len(emit_numpy)
-        components["coordinate_loss_sum"] += float(
-            coordinate_sum.detach().item()
-        )
-        components["coordinate_atoms"] += len(emit_numpy)
 
-    components["objective_sum"] = float(total.detach().item())
-    components["objective_atoms"] = atoms
-    return total, components
+    if decision_atoms <= 0:
+        raise RuntimeError("TRAIN chunk contains no callback decisions")
+    # Each task is reduced by its own natural atoms.  Their unit sum has no
+    # tuned coefficient and prevents numerous target ranks from drowning the
+    # sparse hurdle/count tasks.
+    objective = hurdle_sum / float(decision_atoms)
+    if positive_atoms:
+        objective = objective + count_sum / float(positive_atoms)
+    if action_atoms:
+        objective = (
+            objective
+            + delta_class_sum / float(action_atoms)
+            + coordinate_sum / float(action_atoms)
+        )
+    components.update({
+        "hurdle_loss_sum": float(hurdle_sum.detach().item()),
+        "positive_count_loss_sum": float(count_sum.detach().item()),
+        "delta_class_loss_sum": float(delta_class_sum.detach().item()),
+        "coordinate_loss_sum": float(coordinate_sum.detach().item()),
+        "decision_atoms": decision_atoms,
+        "positive_count_atoms": positive_atoms,
+        "action_atoms": action_atoms,
+        "normalized_objective": float(objective.detach().item()),
+        "objective_chunks": 1,
+    })
+    return objective, components
 
 
 def decode(
@@ -571,74 +590,90 @@ def decode(
         raise RuntimeError("decoder row counts differ")
     if model.other_delta_class != len(exact_vocabulary):
         raise RuntimeError("decoder vocabulary differs from dynamic model head")
-    predicted_lines = [[] for _ in base_lines]
-    predicted_fills = [[] for _ in base_lines]
-    emit_probability_sum = 0.0
-    rank_decision_count = 0
-    terminal_stop_count = 0
-    class_counts = Counter()
-    decoded_role_actions = 0
+    if (
+        int(per_callback_watchdog) < 1
+        or int(per_role_watchdog) < 1
+        or int(per_callback_watchdog) > MAX_HOST_ACTION_COUNT
+        or int(per_role_watchdog) > MAX_HOST_ACTION_COUNT
+    ):
+        raise RuntimeError("invalid decoder resource watchdog domain")
+    decoded_counts = []
+    positive_probability_sum = 0.0
+    positive_log_values = []
     model.eval()
     with torch.no_grad():
         for start in range(0, len(base_lines), chunk_len):
             stop = min(start + chunk_len, len(base_lines))
             context = torch.from_numpy(context_numpy[start:stop]).to(device)
-            active_numpy = np.arange(stop - start, dtype=np.int64)
-            rank = 0
-            while len(active_numpy):
+            hurdle_logits = model.hurdle_head(context)
+            positive_probability_sum += float(
+                torch.softmax(hurdle_logits, dim=1)[:, POSITIVE_CLASS].sum().item()
+            )
+            decisions = torch.argmax(hurdle_logits, dim=1).cpu().tolist()
+            log_counts = model.positive_log_count_head(
+                context
+            ).squeeze(1).cpu().tolist()
+            for local, (decision, log_count) in enumerate(
+                zip(decisions, log_counts)
+            ):
+                if int(decision) == ZERO_CLASS:
+                    decoded_counts.append(0)
+                    continue
+                if int(decision) != POSITIVE_CLASS:
+                    raise RuntimeError("hurdle selected an invalid class")
+                try:
+                    count = positive_count_mode(log_count)
+                except ValueError as exc:
+                    raise RuntimeError(
+                        "{} callback {} positive count is outside the host "
+                        "domain: {}".format(role, start + local, exc)
+                    ) from exc
+                if count > int(per_callback_watchdog):
+                    raise RuntimeError(
+                        "{} callback {} count {} hit the per-callback resource "
+                        "watchdog; no replay will be produced".format(
+                            role, start + local, count
+                        )
+                    )
+                decoded_counts.append(count)
+                positive_log_values.append(float(log_count))
+
+    decoded_role_actions = sum(decoded_counts)
+    if decoded_role_actions > int(per_role_watchdog):
+        raise RuntimeError(
+            "{} decoded {} actions and hit the per-role resource watchdog; "
+            "no replay will be produced".format(role, decoded_role_actions)
+        )
+    if decoded_role_actions > MAX_HOST_ACTION_COUNT:
+        raise RuntimeError("decoded role action total exceeds host integer domain")
+    counts = np.asarray(decoded_counts, dtype=np.int64)
+    predicted_lines = [[] for _ in base_lines]
+    predicted_fills = [[] for _ in base_lines]
+    class_counts = Counter()
+    with torch.no_grad():
+        for start in range(0, len(base_lines), chunk_len):
+            stop = min(start + chunk_len, len(base_lines))
+            context = torch.from_numpy(context_numpy[start:stop]).to(device)
+            local_counts = counts[start:stop]
+            steps = int(local_counts.max()) if len(local_counts) else 0
+            for rank in range(steps):
+                active_numpy = np.flatnonzero(local_counts > rank).astype(np.int64)
+                if not len(active_numpy):
+                    break
                 active = torch.from_numpy(active_numpy).to(
                     device=device, dtype=torch.long
                 )
                 rank_context = _rank_context(
                     model, context.index_select(0, active), rank
                 )
-                decision_logits = model.rank_decision_head(rank_context)
-                emit_probability_sum += float(
-                    torch.softmax(decision_logits, dim=1)[:, EMIT_CLASS]
-                    .sum().item()
-                )
-                rank_decision_count += len(active_numpy)
-                decisions = torch.argmax(decision_logits, dim=1).cpu().numpy()
-                terminal_stop_count += int(
-                    np.count_nonzero(decisions == STOP_CLASS)
-                )
-                emit_positions = np.flatnonzero(
-                    decisions == EMIT_CLASS
-                ).astype(np.int64)
-                emit_numpy = active_numpy[emit_positions]
-                if not len(emit_numpy):
-                    break
-
-                # These checks abort the whole role before replay is written.
-                # They never turn EMIT into STOP and never materialize a
-                # truncated prefix as a valid learned result.
-                if any(
-                    len(predicted_lines[start + int(local)])
-                    >= int(per_callback_watchdog)
-                    for local in emit_numpy
-                ):
-                    raise RuntimeError(
-                        "{} rank loop hit the per-callback resource watchdog; "
-                        "no replay will be produced".format(role)
-                    )
-                if decoded_role_actions + len(emit_numpy) > int(per_role_watchdog):
-                    raise RuntimeError(
-                        "{} rank loop hit the per-role resource watchdog; "
-                        "no replay will be produced".format(role)
-                    )
-
-                emit_index = torch.from_numpy(emit_positions).to(
-                    device=device, dtype=torch.long
-                )
-                emit_context = rank_context.index_select(0, emit_index)
                 choices = torch.argmax(
-                    model.delta_class_head(emit_context), dim=1
+                    model.delta_class_head(rank_context), dim=1
                 ).cpu().numpy()
                 coordinates = model.delta_coordinate_head(
-                    emit_context
+                    rank_context
                 ).squeeze(1).cpu().numpy()
                 for local, choice, coordinate in zip(
-                    emit_numpy, choices, coordinates
+                    active_numpy, choices, coordinates
                 ):
                     choice = int(choice)
                     if choice == model.other_delta_class:
@@ -654,11 +689,12 @@ def decode(
                     )
                     predicted_lines[start + int(local)].append(int(target))
                     predicted_fills[start + int(local)].append(-1)
-                decoded_role_actions += len(emit_numpy)
-                active_numpy = emit_numpy
-                rank += 1
 
-    counts = np.asarray([len(items) for items in predicted_lines], dtype=np.int64)
+    if any(
+        len(items) != int(count)
+        for items, count in zip(predicted_lines, counts)
+    ):
+        raise RuntimeError("rank decoder did not realize the learned count exactly")
     diagnostics = {
         "callbacks": len(base_lines),
         "decoded_positive_callbacks": int(np.count_nonzero(counts)),
@@ -672,21 +708,26 @@ def decode(
             str(key): int(value)
             for key, value in sorted(Counter(counts.tolist()).items())
         },
-        "rank_decision_count": int(rank_decision_count),
-        "decoded_emit_decisions": int(decoded_role_actions),
-        "decoded_terminal_stop_decisions": int(terminal_stop_count),
-        "mean_emit_probability_over_rank_decisions": (
-            emit_probability_sum / max(1, rank_decision_count)
+        "hurdle_decision_count": len(base_lines),
+        "decoded_zero_callbacks": int(np.count_nonzero(counts == 0)),
+        "mean_positive_probability_over_callbacks": (
+            positive_probability_sum / max(1, len(base_lines))
+        ),
+        "minimum_decoded_positive_log_count": (
+            min(positive_log_values) if positive_log_values else None
+        ),
+        "maximum_decoded_positive_log_count": (
+            max(positive_log_values) if positive_log_values else None
         ),
         "decoded_delta_class_counts": dict(sorted(class_counts.items())),
         "probability_threshold_applied": False,
         "degree_cap_applied": False,
         "source_action_template_applied": False,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
-        "rank_loop_terminated_every_callback": (
-            terminal_stop_count == len(base_lines)
-        ),
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "positive_log_count_used": True,
+        "finite_count_mode_realized_exactly": True,
+        "host_integer_domain_checked_before_rank_decode": True,
         "per_callback_resource_watchdog": int(per_callback_watchdog),
         "per_role_resource_watchdog": int(per_role_watchdog),
         "resource_watchdog_hit": False,
@@ -798,7 +839,7 @@ def _selection_key(guard, train_loss, epoch):
 
 def train_model(
     model, rows, runtime_train, runtime_train_guard, actions,
-    exact_vocabulary, rank_decision_class_weights, device, epochs,
+    exact_vocabulary, hurdle_class_weights, device, epochs,
     chunk_len, accumulate_chunks,
     learning_rate, per_callback_watchdog, per_role_watchdog,
 ):
@@ -815,7 +856,6 @@ def train_model(
         totals = Counter()
         optimizer.zero_grad(set_to_none=True)
         pending_chunks = 0
-        pending_atoms = 0
         optimizer_steps = 0
         for start in range(0, len(rows["train"]), chunk_len):
             stop = min(start + chunk_len, len(rows["train"]))
@@ -829,30 +869,27 @@ def train_model(
                 model, context,
                 [line for _, line, _ in rows["train"][start:stop]],
                 actions["train"][start:stop], exact_vocabulary,
-                rank_decision_class_weights,
+                hurdle_class_weights,
             )
             if not torch.isfinite(objective):
-                raise RuntimeError("non-finite v21 training objective")
+                raise RuntimeError("non-finite v22 training objective")
             objective.backward()
-            atoms = int(components["objective_atoms"])
             pending_chunks += 1
-            pending_atoms += atoms
             for key, value in components.items():
                 totals[key] += value
             if pending_chunks == accumulate_chunks or stop == len(rows["train"]):
-                if pending_atoms <= 0:
-                    raise RuntimeError("gradient window contains no objective atoms")
+                if pending_chunks <= 0:
+                    raise RuntimeError("gradient window contains no chunks")
                 for parameter in model.parameters():
                     if parameter.grad is not None:
-                        parameter.grad.div_(float(pending_atoms))
+                        parameter.grad.div_(float(pending_chunks))
                 optimizer.step()
                 optimizer.zero_grad(set_to_none=True)
                 pending_chunks = 0
-                pending_atoms = 0
                 optimizer_steps += 1
 
         train_loss = (
-            totals["objective_sum"] / max(1, totals["objective_atoms"])
+            totals["normalized_objective"] / max(1, totals["objective_chunks"])
         )
         guard = _guard_result(
             model, rows, runtime_train_guard, actions, exact_vocabulary,
@@ -869,24 +906,27 @@ def train_model(
             }
         record = {
             "epoch": epoch,
-            "objective_per_natural_atom": train_loss,
-            "weighted_rank_stop_emit_cross_entropy": (
-                totals["rank_decision_loss_sum"]
-                / max(1, totals["rank_decision_atoms"])
+            "mean_unit_sum_objective_per_chunk": train_loss,
+            "weighted_hurdle_cross_entropy_per_callback": (
+                totals["hurdle_loss_sum"]
+                / max(1, totals["decision_atoms"])
+            ),
+            "positive_log_count_smooth_l1_per_positive_callback": (
+                totals["positive_count_loss_sum"]
+                / max(1, totals["positive_count_atoms"])
             ),
             "delta_class_cross_entropy": (
                 totals["delta_class_loss_sum"]
-                / max(1, totals["delta_class_atoms"])
+                / max(1, totals["action_atoms"])
             ),
             "all_rank_signed_log_auxiliary_smooth_l1": (
                 totals["coordinate_loss_sum"]
-                / max(1, totals["coordinate_atoms"])
+                / max(1, totals["action_atoms"])
             ),
-            "objective_atoms": int(totals["objective_atoms"]),
-            "rank_decision_atoms": int(totals["rank_decision_atoms"]),
-            "rank_stop_atoms": int(totals["rank_stop_atoms"]),
-            "rank_emit_atoms": int(totals["rank_emit_atoms"]),
-            "coordinate_atoms": int(totals["coordinate_atoms"]),
+            "decision_atoms": int(totals["decision_atoms"]),
+            "positive_count_atoms": int(totals["positive_count_atoms"]),
+            "action_atoms": int(totals["action_atoms"]),
+            "objective_chunks": int(totals["objective_chunks"]),
             "optimizer_steps": optimizer_steps,
             "observed_pc_states": len(state_map),
             "guard_target_f1": guard["target_f1"],
@@ -902,11 +942,11 @@ def train_model(
         }
         history.append(record)
         print(
-            "[train:pc-keyed-rank-stop-emit] epoch={} loss={:.8f} "
+            "[train:pc-keyed-hurdle-count-rank-delta] epoch={} loss={:.8f} "
             "guard_target_f1={:.6f} guard_trigger_f1={:.6f} "
             "guard_count_exact={:.6f} request_ratio_error={:.6f} "
             "selected={}".format(
-                epoch, record["objective_per_natural_atom"],
+                epoch, record["mean_unit_sum_objective_per_chunk"],
                 record["guard_target_f1"], record["guard_trigger_f1"],
                 record["guard_count_exact_match_rate"],
                 record["guard_absolute_request_ratio_error"], selected,
@@ -999,7 +1039,7 @@ def self_test_raw_encoder():
     ):
         raise RuntimeError("future row changed an earlier raw feature")
     if CAUSAL_RUNTIME_FEATURES != 0 or RUNTIME_FEATURES != 122:
-        raise RuntimeError("engineered runtime features re-entered v21")
+        raise RuntimeError("engineered runtime features re-entered v22")
 
 
 def self_test_vocabulary():
@@ -1011,9 +1051,11 @@ def self_test_vocabulary():
     prior = delta_class_prior(vocabulary, frequencies)
     if len(prior) != len(vocabulary) + 1:
         raise RuntimeError("dynamic OTHER class is not last")
-    decision = rank_decision_statistics(actions)
-    if decision["weighted_stop_mass"] != decision["weighted_emit_mass"]:
-        raise RuntimeError("STOP/EMIT TRAIN mass is not balanced")
+    hurdle = hurdle_statistics_from_counts([0, 0, 0, 2, 1])
+    if not math.isclose(
+        hurdle["weighted_zero_mass"], hurdle["weighted_positive_mass"]
+    ):
+        raise RuntimeError("ZERO/POSITIVE TRAIN mass is not balanced")
     for value in (-100000, -1, 0, 1, 100000):
         if _coordinate_to_delta(_signed_log(value)) != value:
             raise RuntimeError("signed-log OTHER round-trip failed")
@@ -1022,7 +1064,9 @@ def self_test_vocabulary():
 def self_test_parameter_count(hidden_size):
     realized_classes = 4
     delta_prior = [1.0 / realized_classes] * realized_classes
-    model = RankStopEmitStrideLSTM(hidden_size, delta_prior)
+    model = RawHurdleCountStrideLSTM(
+        hidden_size, delta_prior, [0.0, 0.0], math.log(2.0), 0.25
+    )
     observed = sum(parameter.numel() for parameter in model.parameters())
     expected = expected_parameter_count(hidden_size, realized_classes)
     if observed != expected:
@@ -1033,10 +1077,17 @@ def self_test_parameter_count(hidden_size):
         )
     if observed > expected_parameter_count(hidden_size):
         raise RuntimeError("realized parameters exceed contract maximum")
-    if torch.count_nonzero(model.rank_decision_head.bias.detach()).item() != 0:
-        raise RuntimeError("rank decision bias is not neutral")
-    if hasattr(model, "gate_head") or hasattr(model, "positive_log_count_head"):
-        raise RuntimeError("separate gate/count head re-entered v21")
+    if torch.count_nonzero(model.hurdle_head.bias.detach()).item() != 0:
+        raise RuntimeError("balanced hurdle bias is not neutral")
+    if not torch.allclose(
+        model.positive_log_count_head.bias.detach(),
+        torch.tensor([math.log(2.0)]),
+    ):
+        raise RuntimeError("positive log-count bias initialization failed")
+    if not torch.allclose(
+        model.delta_coordinate_head.bias.detach(), torch.tensor([0.25])
+    ):
+        raise RuntimeError("delta coordinate bias initialization failed")
     if not torch.allclose(
         model.delta_class_head.bias.detach(),
         torch.log(torch.tensor(delta_prior)),
@@ -1046,7 +1097,9 @@ def self_test_parameter_count(hidden_size):
 
 def self_test_rank_independence(hidden_size):
     delta_prior = [0.25] * 4
-    model = RankStopEmitStrideLSTM(hidden_size, delta_prior).eval()
+    model = RawHurdleCountStrideLSTM(
+        hidden_size, delta_prior, [0.0, 0.0], 0.0, 0.0
+    ).eval()
     context = torch.randn(3, hidden_size)
     first = _rank_context(model, context, 1)
     second = _rank_context(model, context, 1)
@@ -1055,6 +1108,9 @@ def self_test_rank_independence(hidden_size):
     signature = inspect.signature(_rank_context)
     if list(signature.parameters) != ["model", "context", "rank"]:
         raise RuntimeError("rank decoder acquired action feedback")
+    for forbidden in ("action_cell", "decoder_rnn", "previous_action"):
+        if hasattr(model, forbidden):
+            raise RuntimeError("rank decoder acquired action feedback state")
 
 
 def build_parser():
@@ -1106,7 +1162,7 @@ def main():
     }
     expected_pair = MODEL_POINTS["lstm"].get(args.model_size)
     if expected_pair is None or args.pair_id != expected_pair:
-        raise RuntimeError("model size/pair is not a configured v21 LSTM point")
+        raise RuntimeError("model size/pair is not a configured v22 LSTM point")
     pinned_training = {
         "seed": TRAINING_SEED,
         "epochs": TRAINING_EPOCHS,
@@ -1131,8 +1187,10 @@ def main():
         args.epochs < 1 or args.chunk_len < 1 or args.accumulate_chunks < 1
         or args.learning_rate <= 0 or args.decode_per_callback_watchdog < 1
         or args.decode_per_role_watchdog < 1
+        or args.decode_per_callback_watchdog > MAX_HOST_ACTION_COUNT
+        or args.decode_per_role_watchdog > MAX_HOST_ACTION_COUNT
     ):
-        raise RuntimeError("model/training dimensions must be positive")
+        raise RuntimeError("model/training/resource dimensions are out of domain")
 
     self_test_exact_integer_parser()
     self_test_raw_encoder()
@@ -1148,7 +1206,7 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     if not hasattr(torch, "set_float32_matmul_precision"):
-        raise RuntimeError("pinned v21 requires torch matmul precision control")
+        raise RuntimeError("pinned v22 requires torch matmul precision control")
     torch.set_float32_matmul_precision("highest")
     torch.use_deterministic_algorithms(True)
     device = torch.device(
@@ -1162,7 +1220,7 @@ def main():
     )
     if device.type != "cuda" or "A100" not in device_name:
         raise RuntimeError(
-            "the pinned v21 run requires an A100 CUDA device; observed {}"
+            "the pinned v22 run requires an A100 CUDA device; observed {}"
             .format(device_name)
         )
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -1182,14 +1240,17 @@ def main():
     counts_train = np.asarray(
         [len(items) for items in actions["train"]], dtype=np.int64
     )
-    rank_decision_stats = rank_decision_statistics(actions["train"])
-    rank_decision_class_weights = rank_decision_stats[
-        "class_weights_STOP_EMIT"
+    hurdle_stats = hurdle_statistics_from_counts(counts_train.tolist())
+    hurdle_class_weights = hurdle_stats[
+        "class_weights_ZERO_POSITIVE"
     ]
     delta_prior = delta_class_prior(
         exact_vocabulary, train_delta_frequencies
     )
     delta_initial_bias = [math.log(value) for value in delta_prior]
+    coordinate_initial_bias = delta_coordinate_initial_bias(
+        rows["train"], actions["train"]
+    )
 
     runtime_train = runtime_features(rows["train"])
     train_guard_rows = rows["train"] + rows["guard"]
@@ -1199,7 +1260,13 @@ def main():
     ):
         raise RuntimeError("longer chronology changed the train feature prefix")
 
-    model = RankStopEmitStrideLSTM(args.model_size, delta_prior)
+    model = RawHurdleCountStrideLSTM(
+        args.model_size,
+        delta_prior,
+        hurdle_stats["hurdle_initial_bias_ZERO_POSITIVE"],
+        hurdle_stats["positive_log_count_initial_bias"],
+        coordinate_initial_bias,
+    )
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     realized_delta_output_classes = len(exact_vocabulary) + 1
     expected_parameters = expected_parameter_count(
@@ -1207,17 +1274,17 @@ def main():
     )
     maximum_parameters = expected_parameter_count(args.model_size)
     if parameter_count != expected_parameters:
-        raise RuntimeError("v21 realized parameter count changed")
+        raise RuntimeError("v22 realized parameter count changed")
     if parameter_count > maximum_parameters:
-        raise RuntimeError("v21 realized parameters exceed contract maximum")
+        raise RuntimeError("v22 realized parameters exceed contract maximum")
     history, best_epoch, best_selection_key = train_model(
         model, rows, runtime_train, runtime_train_guard, actions,
-        exact_vocabulary, rank_decision_class_weights, device, args.epochs,
+        exact_vocabulary, hurdle_class_weights, device, args.epochs,
         args.chunk_len, args.accumulate_chunks, args.learning_rate,
         args.decode_per_callback_watchdog, args.decode_per_role_watchdog,
     )
     selected_train_loss = float(
-        history[best_epoch - 1]["objective_per_natural_atom"]
+        history[best_epoch - 1]["mean_unit_sum_objective_per_chunk"]
     )
     del runtime_train
 
@@ -1269,14 +1336,16 @@ def main():
         "realized_exact_delta_classes": len(exact_vocabulary),
         "realized_delta_output_classes": realized_delta_output_classes,
         "other_delta_class": model.other_delta_class,
-        "rank_decision_class_weights_STOP_EMIT": (
-            rank_decision_class_weights
-        ),
-        "rank_decision_class_indices": {
-            "STOP": STOP_CLASS, "EMIT": EMIT_CLASS
+        "hurdle_class_weights_ZERO_POSITIVE": hurdle_class_weights,
+        "hurdle_class_indices": {
+            "ZERO": ZERO_CLASS, "POSITIVE": POSITIVE_CLASS
         },
-        "rank_decision_training_statistics": rank_decision_stats,
+        "hurdle_training_statistics": hurdle_stats,
+        "positive_log_count_initial_bias": hurdle_stats[
+            "positive_log_count_initial_bias"
+        ],
         "delta_class_empirical_prior": delta_prior,
+        "delta_coordinate_initial_bias": coordinate_initial_bias,
         "realized_parameter_count": parameter_count,
         "expected_realized_parameter_count": expected_parameters,
         "maximum_parameter_count": maximum_parameters,
@@ -1384,7 +1453,7 @@ def main():
         "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
         "manual_loss_weights_used": False,
-        "data_derived_rank_class_weights_used": True,
+        "data_derived_hurdle_class_weights_used": True,
         "training_regularization_used": False,
         "nn_generates_own_target_addresses": True,
         "full_signed_line_delta_range_reachable": False,
@@ -1411,6 +1480,10 @@ def main():
         "delta_class_bias_initialization": (
             "log_add_one_smoothed_TRAIN_exact_plus_OTHER_frequency"
         ),
+        "delta_coordinate_bias_initialization": (
+            "mean_TRAIN_signed_log_delta"
+        ),
+        "delta_coordinate_initial_bias": coordinate_initial_bias,
         "delta_other_class": model.other_delta_class,
         "delta_other_escape": "signed_log_continuous_bounded_approximation",
         "delta_other_decode_precision": (
@@ -1426,26 +1499,41 @@ def main():
         "decoder_rank_conditioning": "fixed_generic_sinusoidal_code",
         "decoder_rank_code_features": RANK_CODE_FEATURES,
         "all_teacher_ranks_supervised": True,
-        "terminal_stop_supervised_for_every_teacher_sequence": True,
-        "rank_decision_training_objective": RANK_DECISION_OBJECTIVE,
-        "rank_decision_classes": ["STOP", "EMIT"],
-        "rank_decision_class_indices": {
-            "STOP": STOP_CLASS, "EMIT": EMIT_CLASS
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "hurdle_classes": ["ZERO", "POSITIVE"],
+        "hurdle_class_indices": {
+            "ZERO": ZERO_CLASS, "POSITIVE": POSITIVE_CLASS
         },
-        "rank_decision_class_weighting": (
+        "hurdle_class_weighting": (
             "TRAIN_inverse_frequency_N_over_2N_class"
         ),
-        "rank_decision_equal_aggregate_train_mass": True,
-        "rank_decision_class_weights_STOP_EMIT": (
-            rank_decision_class_weights
+        "hurdle_equal_aggregate_train_mass": True,
+        "hurdle_class_weights_ZERO_POSITIVE": hurdle_class_weights,
+        "hurdle_training_statistics": hurdle_stats,
+        "hurdle_bias_initialization": (
+            "centered_log_effective_weighted_TRAIN_class_mass"
         ),
-        "rank_decision_training_statistics": rank_decision_stats,
-        "rank_decision_bias_initialization": "zeros",
-        "rank_decision_decoding_rule": "deterministic_raw_argmax_each_rank",
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
-        "log_count_used": False,
-        "decoded_count_definition": "number_of_EMIT_actions_before_first_STOP",
+        "hurdle_initial_bias_ZERO_POSITIVE": hurdle_stats[
+            "hurdle_initial_bias_ZERO_POSITIVE"
+        ],
+        "hurdle_decoding_rule": "deterministic_raw_two_class_argmax",
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "log_count_used": True,
+        "positive_count_training_objective": COUNT_OBJECTIVE,
+        "positive_log_count_bias_initialization": (
+            "mean_log_positive_TRAIN_count"
+        ),
+        "positive_log_count_initial_bias": hurdle_stats[
+            "positive_log_count_initial_bias"
+        ],
+        "positive_count_support": "mathematically_unbounded_positive_integers",
+        "positive_count_host_behavior": "fail_closed_no_clip_or_wrap",
+        "positive_count_decoding_rule": "max_1_round_exp_log_count",
+        "decoded_count_definition": (
+            "zero_on_hurdle_ZERO_else_finite_mode_of_positive_log_count"
+        ),
         "teacher_sequence_training_label_statistics": {
             "teacher_sequences": int(len(counts_train)),
             "teacher_actions": int(counts_train.sum()),
@@ -1477,6 +1565,7 @@ def main():
             args.decode_per_callback_watchdog
         ),
         "decode_per_role_resource_watchdog": args.decode_per_role_watchdog,
+        "maximum_host_action_count": MAX_HOST_ACTION_COUNT,
         "decode_resource_watchdog_behavior": (
             "fail_closed_raise_before_replay_never_truncate_or_change_actions"
         ),
@@ -1531,9 +1620,12 @@ def main():
         "raw_pc64_line58_lossless_self_test": "PASS",
         "engineered_runtime_features_absent_self_test": "PASS",
         "exact_pc_state_routing_self_test": "PASS",
-        "rank_stop_emit_equal_mass_self_test": "PASS",
-        "separate_gate_and_count_heads_absent_self_test": "PASS",
-        "terminal_stop_supervision_self_test": "PASS",
+        "hurdle_equal_mass_self_test": "PASS",
+        "data_derived_stable_bias_initialization_self_test": "PASS",
+        "finite_positive_count_mode_self_test": "PASS",
+        "host_domain_count_rejection_self_test": "PASS",
+        "separate_hurdle_and_count_heads_self_test": "PASS",
+        "terminal_stop_supervision_self_test": "NOT_APPLICABLE",
         "delta_class_prior_bias_initialization_self_test": "PASS",
         "train_only_delta_vocabulary_self_test": "PASS",
         "rank_no_action_feedback_self_test": "PASS",
@@ -1554,7 +1646,7 @@ def main():
         "normal_list_sha256": sha256(normal_path),
         "nn_list_sha256": sha256(nn_path),
         "heldout_behavior_metrics": heldout,
-        "rank_stop_emit_decoder_diagnostics": decoder_diagnostics,
+        "hurdle_count_decoder_diagnostics": decoder_diagnostics,
         "encoder_diagnostics": encoder_diagnostics,
         "train_action_summary": _count_summary(actions["train"]),
         "guard_action_summary": _count_summary(actions["guard"]),
