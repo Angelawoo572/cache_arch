@@ -18,7 +18,12 @@ COMMON_REQUIRED_FILES = (
     "model.pt",
     "training_history.csv",
 )
-ROOT_REQUIRED_FILES = ("sweep_manifest.json",)
+SWEEP_MANIFEST_FILE = "sweep_manifest.json"
+VALIDATED_COLLECTION_MANIFEST_FILE = "validated_collection_manifest.json"
+ROOT_REQUIRED_FILES = (
+    SWEEP_MANIFEST_FILE,
+    VALIDATED_COLLECTION_MANIFEST_FILE,
+)
 
 
 def fail(message):
@@ -40,6 +45,18 @@ def visible_children(path):
     return sorted(item.name for item in path.iterdir()) if path.exists() else []
 
 
+def read_json_object(path, label):
+    if not path.is_file() or path.stat().st_size <= 0:
+        fail("missing or empty Colab output {}".format(path))
+    try:
+        payload = json.loads(path.read_text())
+    except (OSError, ValueError) as error:
+        fail("invalid {} {}: {}".format(label, path, error))
+    if not isinstance(payload, dict):
+        fail("{} {} must contain one JSON object".format(label, path))
+    return payload
+
+
 def verify_installed(output_dir, tags):
     observed = visible_children(output_dir)
     expected = sorted(tags + list(ROOT_REQUIRED_FILES))
@@ -48,25 +65,41 @@ def verify_installed(output_dir, tags):
             "Colab output top-level entries {} do not match expected entries {}"
             .format(observed, expected)
         )
-    for name in ROOT_REQUIRED_FILES:
-        path = output_dir / name
-        if not path.is_file() or path.stat().st_size <= 0:
-            fail("missing or empty Colab output {}".format(path))
-        try:
-            manifest = json.loads(path.read_text())
-        except (OSError, ValueError) as error:
-            fail("invalid Colab sweep manifest {}: {}".format(path, error))
-        points = manifest.get("points") if isinstance(manifest, dict) else None
-        manifest_tags = (
-            [point.get("model_tag") for point in points]
-            if isinstance(points, list)
-            and all(isinstance(point, dict) for point in points)
-            else None
+    sweep_manifest = read_json_object(
+        output_dir / SWEEP_MANIFEST_FILE, "Colab sweep manifest"
+    )
+    points = sweep_manifest.get("points")
+    manifest_tags = (
+        [point.get("model_tag") for point in points]
+        if isinstance(points, list)
+        and all(isinstance(point, dict) for point in points)
+        else None
+    )
+    if manifest_tags is None or sorted(manifest_tags) != sorted(tags):
+        fail(
+            "sweep manifest model tags {} do not match expected {}"
+            .format(manifest_tags, sorted(tags))
         )
-        if manifest_tags is None or sorted(manifest_tags) != sorted(tags):
+    if (
+        sweep_manifest.get("fresh_input_validation_manifest")
+        != VALIDATED_COLLECTION_MANIFEST_FILE
+    ):
+        fail(
+            "sweep manifest does not name required fresh input validation {}"
+            .format(VALIDATED_COLLECTION_MANIFEST_FILE)
+        )
+
+    collection_manifest = read_json_object(
+        output_dir / VALIDATED_COLLECTION_MANIFEST_FILE,
+        "validated collection manifest",
+    )
+    if collection_manifest.get("status") != "PASS":
+        fail("validated collection manifest status is not PASS")
+    for field in ("trace", "policy"):
+        if collection_manifest.get(field) != sweep_manifest.get(field):
             fail(
-                "sweep manifest model tags {} do not match expected {}"
-                .format(manifest_tags, sorted(tags))
+                "validated collection manifest {} does not match sweep manifest"
+                .format(field)
             )
     for tag in tags:
         tag_dir = output_dir / tag
