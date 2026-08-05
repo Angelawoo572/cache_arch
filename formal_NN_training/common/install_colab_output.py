@@ -6,6 +6,7 @@ This helper is intentionally Python 3.6 and standard-library only.  The active
 heredocs into an interactive Sacramento shell.
 """
 import argparse
+import hashlib
 import json
 import tarfile
 from pathlib import Path, PurePosixPath
@@ -80,6 +81,7 @@ def verify_installed(output_dir, tags):
 def validate_members(members, tags):
     expected = set(tags).union(ROOT_REQUIRED_FILES)
     observed = set()
+    paths = set()
     for member in members:
         path = PurePosixPath(member.name)
         if not member.name or path.is_absolute() or ".." in path.parts:
@@ -90,6 +92,10 @@ def validate_members(members, tags):
             fail("unsupported archive entry: {}".format(member.name))
         if not path.parts:
             fail("archive contains an empty path")
+        canonical = path.as_posix()
+        if canonical in paths:
+            fail("archive contains duplicate path {}".format(canonical))
+        paths.add(canonical)
         observed.add(path.parts[0])
     if observed != expected:
         fail(
@@ -98,20 +104,53 @@ def validate_members(members, tags):
         )
 
 
+def stream_sha256(handle):
+    digest = hashlib.sha256()
+    for block in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(block)
+    return digest.hexdigest()
+
+
+def verify_archive_matches_installed(handle, members, output_dir):
+    """Prove an existing install is byte-identical to the supplied archive."""
+    for member in members:
+        relative = PurePosixPath(member.name)
+        installed = output_dir.joinpath(*relative.parts)
+        if member.isdir():
+            if not installed.is_dir():
+                fail("installed archive directory is missing: {}".format(installed))
+            continue
+        if not installed.is_file() or installed.stat().st_size != member.size:
+            fail("installed archive file differs: {}".format(installed))
+        archived = handle.extractfile(member)
+        if archived is None:
+            fail("cannot read archive member {}".format(member.name))
+        with archived:
+            archive_hash = stream_sha256(archived)
+        with installed.open("rb") as local:
+            installed_hash = stream_sha256(local)
+        if archive_hash != installed_hash:
+            fail("installed archive file differs: {}".format(installed))
+
+
 def install(archive, output_dir, tags):
-    output_dir.mkdir(parents=True, exist_ok=True)
-    existing = visible_children(output_dir)
-    if existing:
-        verify_installed(output_dir, tags)
-        print("[PASS] Colab output already installed in {}".format(output_dir))
-        return
     if not archive.is_file() or archive.stat().st_size <= 0:
         fail("missing Colab archive {}".format(archive))
+    output_dir.mkdir(parents=True, exist_ok=True)
+    existing = visible_children(output_dir)
     with tarfile.open(str(archive), "r:gz") as handle:
         members = handle.getmembers()
         if not members:
             fail("empty Colab archive {}".format(archive))
         validate_members(members, tags)
+        if existing:
+            verify_installed(output_dir, tags)
+            verify_archive_matches_installed(handle, members, output_dir)
+            print(
+                "[PASS] existing Colab output matches {} byte-for-byte"
+                .format(archive)
+            )
+            return
         handle.extractall(str(output_dir), members=members)
     verify_installed(output_dir, tags)
     print("[PASS] installed {} into {}".format(archive, output_dir))

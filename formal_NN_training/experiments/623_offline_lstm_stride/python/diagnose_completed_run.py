@@ -17,7 +17,7 @@ from model_contract import POLICY, RUN_ID, TRACE, model_points_description
 
 DEFAULT_RUN_ID = RUN_ID
 SOURCE_INPUTS = ["pc", "addr"]
-NEURAL_METHOD_PREFIX = "offline_global_local_grammar_stride_lstm_"
+NEURAL_METHOD_PREFIX = "offline_independent_rank_delta_stride_lstm_"
 EXPECTED_TAGS = {
     point["model_tag"] for point in model_points_description()["points"]
 }
@@ -60,6 +60,21 @@ def flatten(prefix, value, output):
 
 
 def input_contract_mismatches(metadata):
+    contract = model_points_description()
+    source_hashes = {
+        "trainer_source_sha256": hashlib.sha256(
+            (EXPERIMENT / "python" / "train_and_offline_infer.py").read_bytes()
+        ).hexdigest(),
+        "model_contract_source_sha256": hashlib.sha256(
+            (EXPERIMENT / "python" / "model_contract.py").read_bytes()
+        ).hexdigest(),
+        "threshold_free_policy_source_sha256": hashlib.sha256(
+            (
+                REPOSITORY / "formal_NN_training" / "common"
+                / "threshold_free_policy.py"
+            ).read_bytes()
+        ).hexdigest(),
+    }
     expected = {
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
@@ -70,9 +85,42 @@ def input_contract_mismatches(metadata):
         "normal_policy_private_state_used_as_model_inputs": False,
         "normal_policy_outputs_used_as_training_targets": True,
         "future_label_window_used": False,
-        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
-        "teacher_prefix_tokens_mutate_main_rollout_state": False,
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "normal_policy_templates_used_by_neural_inference": False,
+        "probability_threshold_used": False,
+        "inference_policy_hardcodes_used": False,
+        "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
+        "delta_vocabulary_source": "train_labels_only",
+        "delta_vocabulary_max_exact": 255,
+        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_other_decode_precision": "rounded_float32_approximate_except_exact_vocabulary",
+        "full_signed_line_delta_range_reachable": False,
+        "every_signed_line_delta_exactly_representable": False,
+        "exact_delta_representability_scope": "train_vocabulary_only",
+        "delta_coordinate_auxiliary_trained_on_all_teacher_actions": True,
+        "delta_coordinate_used_for_decode_only_on_other": True,
+        "decode_resource_watchdog_is_neural_degree_cap": False,
+        "successful_run_hit_decode_resource_watchdog": False,
+        "checkpoint_selection_roles": ["guard"],
+        "evaluation_used_for_checkpoint_selection": False,
+        "evaluation_decode_passes": 1,
+        "training_config": contract["training_config"],
+        "training_config_pinned_by_run_id": True,
+        "training_device": "cuda",
+        "cublas_workspace_config": contract["determinism_contract"][
+            "cublas_workspace_config"
+        ],
+        "torch_deterministic_algorithms_enabled": True,
+        "cudnn_deterministic": True,
+        "cudnn_benchmark": False,
+        "float32_matmul_precision": contract["determinism_contract"][
+            "float32_matmul_precision"
+        ],
     }
+    expected.update(source_hashes)
     mismatches = []
     for key, value in expected.items():
         if metadata.get(key) != value:
@@ -81,6 +129,15 @@ def input_contract_mismatches(metadata):
                 "actual": metadata.get(key),
                 "expected": value,
             })
+    accelerator = contract["determinism_contract"][
+        "required_accelerator_name_contains"
+    ]
+    if accelerator not in str(metadata.get("training_device_name")):
+        mismatches.append({
+            "field": "training_device_name",
+            "actual": metadata.get("training_device_name"),
+            "expected": "contains {}".format(accelerator),
+        })
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256"),
         metadata.get("training_runtime_encoder_sha256"),
@@ -274,25 +331,23 @@ def model_record(row, metadata, normal, no_pref, matched):
         "request_count_decoding_rule",
         "request_count_training_label_statistics",
         "request_count_decoder_diagnostics",
-        "decoder_previous_teacher_action_used_as_main_rollout_input",
-        "decoder_previous_teacher_action_input_scope",
-        "teacher_prefix_tokens_condition_loss_logits",
-        "teacher_prefix_tokens_recurrently_advance_loss_branch_state",
-        "teacher_prefix_tokens_mutate_main_rollout_state",
-        "teacher_prefix_branch_role",
-        "sampled_prefix_branch_role",
+        "decoder_previous_teacher_action_used_as_input",
+        "decoder_previous_predicted_action_used_as_input",
+        "decoder_rank_conditioning",
+        "all_teacher_ranks_supervised",
         "delta_training_objective",
         "delta_decoding_rule",
-        "delta_decoder_feedback_rule",
-        "delta_codec",
-        "gradient_accumulation_weighting",
-        "sampler_uniform_grid_bits",
-        "sampler_minimum_open_midpoint_uniform",
-        "fail_closed_nontermination_watchdog_ranks",
-        "nontermination_watchdog_is_policy_degree_cap",
-        "successful_run_hit_nontermination_watchdog",
+        "delta_vocabulary_exact_size",
+        "delta_vocabulary_statistics",
+        "delta_other_escape",
+        "delta_other_decode_precision",
+        "decode_per_callback_resource_watchdog",
+        "decode_per_role_resource_watchdog",
+        "decode_resource_watchdog_behavior",
+        "checkpoint_selection",
+        "selected_guard_epoch",
+        "evaluation_decode_passes",
         "encoder_diagnostics",
-        "learned_local_validity_gate",
         "heldout_behavior_metrics",
         "train_action_summary",
         "guard_action_summary",

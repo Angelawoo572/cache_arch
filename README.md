@@ -1,22 +1,30 @@
 # cache_arch
 
-The active research track is one isolated experiment:
+This repository contains two matched-input neural-prefetcher studies:
 
-```text
-formal_NN_training/experiments/602_offline_lstm_stride/
-```
+- `formal_NN_training/experiments/602_offline_lstm_{stride,streamer,ampm,spp}/`
+  is the completed four-prefetcher 602 study.
+- `formal_NN_training/experiments/623_offline_lstm_{stride,spp}/` is the
+  active 623 redesign.
 
-It studies only `602.gcc_s-734B` and compares a tiny LSTM with stride under a shared offline-inference and keyed-replay contract.
+Matched input means that a neural policy receives only the source-visible
+callback fields available to its corresponding normal prefetcher.  Normal
+actions, candidates, request budgets, and private normal-prefetcher state are
+not neural runtime inputs.  This fairness boundary does **not** require the NN
+to copy the normal prefetcher's internal algorithm, output templates, page
+rules, thresholds, or degree.
 
-- Colab performs LSTM training and offline inference.
-- Colab also generates the matched offline-stride list from the same evaluation PC/address stream.
-- Linux/ChampSim replays both lists through the same PC-line-occurrence `ListReplayer`.
-- Live stride and no-prefetch are retained as general references, not the primary matched comparison.
+The active 623 models therefore remain independent direct-action learners.
+Their stable, torch-free architecture and run metadata live in each track's
+`python/model_contract.py`; `data/stream_contract.json` records the external
+input and causal-use contract.  Colab trains and performs offline inference,
+and Linux/ChampSim replays the NN and matched offline-normal lists through the
+same keyed replayer.
 
-Historical scripts are preserved under:
+See `formal_NN_training/README.md` and the per-experiment READMEs for the 602
+reference design, the audited 623 failure history, current architecture, and
+the limits of each comparison.
 
-```text
-formal_NN_training/legacy/scripts/
-```
-
-They are not imported or invoked by the active 602 experiment.
+Historical split-workflow helpers are retained only under
+`formal_NN_training/legacy/scripts/direct_action_split_workflow/`; active
+experiments do not import them.

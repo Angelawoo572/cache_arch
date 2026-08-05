@@ -8,11 +8,12 @@ mistaken for a successful neural policy.
 """
 import argparse
 import csv
+import hashlib
 import json
 from pathlib import Path
 
-from model_points_v19 import (
-    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as V19_MODEL_REVISION, POLICY,
+from model_contract import (
+    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as V20_MODEL_REVISION, POLICY,
     RUN_ID as DEFAULT_RUN_ID, TRACE, describe_model_points,
 )
 
@@ -20,7 +21,7 @@ V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
 V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
 V18_MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
-V19_POINT_CONTRACT = describe_model_points()
+V20_POINT_CONTRACT = describe_model_points()
 REVISION_PROFILES = {
     V15_MODEL_REVISION: (
         "offline_joint_delta_fill_spp_lstm_",
@@ -38,13 +39,14 @@ REVISION_PROFILES = {
         "offline_hard_distinct_delta_fill_spp_lstm_",
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
-    V19_MODEL_REVISION: (
-        "offline_routed_grammar_spp_lstm_",
-        "routed_grammar_spp_lstm_h{}",
+    V20_MODEL_REVISION: (
+        "offline_independent_vocab_spp_lstm_",
+        "independent_vocab_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
 EXPERIMENT = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[4]
 
 
 def div(numerator, denominator):
@@ -95,7 +97,21 @@ def input_contract_mismatches(metadata):
         "model_does_not_use_pc": True,
         "pc_is_replay_transport_only": True,
         "closed_loop_live_claim_allowed": False,
+        "delta_other_escape": V20_POINT_CONTRACT["delta_other_escape"],
+        "delta_other_decode_precision": V20_POINT_CONTRACT[
+            "delta_other_decode_precision"
+        ],
+        "full_signed_line_delta_range_reachable": False,
+        "every_signed_line_delta_exactly_representable": False,
+        "exact_delta_representability_scope": "train_vocabulary_only",
+        "cublas_workspace_config": ":4096:8",
+        "torch_deterministic_algorithms_enabled": True,
+        "cudnn_deterministic": True,
+        "cudnn_benchmark": False,
+        "float32_matmul_precision": "highest",
+        "determinism_fail_closed": True,
     }
+    expected.update(V20_POINT_CONTRACT["training_config"])
     mismatches = []
     for key, value in expected.items():
         if metadata.get(key) != value:
@@ -103,6 +119,35 @@ def input_contract_mismatches(metadata):
                 "field": key,
                 "actual": metadata.get(key),
                 "expected": value,
+            })
+    if metadata.get("training_config") != V20_POINT_CONTRACT["training_config"]:
+        mismatches.append({
+            "field": "training_config",
+            "actual": metadata.get("training_config"),
+            "expected": V20_POINT_CONTRACT["training_config"],
+        })
+    if "A100" not in str(metadata.get("cuda_device_name", "")):
+        mismatches.append({
+            "field": "cuda_device_name",
+            "actual": metadata.get("cuda_device_name"),
+            "expected": "NVIDIA A100",
+        })
+    provenance_paths = {
+        "trainer_source_sha256": EXPERIMENT / "python" / "train_and_offline_infer.py",
+        "model_contract_source_sha256": EXPERIMENT / "python" / "model_contract.py",
+        "threshold_free_policy_source_sha256": (
+            REPO_ROOT / "formal_NN_training" / "common" / "threshold_free_policy.py"
+        ),
+        "decoder_sampler_source_sha256": (
+            REPO_ROOT / "formal_NN_training" / "common" / "keyed_sampling.py"
+        ),
+    }
+    for key, path in provenance_paths.items():
+        observed = hashlib.sha256(path.read_bytes()).hexdigest()
+        if metadata.get(key) != observed:
+            mismatches.append({
+                "field": key, "actual": metadata.get(key),
+                "expected": observed,
             })
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256"),
@@ -259,9 +304,17 @@ def model_record(row, metadata, normal, no_pref, matched):
         "page_state_validity_rule",
         "dynamic_page_state_pages",
         "peak_persistent_recurrent_state_bytes",
-        "action_legality_diagnostics",
+        "action_output_diagnostics",
         "raw_predicted_action_count",
-        "materialized_distinct_action_count",
+        "materialized_action_count",
+        "exact_delta_vocabulary_size",
+        "delta_vocabulary_statistics",
+        "delta_other_decode_precision",
+        "full_signed_line_delta_range_reachable",
+        "every_signed_line_delta_exactly_representable",
+        "exact_delta_representability_scope",
+        "guard_selection_metrics",
+        "selected_epoch",
         "teacher_count_role",
         "delta_decoder_feedback_rule",
         "fill_decoder_feedback_rule",
@@ -329,8 +382,8 @@ def main():
         ))
     neural_method_prefix, tag_template = profile
     model_sizes = tuple(
-        point["size"] for point in V19_POINT_CONTRACT["points"]
-    ) if model_revision == V19_MODEL_REVISION else (
+        point["size"] for point in V20_POINT_CONTRACT["points"]
+    ) if model_revision == V20_MODEL_REVISION else (
         8, 16, 32, 64, 128
     )
     expected_model_tags = {tag_template.format(size) for size in model_sizes}

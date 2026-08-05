@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
-MODEL_POINTS_SCRIPT="$EXP/python/model_points_v19.py"
+MODEL_POINTS_SCRIPT="$EXP/python/model_contract.py"
 DEFAULT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field run_id)"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 STAGE="${1:-${STAGE:-replay}}"

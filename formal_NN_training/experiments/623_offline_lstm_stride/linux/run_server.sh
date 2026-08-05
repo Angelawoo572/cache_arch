@@ -5,10 +5,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRAINER="$EXP/python/train_and_offline_infer.py"
-MODEL_POINT_CONTRACT="$(python3 "$TRAINER" --describe-model-points)"
-TRACE="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["trace"])' <<< "$MODEL_POINT_CONTRACT")"
-POLICY="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["policy"])' <<< "$MODEL_POINT_CONTRACT")"
-DEFAULT_RUN_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["run_id"])' <<< "$MODEL_POINT_CONTRACT")"
+MODEL_CONTRACT="$EXP/python/model_contract.py"
+TRACE="$(python3 "$MODEL_CONTRACT" --field trace)"
+POLICY="$(python3 "$MODEL_CONTRACT" --field policy)"
+DEFAULT_RUN_ID="$(python3 "$MODEL_CONTRACT" --field run_id)"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 STAGE="${STAGE:-replay}"
 FORCE="${FORCE:-0}"
@@ -33,8 +33,8 @@ ANALYZE="$EXP/python/analyze_replay.py"
 INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 
-DEFAULT_MODEL_TAGS="$(python3 -c 'import json,sys; print(",".join(p["model_tag"] for p in json.load(sys.stdin)["points"]))' <<< "$MODEL_POINT_CONTRACT")"
-DEFAULT_BASE_TAG="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["points"][0]["model_tag"])' <<< "$MODEL_POINT_CONTRACT")"
+DEFAULT_MODEL_TAGS="$(python3 "$MODEL_CONTRACT" --tags-csv)"
+DEFAULT_BASE_TAG="$(python3 "$MODEL_CONTRACT" --base-tag)"
 MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
 BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
 
@@ -50,7 +50,7 @@ require_repo_file() {
 }
 for required_file in \
   "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
-  "$ANALYZE" "$TRAINER" "$INSTALL_COLAB_OUTPUT"; do
+  "$ANALYZE" "$TRAINER" "$MODEL_CONTRACT" "$INSTALL_COLAB_OUTPUT"; do
   require_repo_file "$required_file"
 done
 
@@ -210,18 +210,19 @@ validate_preserved_inputs() {
     rm -f "$validated_manifest"
     return 1
   fi
-  if ! cmp -s "$COLLECTION_MANIFEST" "$validated_manifest"; then
-    rm -f "$validated_manifest"
-    echo "[error] collected Stride input manifest no longer reproduces byte-for-byte" >&2
-    return 1
-  fi
+  # The archived collection_manifest.json intentionally records the historical
+  # v9 collection semantics.  v20's validator adds output-design profiling, so
+  # compare bytes through the archived SHA256SUMS and use the fresh manifest as
+  # a semantic validation result; do not rewrite the reused input package.
   rm -f "$validated_manifest"
   ( cd "$STREAM_DIR" && sha256sum -c SHA256SUMS )
 }
 
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-assert_model_metadata() {
+# Active v20 validation.  The legacy validator above remains readable for old
+# archived runs, but replay calls only this contract-focused path.
+assert_model_metadata_v20() {
   python3 - "$1" "$POLICY" "$TRAINER" <<'PY'
 import csv
 import hashlib
@@ -232,441 +233,302 @@ import subprocess
 import sys
 from pathlib import Path
 
-metadata = json.load(open(sys.argv[1]))
-policy = sys.argv[2]
-model_contract = json.loads(subprocess.check_output(
-    [sys.executable, sys.argv[3], "--describe-model-points"]
+metadata_path, policy, trainer = sys.argv[1:]
+metadata = json.load(open(metadata_path))
+contract = json.loads(subprocess.check_output(
+    [sys.executable, trainer, "--describe-model-points"]
 ).decode("utf-8"))
-tag = metadata.get("model_tag", "")
-family = metadata.get("model_family")
-if metadata.get("model_revision") == model_contract["model_revision"]:
-    expected = {
-        "trace": model_contract["trace"],
-        "matched_normal_prefetcher": policy,
-        "source_decision_effective_external_input": ["pc", "addr"],
-        "same_external_input_contract": True,
-        "training_inference_input_encoder_identical": True,
-        "training_runtime_fields": ["pc", "addr"],
-        "inference_runtime_fields": ["pc", "addr"],
-        "normal_policy_outputs_used_as_model_inputs": False,
-        "normal_policy_candidates_used_as_model_inputs": False,
-        "normal_policy_private_state_used_as_model_inputs": False,
-        "normal_policy_outputs_used_as_training_targets": True,
-        "normal_policy_request_rate_used_as_budget": False,
-        "normal_policy_constants_used_by_neural_inference": False,
-        "probability_threshold_used": False,
-        "threshold_related_hardcodes_used": False,
-        "neural_degree_cap": None,
-        "same_page_rule_used_by_neural_inference": False,
-        "future_label_window_used": False,
-        "derived_features_use_teacher_or_future": False,
-        "manual_loss_weights_used": False,
-        "training_regularization_used": False,
-        "inference_policy_hardcodes_used": False,
-        "decoder_training_mode": model_contract["decoder_training_mode"],
-        "decoder_previous_teacher_action_used_as_input": True,
-        "decoder_previous_teacher_action_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
-        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
-        "teacher_prefix_tokens_condition_loss_logits": True,
-        "teacher_prefix_tokens_recurrently_advance_loss_branch_state": True,
-        "teacher_prefix_tokens_mutate_main_rollout_state": False,
-        "decoder_free_running_self_test": "PASS",
-        "request_count_training_objective": model_contract["request_count_training_objective"],
-        "request_count_decoding_rule": "stateless_event_rank_keyed_categorical_inverse_cdf_until_STOP",
-        "gate_training_objective": "NOT_APPLICABLE_no_separate_hurdle_gate",
-        "gate_decoding_rule": "NOT_APPLICABLE_STOP_EMIT_is_action_token",
-        "poisson_objective_used": False,
-        "poisson_decoder_used": False,
-        "gmm_objective_used": False,
-        "gmm_decoder_used": False,
-        "delta_mixture_components": 0,
-        "delta_training_objective": model_contract["delta_training_objective"],
-        "delta_decoding_rule": "stateless_keyed_inverse_cdf_exact_ZigZag_LEB128_signed_increment",
-        "delta_decoder_feedback_rule": "main_rollout_uses_only_actual_hard_sampled_STOP_EMIT_payload_bits_continuation_tokens",
-        "delta_codec": "signed_ZigZag_then_canonical_LEB128",
-        "delta_codec_max_bytes": model_contract["leb128_max_bytes"],
-        "delta_codec_complete_signed_bits": model_contract["line_number_bits"],
-        "sampled_outputs_used_as_decoder_feedback": True,
-        "deterministic_decoding": False,
-        "stochastic_decoding": True,
-        "stochastic_decoding_reproducible": True,
-        "common_random_numbers_across_capacities": True,
-        "strict_common_random_numbers_across_capacities": True,
-        "cross_event_rng_state_used": False,
-        "decoder_sampling_roles": ["train", "eval"],
-        "decoder_train_sampling_performed": True,
-        "decoder_guard_sampling_performed": False,
-        "decoder_event_key_uses_teacher_information": False,
-        "decoder_key_includes_sampler_revision": True,
-        "runtime_feature_count": model_contract["runtime_feature_count"],
-        "raw_runtime_feature_count": model_contract["raw_runtime_feature_count"],
-        "pc_local_runtime_feature_count": model_contract["pc_local_runtime_feature_count"],
-        "learned_local_validity_gate": True,
-        "training_state_mode": "chronological_global_and_pc_local_tbptt",
-        "training_state_carried_across_chunks": True,
-        "training_state_detached_between_chunks": True,
-        "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
-        "event_keyed_crn_self_test": "PASS",
-        "rankwise_stop_emit_self_test": "PASS",
-        "zigzag_leb128_exact_codec_self_test": "PASS",
-        "main_rollout_isolation_self_test": "PASS",
-        "teacher_prefix_loss_isolation_self_test": "PASS",
-        "stop_sampler_representability_self_test": "PASS",
-        "always_emit_nontermination_watchdog_self_test": "PASS",
-        "fail_closed_nontermination_watchdog_ranks": model_contract["nontermination_watchdog_ranks"],
-        "nontermination_watchdog_is_policy_degree_cap": False,
-        "successful_run_hit_nontermination_watchdog": False,
-        "sampler_minimum_open_midpoint_uniform": model_contract["sampler_min_uniform"],
-        "experiment_revision": model_contract["experiment_revision"],
-        "model_revision": model_contract["model_revision"],
-        "neural_role": "standalone_direct_action_prefetcher",
-        "track_model_family": "lstm",
-    }
-    bad = {
-        key: (metadata.get(key), value)
-        for key, value in expected.items() if metadata.get(key) != value
-    }
-    expected_points = {
-        point["model_size"]: point for point in model_contract["points"]
-    }
-    point = expected_points.get(metadata.get("model_size"))
-    if family != "lstm" or point is None:
-        bad["model_point"] = (
-            (family, metadata.get("model_size")), sorted(expected_points)
-        )
-    else:
-        if metadata.get("architecture_pair_id") != point["architecture_pair_id"]:
-            bad["architecture_pair_id"] = (
-                metadata.get("architecture_pair_id"), point["architecture_pair_id"]
-            )
-        if metadata.get("parameter_count") != point["parameter_count"]:
-            bad["parameter_count"] = (
-                metadata.get("parameter_count"), point["parameter_count"]
-            )
-    expected_tag = point["model_tag"] if point else None
-    if tag != expected_tag:
-        bad["model_tag"] = (tag, expected_tag)
-    encoder_hashes = {
-        metadata.get("runtime_encoder_sha256"),
-        metadata.get("training_runtime_encoder_sha256"),
-        metadata.get("inference_runtime_encoder_sha256"),
-    }
-    if (
-        len(encoder_hashes) != 1
-        or re.fullmatch(r"[0-9a-f]{64}", str(next(iter(encoder_hashes)))) is None
-    ):
-        bad["runtime_encoder_sha256"] = (
-            encoder_hashes, "one shared 64-hex digest"
-        )
-    for key in (
-        "training_state_router_sha256", "inference_state_router_sha256",
-        "decoder_sampler_source_sha256", "decoder_sampling_schedule_sha256",
-        "delta_codec_source_sha256",
-    ):
-        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key))) is None:
-            bad[key] = (metadata.get(key), "64 lowercase hex characters")
-    if metadata.get("training_state_router_sha256") != metadata.get(
-        "inference_state_router_sha256"
-    ):
-        bad["state_router_hash_equality"] = (
-            metadata.get("training_state_router_sha256"),
-            metadata.get("inference_state_router_sha256"),
-        )
-    expected_key_fields = [
-        "sampler_revision", "decoder_seed", "trace", "policy", "role",
-        "epoch", "event_index", "action_rank", "field", "codec_position",
-    ]
-    sampler = metadata.get("decoder_sampler") or {}
-    if (
-        sampler.get("sampler_revision")
-        != "splitmix64_event_rank_field_inverse_cdf_crn_v2"
-        or sampler.get("key_fields") != expected_key_fields
-        or sampler.get("categorical_method") != "inverse_cdf"
-        or sampler.get("cross_event_rng_state") is not False
-        or metadata.get("decoder_key_fields") != expected_key_fields
-    ):
-        bad["decoder_sampler"] = (
-            sampler, "pinned stateless v19 inverse-CDF sampler"
-        )
-    statistics = metadata.get("request_count_training_label_statistics") or {}
-    if (
-        not isinstance(statistics.get("decision_callbacks"), int)
-        or statistics.get("decision_callbacks", 0) <= 0
-        or statistics.get("positive_callbacks", 0) <= 0
-        or statistics.get("zero_callbacks", 0) <= 0
-        or statistics.get("positive_callbacks", 0)
-        + statistics.get("zero_callbacks", 0)
-        != statistics.get("decision_callbacks")
-    ):
-        bad["request_count_training_label_statistics"] = (
-            statistics, "nonempty natural STOP/EMIT labels"
-        )
-
-    def inspect_replay(path, allow_empty):
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        count = 0
-        with path.open(newline="") as handle:
-            reader = csv.reader(handle)
-            if next(reader, None) != ["pc", "line", "occ", "prefetch_addr"]:
-                raise SystemExit("invalid stride replay header in {}".format(path))
-            for line_number, fields in enumerate(reader, 2):
-                if len(fields) != 4:
-                    raise SystemExit("invalid replay row {}".format(line_number))
-                pc, line, occ, address = (
-                    int(fields[0], 0), int(fields[1], 0),
-                    int(fields[2], 10), int(fields[3], 0),
-                )
-                if min(pc, line, occ, address) < 0 or address % 64:
-                    raise SystemExit("unaligned/negative replay row")
-                count += 1
-        if count <= 0 and not allow_empty:
-            raise SystemExit("empty replay list {}".format(path))
-        return count, digest
-
-    root = Path(sys.argv[1]).parent
-    for name, count_key, hash_key, allow_empty in (
-        ("offline_stride.replay.csv", "offline_normal_entries", "normal_list_sha256", False),
-        ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", True),
-    ):
-        path = root / name
-        if not path.is_file():
-            bad[name] = ("missing", "validated replay list")
-            continue
-        count, digest = inspect_replay(path, allow_empty)
-        if metadata.get(count_key) != count:
-            bad[count_key] = (metadata.get(count_key), count)
-        if metadata.get(hash_key) != digest:
-            bad[hash_key] = (metadata.get(hash_key), digest)
-    if bad:
-        raise SystemExit("invalid 623 stride v19 metadata: {}".format(bad))
-    raise SystemExit(0)
-common = {
-    "trace": "623.xalancbmk_s-700B",
+trainer_path = Path(trainer).resolve()
+contract_path = trainer_path.with_name("model_contract.py")
+common_policy_path = (
+    trainer_path.parents[4] / "formal_NN_training" / "common"
+    / "threshold_free_policy.py"
+)
+source_hashes = {
+    "trainer_source_sha256": hashlib.sha256(
+        trainer_path.read_bytes()
+    ).hexdigest(),
+    "model_contract_source_sha256": hashlib.sha256(
+        contract_path.read_bytes()
+    ).hexdigest(),
+    "threshold_free_policy_source_sha256": hashlib.sha256(
+        common_policy_path.read_bytes()
+    ).hexdigest(),
+}
+tag = metadata.get("model_tag")
+expected = {
+    "trace": contract["trace"],
     "matched_normal_prefetcher": policy,
+    "neural_role": "standalone_direct_action_prefetcher",
     "source_decision_effective_external_input": ["pc", "addr"],
     "same_external_input_contract": True,
-    "training_inference_input_encoder_identical": True,
-    "decoder_training_mode": "teacher_count_scheduled_loss_with_free_running_self_action_feedback",
-    "decoder_previous_teacher_action_used_as_input": False,
-    "decoder_free_running_self_test": "PASS",
     "training_runtime_fields": ["pc", "addr"],
     "inference_runtime_fields": ["pc", "addr"],
+    "training_inference_input_encoder_identical": True,
     "normal_policy_outputs_used_as_model_inputs": False,
     "normal_policy_candidates_used_as_model_inputs": False,
     "normal_policy_private_state_used_as_model_inputs": False,
     "normal_policy_outputs_used_as_training_targets": True,
     "normal_policy_request_rate_used_as_budget": False,
     "normal_policy_constants_used_by_neural_inference": False,
+    "normal_policy_templates_used_by_neural_inference": False,
     "probability_threshold_used": False,
     "threshold_related_hardcodes_used": False,
+    "inference_policy_hardcodes_used": False,
     "neural_degree_cap": None,
     "fixed_page_offset_classes": None,
     "same_page_rule_used_by_neural_inference": False,
     "future_label_window_used": False,
-    "handcrafted_semantic_features_used": False,
-    "manual_loss_weights_used": False,
-    "data_derived_gate_class_weights_used": False,
-    "gate_class_weighting_used": False,
-    "gate_training_objective": "natural_frequency_unweighted_two_class_cross_entropy",
-    "gate_decoding_rule": "raw_deterministic_two_class_argmax",
-    "gate_prior_correction": None,
-    "gate_prior_correction_self_test": "NOT_APPLICABLE",
-    "gate_class_weights_source": None,
-    "gate_empirical_prior_source": "train_zero_positive_frequencies",
-    "gate_bias_initialization": "log_train_empirical_zero_positive_prior",
-    "gate_prior_bias_initialization_self_test": "PASS",
-    "request_count_training_objective": "natural_frequency_two_class_hurdle_plus_positive_log_count_smooth_l1",
-    "request_count_decoding_rule": "raw_gate_argmax_plus_rounded_exp_positive_log_count",
-    "request_count_residual_scope": "none_event_local",
-    "training_regularization_used": False,
-    "inference_policy_hardcodes_used": False,
-    "learned_request_count": True,
-    "nn_generates_own_target_addresses": True,
-    "training_chunks_shuffled": False,
-    "causal_no_future_self_test": "PASS",
-    "event_keyed_crn_self_test": "NOT_APPLICABLE",
-    "event_keyed_hurdle_count_self_test": "NOT_APPLICABLE",
-    "canonicalized_mixture_sampling_self_test": "NOT_APPLICABLE",
-    "deterministic_count_and_balance_self_test": "NOT_APPLICABLE",
-    "deterministic_count_and_natural_gate_self_test": "PASS",
-    "decoder_probability_mass_carries_train_guard_history": False,
-    "cross_event_probability_credit_used": False,
-    "sampled_outputs_used_as_decoder_feedback": False,
-    "deterministic_decoding_reproducible": True,
-    "stochastic_decoding_reproducible": False,
-    "delta_mixture_decoding_rule": None,
-    "delta_training_objective": "scalar_signed_log_delta_smooth_l1",
-    "delta_decoding_rule": "deterministic_rounded_scalar_signed_log_delta",
-    "delta_decoder_feedback_rule": "emitted_scalar_coordinate_same_in_training_and_inference",
-    "delta_mixture_components": 0,
-    "cnn_architecture_self_test": "NOT_APPLICABLE",
-    "event_logger_schema": "623_causal_trigger_v5",
-    "candidate_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-    "model_revision": "compact_pc_keyed_natural_hurdle_scalar_v18",
-    "neural_role": "standalone_direct_action_prefetcher",
-    "track_model_family": "lstm",
-    "runtime_feature_count": 122,
-    "runtime_encoding": "lossless uint64 PC plus lossless 58-bit cache-line number",
+    "derived_features_use_teacher_or_future": False,
+    "decoder_training_mode": contract["decoder_training_mode"],
+    "decoder_previous_teacher_action_used_as_input": False,
+    "decoder_previous_predicted_action_used_as_input": False,
+    "all_teacher_ranks_supervised": True,
+    "delta_vocabulary_source": "train_labels_only",
+    "delta_vocabulary_max_exact": 255,
+    "delta_class_bias_initialization": "log_add_one_smoothed_TRAIN_exact_plus_OTHER_frequency",
+    "positive_log_count_bias_initialization": "TRAIN_positive_mean_log_count",
+    "delta_other_escape": "signed_log_continuous_bounded_approximation",
+    "delta_other_decode_precision": "rounded_float32_approximate_except_exact_vocabulary",
+    "delta_coordinate_auxiliary_trained_on_all_teacher_actions": True,
+    "delta_coordinate_used_for_decode_only_on_other": True,
+    "full_signed_line_delta_range_reachable": False,
+    "every_signed_line_delta_exactly_representable": False,
+    "exact_delta_representability_scope": "train_vocabulary_only",
+    "gate_training_objective": contract["gate_training_objective"],
+    "positive_count_training_objective": contract[
+        "positive_count_training_objective"
+    ],
+    "delta_training_objective": contract["delta_training_objective"],
     "deterministic_decoding": True,
     "stochastic_decoding": False,
-    "common_random_numbers_across_capacities": False,
-    "strict_common_random_numbers_across_capacities": False,
-    "cross_event_rng_state_used": False,
     "decoder_sampling_roles": [],
     "decoder_train_sampling_performed": False,
     "decoder_guard_sampling_performed": False,
+    "decoder_eval_sampling_performed": False,
+    "sampled_outputs_used_as_decoder_feedback": False,
+    "decode_per_callback_resource_watchdog": contract[
+        "decode_per_callback_resource_watchdog"
+    ],
+    "decode_per_role_resource_watchdog": contract[
+        "decode_per_role_resource_watchdog"
+    ],
+    "decode_resource_watchdog_behavior": contract[
+        "decode_resource_watchdog_behavior"
+    ],
+    "decode_resource_watchdog_is_neural_degree_cap": False,
+    "successful_run_hit_decode_resource_watchdog": False,
+    "checkpoint_selection": contract["checkpoint_selection"],
+    "checkpoint_selection_roles": ["guard"],
+    "guard_role": "checkpoint_selection_only_no_threshold_calibration",
+    "evaluation_used_for_checkpoint_selection": False,
+    "evaluation_decode_passes": 1,
+    "runtime_feature_count": contract["runtime_feature_count"],
+    "raw_runtime_feature_count": contract["raw_runtime_feature_count"],
+    "causal_runtime_feature_count": contract["causal_runtime_feature_count"],
+    "training_state_mode": "exact_pc_keyed_stateful_tbptt",
+    "training_state_carried_across_chunks": True,
+    "training_state_detached_between_chunks": True,
+    "experiment_revision": contract["experiment_revision"],
+    "model_revision": contract["model_revision"],
+    "decoder_revision": contract["decoder_revision"],
+    "track_model_family": "lstm",
+    "training_config": contract["training_config"],
+    "training_config_pinned_by_run_id": True,
+    "training_device": "cuda",
+    "cublas_workspace_config": contract["determinism_contract"][
+        "cublas_workspace_config"
+    ],
+    "torch_deterministic_algorithms_enabled": True,
+    "cudnn_deterministic": True,
+    "cudnn_benchmark": False,
+    "float32_matmul_precision": contract["determinism_contract"][
+        "float32_matmul_precision"
+    ],
 }
-bad = {key: (metadata.get(key), expected) for key, expected in common.items()
-       if metadata.get(key) != expected}
-statistics = metadata.get("request_count_training_label_statistics") or {}
-prior = metadata.get("gate_empirical_prior")
-initial_bias = metadata.get("gate_initial_bias")
-decision_callbacks = statistics.get("decision_callbacks")
-positive_callbacks = statistics.get("positive_callbacks")
-zero_callbacks = statistics.get("zero_callbacks")
-if (
-    not isinstance(decision_callbacks, int)
-    or isinstance(decision_callbacks, bool)
-    or not isinstance(positive_callbacks, int)
-    or isinstance(positive_callbacks, bool)
-    or not isinstance(zero_callbacks, int)
-    or isinstance(zero_callbacks, bool)
-    or decision_callbacks <= 0
-    or positive_callbacks <= 0
-    or zero_callbacks <= 0
-    or positive_callbacks + zero_callbacks != decision_callbacks
-    or not isinstance(prior, list)
-    or len(prior) != 2
-    or not isinstance(initial_bias, list)
-    or len(initial_bias) != 2
-):
-    bad["gate_empirical_prior"] = (
-        {
-            "statistics": statistics,
-            "prior": prior,
-            "initial_bias": initial_bias,
-        },
-        "empirical prior and log-prior bias from a nonempty two-class split",
+expected.update(source_hashes)
+bad = {
+    key: (metadata.get(key), value)
+    for key, value in expected.items() if metadata.get(key) != value
+}
+for key, value in contract["training_config"].items():
+    if metadata.get(key) != value:
+        bad["pinned_training_" + key] = (metadata.get(key), value)
+if contract["determinism_contract"][
+    "required_accelerator_name_contains"
+] not in str(metadata.get("training_device_name")):
+    bad["training_device_name"] = (
+        metadata.get("training_device_name"),
+        contract["determinism_contract"]["required_accelerator_name_contains"],
+    )
+points = {point["model_size"]: point for point in contract["points"]}
+point = points.get(metadata.get("model_size"))
+if metadata.get("model_family") != "lstm" or point is None:
+    bad["model_point"] = (
+        (metadata.get("model_family"), metadata.get("model_size")),
+        sorted(points),
     )
 else:
-    expected_prior = [
-        float(zero_callbacks) / float(decision_callbacks),
-        float(positive_callbacks) / float(decision_callbacks),
-    ]
-    expected_bias = [math.log(value) for value in expected_prior]
-    if any(
-        not isinstance(actual, (int, float))
-        or isinstance(actual, bool)
-        or not math.isfinite(float(actual))
-        or not math.isclose(
-            float(actual), expected, rel_tol=1e-6, abs_tol=1e-7
-        )
-        for actual, expected in zip(prior, expected_prior)
-    ):
-        bad["gate_empirical_prior"] = (prior, expected_prior)
-    if any(
-        not isinstance(actual, (int, float))
-        or isinstance(actual, bool)
-        or not math.isfinite(float(actual))
-        or not math.isclose(
-            float(actual), expected, rel_tol=1e-6, abs_tol=1e-7
-        )
-        for actual, expected in zip(initial_bias, expected_bias)
-    ):
-        bad["gate_initial_bias"] = (initial_bias, expected_bias)
-    diagnostics = metadata.get("request_count_decoder_diagnostics") or {}
-    if diagnostics.get("gate_empirical_prior") != prior:
-        bad["diagnostic_gate_empirical_prior"] = (
-            diagnostics.get("gate_empirical_prior"), prior,
-        )
-    if diagnostics.get("gate_initial_bias") != initial_bias:
-        bad["diagnostic_gate_initial_bias"] = (
-            diagnostics.get("gate_initial_bias"), initial_bias,
-        )
-if metadata.get("gate_class_weights") is not None:
-    bad["gate_class_weights"] = (
-        metadata.get("gate_class_weights"), None,
-    )
+    for key in ("architecture_pair_id", "parameter_count", "model_tag"):
+        expected_value = point[key]
+        if metadata.get(key) != expected_value:
+            bad[key] = (metadata.get(key), expected_value)
+
 for key in (
-    "training_state_router_sha256", "inference_state_router_sha256",
+    "runtime_encoder_sha256", "training_runtime_encoder_sha256",
+    "inference_runtime_encoder_sha256", "training_state_router_sha256",
+    "inference_state_router_sha256",
 ):
-    value = metadata.get(key)
-    if not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None:
-        bad[key] = (value, "64 lowercase hex characters")
-if family != "lstm":
-    bad["model_family"] = (family, "lstm")
-if not tag.startswith("independent_delta_" + policy + "_lstm_"):
-    bad["model_tag"] = (tag, "independent_delta_" + policy + "_lstm_<size>")
-expected_points = {
-    ("lstm", 8): "p0",
-    ("lstm", 16): "p1",
-    ("lstm", 32): "p2",
-    ("lstm", 64): "p3",
-    ("lstm", 128): "p4",
-}
-expected_parameters = {8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660}
-point = expected_points.get((family, metadata.get("model_size")))
-if point is None:
-    bad["model_point"] = ((family, metadata.get("model_size")), "pinned point")
-else:
-    if metadata.get("architecture_pair_id") != point:
-        bad["architecture_pair_id"] = (metadata.get("architecture_pair_id"), point)
-expected_parameter_count = expected_parameters.get(metadata.get("model_size"))
-if metadata.get("parameter_count") != expected_parameter_count:
-    bad["parameter_count"] = (metadata.get("parameter_count"), expected_parameter_count)
-encoder_hashes = {
+    if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key))) is None:
+        bad[key] = (metadata.get(key), "64 lowercase hex characters")
+if len({
     metadata.get("runtime_encoder_sha256"),
     metadata.get("training_runtime_encoder_sha256"),
     metadata.get("inference_runtime_encoder_sha256"),
-}
-encoder_hash = next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
-if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
-    bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared 64-hex digest")
-expected = {
-    "training_state_mode": "chronological_stateful_tbptt",
-    "training_state_carried_across_chunks": True,
-    "training_state_detached_between_chunks": True,
-    "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
-    "cnn_temporal_layers": 0,
-}
-for key, value in expected.items():
-    if metadata.get(key) != value:
-        bad[key] = (metadata.get(key), value)
+}) != 1:
+    bad["runtime_encoder_hash_equality"] = ("different", "identical")
+if metadata.get("training_state_router_sha256") != metadata.get(
+    "inference_state_router_sha256"
+):
+    bad["state_router_hash_equality"] = ("different", "identical")
+
+vocabulary = metadata.get("delta_vocabulary_exact")
+frequencies = metadata.get("delta_vocabulary_train_frequencies")
+size = metadata.get("delta_vocabulary_exact_size")
+if (
+    not isinstance(vocabulary, list) or not isinstance(frequencies, list)
+    or not isinstance(size, int) or isinstance(size, bool)
+    or not 0 < size <= 255 or len(vocabulary) != size
+    or len(frequencies) != size or len(set(vocabulary)) != size
+    or any(not isinstance(value, int) or isinstance(value, bool)
+           for value in vocabulary + frequencies)
+    or any(value <= 0 for value in frequencies)
+):
+    bad["delta_vocabulary"] = (
+        {"size": size, "vocabulary": vocabulary, "frequencies": frequencies},
+        "one unique TRAIN-frequency vocabulary of size 1..255",
+    )
+statistics = metadata.get("delta_vocabulary_statistics") or {}
+if (
+    set(statistics) != {"train", "guard", "eval"}
+    or not isinstance(frequencies, list)
+):
+    bad["delta_vocabulary_statistics"] = (
+        sorted(statistics), ["train", "guard", "eval"]
+    )
+else:
+    train_vocabulary = statistics.get("train") or {}
+    other_count = train_vocabulary.get("other_escape_actions")
+    teacher_actions = train_vocabulary.get("teacher_actions")
+    class_prior = metadata.get("delta_class_empirical_prior")
+    class_bias = metadata.get("delta_class_initial_bias")
+    if (
+        not isinstance(other_count, int) or not isinstance(teacher_actions, int)
+        or not isinstance(class_prior, list) or len(class_prior) != 256
+        or not isinstance(class_bias, list) or len(class_bias) != 256
+    ):
+        bad["delta_class_prior"] = (
+            (other_count, teacher_actions, class_prior, class_bias),
+            "256 add-one-smoothed TRAIN class priors and log biases",
+        )
+    else:
+        class_counts = [0] * 256
+        for index, value in enumerate(frequencies):
+            class_counts[index] = value
+        class_counts[255] = other_count
+        denominator = float(teacher_actions + 256)
+        expected_prior = [
+            (value + 1.0) / denominator for value in class_counts
+        ]
+        if any(
+            not math.isclose(actual, expected, rel_tol=1e-6, abs_tol=1e-9)
+            for actual, expected in zip(class_prior, expected_prior)
+        ) or any(
+            not math.isclose(actual, math.log(expected), rel_tol=1e-6,
+                             abs_tol=1e-7)
+            for actual, expected in zip(class_bias, expected_prior)
+        ):
+            bad["delta_class_prior"] = (
+                (class_prior, class_bias),
+                "add-one-smoothed TRAIN class prior and its log",
+            )
+
+count_stats = metadata.get("request_count_training_label_statistics") or {}
+if (
+    not isinstance(count_stats.get("decision_callbacks"), int)
+    or count_stats.get("decision_callbacks", 0) <= 0
+    or count_stats.get("positive_callbacks", 0) <= 0
+    or count_stats.get("zero_callbacks", 0) <= 0
+    or count_stats.get("positive_callbacks", 0)
+       + count_stats.get("zero_callbacks", 0)
+       != count_stats.get("decision_callbacks")
+):
+    bad["request_count_training_label_statistics"] = (
+        count_stats, "nonempty natural zero/positive TRAIN labels"
+    )
+else:
+    distribution = count_stats.get("count_distribution") or {}
+    expected_log_count_bias = sum(
+        int(value) * math.log(int(key))
+        for key, value in distribution.items() if int(key) > 0
+    ) / float(count_stats["positive_callbacks"])
+    actual_log_count_bias = metadata.get("positive_log_count_initial_bias")
+    if (
+        not isinstance(actual_log_count_bias, (int, float))
+        or not math.isclose(
+            actual_log_count_bias, expected_log_count_bias,
+            rel_tol=1e-6, abs_tol=1e-7,
+        )
+    ):
+        bad["positive_log_count_initial_bias"] = (
+            actual_log_count_bias, expected_log_count_bias
+        )
+prior = metadata.get("gate_empirical_prior")
+bias = metadata.get("gate_initial_bias")
+if (
+    not isinstance(prior, list) or not isinstance(bias, list)
+    or len(prior) != 2 or len(bias) != 2
+    or any(not isinstance(value, (int, float)) or value <= 0 for value in prior)
+    or not math.isclose(sum(prior), 1.0, rel_tol=1e-7, abs_tol=1e-8)
+    or any(not math.isclose(math.log(p), b, rel_tol=1e-6, abs_tol=1e-7)
+           for p, b in zip(prior, bias))
+):
+    bad["gate_prior_bias"] = ((prior, bias), "natural prior and its log")
+epoch = metadata.get("selected_guard_epoch")
+if not isinstance(epoch, int) or isinstance(epoch, bool) or not (
+    1 <= epoch <= metadata.get("epochs", 0)
+):
+    bad["selected_guard_epoch"] = (epoch, "within trained epochs")
 
 def inspect_replay(path, allow_empty):
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     count = 0
     with path.open(newline="") as handle:
         reader = csv.reader(handle)
-        header = next(reader, None)
-        if header != ["pc", "line", "occ", "prefetch_addr"]:
+        if next(reader, None) != ["pc", "line", "occ", "prefetch_addr"]:
             raise SystemExit("invalid stride replay header in {}".format(path))
         for line_number, fields in enumerate(reader, 2):
             if len(fields) != 4:
-                raise SystemExit("invalid stride replay row {} in {}".format(line_number, path))
-            try:
-                pc = int(fields[0], 0)
-                line = int(fields[1], 0)
-                occ = int(fields[2], 10)
-                address = int(fields[3], 0)
-            except ValueError as exc:
-                raise SystemExit("invalid stride replay integer at {}: {}".format(line_number, exc))
+                raise SystemExit("invalid stride replay row {}".format(line_number))
+            pc, line, occ, address = (
+                int(fields[0], 0), int(fields[1], 0),
+                int(fields[2], 10), int(fields[3], 0),
+            )
             if min(pc, line, occ, address) < 0 or address % 64:
-                raise SystemExit("unaligned/negative stride replay row {}".format(line_number))
+                raise SystemExit("unaligned/negative replay row")
             count += 1
     if count <= 0 and not allow_empty:
-        raise SystemExit("empty stride replay list {}".format(path))
+        raise SystemExit("empty replay list {}".format(path))
     return count, digest
 
-root = Path(sys.argv[1]).parent
+root = Path(metadata_path).parent
 for name, count_key, hash_key, allow_empty in (
     ("offline_stride.replay.csv", "offline_normal_entries", "normal_list_sha256", False),
     ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", True),
 ):
     path = root / name
     if not path.is_file():
-        bad[name] = ("missing", "nonempty validated replay list")
+        bad[name] = ("missing", "validated replay list")
         continue
     count, digest = inspect_replay(path, allow_empty)
     if metadata.get(count_key) != count:
@@ -674,7 +536,7 @@ for name, count_key, hash_key, allow_empty in (
     if metadata.get(hash_key) != digest:
         bad[hash_key] = (metadata.get(hash_key), digest)
 if bad:
-    raise SystemExit("invalid 623 stride metadata: {}".format(bad))
+    raise SystemExit("invalid 623 Stride v20 metadata: {}".format(bad))
 PY
 }
 
@@ -710,7 +572,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_global_local_grammar_stride_lstm_*)
+    offline_independent_rank_delta_stride_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -741,7 +603,7 @@ require_colab_outputs() {
         exit 2
       }
     done
-    assert_model_metadata "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v20 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 

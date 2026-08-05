@@ -197,3 +197,9 @@ formal_NN_training/experiments/*/runs/
 *.model.txt
 *.build_info.txt
 
+# Colab transfer archives and extracted payloads move only via SCP/browser.
+# Source notebooks remain tracked; generated inputs, outputs, and models do not.
+**/*.colab_input.tar.gz
+**/*.colab_output.tar.gz
+formal_NN_training/experiments/**/colab_input/
+formal_NN_training/experiments/**/colab_output/

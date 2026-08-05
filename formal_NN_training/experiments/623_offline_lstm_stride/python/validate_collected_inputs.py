@@ -5,7 +5,7 @@ import csv
 import gzip
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from model_contract import (
@@ -15,7 +15,16 @@ from model_contract import (
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_v5"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-SOURCE_STRIDE_PAGE_LINES = 64
+LINE_NUMBER_BITS = 58
+LINE_MODULUS = 1 << LINE_NUMBER_BITS
+LINE_MASK = LINE_MODULUS - 1
+
+
+def signed_line_delta(target, base):
+    value = (int(target) - int(base)) & LINE_MASK
+    if value >= (1 << (LINE_NUMBER_BITS - 1)):
+        value -= LINE_MODULUS
+    return value
 
 
 def as_int(value):
@@ -85,6 +94,9 @@ def read_candidates(path, policy, stream_rows):
     counts = defaultdict(int)
     fill_counts = defaultdict(int)
     total = 0
+    delta_counts = Counter()
+    self_targets = 0
+    cross_4k_page_targets = 0
     last_pf_event_id = -1
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
@@ -137,16 +149,34 @@ def read_candidates(path, policy, stream_rows):
             if fill_level != 2:
                 raise RuntimeError("{} stride candidate is not FILL_L2".format(path))
             pf_line = as_int(row["pf_line"])
-            if pf_line // SOURCE_STRIDE_PAGE_LINES != line // SOURCE_STRIDE_PAGE_LINES:
-                raise RuntimeError("{} stride action crosses a page".format(path))
-            if counts[demand_idx] > SOURCE_STRIDE_PAGE_LINES:
-                raise RuntimeError("{} violates the audited source Stride page topology".format(path))
+            if pf_line < 0 or pf_line >= LINE_MODULUS:
+                raise RuntimeError("{} stride target exceeds uint64 line domain".format(path))
+            delta_counts[signed_line_delta(pf_line, line)] += 1
+            self_targets += int(pf_line == line)
+            cross_4k_page_targets += int(pf_line // 64 != line // 64)
             fill_counts[fill_level] += 1
             last_pf_event_id = pf_event_id
             total += 1
     if total == 0:
         raise RuntimeError("empty candidate bank {}".format(path))
-    return total, max(counts.values()), dict(sorted(fill_counts.items()))
+    ordered_deltas = sorted(
+        delta_counts, key=lambda value: (-delta_counts[value], value)
+    )
+    profile = {
+        "unique_signed_line_deltas": len(delta_counts),
+        "minimum_signed_line_delta": min(delta_counts),
+        "maximum_signed_line_delta": max(delta_counts),
+        "self_target_actions": self_targets,
+        "cross_4k_page_actions": cross_4k_page_targets,
+        "top_signed_line_deltas": [
+            {"delta": value, "count": delta_counts[value]}
+            for value in ordered_deltas[:32]
+        ],
+    }
+    return (
+        total, max(counts.values()), dict(sorted(fill_counts.items())),
+        profile,
+    )
 
 
 def main():
@@ -167,8 +197,9 @@ def main():
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_training_mode": "full_teacher_rank_supervision_without_teacher_or_predicted_action_feedback",
         "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
         "training_runtime_fields": ["pc", "addr"],
         "inference_runtime_fields": ["pc", "addr"],
         "normal_policy_private_state": [
@@ -180,11 +211,18 @@ def main():
         "normal_policy_outputs_used_as_training_targets": True,
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
-        "teacher_source_page_lines": SOURCE_STRIDE_PAGE_LINES,
+        "delta_vocabulary_source": "train_labels_only",
+        "delta_vocabulary_max_exact": 255,
+        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_other_decode_precision": "rounded_float32_approximate_except_exact_vocabulary",
+        "full_signed_line_delta_range_reachable": False,
+        "every_signed_line_delta_exactly_representable": False,
+        "exact_delta_representability_scope": "train_vocabulary_only",
         "probability_threshold_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
+        "normal_policy_templates_used_by_neural_inference": False,
         "future_label_window_used": False,
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,
@@ -205,7 +243,9 @@ def main():
         if not stream_path.is_file() or not candidate_path.is_file():
             raise RuntimeError("missing normalized {} {} inputs".format(POLICY, role))
         stream_rows = read_stream(stream_path)
-        candidate_count, max_candidates, fill_counts = read_candidates(
+        (
+            candidate_count, max_candidates, fill_counts, delta_profile,
+        ) = read_candidates(
             candidate_path, POLICY, stream_rows
         )
         manifest["tracks"][POLICY][role] = {
@@ -213,6 +253,7 @@ def main():
             "candidate_requests": candidate_count,
             "max_candidates_per_demand": max_candidates,
             "candidate_fill_level_counts": fill_counts,
+            "teacher_delta_profile_for_output_design_audit": delta_profile,
             "demand_identity_sha256": identity_sha256(stream_rows),
             "stream_gzip_sha256": sha256(stream_path),
             "stream_content_sha256": gzip_content_sha256(stream_path),

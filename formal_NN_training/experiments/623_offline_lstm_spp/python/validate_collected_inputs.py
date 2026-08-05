@@ -8,15 +8,19 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from model_points_v19 import (
+from model_contract import (
     CACHE_LINE_BYTES, EXPERIMENT_REVISION, EXTERNAL_INPUT_FIELDS,
-    PAGE_BYTES, POLICY, TRACE, exact_int as as_int,
+    LINE_ADDRESS_BITS, POLICY, TRACE, exact_int as as_int,
 )
 
 ROLES = ("train", "guard", "eval")
 LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
-SOURCE_SPP_PAGE_LINES = PAGE_BYTES // CACHE_LINE_BYTES
+# This audits captured source-SPP labels only.  It is deliberately not part of
+# the neural runtime contract or decoder.
+SOURCE_SPP_PAGE_LINES = 4096 // CACHE_LINE_BYTES
+LINE_ADDRESS_MODULUS = 1 << LINE_ADDRESS_BITS
+LINE_ADDRESS_HALF_RANGE = 1 << (LINE_ADDRESS_BITS - 1)
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
 
@@ -140,6 +144,7 @@ def read_teacher_actions(path, demand_rows):
     total = 0
     raw_total = 0
     self_target_total = 0
+    signed_delta_histogram = defaultdict(int)
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
@@ -219,6 +224,12 @@ def read_teacher_actions(path, demand_rows):
                     "{} has two canonical actions for one target".format(path)
                 )
             seen[demand_idx].add(pf_line)
+            difference = (pf_line - line) % LINE_ADDRESS_MODULUS
+            delta = (
+                difference - LINE_ADDRESS_MODULUS
+                if difference >= LINE_ADDRESS_HALF_RANGE else difference
+            )
+            signed_delta_histogram[delta] += 1
             fill_counts["FILL_L2" if fill == 2 else "FILL_LLC"] += 1
             total += 1
             raw_total += raw_action_count
@@ -226,6 +237,9 @@ def read_teacher_actions(path, demand_rows):
             last_pf_event = pf_event
     if total == 0:
         raise RuntimeError("empty teacher action stream {}".format(path))
+    count_histogram = defaultdict(int)
+    for demand_idx in range(len(demand_rows)):
+        count_histogram[counts[demand_idx]] += 1
     return {
         "teacher_actions": total,
         "raw_source_prefetch_calls": raw_total,
@@ -233,6 +247,13 @@ def read_teacher_actions(path, demand_rows):
         "self_target_actions": self_target_total,
         "self_target_action_rate": self_target_total / float(total),
         "max_actions_per_callback": max(counts.values()),
+        "teacher_count_histogram": {
+            str(key): value for key, value in sorted(count_histogram.items())
+        },
+        "teacher_signed_delta_histogram": {
+            str(key): value
+            for key, value in sorted(signed_delta_histogram.items())
+        },
         "teacher_fill_level_counts": fill_counts,
     }
 
@@ -259,7 +280,7 @@ def main():
         "teacher_actions_are_model_inputs": False,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": "free_running_autoregressive_same_as_inference",
+        "decoder_training_mode": "fully_supervised_independent_ranks_no_action_feedback",
         "decoder_previous_teacher_action_used_as_input": False,
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
@@ -283,8 +304,21 @@ def main():
         "cache_hit_and_type_are_audit_only": True,
         "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
-        "neural_action_decoder": "unbounded count plus direct signed cache-line deltas",
+        "neural_action_decoder": (
+            "natural-prior gate, positive log-count, TRAIN-derived exact "
+            "delta vocabulary plus signed-log OTHER, and target-conditioned fill"
+        ),
         "complete_neural_action_space": True,
+        "delta_vocabulary_source": "train_labels_only",
+        "delta_vocabulary_max_exact": 255,
+        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_other_decode_precision": (
+            "rounded_float32_approximate_except_exact_vocabulary"
+        ),
+        "full_signed_line_delta_range_reachable": False,
+        "every_signed_line_delta_exactly_representable": False,
+        "exact_delta_representability_scope": "train_vocabulary_only",
+        "normal_policy_templates_used_by_neural_inference": False,
         "self_target_actions_allowed": True,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "tracks": {POLICY: {}},

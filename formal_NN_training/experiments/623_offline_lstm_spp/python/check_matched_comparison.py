@@ -10,7 +10,7 @@ import json
 import sys
 from pathlib import Path
 
-from model_points_v19 import RUN_ID as DEFAULT_RUN_ID
+from model_contract import RUN_ID as DEFAULT_RUN_ID
 
 EXPERIMENT_DIR = Path(__file__).resolve().parents[1]
 

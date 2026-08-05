@@ -1,126 +1,167 @@
-# 623 SPP — routed/page-local learned action grammar v19
+# 623 SPP — independent global LSTM + direct learned actions v20
 
-This directory is the active matched-input SPP experiment for
-`623.xalancbmk_s-700B`. The neural policy receives exactly the same
-source-visible chronological callbacks as v18:
+This is the active matched-input SPP experiment for
+`623.xalancbmk_s-700B`.  It replaces the v19 routed/page grammar from first
+principles.  The neural policy sees exactly the source-visible chronological
+callback stream already captured for v18:
 
 - `DEMAND(invoke_prefetcher.addr)`
 - `CACHE_FILL(cache_fill.evicted_addr)`
 
-PC remains replay transport only. Source-SPP request count, target, and fill
-are supervised labels and the offline-normal comparator; they are never NN
-runtime inputs. Recorded fill callbacks came from the source-SPP run, so the
-claim remains a matched-input open-loop comparison, not live closed-loop NN
-execution.
+Each address is encoded losslessly as 58 cache-line bits and callback kind is
+one bit.  PC is replay transport only.  Source-SPP targets, request counts,
+fill levels, thresholds, tables, confidence, candidate actions, and private
+state are not runtime inputs.  The recorded fill callbacks came from the
+source-SPP run, so the claim is a matched-input **open-loop** comparison, not
+closed-loop live NN execution.
 
-## Why v18 collapsed
+## Why v19 was the wrong abstraction
 
-v18 factorized a structured variable-length action into four marginal tasks.
-That made the easiest likelihood solution the observed failure mode:
+v19 made a direct address pass through sampled `STOP/EMIT` decisions and up
+to nine autoregressive LEB128 bytes.  One token error changed the next origin
+and every later training state.  Its separate demand/fill/page LSTMs and
+page-keyed dictionary also encoded a normal-prefetcher-shaped hypothesis
+before the NN had learned it.  The model therefore spent capacity solving an
+artificial stochastic serialization problem whose likelihood did not match
+the hard addresses consumed by replay.
 
-- a weak gate with a positive marginal above one half became almost-always
-  positive under logit-sign decoding;
-- the conditional excess mean was below one half, so rounding produced one
-  action on almost every positive callback;
-- continuous mixture NLL did not train the hard peak-density address selector;
-- fill was predicted independently before the actual target, allowing wrong
-  targets to receive harmful L2 placement.
+v20 removes the complete action grammar.  It does not patch its thresholds or
+retain its page route.
 
-Increasing hidden size cannot repair those objective/decoder mismatches.
+## v20 architecture
 
-## v19 architecture
+1. One bounded global chronological LSTM learns from the complete 59-bit
+   callback sequence.  The reported hidden sizes are 16 and 32.
+2. A two-class gate is trained with natural-prior CE.  Its bias is initialized
+   from TRAIN log priors and it is decoded by categorical MAP; there is no
+   probability threshold.
+3. Positive callbacks regress `log(count)` and decode by rounded `exp`.  A
+   fail-closed output-resource watchdog aborts the whole run on a pathological
+   count; it never truncates or changes the learned action count and is not a
+   neural degree cap.
+4. Every requested rank receives the same callback state and a generic
+   sinusoidal rank code.  All teacher ranks bear loss.  There is no previous
+   teacher action, previous sampled action, target, or fill recurrent feedback.
+5. Signed target deltas are always relative to the callback line.  The exact
+   vocabulary is learned from TRAIN labels only: at most the 255 most frequent
+   deltas, with signed-value tie breaking.  A 256th `OTHER` class decodes via a
+   signed-log scalar trained on every action. It gives unseen deltas a broad
+   bounded approximation but does not guarantee either 58-bit endpoint; only
+   the TRAIN vocabulary is integer-exact. The 255 value is a byte-sized representation
+   budget, not a probability threshold, page class count, or source-SPP rule.
+6. Fill is predicted after and conditioned on rank, decoded delta class, and
+   the actual decoded signed-log delta.  Inverse-frequency CE prevents the
+   rare L2 label from disappearing during representation learning.  Adding
+   the TRAIN log prior recovers a natural posterior, then a stateless
+   event/rank-keyed categorical draw selects L2 or LLC.  The same key and
+   uniform are used for h16 and h32; there is no manual fill threshold.
+7. Count and delta are deterministic.  Duplicate or self-target actions are
+   preserved in the replay list so ChampSim queue merges, issue, delay, fill,
+   usefulness, and eviction effects—not an offline cleanup rule—determine
+   their system effect.
+8. Checkpoint selection uses guard target F1, trigger F1, exact-count rate,
+   matched-target fill accuracy, and L2 joint F1.  The last term prevents the
+   98% LLC majority from rewarding rare-fill collapse; it is a guard metric,
+   not a probability threshold.  Evaluation is decoded once after the guard
+   checkpoint is frozen.
 
-v19 replaces the complete v18 model rather than calibrating it:
-
-1. Lossless line58 + callback-kind bits are projected once.
-2. DEMAND and FILL events update separate chronological LSTMs.
-3. A page-keyed causal LSTM sees the same raw line-derived page identity and a
-   causal reuse age. A learned vector validity gate decides how much of that
-   local state should contribute.
-4. Learned fusion combines demand, fill, page-local, and current-event state.
-5. Each action rank samples a learned categorical `STOP` or `EMIT` token with
-   a stateless event/rank key. The first `STOP` determines request count. There
-   is no `0.5` rule, threshold, hurdle, Poisson, rounded mean, or degree cap.
-6. `EMIT` generates an exact signed increment with a compact autoregressive
-   byte GRU using ZigZag + canonical LEB128. Each actual hard byte conditions
-   the next byte. Common small deltas need one byte and the complete signed
-   58-bit cache-line domain needs at most nine. Rank zero is relative to the
-   callback line; later ranks are relative to the actual previous target.
-7. `delta=0` and a first-rank self target are legal, matching the captured SPP
-   semantics. Only a target already emitted by this callback is masked from
-   the learned categorical distribution and renormalized. Continuation bytes
-   are masked when their complete subtree contains no legal target, so byte
-   nine cannot dead-end. There is no backtracking, nearest `+/-1`, or other
-   invented fallback.
-8. Fill is predicted only after and conditioned on the actual hard target.
-   Actual hard increment/target/fill values feed the next rank.
-
-Training follows the sampled trajectory. STOP/EMIT CE exists only at states
-and ranks actually reached by keyed model sampling. A strictly separate,
-weight-shared teacher-prefix branch computes the full canonical target NLL;
-the teacher prefix advances only that isolated likelihood branch's byte-GRU
-state. It cannot change the main sampled action state, origin, duplicate
-history, or runtime output. Fill CE is evaluated as the
-conditional factor `p(fill | state, teacher target)`. Runtime fill is sampled
-only from `p(fill | state, actual sampled target)`, and only actual hard
-target/fill values feed the next rank. The summed NLL is divided by the total
-number of categorical atoms in each gradient-accumulation group; there are no
-manual per-head loss weights.
-
-A 52-rank watchdog is derived from the 52-bit keyed-uniform sampler precision.
-It is fail-closed: if a learned trajectory never samples STOP, the entire run
-raises and emits no replay. It never truncates, forces STOP, or acts as a
-neural degree cap. STOP probability must also be representable on that open
-inverse-CDF grid.
+There is no same-page inference rule, page dictionary, SPP signature/pattern
+table, captured candidate list, `STOP/EMIT`, LEB128, action GRU, normal SPP
+threshold, neural degree cap, or probability cutoff.
 
 Input revision:
 `spp_source_input_variable_delta_fill_feedback_free_running_v11`  
-Model revision: `routed_page_lstm_rank_grammar_leb128_v19`  
-Decoder revision: `keyed_stop_emit_zigzag_leb128_target_fill_v19`  
-Operation: `train-v19`  
-Default run: `623_offline_lstm_spp_routed_grammar_v19_seed7`
+Model revision: `global_chronological_lstm_independent_actions_v20`  
+Decoder revision: `gate_logcount_rank_vocab_other_keyed_fill_v20`  
+Operation: `train-v20`  
+Default run: `623_offline_lstm_spp_independent_vocab_v20_seed7`
 
-| Tag | Fusion/action H | Routed LSTM R | Codec E | Trainable parameters |
-|---|---:|---:|---:|---:|
-| `routed_grammar_spp_lstm_h8` | 8 | 4 | 2 | 2,790 |
-| `routed_grammar_spp_lstm_h16` | 16 | 8 | 4 | 7,032 |
+| Tag | H | Maximum parameters (255 exact deltas) |
+|---|---:|---:|
+| `independent_vocab_spp_lstm_h16` | 16 | 8,968 |
+| `independent_vocab_spp_lstm_h32` | 32 | 22,272 |
 
-The exact parameter formula is
-`25R² + 90R + 4RH + 3H² + 7HE + 17H + 6E² + 589E + 260`, with
-`R=H//2` and `E=H//4`. `python/model_points_v19.py --json` is the single
-machine-readable source for sizes, pair IDs, derived widths, tags, revisions,
-and counts. Run metadata also reports dynamic page-state bytes separately;
-they are not hidden inside the weight count.
+The realized parameter count depends on TRAIN vocabulary size and is recorded
+in each `run_metadata.json`.  The exact formula is
+`9H² + 79H + 16 + (V+1)(H+1+E) + 2E`, where `E=max(4,H/4)` and
+`0<V<=255`.  `python/model_contract.py --json` is the stable machine-readable
+source for points, tags, revisions, and the formula.
+
+The run name is also a pinned training contract, not just a label:
+
+| Field | Pinned value |
+|---|---:|
+| seed | 7 |
+| keyed fill decoder seed | 7 |
+| epochs | 10 |
+| chronological chunk length | 1,024 |
+| accumulated chunks / optimizer step | 16 |
+| Adam learning rate | 0.002 |
+
+Trainer defaults are loaded from `model_contract.py`, the trainer rejects CLI
+overrides that differ from these values, and Colab builds its CLI from the same
+contract.  Metadata records both the structured training config and SHA-256 of
+the trainer, stable model contract, shared behavior-metric source, and keyed
+sampler source.  Colab,
+Sacramento installation, analyzer, and diagnosis compare those hashes against
+the current repository bytes, preventing stale code from passing by copying
+revision strings.
+
+The pinned accelerator is an NVIDIA A100.  The trainer sets
+`CUBLAS_WORKSPACE_CONFIG=:4096:8` before importing Torch, disables cuDNN
+benchmarking, enables cuDNN deterministic mode, and calls strict
+`torch.use_deterministic_algorithms(True)`.  Float32 matmul precision is pinned
+to `highest` inside the trainer subprocess.  Missing deterministic support or
+a non-A100 device aborts the run; nondeterministic warnings are not accepted.
+
+## What is reused from 602, and what is intentionally different
+
+Like 602 SPP, v20 uses one global causal recurrent history, the normal policy's
+public inputs only, teacher actions only as output supervision, chronological
+TBPTT, a fresh train→guard→eval inference history, and the same fill-preserving
+list replayer and system metrics.
+
+Unlike 602's four-component continuous delta mixture and modal fill, v20 uses
+an exact TRAIN-derived categorical vocabulary with a rounded, bounded
+approximate `OTHER` escape and prior-corrected keyed fill sampling. Unlike 602's autoregressive
+own-action feedback, ranks are independent.  Those changes follow the 623
+failure history: continuous likelihood versus hard decoding, sampled prefix
+exposure, and rare-fill collapse were objective/decoder problems, not evidence
+that a larger recurrent state was needed.
 
 ## Reuse v18 input byte-for-byte
 
-Do not recollect. On Sacramento:
+Do not recollect.  On Sacramento:
 
 ```bash
 cd ~/cache
 
 export EXP=formal_NN_training/experiments/623_offline_lstm_spp
 export SOURCE_RUN=623_offline_lstm_spp_hard_distinct_v18_seed7
-export RUN_ID=623_offline_lstm_spp_routed_grammar_v19_seed7
+export RUN_ID=623_offline_lstm_spp_independent_vocab_v20_seed7
 export SOURCE_DIR="$EXP/runs/$SOURCE_RUN"
 export RUN_DIR="$EXP/runs/$RUN_ID"
 
 test -d "$SOURCE_DIR/colab_input"
 test -s "$SOURCE_DIR/$SOURCE_RUN.colab_input.tar.gz"
 test ! -e "$RUN_DIR"
-
 mkdir -p "$RUN_DIR"
 cp -a "$SOURCE_DIR/colab_input" "$RUN_DIR/colab_input"
 cp -p "$SOURCE_DIR/$SOURCE_RUN.colab_input.tar.gz" \
   "$RUN_DIR/$RUN_ID.colab_input.tar.gz"
-
 cmp "$SOURCE_DIR/$SOURCE_RUN.colab_input.tar.gz" \
   "$RUN_DIR/$RUN_ID.colab_input.tar.gz"
 diff -qr "$SOURCE_DIR/colab_input" "$RUN_DIR/colab_input"
 ```
 
+The copied `collection_manifest.json` and `spp_source_contract.json` are
+historical input/source provenance.  Any legacy student-decoder description
+inside that immutable package does not define v20; the current decoder is
+pinned by `data/stream_contract.json`, `python/model_contract.py`, and each
+model's `run_metadata.json`.
+
 Upload `$RUN_DIR/$RUN_ID.colab_input.tar.gz` to
-`colab/623_offline_lstm_spp_A100.ipynb`. Put the downloaded output at
+`colab/623_offline_lstm_spp_A100.ipynb`.  Put the downloaded output at
 `$RUN_DIR/$RUN_ID.colab_output.tar.gz`, then run:
 
 ```bash

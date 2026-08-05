@@ -13,13 +13,13 @@ import gzip
 from collections import defaultdict
 from pathlib import Path
 
-from model_points_v19 import (
-    ADDRESS_BITS, CACHE_LINE_SHIFT, PAGE_BYTES, CACHE_LINE_BYTES, POLICY,
+from model_contract import (
+    ADDRESS_BITS, CACHE_LINE_SHIFT, CACHE_LINE_BYTES, POLICY,
     TRACE, exact_int as as_int,
 )
 
 LOG2_BLOCK_SIZE = CACHE_LINE_SHIFT
-SOURCE_SPP_PAGE_LINES = PAGE_BYTES // CACHE_LINE_BYTES
+SOURCE_SPP_PAGE_LINES = 4096 // CACHE_LINE_BYTES
 LOGGER_SCHEMA = "623_causal_trigger_fill_v6"
 ATTACHMENT_MODE = "explicit_trigger_event_id"
 CANONICALIZATION_MODE = "per_target_min_fill_queue_effect"

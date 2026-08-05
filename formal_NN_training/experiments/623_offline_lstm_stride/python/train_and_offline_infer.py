@@ -1,31 +1,21 @@
 #!/usr/bin/env python3
-"""Chronological global/local LSTM with an exact learned action grammar.
+"""Train and decode the independent matched-input 623 Stride v20 model.
 
-The external runtime contract is byte-for-byte unchanged from v18: each
-callback exposes only ``pc`` and the current aligned ``addr``.  Captured
-Stride requests are supervised labels and the offline-normal comparator. They
-never enter the runtime encoder or main rollout state; teacher codec prefixes
-advance only an isolated loss-branch likelihood state.
+The runtime boundary is deliberately small and auditable: only the current
+``pc`` and aligned ``addr`` are external inputs.  Every additional encoder
+value is a lossless causal derivative of that same history.  Captured Stride
+actions are labels and the offline-normal replay; they are never an encoder
+input, decoder prefix, candidate list, request budget, or action template.
 
-v19 replaces the per-PC-only hurdle/count/scalar decoder with:
-
-* one chronological global LSTM over the complete PC/address stream;
-* one dynamically PC-routed local LSTM.  Its input contains lossless causal
-  same-PC delta and reuse-age encodings derived only from prior PC/address
-  rows;
-* a learned sigmoid validity gate that softly controls how much local state is
-  fused with the global state;
-* a rank-wise STOP/EMIT grammar.  Request count is the first sampled STOP, not
-  a hurdle, rounded mean, probability threshold, budget, or degree cap;
-* exact signed incremental targets encoded by ZigZag + canonical LEB128.
-  Small strides normally require one byte while every legal signed 58-bit
-  cache-line increment remains representable in at most nine bytes.
-
-All runtime categorical choices use stateless event/rank/field-keyed
-inverse-CDF sampling.  Keys are independent of model capacity, giving strict
-common random numbers across the two v19 points.  Codec likelihood is computed
-in an isolated teacher-prefix branch; only the hard sampled branch can update
-the main recurrent decoder state and target origin used at the next rank.
+The model has one exact-PC keyed LSTM.  A natural-prior binary head decides
+whether to issue, a positive log-count head predicts cardinality, and a shared
+rank-conditioned head directly predicts every target relative to the current
+demand.  Up to 255 frequent TRAIN deltas have exact categorical symbols; the
+OTHER symbol carries a broad bounded continuous signed-log approximation.
+Exact vocabulary values remain integer-exact; float32 OTHER values do not
+guarantee domain endpoints. All teacher ranks are supervised independently, and no
+teacher or predicted action is fed to a later rank.  Inference is deterministic
+MAP with no probability threshold, source template, page rule, or degree cap.
 """
 import argparse
 import csv
@@ -33,28 +23,38 @@ import gzip
 import hashlib
 import inspect
 import json
+import math
+import os
 import platform
 import random
 import sys
 from collections import Counter, OrderedDict
 from pathlib import Path
 
+import model_contract as model_contract_module
 from model_contract import (
     ADDRESS_BITS, CACHE_LINE_BYTES, CACHE_LINE_OFFSET_BITS,
-    DECODER_TRAINING_MODE, DELTA_OBJECTIVE, EXPERIMENT_REVISION,
-    LEB128_MAX_BYTES, LEB128_PAYLOAD_BITS, LINE_NUMBER_BITS, LOCAL_FEATURES,
-    MODEL_POINTS, MODEL_REVISION, NONTERMINATION_WATCHDOG_RANKS, POLICY,
-    RAW_FEATURES, REQUEST_COUNT_OBJECTIVE, REUSE_AGE_BITS, RUN_ID,
-    RUNTIME_FEATURES, SAMPLER_GRID_BITS, SAMPLER_GRID_POINTS,
-    SAMPLER_MIN_UNIFORM, TRACE,
+    CAUSAL_RUNTIME_FEATURES, CHECKPOINT_SELECTION, COUNT_OBJECTIVE,
+    DECODE_PER_CALLBACK_WATCHDOG, DECODE_PER_ROLE_WATCHDOG,
+    DECODER_REVISION, DECODER_TRAINING_MODE, DECODING_RULE,
+    DELTA_OBJECTIVE, DELTA_OUTPUT_CLASSES, EXPERIMENT_REVISION,
+    GATE_OBJECTIVE, LINE_NUMBER_BITS, MAX_EXACT_DELTA_CLASSES,
+    MODEL_POINTS, MODEL_REVISION, OTHER_DELTA_CLASS, POLICY,
+    RANK_CODE_FEATURES, RAW_RUNTIME_FEATURES, REUSE_DISTANCE_BITS,
+    RUN_ID, RUNTIME_FEATURES, SOURCE_INPUTS, TRACE,
+    TRAINING_ACCUMULATE_CHUNKS, TRAINING_CHUNK_LEN, TRAINING_EPOCHS,
+    TRAINING_LEARNING_RATE, TRAINING_SEED,
     expected_parameter_count, model_points_description, model_tag,
     parse_exact_integer,
 )
 
+# This path must remain usable on a CPU-only server that validates a Colab
+# archive.  In particular, it exits before importing torch or numpy.
 if __name__ == "__main__" and sys.argv[1:] == ["--describe-model-points"]:
     print(json.dumps(model_points_description(), indent=2, sort_keys=True))
     raise SystemExit(0)
 
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 import numpy as np
 import torch
 import torch.nn as nn
@@ -69,37 +69,29 @@ if str(ROOT) not in sys.path:
 from formal_NN_training.common.threshold_free_policy import (
     ADDRESS_BITS as COMMON_ADDRESS_BITS,
     CACHE_LINE_BYTES as COMMON_CACHE_LINE_BYTES,
-    apply_signed_line_delta, behavior_metrics,
+    apply_signed_line_delta,
+    behavior_metrics,
+)
+
+TRAINER_SOURCE_PATH = Path(__file__).resolve()
+MODEL_CONTRACT_SOURCE_PATH = Path(model_contract_module.__file__).resolve()
+THRESHOLD_FREE_POLICY_SOURCE_PATH = (
+    ROOT / "formal_NN_training" / "common" / "threshold_free_policy.py"
 )
 
 if (COMMON_ADDRESS_BITS, COMMON_CACHE_LINE_BYTES) != (
     ADDRESS_BITS, CACHE_LINE_BYTES
 ):
-    raise RuntimeError("shared address contract differs from v19 model contract")
+    raise RuntimeError("shared address contract differs from v20 contract")
+
 
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
-SAMPLER_REVISION = "splitmix64_event_rank_field_inverse_cdf_crn_v2"
-SOURCE_INPUTS = ["pc", "addr"]
-
+SOURCE_INPUT_LIST = list(SOURCE_INPUTS)
 LINE_MODULUS = 1 << LINE_NUMBER_BITS
 LINE_MASK = LINE_MODULUS - 1
 SIGNED_LINE_MIN = -(1 << (LINE_NUMBER_BITS - 1))
 SIGNED_LINE_MAX = (1 << (LINE_NUMBER_BITS - 1)) - 1
-LEB128_PAYLOAD_CLASSES = 1 << LEB128_PAYLOAD_BITS
-STOP = 0
-EMIT = 1
-FIELD_GRAMMAR = 1
-FIELD_PAYLOAD_BIT = 2
-FIELD_FINAL_PAYLOAD = 3
-FIELD_CONTINUATION = 4
-ROLE_CODES = {"train": 0x545241494E, "eval": 0x4556414C}
-SAMPLER_DOMAIN = int.from_bytes(
-    hashlib.sha256(SAMPLER_REVISION.encode()).digest()[:8], "little"
-)
-TRACK_DOMAIN = int.from_bytes(
-    hashlib.sha256((TRACE + "|" + POLICY).encode()).digest()[:8], "little"
-)
 
 
 def sha256(path):
@@ -159,7 +151,7 @@ def load_stream(path):
 
 
 def load_teacher_actions(path, rows):
-    """Load captured actions as labels; no returned value is a model input."""
+    """Load labels without exposing any label field to the runtime encoder."""
     actions = [[] for _ in rows]
     last_pf_event = -1
     with gzip.open(path, "rt", newline="") as handle:
@@ -217,7 +209,6 @@ def load_teacher_actions(path, rows):
 
 
 def _unsigned_bits(values, width):
-    """Lossless LSB-first bit encoding stored compactly as uint8."""
     integers = [int(value) for value in values]
     limit = 1 << int(width)
     if any(value < 0 or value >= limit for value in integers):
@@ -236,55 +227,79 @@ def _canonical_signed_line_delta(current, previous):
     return value
 
 
+class _FenwickTree(object):
+    """Active-last-occurrence tree for exact distinct-PC reuse distance."""
+
+    def __init__(self, size):
+        self.values = [0] * (int(size) + 1)
+
+    def add(self, index, value):
+        position = int(index) + 1
+        while position < len(self.values):
+            self.values[position] += int(value)
+            position += position & -position
+
+    def prefix(self, stop):
+        total = 0
+        position = int(stop)
+        while position:
+            total += self.values[position]
+            position -= position & -position
+        return total
+
+
 def runtime_features(rows):
-    """Encode raw input plus only causal derivatives of prior PC/address rows."""
-    if CACHE_LINE_BYTES != (1 << CACHE_LINE_OFFSET_BITS):
-        raise RuntimeError("cache-line bytes must be a power of two")
+    """Losslessly encode only PC/address and their causal history."""
     pcs = [pc for pc, _, _ in rows]
     lines = [line for _, line, _ in rows]
-    raw = np.concatenate([
-        _unsigned_bits(pcs, ADDRESS_BITS),
-        _unsigned_bits(lines, LINE_NUMBER_BITS),
-    ], axis=1)
+    current_delta = np.zeros(len(rows), dtype=np.uint64)
+    prior_delta = np.zeros(len(rows), dtype=np.uint64)
+    reuse_distance = np.zeros(len(rows), dtype=np.uint64)
+    validity = np.zeros((len(rows), 2), dtype=np.uint8)
 
+    # value = (last line, last row, last transition delta, transition valid)
     last_by_pc = {}
-    delta_codes = np.zeros(len(rows), dtype=np.uint64)
-    reuse_ages = np.zeros(len(rows), dtype=np.uint64)
-    has_previous = np.zeros((len(rows), 1), dtype=np.uint8)
+    active_last = _FenwickTree(len(rows))
     for index, (pc, line, _) in enumerate(rows):
         previous = last_by_pc.get(pc)
         if previous is not None:
-            previous_line, previous_index = previous
-            signed = _canonical_signed_line_delta(line, previous_line)
-            delta_codes[index] = np.uint64(signed & LINE_MASK)
-            reuse_ages[index] = np.uint64(index - previous_index)
-            has_previous[index, 0] = 1
-        last_by_pc[pc] = (line, index)
+            previous_line, previous_index, previous_delta, delta_valid = previous
+            delta = _canonical_signed_line_delta(line, previous_line)
+            current_delta[index] = np.uint64(delta & LINE_MASK)
+            validity[index, 0] = 1
+            reuse_distance[index] = np.uint64(
+                active_last.prefix(index) - active_last.prefix(previous_index + 1)
+            )
+            if delta_valid:
+                prior_delta[index] = np.uint64(previous_delta & LINE_MASK)
+                validity[index, 1] = 1
+            active_last.add(previous_index, -1)
+            last_by_pc[pc] = (line, index, delta, True)
+        else:
+            last_by_pc[pc] = (line, index, 0, False)
+        active_last.add(index, 1)
 
-    local = np.concatenate([
+    encoded = np.concatenate([
+        _unsigned_bits(pcs, ADDRESS_BITS),
         _unsigned_bits(lines, LINE_NUMBER_BITS),
-        _unsigned_bits(delta_codes, LINE_NUMBER_BITS),
-        _unsigned_bits(reuse_ages, REUSE_AGE_BITS),
-        has_previous,
+        _unsigned_bits(current_delta, LINE_NUMBER_BITS),
+        _unsigned_bits(prior_delta, LINE_NUMBER_BITS),
+        _unsigned_bits(reuse_distance, REUSE_DISTANCE_BITS),
+        validity,
     ], axis=1)
-    if raw.shape[1] != RAW_FEATURES or local.shape[1] != LOCAL_FEATURES:
+    if encoded.shape != (len(rows), RUNTIME_FEATURES):
         raise RuntimeError("causal runtime feature width changed")
-    return {"raw": raw, "local": local}
+    return encoded
 
 
 def runtime_encoder_sha256():
     payload = {
-        "entrypoint_source": inspect.getsource(runtime_features),
-        "bit_primitive_source": inspect.getsource(_unsigned_bits),
-        "delta_primitive_source": inspect.getsource(
-            _canonical_signed_line_delta
-        ),
-        "external_fields": SOURCE_INPUTS,
-        "raw_feature_count": RAW_FEATURES,
-        "local_feature_count": LOCAL_FEATURES,
-        "total_feature_count": RUNTIME_FEATURES,
-        "line_number_bits": LINE_NUMBER_BITS,
-        "reuse_age_bits": REUSE_AGE_BITS,
+        "entrypoint": inspect.getsource(runtime_features),
+        "bits": inspect.getsource(_unsigned_bits),
+        "delta": inspect.getsource(_canonical_signed_line_delta),
+        "reuse_tree": inspect.getsource(_FenwickTree),
+        "external_fields": SOURCE_INPUT_LIST,
+        "feature_count": RUNTIME_FEATURES,
         "derived_features_use_labels": False,
     }
     return hashlib.sha256(
@@ -292,1034 +307,413 @@ def runtime_encoder_sha256():
     ).hexdigest()
 
 
-def _zigzag_encode(value):
-    value = int(value)
-    if value < SIGNED_LINE_MIN or value > SIGNED_LINE_MAX:
-        raise RuntimeError("signed line increment exceeds 58-bit domain")
-    return 2 * value if value >= 0 else -2 * value - 1
-
-
-def _zigzag_decode(value):
-    value = int(value)
-    if value < 0 or value > LINE_MASK:
-        raise RuntimeError("ZigZag value exceeds 58-bit domain")
-    return value // 2 if value % 2 == 0 else -(value // 2) - 1
-
-
-def _leb128_encode_signed_increment(value):
-    remaining = _zigzag_encode(value)
-    encoded = []
-    while True:
-        payload = remaining & 0x7F
-        remaining >>= 7
-        encoded.append(payload | (0x80 if remaining else 0))
-        if not remaining:
-            break
-    if len(encoded) > LEB128_MAX_BYTES:
-        raise RuntimeError("legal signed increment exceeded nine LEB128 bytes")
-    return encoded
-
-
-def _leb128_decode_signed_increment(encoded):
-    if not encoded or len(encoded) > LEB128_MAX_BYTES:
-        raise RuntimeError("invalid LEB128 byte count")
-    value = 0
-    terminated = False
-    for position, byte in enumerate(encoded):
-        byte = int(byte)
-        if byte < 0 or byte > 255:
-            raise RuntimeError("invalid LEB128 byte")
-        payload = byte & 0x7F
-        if position == LEB128_MAX_BYTES - 1 and payload >= 4:
-            raise RuntimeError("LEB128 payload exceeds 58-bit address width")
-        if position > 0 and not (byte & 0x80) and payload == 0:
-            raise RuntimeError("noncanonical zero terminal LEB128 group")
-        value |= payload << (7 * position)
-        if not (byte & 0x80):
-            terminated = True
-            if position + 1 != len(encoded):
-                raise RuntimeError("bytes follow LEB128 termination")
-            break
-    if not terminated or value > LINE_MASK:
-        raise RuntimeError("unterminated/out-of-range LEB128 value")
-    return _zigzag_decode(value)
-
-
-def teacher_grammar(base_lines, actions):
-    """Keep absolute teacher targets as labels; never precompute feedback."""
-    if len(base_lines) != len(actions):
-        raise RuntimeError("teacher grammar length mismatch")
-    counts = np.asarray([len(items) for items in actions], dtype=np.int64)
-    maximum = int(counts.max()) if len(counts) else 0
-    targets = np.zeros((len(actions), maximum), dtype=np.uint64)
-    for row, items in enumerate(actions):
-        if items:
-            targets[row, :len(items)] = np.asarray(items, dtype=np.uint64)
-    return {
-        "counts": counts,
-        "targets": targets,
-        "base_lines": np.asarray(base_lines, dtype=np.uint64),
-    }
-
-
-def _splitmix64(values):
-    values = np.asarray(values, dtype=np.uint64)
-    with np.errstate(over="ignore"):
-        values = values + np.uint64(0x9E3779B97F4A7C15)
-        values = (values ^ (values >> np.uint64(30))) * np.uint64(
-            0xBF58476D1CE4E5B9
-        )
-        values = (values ^ (values >> np.uint64(27))) * np.uint64(
-            0x94D049BB133111EB
-        )
-    return values ^ (values >> np.uint64(31))
-
-
-def _keyed_uniform(
-    event_ids, decoder_seed, role, epoch, action_rank, field, position,
-):
-    """One stateless U(0,1) variate per categorical decision."""
-    if role not in ROLE_CODES:
-        raise RuntimeError("unknown decoder sampling role {}".format(role))
-    event_ids = np.asarray(event_ids, dtype=np.uint64)
-    mask = (1 << 64) - 1
-    constants = (
-        int(decoder_seed) * 0xD6E8FEB86659FD93,
-        int(ROLE_CODES[role]) * 0xA5A3564E27F8862B,
-        int(epoch) * 0x9E3779B97F4A7C15,
-        int(action_rank) * 0xBF58476D1CE4E5B9,
-        int(field) * 0x94D049BB133111EB,
-        int(position) * 0xDB4F0B9175AE2165,
-        SAMPLER_DOMAIN,
-        TRACK_DOMAIN,
-    )
-    key = event_ids.copy()
-    for value in constants:
-        key ^= np.uint64(value & mask)
-        key = _splitmix64(key)
-    bits = _splitmix64(key)
-    return (
-        (bits >> np.uint64(11)).astype(np.float64) + 0.5
-    ) / float(1 << 53)
-
-
-def _inverse_cdf_sample(
-    logits, event_ids, decoder_seed, role, epoch, action_rank, field,
-    position,
-):
-    if logits.ndim != 2 or logits.shape[0] != len(event_ids):
-        raise RuntimeError("categorical sampler shape mismatch")
-    if (
-        torch.isnan(logits).any() or torch.isposinf(logits).any()
-        or not torch.isfinite(logits).any(dim=1).all()
-    ):
-        raise RuntimeError("invalid categorical logits")
-    uniforms = torch.from_numpy(_keyed_uniform(
-        event_ids, decoder_seed, role, epoch, action_rank, field, position,
-    )).to(device=logits.device, dtype=torch.float64)
-    cumulative = torch.softmax(logits.to(torch.float64), dim=-1).cumsum(
-        dim=-1
-    )
-    choices = (cumulative < uniforms.unsqueeze(1)).sum(dim=1)
-    return choices.clamp(max=logits.shape[1] - 1).to(torch.long)
-
-
-def _assert_stop_representable(logits):
-    """Fail if finite-grid inverse-CDF cannot ever draw STOP.
-
-    The keyed sampler uses open-midpoint 53-bit uniforms.  Its exact minimum
-    is half a grid bin; rejecting STOP mass below that value is a numerical
-    support check, not a policy threshold.
-    """
-    if logits.ndim != 2 or logits.shape[1] != 2:
-        raise RuntimeError("STOP support check requires binary grammar logits")
-    probabilities = torch.softmax(logits.to(torch.float64), dim=1)
-    if torch.any(probabilities[:, STOP] < SAMPLER_MIN_UNIFORM):
-        raise RuntimeError(
-            "learned STOP mass is not representable on the 53-bit sampler grid"
-        )
-
-
-def _assert_action_rank_within_watchdog(action_rank):
-    """Abort a nonterminating run; never truncate or synthesize STOP."""
-    if int(action_rank) >= NONTERMINATION_WATCHDOG_RANKS:
-        raise RuntimeError(
-            "sampled action grammar reached the fail-closed numerical "
-            "nontermination watchdog"
-        )
-
-
-class GlobalLocalGrammarStrideLSTM(nn.Module):
-    """Dual-time-scale recurrent encoder plus exact categorical decoder."""
-
-    def __init__(self, hidden_size):
-        super().__init__()
-        self.hidden_size = int(hidden_size)
-        if self.hidden_size % 2:
-            raise ValueError("configured hidden size must be even")
-        self.input_size = self.hidden_size // 2
-        self.global_input_projection = nn.Linear(RAW_FEATURES, self.input_size)
-        self.local_input_projection = nn.Linear(LOCAL_FEATURES, self.input_size)
-        self.global_lstm = nn.LSTM(
-            self.input_size, hidden_size, batch_first=True
-        )
-        self.local_lstm = nn.LSTM(
-            self.input_size, hidden_size, batch_first=True
-        )
-        self.local_validity = nn.Linear(2 * hidden_size, 1)
-        self.fusion = nn.Linear(2 * hidden_size, hidden_size)
-
-        self.action_cell = nn.GRUCell(hidden_size, hidden_size)
-        self.grammar_head = nn.Linear(hidden_size, 2)
-        self.continuation_head = nn.Linear(hidden_size, 2)
-        self.payload_bit_head = nn.Linear(hidden_size, 2)
-        self.final_payload_head = nn.Linear(hidden_size, 3)
-        self.grammar_embedding = nn.Embedding(2, hidden_size)
-        self.continuation_embedding = nn.Embedding(2, hidden_size)
-        self.payload_bit_embedding = nn.Embedding(2, hidden_size)
-        self.final_payload_embedding = nn.Embedding(3, hidden_size)
-        self.byte_position_embedding = nn.Embedding(
-            LEB128_MAX_BYTES, hidden_size
-        )
-        self.payload_bit_position_embedding = nn.Embedding(
-            LEB128_PAYLOAD_BITS, hidden_size
-        )
-
 def _pc_groups(pcs):
     grouped = OrderedDict()
     for position, pc in enumerate(pcs):
         grouped.setdefault(int(pc), []).append(position)
-    return sorted(
-        grouped.items(), key=lambda item: (-len(item[1]), item[1][0])
-    )
+    return sorted(grouped.items(), key=lambda item: (-len(item[1]), item[1][0]))
 
 
-def _initial_local_state(state_map, keys, hidden_size, device):
-    h_values = []
-    c_values = []
+def _initial_state(state_map, keys, hidden_size, device):
+    hidden = []
+    cell = []
     for key in keys:
         if key in state_map:
             h_value, c_value = state_map[key]
         else:
             h_value = torch.zeros(hidden_size, device=device)
             c_value = torch.zeros(hidden_size, device=device)
-        h_values.append(h_value)
-        c_values.append(c_value)
-    return (
-        torch.stack(h_values, dim=0).unsqueeze(0),
-        torch.stack(c_values, dim=0).unsqueeze(0),
-    )
+        hidden.append(h_value)
+        cell.append(c_value)
+    return torch.stack(hidden).unsqueeze(0), torch.stack(cell).unsqueeze(0)
 
 
-def _encode_chunk(
-    model, raw, local, pcs, global_state, local_state_map,
-):
-    """Encode one chronological TBPTT chunk with causal PC-local routing."""
+def _encode_chunk(model, features, pcs, state_map):
+    """Route each event through only the recurrent state keyed by exact PC."""
     groups = _pc_groups(pcs)
     lengths = [len(indices) for _, indices in groups]
     padded = torch.zeros(
-        len(groups), max(lengths), LOCAL_FEATURES,
-        dtype=local.dtype, device=local.device,
+        len(groups), max(lengths), RUNTIME_FEATURES,
+        dtype=features.dtype, device=features.device,
     )
     for row, (_, indices) in enumerate(groups):
-        index = torch.as_tensor(indices, dtype=torch.long, device=local.device)
-        padded[row, :len(indices)] = local.index_select(0, index)
-    projected_local = torch.tanh(model.local_input_projection(padded))
+        positions = torch.as_tensor(indices, dtype=torch.long, device=features.device)
+        padded[row, :len(indices)] = features.index_select(0, positions)
+    projected = torch.tanh(model.input_projection(padded))
     packed = pack_padded_sequence(
-        projected_local, lengths, batch_first=True, enforce_sorted=True
+        projected, lengths, batch_first=True, enforce_sorted=True
     )
-    initial_local = _initial_local_state(
-        local_state_map, [pc for pc, _ in groups],
-        model.hidden_size, local.device,
+    initial = _initial_state(
+        state_map, [pc for pc, _ in groups], model.hidden_size, features.device
     )
-    packed_output, final_local = model.local_lstm(packed, initial_local)
-    local_padded, _ = pad_packed_sequence(
+    packed_output, final = model.lstm(packed, initial)
+    padded_output, _ = pad_packed_sequence(
         packed_output, batch_first=True, total_length=max(lengths)
     )
-    local_context = torch.zeros(
-        len(pcs), model.hidden_size, dtype=local.dtype, device=local.device
+    context = torch.zeros(
+        len(pcs), model.hidden_size, dtype=features.dtype, device=features.device
     )
     for row, (pc, indices) in enumerate(groups):
-        index = torch.as_tensor(indices, dtype=torch.long, device=local.device)
-        local_context = local_context.index_copy(
-            0, index, local_padded[row, :len(indices)]
-        )
-        local_state_map[pc] = (
-            final_local[0][0, row].detach(),
-            final_local[1][0, row].detach(),
-        )
-
-    projected_global = torch.tanh(model.global_input_projection(raw))
-    global_output, final_global = model.global_lstm(
-        projected_global.unsqueeze(0), global_state
-    )
-    global_context = global_output.squeeze(0)
-    validity = torch.sigmoid(model.local_validity(torch.cat(
-        [global_context, local_context], dim=1
-    )))
-    fused = torch.tanh(model.fusion(torch.cat(
-        [global_context, validity * local_context], dim=1
-    )))
-    detached_global = (
-        final_global[0].detach(), final_global[1].detach()
-    )
-    return fused, detached_global, validity.squeeze(1)
+        positions = torch.as_tensor(indices, dtype=torch.long, device=features.device)
+        context = context.index_copy(0, positions, padded_output[row, :len(indices)])
+        state_map[pc] = (final[0][0, row].detach(), final[1][0, row].detach())
+    return context
 
 
 def state_router_sha256():
     payload = (
         inspect.getsource(_pc_groups)
-        + inspect.getsource(_initial_local_state)
+        + inspect.getsource(_initial_state)
         + inspect.getsource(_encode_chunk)
     )
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def sampler_source_sha256():
-    payload = (
-        inspect.getsource(_splitmix64)
-        + inspect.getsource(_keyed_uniform)
-        + inspect.getsource(_inverse_cdf_sample)
-        + inspect.getsource(_assert_stop_representable)
-        + inspect.getsource(_assert_action_rank_within_watchdog)
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def codec_source_sha256():
-    payload = (
-        inspect.getsource(_zigzag_encode)
-        + inspect.getsource(_zigzag_decode)
-        + inspect.getsource(_leb128_encode_signed_increment)
-        + inspect.getsource(_leb128_decode_signed_increment)
-        + inspect.getsource(_legal_byte_mask)
-        + inspect.getsource(_codec_position_embeddings)
-        + inspect.getsource(_codec_payload_bit_logits)
-        + inspect.getsource(_codec_payload_bit_transition)
-        + inspect.getsource(_codec_continuation_logits)
-        + inspect.getsource(_codec_continuation_transition)
-        + inspect.getsource(_codec_final_payload_logits)
-        + inspect.getsource(_codec_final_payload_transition)
-        + inspect.getsource(_sample_codec_rollout)
-        + inspect.getsource(_teacher_codec_nll)
-        + inspect.getsource(_sample_codec_path)
-    )
-    return hashlib.sha256(payload.encode()).hexdigest()
-
-
-def _legal_byte_mask(position):
-    """Return the canonical LEB128 support for one byte position."""
-    if position < 0 or position >= LEB128_MAX_BYTES:
-        raise RuntimeError("LEB128 byte position out of range")
-    mask = np.zeros((2, LEB128_PAYLOAD_CLASSES), dtype=np.bool_)
-    if position == 0:
-        mask[:, :] = True
-    elif position < LEB128_MAX_BYTES - 1:
-        mask[EMIT, :] = True       # continuation bit set
-        mask[STOP, 1:] = True      # terminal high group must be nonzero
-    else:
-        mask[STOP, 1:4] = True     # final 58-bit group is 1, 2, or 3
-    return mask
-
-
-def _codec_position_embeddings(model, state, byte_position):
+def _rank_code(rank, count, device, dtype):
+    """Unbounded standard sinusoidal rank code; no learned rank template."""
     positions = torch.full(
-        (len(state),), int(byte_position), dtype=torch.long,
-        device=state.device,
+        (int(count), 1), float(int(rank) + 1), device=device, dtype=dtype
     )
-    return model.byte_position_embedding(positions)
-
-
-def _codec_payload_bit_logits(
-    model, state, byte_embedding, bit_position,
-):
-    positions = torch.full(
-        (len(state),), int(bit_position), dtype=torch.long,
-        device=state.device,
-    )
-    bit_embedding = model.payload_bit_position_embedding(positions)
-    logits = model.payload_bit_head(
-        state + byte_embedding + bit_embedding
-    )
-    return logits, bit_embedding
-
-
-def _codec_payload_bit_transition(
-    model, state, token, byte_embedding, bit_embedding,
-):
-    return model.action_cell(
-        model.payload_bit_embedding(token) + byte_embedding + bit_embedding,
-        state,
+    scales = torch.pow(
+        torch.tensor(10000.0, device=device, dtype=dtype),
+        torch.arange(0, RANK_CODE_FEATURES, 2, device=device, dtype=dtype)
+        / float(RANK_CODE_FEATURES),
+    ).reshape(1, -1)
+    angles = positions / scales
+    return torch.stack((torch.sin(angles), torch.cos(angles)), dim=2).reshape(
+        int(count), RANK_CODE_FEATURES
     )
 
 
-def _codec_continuation_logits(model, state, byte_embedding, payload, position):
-    """Apply the exact same canonical mask in likelihood and rollout."""
-    logits = model.continuation_head(state + byte_embedding)
-    payload_numpy = payload.detach().cpu().numpy().astype(np.int64)
-    legal = _legal_byte_mask(position)[:, payload_numpy].T
-    legal_tensor = torch.from_numpy(legal).to(device=state.device)
-    return logits.masked_fill(~legal_tensor, float("-inf"))
+def _rank_context(model, context, rank):
+    code = _rank_code(rank, len(context), context.device, context.dtype)
+    return torch.tanh(context + model.rank_projection(code))
 
 
-def _codec_continuation_transition(
-    model, state, token, byte_embedding,
-):
-    return model.action_cell(
-        model.continuation_embedding(token) + byte_embedding, state
-    )
-
-
-def _codec_final_payload_logits(model, state, byte_embedding):
-    return model.final_payload_head(state + byte_embedding)
-
-
-def _codec_final_payload_transition(
-    model, state, payload_class, byte_embedding,
-):
-    return model.action_cell(
-        model.final_payload_embedding(payload_class) + byte_embedding, state
-    )
-
-
-def _sample_codec_rollout(
-    model, state, event_ids, decoder_seed, role, epoch, action_rank,
-):
-    """Sample the main codec path; this function cannot accept labels."""
-    event_ids = np.asarray(event_ids, dtype=np.int64)
-    if len(state) != len(event_ids):
-        raise RuntimeError("codec state/event length mismatch")
-    active_numpy = np.arange(len(event_ids), dtype=np.int64)
-    values = torch.zeros(len(event_ids), dtype=torch.long, device=state.device)
-    lengths = np.zeros(len(event_ids), dtype=np.int64)
-    for byte_position in range(LEB128_MAX_BYTES):
-        if not len(active_numpy):
-            break
-        active = torch.from_numpy(active_numpy).to(
-            device=state.device, dtype=torch.long
-        )
-        active_state = state.index_select(0, active)
-        active_events = event_ids[active_numpy]
-        byte_embedding = _codec_position_embeddings(
-            model, active_state, byte_position
-        )
-        payload = torch.zeros(
-            len(active_numpy), dtype=torch.long, device=state.device
-        )
-
-        if byte_position == LEB128_MAX_BYTES - 1:
-            payload_logits = _codec_final_payload_logits(
-                model, active_state, byte_embedding
-            )
-            payload_class = _inverse_cdf_sample(
-                payload_logits, active_events, decoder_seed, role, epoch,
-                action_rank, FIELD_FINAL_PAYLOAD, byte_position,
-            )
-            payload = payload_class + 1
-            active_state = _codec_final_payload_transition(
-                model, active_state, payload_class, byte_embedding
-            )
-            continuation = torch.zeros_like(payload)
-        else:
-            for bit_position in range(LEB128_PAYLOAD_BITS):
-                bit_logits, bit_embedding = _codec_payload_bit_logits(
-                    model, active_state, byte_embedding, bit_position
-                )
-                sampled_bit = _inverse_cdf_sample(
-                    bit_logits, active_events, decoder_seed, role, epoch,
-                    action_rank, FIELD_PAYLOAD_BIT,
-                    byte_position * LEB128_PAYLOAD_BITS + bit_position,
-                )
-                payload = payload | (
-                    sampled_bit.to(torch.long) << bit_position
-                )
-                active_state = _codec_payload_bit_transition(
-                    model, active_state, sampled_bit, byte_embedding,
-                    bit_embedding,
-                )
-            continuation_logits = _codec_continuation_logits(
-                model, active_state, byte_embedding, payload, byte_position
-            )
-            continuation = _inverse_cdf_sample(
-                continuation_logits, active_events, decoder_seed, role,
-                epoch, action_rank, FIELD_CONTINUATION, byte_position,
-            )
-            active_state = _codec_continuation_transition(
-                model, active_state, continuation, byte_embedding
-            )
-
-        current = values.index_select(0, active)
-        current = current | (payload << (7 * byte_position))
-        values = values.index_copy(0, active, current)
-        state = state.index_copy(0, active, active_state)
-        lengths[active_numpy] += 1
-        keep = continuation.detach().cpu().numpy().astype(bool)
-        active_numpy = active_numpy[keep]
-
-    if len(active_numpy):
-        raise RuntimeError("canonical codec did not terminate by final byte")
-    signs = values & 1
-    magnitudes = values >> 1
-    signed = torch.where(signs == 0, magnitudes, -magnitudes - 1)
-    return state, signed, lengths
-
-
-def _teacher_codec_nll(model, state, target_increments, target_valid):
-    """Full teacher-prefix NLL in a loss-only, isolated recurrent branch."""
-    target_valid = np.asarray(target_valid, dtype=np.bool_)
-    target_increments = np.asarray(target_increments, dtype=np.int64)
-    if len(state) != len(target_valid) or len(state) != len(target_increments):
-        raise RuntimeError("codec target/state length mismatch")
-    target_lengths = np.zeros(len(state), dtype=np.int64)
-    target_bytes = np.zeros((len(state), LEB128_MAX_BYTES), dtype=np.uint8)
-    for index in np.flatnonzero(target_valid):
-        encoded = _leb128_encode_signed_increment(target_increments[index])
-        target_lengths[index] = len(encoded)
-        target_bytes[index, :len(encoded)] = encoded
-
-    branch_state = state
-    active_numpy = np.flatnonzero(target_valid).astype(np.int64)
-    total_nll = state.new_zeros(())
-    payload_atoms = 0
-    termination_atoms = 0
-    atoms_by_position = Counter()
-    for byte_position in range(LEB128_MAX_BYTES):
-        if not len(active_numpy):
-            break
-        if np.any(target_lengths[active_numpy] <= byte_position):
-            raise RuntimeError("teacher codec branch passed its terminal byte")
-        active = torch.from_numpy(active_numpy).to(
-            device=state.device, dtype=torch.long
-        )
-        active_state = branch_state.index_select(0, active)
-        byte_embedding = _codec_position_embeddings(
-            model, active_state, byte_position
-        )
-        target_payload_numpy = (
-            target_bytes[active_numpy, byte_position] & np.uint8(0x7F)
-        ).astype(np.int64)
-        target_payload = torch.from_numpy(target_payload_numpy).to(
-            device=state.device, dtype=torch.long
-        )
-
-        if byte_position == LEB128_MAX_BYTES - 1:
-            if np.any(target_payload_numpy < 1) or np.any(
-                target_payload_numpy > 3
-            ):
-                raise RuntimeError("illegal teacher final LEB128 payload")
-            logits = _codec_final_payload_logits(
-                model, active_state, byte_embedding
-            )
-            target_class = target_payload - 1
-            total_nll = total_nll + F.cross_entropy(
-                logits, target_class, reduction="sum"
-            )
-            payload_atoms += len(active_numpy)
-            atoms_by_position["byte8.final_payload"] += len(active_numpy)
-            active_state = _codec_final_payload_transition(
-                model, active_state, target_class, byte_embedding
-            )
-            target_continuation = torch.zeros_like(target_payload)
-        else:
-            for bit_position in range(LEB128_PAYLOAD_BITS):
-                bit_logits, bit_embedding = _codec_payload_bit_logits(
-                    model, active_state, byte_embedding, bit_position
-                )
-                target_bit = (target_payload >> bit_position) & 1
-                total_nll = total_nll + F.cross_entropy(
-                    bit_logits, target_bit, reduction="sum"
-                )
-                payload_atoms += len(active_numpy)
-                atoms_by_position[
-                    "byte{}.bit{}".format(byte_position, bit_position)
-                ] += len(active_numpy)
-                active_state = _codec_payload_bit_transition(
-                    model, active_state, target_bit, byte_embedding,
-                    bit_embedding,
-                )
-
-            target_continuation_numpy = (
-                (
-                    target_bytes[active_numpy, byte_position]
-                    & np.uint8(0x80)
-                ) != 0
-            ).astype(np.int64)
-            target_continuation = torch.from_numpy(
-                target_continuation_numpy
-            ).to(device=state.device, dtype=torch.long)
-            continuation_logits = _codec_continuation_logits(
-                model, active_state, byte_embedding, target_payload,
-                byte_position,
-            )
-            selected = continuation_logits.gather(
-                1, target_continuation.unsqueeze(1)
-            ).squeeze(1)
-            if not torch.isfinite(selected).all():
-                raise RuntimeError("teacher continuation violates canonical mask")
-            total_nll = total_nll + F.cross_entropy(
-                continuation_logits, target_continuation, reduction="sum"
-            )
-            termination_atoms += len(active_numpy)
-            atoms_by_position[
-                "byte{}.continuation".format(byte_position)
-            ] += len(active_numpy)
-            active_state = _codec_continuation_transition(
-                model, active_state, target_continuation, byte_embedding
-            )
-
-        branch_state = branch_state.index_copy(0, active, active_state)
-        keep = target_continuation_numpy.astype(bool) if (
-            byte_position < LEB128_MAX_BYTES - 1
-        ) else np.zeros(len(active_numpy), dtype=np.bool_)
-        active_numpy = active_numpy[keep]
-
-    if len(active_numpy):
-        raise RuntimeError("teacher codec did not terminate by final byte")
-    return total_nll, {
-        "codec_exact_atoms": payload_atoms,
-        "codec_termination_atoms": termination_atoms,
-        "codec_teacher_prefix_atoms_by_position": dict(atoms_by_position),
-    }
-
-
-def _sample_codec_path(
-    model, state, event_ids, decoder_seed, role, epoch, action_rank,
-    target_increments=None, target_valid=None,
-):
-    """Run isolated teacher-loss and sampled-main codec branches."""
-    event_ids = np.asarray(event_ids, dtype=np.int64)
-    if len(state) != len(event_ids):
-        raise RuntimeError("codec state/event length mismatch")
-    sampled_state, signed, lengths = _sample_codec_rollout(
-        model, state, event_ids, decoder_seed, role, epoch, action_rank
-    )
-    if target_valid is None:
-        target_valid = np.zeros(len(event_ids), dtype=np.bool_)
-    else:
-        target_valid = np.asarray(target_valid, dtype=np.bool_)
-    if target_increments is None:
-        target_increments = np.zeros(len(event_ids), dtype=np.int64)
-    else:
-        target_increments = np.asarray(target_increments, dtype=np.int64)
-    teacher_nll, components = _teacher_codec_nll(
-        model, state, target_increments, target_valid
-    )
-    return sampled_state, signed, lengths, teacher_nll, components
-
-
-def _sequence_nll(
-    model, context, grammar, event_ids, decoder_seed, epoch,
-):
-    """True on-policy STOP/EMIT and canonical-byte sequence NLL."""
-    counts = grammar["counts"]
-    targets = grammar["targets"]
-    base_lines = grammar["base_lines"]
-    event_ids = np.asarray(event_ids, dtype=np.int64)
-    if (
-        len(context) != len(counts) or len(event_ids) != len(counts)
-        or len(base_lines) != len(counts)
+class IndependentRankDeltaStrideLSTM(nn.Module):
+    def __init__(
+        self, hidden_size, gate_prior, positive_log_count_bias,
+        delta_class_prior,
     ):
-        raise RuntimeError("grammar batch length mismatch")
+        super().__init__()
+        self.hidden_size = int(hidden_size)
+        self.input_projection = nn.Linear(RUNTIME_FEATURES, hidden_size)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        self.gate_head = nn.Linear(hidden_size, 2)
+        self.positive_log_count_head = nn.Linear(hidden_size, 1)
+        self.rank_projection = nn.Linear(RANK_CODE_FEATURES, hidden_size)
+        self.delta_class_head = nn.Linear(hidden_size, DELTA_OUTPUT_CLASSES)
+        # This auxiliary coordinate is trained at every teacher rank.  Decode
+        # consults it only when the categorical head chooses OTHER.
+        self.delta_coordinate_head = nn.Linear(hidden_size, 1)
+        prior = torch.as_tensor(gate_prior, dtype=self.gate_head.bias.dtype)
+        if len(prior) != 2 or torch.any(prior <= 0):
+            raise ValueError("gate prior must contain two positive classes")
+        delta_prior = torch.as_tensor(
+            delta_class_prior, dtype=self.delta_class_head.bias.dtype
+        )
+        if (
+            len(delta_prior) != DELTA_OUTPUT_CLASSES
+            or torch.any(delta_prior <= 0)
+        ):
+            raise ValueError("delta prior must cover every output class")
+        if not math.isfinite(float(positive_log_count_bias)):
+            raise ValueError("positive log-count bias must be finite")
+        with torch.no_grad():
+            self.gate_head.bias.copy_(torch.log(prior))
+            self.positive_log_count_head.bias.fill_(
+                float(positive_log_count_bias)
+            )
+            self.delta_class_head.bias.copy_(torch.log(delta_prior))
 
-    state = context
-    origins = torch.as_tensor(
-        base_lines.astype(np.int64), dtype=torch.long, device=context.device
+
+def _signed_log(value):
+    value = int(value)
+    return math.copysign(math.log1p(abs(value)), value) if value else 0.0
+
+
+def _coordinate_to_delta(value):
+    value = float(value)
+    if not math.isfinite(value):
+        raise RuntimeError("OTHER delta coordinate is not finite")
+    try:
+        magnitude = math.expm1(abs(value))
+    except OverflowError as exc:
+        raise RuntimeError("OTHER delta exceeds the signed line domain") from exc
+    if not math.isfinite(magnitude) or magnitude > abs(SIGNED_LINE_MIN):
+        raise RuntimeError("OTHER delta exceeds the signed line domain")
+    integer = int(math.floor(magnitude + 0.5))
+    integer = -integer if value < 0 else integer
+    if integer < SIGNED_LINE_MIN or integer > SIGNED_LINE_MAX:
+        raise RuntimeError("rounded OTHER delta exceeds the signed line domain")
+    return integer
+
+
+def _teacher_deltas(rows, actions):
+    values = []
+    for (_, base, _), targets in zip(rows, actions):
+        values.extend(_canonical_signed_line_delta(target, base) for target in targets)
+    return values
+
+
+def build_delta_vocabulary(rows, actions):
+    frequencies = Counter(_teacher_deltas(rows, actions))
+    if not frequencies:
+        raise RuntimeError("cannot build an empty delta vocabulary")
+    ranked = sorted(frequencies, key=lambda value: (-frequencies[value], value))
+    exact = ranked[:MAX_EXACT_DELTA_CLASSES]
+    return exact, frequencies
+
+
+def delta_class_prior(exact_vocabulary, frequencies):
+    """Add-one TRAIN prior over exact classes, unused slots, and OTHER."""
+    counts = [0] * DELTA_OUTPUT_CLASSES
+    exact_total = 0
+    for index, delta in enumerate(exact_vocabulary):
+        count = int(frequencies[int(delta)])
+        counts[index] = count
+        exact_total += count
+    total = int(sum(frequencies.values()))
+    counts[OTHER_DELTA_CLASS] = total - exact_total
+    denominator = float(total + DELTA_OUTPUT_CLASSES)
+    return [(count + 1.0) / denominator for count in counts]
+
+
+def vocabulary_statistics(rows, actions, exact_vocabulary):
+    exact = set(exact_vocabulary)
+    values = _teacher_deltas(rows, actions)
+    in_vocabulary = sum(value in exact for value in values)
+    return {
+        "teacher_actions": len(values),
+        "unique_teacher_deltas": len(set(values)),
+        "exact_vocabulary_actions": int(in_vocabulary),
+        "other_escape_actions": int(len(values) - in_vocabulary),
+        "exact_vocabulary_coverage": (
+            float(in_vocabulary) / len(values) if values else 0.0
+        ),
+    }
+
+
+def _masked_delta_logits(model, rank_context, vocabulary_size):
+    logits = model.delta_class_head(rank_context)
+    if vocabulary_size < MAX_EXACT_DELTA_CLASSES:
+        mask = torch.zeros(
+            DELTA_OUTPUT_CLASSES, dtype=torch.bool, device=logits.device
+        )
+        mask[vocabulary_size:MAX_EXACT_DELTA_CLASSES] = True
+        logits = logits.masked_fill(mask.unsqueeze(0), float("-inf"))
+    return logits
+
+
+def _chunk_objective(model, context, base_lines, actions, exact_vocabulary):
+    counts_numpy = np.asarray([len(items) for items in actions], dtype=np.int64)
+    counts = torch.from_numpy(counts_numpy).to(device=context.device)
+    gate_target = (counts > 0).to(torch.long)
+    gate_sum = F.cross_entropy(
+        model.gate_head(context), gate_target, reduction="sum"
     )
-    active_numpy = np.arange(len(counts), dtype=np.int64)
-    total = context.new_zeros(())
-    grammar_nll_sum = 0.0
-    codec_nll_sum = 0.0
-    grammar_atoms = 0
-    codec_exact_atoms = 0
-    codec_termination_atoms = 0
-    codec_teacher_prefix_atoms_by_position = Counter()
-    sampled_emits = 0
-    sampled_stops = 0
-    action_rank = 0
+    total = gate_sum
+    atoms = len(actions)
+    components = Counter({
+        "gate_loss_sum": float(gate_sum.detach().item()),
+        "gate_atoms": len(actions),
+    })
 
-    # Rows leave active_numpy permanently on their first sampled STOP.  If a
-    # row emits beyond teacher K, STOP remains its grammar label until the
-    # sampled policy actually stops; no teacher count reactivates a row.
-    while len(active_numpy):
-        _assert_action_rank_within_watchdog(action_rank)
+    positive = counts > 0
+    positive_count = int(positive.sum().item())
+    if positive_count:
+        predicted_log_count = model.positive_log_count_head(
+            context[positive]
+        ).squeeze(1)
+        target_log_count = torch.log(counts[positive].to(context.dtype))
+        count_sum = F.smooth_l1_loss(
+            predicted_log_count, target_log_count, reduction="sum"
+        )
+        total = total + count_sum
+        atoms += positive_count
+        components["count_loss_sum"] += float(count_sum.detach().item())
+        components["count_atoms"] += positive_count
+
+    vocabulary_index = {
+        int(delta): index for index, delta in enumerate(exact_vocabulary)
+    }
+    max_rank = int(counts_numpy.max()) if len(counts_numpy) else 0
+    base_lines = np.asarray(base_lines, dtype=np.uint64)
+    for rank in range(max_rank):
+        active_numpy = np.flatnonzero(counts_numpy > rank).astype(np.int64)
         active = torch.from_numpy(active_numpy).to(
             device=context.device, dtype=torch.long
         )
-        active_state = state.index_select(0, active)
-        active_events = event_ids[active_numpy]
-        labels_numpy = (action_rank < counts[active_numpy]).astype(np.int64)
-        labels = torch.from_numpy(labels_numpy).to(context.device)
-        logits = model.grammar_head(active_state)
-        grammar_loss = F.cross_entropy(logits, labels, reduction="sum")
-        total = total + grammar_loss
-        grammar_nll_sum += float(grammar_loss.detach().item())
-        grammar_atoms += len(active_numpy)
-        _assert_stop_representable(logits)
-
-        sampled = _inverse_cdf_sample(
-            logits, active_events, decoder_seed, "train", epoch,
-            action_rank, FIELD_GRAMMAR, 0,
-        )
-        sampled_numpy = sampled.detach().cpu().numpy()
-        after_grammar = model.action_cell(
-            model.grammar_embedding(sampled), active_state
-        )
-        emit_local = np.flatnonzero(sampled_numpy == EMIT)
-        sampled_emits += len(emit_local)
-        sampled_stops += len(active_numpy) - len(emit_local)
-        if not len(emit_local):
-            break
-
-        emit_index = torch.from_numpy(emit_local).to(
-            device=context.device, dtype=torch.long
-        )
-        emit_rows = active_numpy[emit_local]
-        emit_events = active_events[emit_local]
-        emit_origins = origins.index_select(0, active).index_select(
-            0, emit_index
-        )
-        teacher_valid = action_rank < counts[emit_rows]
-        target_increments = np.zeros(len(emit_rows), dtype=np.int64)
-        emit_origins_numpy = emit_origins.detach().cpu().numpy()
-        for local_position in np.flatnonzero(teacher_valid):
-            target_increments[local_position] = _canonical_signed_line_delta(
-                int(targets[emit_rows[local_position], action_rank]),
-                int(emit_origins_numpy[local_position]),
+        rank_context = _rank_context(model, context.index_select(0, active), rank)
+        delta_values = [
+            _canonical_signed_line_delta(
+                actions[row][rank], int(base_lines[row])
             )
-
-        (
-            codec_state, signed, _, codec_loss, codec_components,
-        ) = _sample_codec_path(
-            model,
-            after_grammar.index_select(0, emit_index),
-            emit_events,
-            decoder_seed,
-            "train",
-            epoch,
-            action_rank,
-            target_increments=target_increments,
-            target_valid=teacher_valid,
-        )
-        total = total + codec_loss
-        codec_nll_sum += float(codec_loss.detach().item())
-        codec_exact_atoms += codec_components["codec_exact_atoms"]
-        codec_termination_atoms += codec_components[
-            "codec_termination_atoms"
+            for row in active_numpy
         ]
-        codec_teacher_prefix_atoms_by_position.update(
-            codec_components["codec_teacher_prefix_atoms_by_position"]
+        target_classes_numpy = np.asarray([
+            vocabulary_index.get(delta, OTHER_DELTA_CLASS)
+            for delta in delta_values
+        ], dtype=np.int64)
+        target_classes = torch.from_numpy(target_classes_numpy).to(context.device)
+        logits = _masked_delta_logits(
+            model, rank_context, len(exact_vocabulary)
         )
+        delta_sum = F.cross_entropy(logits, target_classes, reduction="sum")
+        total = total + delta_sum
+        atoms += len(active_numpy)
+        components["delta_class_loss_sum"] += float(delta_sum.detach().item())
+        components["delta_class_atoms"] += len(active_numpy)
 
-        emitted_targets = (emit_origins + signed) & LINE_MASK
-        global_emit = active.index_select(0, emit_index)
-        origins = origins.index_copy(0, global_emit, emitted_targets)
-        after_grammar = after_grammar.index_copy(
-            0, emit_index, codec_state
+        predicted_coordinate = model.delta_coordinate_head(
+            rank_context
+        ).squeeze(1)
+        target_coordinate = torch.as_tensor(
+            [_signed_log(delta) for delta in delta_values],
+            dtype=context.dtype, device=context.device,
         )
-        state = state.index_copy(0, active, after_grammar)
-        active_numpy = emit_rows
-        action_rank += 1
-
-    atoms = grammar_atoms + codec_exact_atoms + codec_termination_atoms
-    if atoms <= 0:
-        raise RuntimeError("training chunk contains no sequence atoms")
-    return total / float(atoms), {
-        "total_nll_sum": float(total.detach().item()),
-        "grammar_nll_sum": grammar_nll_sum,
-        "codec_nll_sum": codec_nll_sum,
-        "grammar_atoms": grammar_atoms,
-        "codec_exact_atoms": codec_exact_atoms,
-        "codec_termination_atoms": codec_termination_atoms,
-        "codec_teacher_prefix_atoms_by_position": dict(
-            codec_teacher_prefix_atoms_by_position
-        ),
-        "categorical_atoms": atoms,
-        "sampled_emit_decisions": sampled_emits,
-        "sampled_stop_decisions": sampled_stops,
-    }
-
-
-def _slice_grammar(grammar, start, stop):
-    return {key: value[start:stop] for key, value in grammar.items()}
-
-
-def train_model(
-    model, rows, runtime, grammar, device, epochs, chunk_len,
-    accumulate_chunks, learning_rate, decoder_seed,
-):
-    model.to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    history = []
-    pcs = np.asarray([pc for pc, _, _ in rows], dtype=np.uint64)
-    for epoch in range(1, epochs + 1):
-        model.train()
-        global_state = None
-        local_state_map = {}
-        totals = Counter()
-        codec_teacher_prefix_atoms_by_position = Counter()
-        optimizer.zero_grad(set_to_none=True)
-        pending = 0
-        pending_categorical_atoms = 0
-        steps = 0
-        validity_sum = 0.0
-        validity_atoms = 0
-        for start in range(0, len(rows), chunk_len):
-            stop = min(start + chunk_len, len(rows))
-            raw = torch.from_numpy(runtime["raw"][start:stop]).to(
-                device=device, dtype=torch.float32
-            )
-            local = torch.from_numpy(runtime["local"][start:stop]).to(
-                device=device, dtype=torch.float32
-            )
-            context, global_state, validity = _encode_chunk(
-                model, raw, local, pcs[start:stop],
-                global_state, local_state_map,
-            )
-            loss, components = _sequence_nll(
-                model, context, _slice_grammar(grammar, start, stop),
-                np.arange(start, stop, dtype=np.int64),
-                decoder_seed, epoch,
-            )
-            if not torch.isfinite(loss):
-                raise RuntimeError("non-finite training sequence NLL")
-            categorical_atoms = int(components["categorical_atoms"])
-            (loss * float(categorical_atoms)).backward()
-            pending += 1
-            pending_categorical_atoms += categorical_atoms
-            validity_sum += float(validity.detach().sum().item())
-            validity_atoms += len(validity)
-            for key, value in components.items():
-                if key == "codec_teacher_prefix_atoms_by_position":
-                    codec_teacher_prefix_atoms_by_position.update(value)
-                else:
-                    totals[key] += value
-            if pending == accumulate_chunks or stop == len(rows):
-                if pending_categorical_atoms <= 0:
-                    raise RuntimeError("gradient window contains no atoms")
-                for parameter in model.parameters():
-                    if parameter.grad is not None:
-                        parameter.grad.div_(float(pending_categorical_atoms))
-                optimizer.step()
-                optimizer.zero_grad(set_to_none=True)
-                pending = 0
-                pending_categorical_atoms = 0
-                steps += 1
-        row = {
-            "epoch": epoch,
-            "joint_sequence_nll_per_categorical_atom": (
-                totals["total_nll_sum"]
-                / max(1, totals["categorical_atoms"])
-            ),
-            "grammar_nll_per_categorical_decision": (
-                totals["grammar_nll_sum"]
-                / max(1, totals["grammar_atoms"])
-            ),
-            "codec_nll_sum": totals["codec_nll_sum"],
-            "grammar_atoms": int(totals["grammar_atoms"]),
-            "codec_exact_atoms": int(totals["codec_exact_atoms"]),
-            "codec_termination_atoms": int(
-                totals["codec_termination_atoms"]
-            ),
-            "codec_teacher_prefix_atoms_by_position": dict(sorted(
-                codec_teacher_prefix_atoms_by_position.items()
-            )),
-            "categorical_atoms": int(totals["categorical_atoms"]),
-            "sampled_emit_decisions": int(totals["sampled_emit_decisions"]),
-            "sampled_stop_decisions": int(totals["sampled_stop_decisions"]),
-            "mean_local_validity": validity_sum / max(1, validity_atoms),
-            "optimizer_steps": steps,
-            "observed_pc_states": len(local_state_map),
-        }
-        history.append(row)
-        print(
-            "[train:global-local-stop-emit-leb128] epoch={} nll={:.8f} "
-            "grammar={:.8f} validity={:.6f}".format(
-                epoch,
-                row["joint_sequence_nll_per_categorical_atom"],
-                row["grammar_nll_per_categorical_decision"],
-                row["mean_local_validity"],
-            ),
-            flush=True,
+        coordinate_sum = F.smooth_l1_loss(
+            predicted_coordinate, target_coordinate, reduction="sum"
         )
-    return history
+        total = total + coordinate_sum
+        atoms += len(active_numpy)
+        components["coordinate_loss_sum"] += float(
+            coordinate_sum.detach().item()
+        )
+        components["coordinate_atoms"] += len(active_numpy)
+
+    components["objective_sum"] = float(total.detach().item())
+    components["objective_atoms"] = atoms
+    return total, components
 
 
-def _grammar_atom_count(counts):
-    return int(np.asarray(counts, dtype=np.int64).sum() + len(counts))
-
-
-def score_model(model, rows, runtime, device, chunk_len):
-    output = np.empty((len(rows), model.hidden_size), dtype=np.float32)
-    pcs = np.asarray([pc for pc, _, _ in rows], dtype=np.uint64)
-    global_state = None
-    local_state_map = {}
-    validity_sum = 0.0
-    validity_min = 1.0
-    validity_max = 0.0
-    model.eval()
-    with torch.no_grad():
-        for start in range(0, len(rows), chunk_len):
-            stop = min(start + chunk_len, len(rows))
-            raw = torch.from_numpy(runtime["raw"][start:stop]).to(
-                device=device, dtype=torch.float32
-            )
-            local = torch.from_numpy(runtime["local"][start:stop]).to(
-                device=device, dtype=torch.float32
-            )
-            context, global_state, validity = _encode_chunk(
-                model, raw, local, pcs[start:stop],
-                global_state, local_state_map,
-            )
-            output[start:stop] = context.cpu().numpy()
-            validity_sum += float(validity.sum().item())
-            validity_min = min(validity_min, float(validity.min().item()))
-            validity_max = max(validity_max, float(validity.max().item()))
-    return output, {
-        "rows": len(rows),
-        "unique_pc_states": len(local_state_map),
-        "mean_local_validity": validity_sum / float(len(rows)),
-        "min_local_validity": validity_min,
-        "max_local_validity": validity_max,
-    }
+def _decode_positive_count(value):
+    value = float(value)
+    if not math.isfinite(value):
+        raise RuntimeError("positive log-count prediction is not finite")
+    try:
+        estimate = math.exp(value)
+    except OverflowError as exc:
+        raise RuntimeError("predicted request count exceeds address domain") from exc
+    if not math.isfinite(estimate):
+        raise RuntimeError("predicted request count is not finite")
+    count = max(1, int(math.floor(estimate + 0.5)))
+    # This is the cardinality of the uint64 cache-line address domain, not a
+    # normal-prefetcher degree cap.  Crossing it is an invalid decoder result.
+    if count > LINE_MODULUS:
+        raise RuntimeError("predicted request count exceeds address domain")
+    return count
 
 
 def decode(
-    model, context_numpy, base_lines, device, decoder_seed, chunk_len=4096,
+    model, context_numpy, base_lines, exact_vocabulary, device,
+    per_callback_watchdog, per_role_watchdog, role, chunk_len=4096,
 ):
-    """Decode until learned STOP, with only a fail-closed numeric watchdog."""
     if len(context_numpy) != len(base_lines):
         raise RuntimeError("decoder row counts differ")
     predicted_lines = [[] for _ in base_lines]
     predicted_fills = [[] for _ in base_lines]
-    emit_probability_sum = 0.0
-    grammar_decisions = 0
-    sampled_emits = 0
-    sampled_stops = 0
-    codec_lengths = Counter()
-    max_actions = 0
+    gate_prob_sum = 0.0
+    class_counts = Counter()
+    learned_role_actions = 0
     model.eval()
     with torch.no_grad():
         for start in range(0, len(base_lines), chunk_len):
             stop = min(start + chunk_len, len(base_lines))
-            state = torch.from_numpy(context_numpy[start:stop]).to(device)
-            anchors = torch.as_tensor(
-                base_lines[start:stop], dtype=torch.long, device=device
+            context = torch.from_numpy(context_numpy[start:stop]).to(device)
+            gate_logits = model.gate_head(context)
+            gate_prob_sum += float(
+                torch.softmax(gate_logits, dim=1)[:, 1].sum().item()
             )
-            active_numpy = np.arange(stop - start, dtype=np.int64)
-            action_rank = 0
-            while len(active_numpy):
-                _assert_action_rank_within_watchdog(action_rank)
+            gate = torch.argmax(gate_logits, dim=1).cpu().numpy()
+            log_counts = model.positive_log_count_head(context).squeeze(1).cpu().numpy()
+            counts = np.zeros(stop - start, dtype=np.int64)
+            for position in np.flatnonzero(gate == 1):
+                counts[position] = _decode_positive_count(log_counts[position])
+            if len(counts) and int(counts.max()) > int(per_callback_watchdog):
+                raise RuntimeError(
+                    "{} learned count hit the per-callback resource watchdog; "
+                    "no replay will be produced".format(role)
+                )
+            learned_role_actions += sum(int(value) for value in counts)
+            if learned_role_actions > int(per_role_watchdog):
+                raise RuntimeError(
+                    "{} learned counts hit the per-role resource watchdog; "
+                    "no replay will be produced".format(role)
+                )
+            maximum = int(counts.max()) if len(counts) else 0
+            for rank in range(maximum):
+                active_numpy = np.flatnonzero(counts > rank).astype(np.int64)
                 active = torch.from_numpy(active_numpy).to(
                     device=device, dtype=torch.long
                 )
-                active_state = state.index_select(0, active)
-                logits = model.grammar_head(active_state)
-                probabilities = torch.softmax(logits, dim=1)
-                emit_probability_sum += float(probabilities[:, EMIT].sum().item())
-                grammar_decisions += len(active_numpy)
-                _assert_stop_representable(logits)
-                event_ids = start + active_numpy
-                sampled = _inverse_cdf_sample(
-                    logits, event_ids, decoder_seed, "eval", 0,
-                    action_rank, FIELD_GRAMMAR, 0,
+                rank_context = _rank_context(
+                    model, context.index_select(0, active), rank
                 )
-                after_grammar = model.action_cell(
-                    model.grammar_embedding(sampled), active_state
+                logits = _masked_delta_logits(
+                    model, rank_context, len(exact_vocabulary)
                 )
-                emit_local = np.flatnonzero(
-                    sampled.cpu().numpy() == EMIT
-                )
-                sampled_emits += len(emit_local)
-                sampled_stops += len(active_numpy) - len(emit_local)
-                if not len(emit_local):
-                    break
-                emit_index = torch.from_numpy(emit_local).to(
-                    device=device, dtype=torch.long
-                )
-                emit_events = event_ids[emit_local]
-                emit_start_state = after_grammar.index_select(0, emit_index)
-                codec_state, signed, lengths, codec_loss, codec_components = (
-                    _sample_codec_path(
-                        model, emit_start_state, emit_events, decoder_seed,
-                        "eval", 0, action_rank,
+                choices = torch.argmax(logits, dim=1).cpu().numpy()
+                coordinates = model.delta_coordinate_head(
+                    rank_context
+                ).squeeze(1).cpu().numpy()
+                for local, choice, coordinate in zip(
+                    active_numpy, choices, coordinates
+                ):
+                    choice = int(choice)
+                    if choice == OTHER_DELTA_CLASS:
+                        delta = _coordinate_to_delta(coordinate)
+                        class_counts["OTHER"] += 1
+                    elif 0 <= choice < len(exact_vocabulary):
+                        delta = int(exact_vocabulary[choice])
+                        class_counts[str(choice)] += 1
+                    else:
+                        raise RuntimeError("decoder selected a masked delta class")
+                    target = apply_signed_line_delta(
+                        int(base_lines[start + int(local)]), delta
                     )
-                )
-                if (
-                    float(codec_loss.item()) != 0.0
-                    or codec_components["codec_exact_atoms"] != 0
-                    or codec_components["codec_termination_atoms"] != 0
-                ):
-                    raise RuntimeError("inference codec unexpectedly used labels")
-                selected_anchors = anchors.index_select(0, active).index_select(
-                    0, emit_index
-                )
-                targets = (selected_anchors + signed) & LINE_MASK
-                global_positions = active_numpy[emit_local]
-                if not (
-                    len(global_positions) == len(targets) == len(lengths)
-                ):
-                    raise RuntimeError("decoded codec output lengths differ")
-                for local_position, target, byte_count in zip(
-                    global_positions, targets.cpu().numpy(), lengths
-                ):
-                    predicted_lines[start + int(local_position)].append(
-                        int(target)
-                    )
-                    predicted_fills[start + int(local_position)].append(-1)
-                    codec_lengths[int(byte_count)] += 1
-                anchors = anchors.index_copy(0, active.index_select(0, emit_index), targets)
-                after_grammar = after_grammar.index_copy(
-                    0, emit_index, codec_state
-                )
-                state = state.index_copy(0, active, after_grammar)
-                active_numpy = active_numpy[emit_local]
-                action_rank += 1
-                max_actions = max(max_actions, action_rank)
+                    predicted_lines[start + int(local)].append(int(target))
+                    predicted_fills[start + int(local)].append(-1)
 
     counts = np.asarray([len(items) for items in predicted_lines], dtype=np.int64)
     diagnostics = {
         "callbacks": len(base_lines),
-        "grammar_decisions": grammar_decisions,
-        "sampled_emit_decisions": sampled_emits,
-        "sampled_stop_decisions": sampled_stops,
-        "mean_learned_emit_probability": (
-            emit_probability_sum / max(1, grammar_decisions)
-        ),
         "decoded_positive_callbacks": int(np.count_nonzero(counts)),
         "decoded_total_actions": int(counts.sum()),
         "decoded_mean_actions_per_callback": float(counts.mean()),
         "decoded_mean_actions_per_positive_callback": (
             float(counts[counts > 0].mean()) if np.any(counts > 0) else 0.0
         ),
-        "decoded_max_actions_per_callback": int(counts.max()),
+        "decoded_max_actions_per_callback": int(counts.max()) if len(counts) else 0,
         "decoded_count_distribution": {
             str(key): int(value)
             for key, value in sorted(Counter(counts.tolist()).items())
         },
-        "sampled_leb128_byte_length_distribution": {
-            str(key): int(value) for key, value in sorted(codec_lengths.items())
-        },
+        "mean_positive_gate_probability": gate_prob_sum / max(1, len(base_lines)),
+        "decoded_delta_class_counts": dict(sorted(class_counts.items())),
+        "probability_threshold_applied": False,
         "degree_cap_applied": False,
+        "source_action_template_applied": False,
+        "learned_count_actions_before_materialization": learned_role_actions,
+        "per_callback_resource_watchdog": int(per_callback_watchdog),
+        "per_role_resource_watchdog": int(per_role_watchdog),
+        "resource_watchdog_hit": False,
+        "resource_watchdog_behavior": (
+            "fail_closed_raise_before_replay_never_truncate_or_change_count"
+        ),
+        "resource_watchdog_is_neural_degree_cap": False,
     }
     return counts, predicted_lines, predicted_fills, diagnostics
 
 
 def trigger_metrics(predicted_counts, target_actions):
-    if len(predicted_counts) != len(target_actions):
-        raise RuntimeError("trigger metric row counts differ")
     predicted_positive = np.asarray(predicted_counts) > 0
     target_positive = np.asarray(
         [bool(items) for items in target_actions], dtype=np.bool_
     )
-    true_positive = int(np.count_nonzero(
-        predicted_positive & target_positive
-    ))
-    false_positive = int(np.count_nonzero(
-        predicted_positive & ~target_positive
-    ))
-    false_negative = int(np.count_nonzero(
-        ~predicted_positive & target_positive
-    ))
+    true_positive = int(np.count_nonzero(predicted_positive & target_positive))
+    false_positive = int(np.count_nonzero(predicted_positive & ~target_positive))
+    false_negative = int(np.count_nonzero(~predicted_positive & target_positive))
     precision = (
         true_positive / float(true_positive + false_positive)
         if true_positive + false_positive else 0.0
@@ -1328,10 +722,7 @@ def trigger_metrics(predicted_counts, target_actions):
         true_positive / float(true_positive + false_negative)
         if true_positive + false_negative else 0.0
     )
-    f1 = (
-        2.0 * precision * recall / (precision + recall)
-        if precision + recall else 0.0
-    )
+    f1 = 2.0 * precision * recall / (precision + recall) if precision + recall else 0.0
     return {
         "predicted_positive_callbacks": int(np.count_nonzero(predicted_positive)),
         "normal_positive_callbacks": int(np.count_nonzero(target_positive)),
@@ -1342,6 +733,185 @@ def trigger_metrics(predicted_counts, target_actions):
         "trigger_recall": recall,
         "trigger_f1": f1,
     }
+
+
+def score_suffix(model, rows, runtime, device, chunk_len, output_start):
+    """Rebuild causal state from row zero but retain only the requested suffix."""
+    if not 0 <= output_start <= len(rows):
+        raise RuntimeError("invalid scored suffix")
+    output = np.empty(
+        (len(rows) - output_start, model.hidden_size), dtype=np.float32
+    )
+    pcs = np.asarray([pc for pc, _, _ in rows], dtype=np.uint64)
+    state_map = {}
+    model.eval()
+    with torch.no_grad():
+        for start in range(0, len(rows), chunk_len):
+            stop = min(start + chunk_len, len(rows))
+            features = torch.from_numpy(runtime[start:stop]).to(
+                device=device, dtype=torch.float32
+            )
+            context = _encode_chunk(
+                model, features, pcs[start:stop], state_map
+            )
+            copy_start = max(start, output_start)
+            if copy_start < stop:
+                output[copy_start - output_start:stop - output_start] = (
+                    context[copy_start - start:].cpu().numpy()
+                )
+    return output, {"rows": len(rows), "unique_pc_states": len(state_map)}
+
+
+def _guard_result(
+    model, rows, runtime, actions, exact_vocabulary, device, chunk_len,
+    per_callback_watchdog, per_role_watchdog,
+):
+    train_count = len(rows["train"])
+    history_rows = rows["train"] + rows["guard"]
+    context, diagnostics = score_suffix(
+        model, history_rows, runtime, device, chunk_len, train_count
+    )
+    counts, lines, fills, decoder = decode(
+        model, context, [line for _, line, _ in rows["guard"]],
+        exact_vocabulary, device, per_callback_watchdog, per_role_watchdog,
+        "guard",
+    )
+    behavior = behavior_metrics(counts, lines, fills, actions["guard"])
+    triggers = trigger_metrics(counts, actions["guard"])
+    normal_actions = behavior["normal_actions"]
+    ratio = (
+        behavior["predicted_actions"] / float(normal_actions)
+        if normal_actions else 0.0
+    )
+    result = {}
+    result.update(behavior)
+    result.update(triggers)
+    result["request_ratio_vs_teacher"] = ratio
+    result["absolute_request_ratio_error"] = abs(ratio - 1.0)
+    result["encoder_diagnostics"] = diagnostics
+    result["decoder_diagnostics"] = decoder
+    return result
+
+
+def _selection_key(guard):
+    return (
+        float(guard["target_f1"]),
+        float(guard["trigger_f1"]),
+        -float(guard["absolute_request_ratio_error"]),
+    )
+
+
+def train_model(
+    model, rows, runtime_train, runtime_train_guard, actions,
+    exact_vocabulary, device, epochs, chunk_len, accumulate_chunks,
+    learning_rate, per_callback_watchdog, per_role_watchdog,
+):
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    pcs = np.asarray([pc for pc, _, _ in rows["train"]], dtype=np.uint64)
+    history = []
+    best_state = None
+    best_epoch = None
+    best_key = None
+    for epoch in range(1, epochs + 1):
+        model.train()
+        state_map = {}
+        totals = Counter()
+        optimizer.zero_grad(set_to_none=True)
+        pending_chunks = 0
+        pending_atoms = 0
+        optimizer_steps = 0
+        for start in range(0, len(rows["train"]), chunk_len):
+            stop = min(start + chunk_len, len(rows["train"]))
+            features = torch.from_numpy(runtime_train[start:stop]).to(
+                device=device, dtype=torch.float32
+            )
+            context = _encode_chunk(
+                model, features, pcs[start:stop], state_map
+            )
+            objective, components = _chunk_objective(
+                model, context,
+                [line for _, line, _ in rows["train"][start:stop]],
+                actions["train"][start:stop], exact_vocabulary,
+            )
+            if not torch.isfinite(objective):
+                raise RuntimeError("non-finite v20 training objective")
+            objective.backward()
+            atoms = int(components["objective_atoms"])
+            pending_chunks += 1
+            pending_atoms += atoms
+            for key, value in components.items():
+                totals[key] += value
+            if pending_chunks == accumulate_chunks or stop == len(rows["train"]):
+                if pending_atoms <= 0:
+                    raise RuntimeError("gradient window contains no objective atoms")
+                for parameter in model.parameters():
+                    if parameter.grad is not None:
+                        parameter.grad.div_(float(pending_atoms))
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
+                pending_chunks = 0
+                pending_atoms = 0
+                optimizer_steps += 1
+
+        guard = _guard_result(
+            model, rows, runtime_train_guard, actions, exact_vocabulary,
+            device, chunk_len, per_callback_watchdog, per_role_watchdog,
+        )
+        selection = _selection_key(guard)
+        selected = best_key is None or selection > best_key
+        if selected:
+            best_key = selection
+            best_epoch = epoch
+            best_state = {
+                key: value.detach().cpu().clone()
+                for key, value in model.state_dict().items()
+            }
+        record = {
+            "epoch": epoch,
+            "objective_per_natural_atom": (
+                totals["objective_sum"] / max(1, totals["objective_atoms"])
+            ),
+            "gate_cross_entropy": (
+                totals["gate_loss_sum"] / max(1, totals["gate_atoms"])
+            ),
+            "positive_log_count_smooth_l1": (
+                totals["count_loss_sum"] / max(1, totals["count_atoms"])
+            ),
+            "delta_class_cross_entropy": (
+                totals["delta_class_loss_sum"]
+                / max(1, totals["delta_class_atoms"])
+            ),
+            "all_rank_signed_log_auxiliary_smooth_l1": (
+                totals["coordinate_loss_sum"]
+                / max(1, totals["coordinate_atoms"])
+            ),
+            "objective_atoms": int(totals["objective_atoms"]),
+            "coordinate_atoms": int(totals["coordinate_atoms"]),
+            "optimizer_steps": optimizer_steps,
+            "observed_pc_states": len(state_map),
+            "guard_target_f1": guard["target_f1"],
+            "guard_trigger_f1": guard["trigger_f1"],
+            "guard_request_ratio_vs_teacher": guard["request_ratio_vs_teacher"],
+            "guard_absolute_request_ratio_error": guard[
+                "absolute_request_ratio_error"
+            ],
+            "selected_checkpoint": selected,
+        }
+        history.append(record)
+        print(
+            "[train:pc-keyed-independent-rank] epoch={} loss={:.8f} "
+            "guard_target_f1={:.6f} guard_trigger_f1={:.6f} "
+            "request_ratio_error={:.6f} selected={}".format(
+                epoch, record["objective_per_natural_atom"],
+                record["guard_target_f1"], record["guard_trigger_f1"],
+                record["guard_absolute_request_ratio_error"], selected,
+            ), flush=True,
+        )
+    if best_state is None:
+        raise RuntimeError("guard selection produced no checkpoint")
+    model.load_state_dict(best_state)
+    return history, best_epoch, best_key
 
 
 def write_table(path, rows):
@@ -1375,269 +945,114 @@ def write_replay(path, rows, actions):
 
 def _count_summary(actions):
     counts = [len(items) for items in actions]
-    distribution = Counter(counts)
     return {
         "rows": len(counts),
         "actions": int(sum(counts)),
         "trigger_rows": int(sum(value > 0 for value in counts)),
-        "mean_actions_per_row": (
-            float(sum(counts)) / len(counts) if counts else 0.0
-        ),
+        "mean_actions_per_row": float(sum(counts)) / len(counts) if counts else 0.0,
         "count_distribution": {
-            str(key): int(value) for key, value in sorted(distribution.items())
+            str(key): int(value)
+            for key, value in sorted(Counter(counts).items())
         },
     }
 
 
-def self_test_codec():
-    values = [
-        SIGNED_LINE_MIN, -16385, -129, -128, -2, -1,
-        0, 1, 2, 63, 64, 127, 128, 16384, SIGNED_LINE_MAX,
-    ]
-    for value in values:
-        encoded = _leb128_encode_signed_increment(value)
-        if not 1 <= len(encoded) <= LEB128_MAX_BYTES:
-            raise RuntimeError("LEB128 length self-test failed")
-        if _leb128_decode_signed_increment(encoded) != value:
-            raise RuntimeError("ZigZag/LEB128 round-trip failed")
-    if len(_leb128_encode_signed_increment(1)) != 1:
-        raise RuntimeError("small stride does not use compact one-byte codec")
-    masks = [
-        _legal_byte_mask(position) for position in range(LEB128_MAX_BYTES)
-    ]
-    if (
-        not masks[0][STOP, 0]
-        or masks[1][STOP, 0]
-        or not masks[1][EMIT, 0]
-        or not masks[1][STOP, 1]
-        or int(masks[-1].sum()) != 3
-        or not np.all(masks[-1][STOP, 1:4])
-    ):
-        raise RuntimeError("canonical LEB128 legality mask changed")
-    try:
-        _leb128_decode_signed_increment([0x80, 0x00])
-    except RuntimeError:
-        pass
-    else:
-        raise RuntimeError("noncanonical LEB128 form was accepted")
-
-
-def self_test_sampler():
-    events = np.arange(32, dtype=np.int64)
-    first = _keyed_uniform(events, 7, "eval", 0, 1, FIELD_GRAMMAR, 0)
-    second = _keyed_uniform(events, 7, "eval", 0, 1, FIELD_GRAMMAR, 0)
-    changed = _keyed_uniform(events, 7, "eval", 0, 2, FIELD_GRAMMAR, 0)
-    if not np.array_equal(first, second) or np.array_equal(first, changed):
-        raise RuntimeError("stateless keyed CRN sampler self-test failed")
-    if np.any(first <= 0.0) or np.any(first >= 1.0):
-        raise RuntimeError("keyed uniform left open unit interval")
-    _assert_stop_representable(torch.tensor([[0.0, 0.0]]))
-    _assert_stop_representable(torch.tensor([
-        [-(SAMPLER_GRID_BITS - 1) * float(np.log(2.0)), 0.0]
-    ], dtype=torch.float64))
-    try:
-        _assert_stop_representable(torch.tensor([
-            [-(SAMPLER_GRID_BITS + 1) * float(np.log(2.0)), 0.0]
-        ], dtype=torch.float64))
-    except RuntimeError:
-        pass
-    else:
-        raise RuntimeError("unrepresentable STOP mass was accepted")
-
-
-def self_test_nontermination_watchdog():
-    simulated_always_emit_rank = 0
-    try:
-        while True:
-            _assert_action_rank_within_watchdog(simulated_always_emit_rank)
-            simulated_token = EMIT
-            if simulated_token == STOP:
-                break
-            simulated_always_emit_rank += 1
-    except RuntimeError:
-        if simulated_always_emit_rank != NONTERMINATION_WATCHDOG_RANKS:
-            raise RuntimeError("nontermination watchdog fired at wrong rank")
-    else:
-        raise RuntimeError("always-EMIT path bypassed nontermination watchdog")
-
-
 def self_test_exact_integer_parser():
-    large = (1 << 60) + 123
-    if as_int(str(large)) != large or as_int("1.0e3") != 1000:
-        raise RuntimeError("exact integer parser changed a legal integer")
-    for value in ("1.5", "nan", "inf"):
+    examples = {"12": 12, "12.0": 12, "1.2e1": 12, "0xc": 12}
+    for text, expected in examples.items():
+        if as_int(text) != expected:
+            raise RuntimeError("exact integer parser self-test failed")
+    for text in ("", "1.25", "nan", "inf"):
         try:
-            as_int(value)
+            as_int(text)
         except ValueError:
-            pass
-        else:
-            raise RuntimeError("exact integer parser accepted {}".format(value))
-
-
-def self_test_parameter_count(hidden_size):
-    if hidden_size not in MODEL_POINTS["lstm"]:
-        raise RuntimeError("self-test size is not a configured model point")
-    model = GlobalLocalGrammarStrideLSTM(hidden_size)
-    observed = sum(parameter.numel() for parameter in model.parameters())
-    expected = expected_parameter_count(hidden_size)
-    if observed != expected:
-        raise RuntimeError(
-            "parameter formula mismatch: {} != {}".format(observed, expected)
-        )
-    described = {
-        point["model_size"]: point["parameter_count"]
-        for point in model_points_description()["points"]
-    }
-    if described.get(hidden_size) != observed or observed >= 10000:
-        raise RuntimeError("configured v19 parameter point changed")
+            continue
+        raise RuntimeError("exact integer parser accepted {}".format(text))
 
 
 def self_test_causal_encoder():
-    prefix = [
-        (11, 100, 0), (22, 200, 0), (11, 104, 0), (11, 108, 0)
+    rows = [
+        (1, 10, 0), (2, 20, 0), (3, 30, 0), (2, 21, 0),
+        (1, 12, 0), (1, 15, 0),
     ]
-    changed_future = prefix + [(22, 999, 0), (11, 1, 0)]
-    original_future = prefix + [(22, 201, 0), (11, 112, 0)]
-    first = runtime_features(changed_future)
-    second = runtime_features(original_future)
-    for branch in ("raw", "local"):
-        if not np.array_equal(first[branch][:len(prefix)], second[branch][:len(prefix)]):
-            raise RuntimeError("future row changed a causal runtime feature")
-    local = first["local"]
-    age_bits = local[
-        2,
-        2 * LINE_NUMBER_BITS:2 * LINE_NUMBER_BITS + REUSE_AGE_BITS,
-    ]
-    age = int(sum(int(bit) << index for index, bit in enumerate(age_bits)))
-    if age != 2 or int(local[2, -1]) != 1:
-        raise RuntimeError("same-PC reuse-age feature self-test failed")
+    encoded = runtime_features(rows)
+    if encoded.shape != (len(rows), RUNTIME_FEATURES):
+        raise RuntimeError("causal encoder self-test width failed")
+    changed = list(rows)
+    changed[-1] = (1, 99, 0)
+    if not np.array_equal(
+        encoded[:-1], runtime_features(changed)[:-1]
+    ):
+        raise RuntimeError("future row changed an earlier runtime feature")
+    # The fifth callback to PC 1 has two distinct intervening PCs (2 and 3).
+    reuse_start = (
+        ADDRESS_BITS + 3 * LINE_NUMBER_BITS
+    )
+    reuse_bits = encoded[4, reuse_start:reuse_start + REUSE_DISTANCE_BITS]
+    reuse = sum(int(bit) << index for index, bit in enumerate(reuse_bits))
+    if reuse != 2 or encoded[4, -2:].tolist() != [1, 0]:
+        raise RuntimeError("distinct-PC reuse/validity feature self-test failed")
+    if encoded[5, -2:].tolist() != [1, 1]:
+        raise RuntimeError("prior same-PC delta validity self-test failed")
 
 
-def self_test_global_local_encoder_behavior():
-    torch.manual_seed(1729)
-    model = GlobalLocalGrammarStrideLSTM(4)
-    first_rows = [(11, 100, 0), (22, 200, 0), (11, 104, 0)]
-    second_rows = [(11, 100, 0), (11, 104, 0), (22, 200, 0)]
+def self_test_vocabulary():
+    rows = [(1, 100, 0), (1, 100, 1), (1, 100, 2)]
+    actions = [[101, 99], [101], [102]]
+    vocabulary, frequencies = build_delta_vocabulary(rows, actions)
+    if vocabulary[:3] != [1, -1, 2] or frequencies[1] != 2:
+        raise RuntimeError("train-frequency vocabulary ordering changed")
+    for value in (-100000, -1, 0, 1, 100000):
+        if _coordinate_to_delta(_signed_log(value)) != value:
+            raise RuntimeError("signed-log OTHER round-trip failed")
 
-    def encode(rows):
-        runtime = runtime_features(rows)
-        with torch.no_grad():
-            return _encode_chunk(
-                model,
-                torch.from_numpy(runtime["raw"]).to(torch.float32),
-                torch.from_numpy(runtime["local"]).to(torch.float32),
-                np.asarray([row[0] for row in rows], dtype=np.uint64),
-                None,
-                {},
+
+def self_test_parameter_count(hidden_size):
+    delta_prior = [1.0 / DELTA_OUTPUT_CLASSES] * DELTA_OUTPUT_CLASSES
+    model = IndependentRankDeltaStrideLSTM(
+        hidden_size, [0.75, 0.25], math.log(1.5), delta_prior
+    )
+    observed = sum(parameter.numel() for parameter in model.parameters())
+    if observed != expected_parameter_count(hidden_size):
+        raise RuntimeError(
+            "parameter formula mismatch: {} != {}".format(
+                observed, expected_parameter_count(hidden_size)
             )
-
-    first_context, first_global, first_validity = encode(first_rows)
-    second_context, second_global, second_validity = encode(second_rows)
-    if (
-        first_context.shape != (len(first_rows), model.hidden_size)
-        or len(first_global) != 2
-        or torch.equal(first_global[0], second_global[0])
-        or torch.any(first_validity <= 0)
-        or torch.any(first_validity >= 1)
-        or torch.any(second_validity <= 0)
-        or torch.any(second_validity >= 1)
-    ):
-        raise RuntimeError("global chronology/local validity behavior changed")
-
-    with torch.no_grad():
-        model.fusion.weight.zero_()
-        model.fusion.bias.zero_()
-        model.fusion.weight[:, model.hidden_size:] = torch.eye(
-            model.hidden_size
         )
-        model.local_validity.weight.zero_()
-        model.local_validity.bias.fill_(-8.0)
-    low_context, _, low_validity = encode(first_rows)
-    with torch.no_grad():
-        model.local_validity.bias.fill_(8.0)
-    high_context, _, high_validity = encode(first_rows)
-    if (
-        not torch.all(high_validity > low_validity)
-        or torch.allclose(low_context, high_context)
+    if not torch.allclose(
+        model.gate_head.bias.detach(),
+        torch.log(torch.tensor([0.75, 0.25])),
     ):
-        raise RuntimeError("learned local-validity gate has no behavioral effect")
+        raise RuntimeError("gate log-prior bias initialization failed")
+    if not torch.allclose(
+        model.positive_log_count_head.bias.detach(),
+        torch.tensor([math.log(1.5)]),
+    ):
+        raise RuntimeError("positive log-count bias initialization failed")
+    if not torch.allclose(
+        model.delta_class_head.bias.detach(),
+        torch.log(torch.tensor(delta_prior)),
+    ):
+        raise RuntimeError("delta class prior bias initialization failed")
 
 
-def self_test_rankwise_stop_absorption():
-    torch.manual_seed(1730)
-    model = GlobalLocalGrammarStrideLSTM(4)
-    with torch.no_grad():
-        model.grammar_head.weight.zero_()
-        model.grammar_head.bias.copy_(torch.tensor([100.0, -100.0]))
-    context = torch.zeros(2, model.hidden_size)
-    grammar = {
-        "counts": np.asarray([2, 1], dtype=np.int64),
-        "targets": np.asarray([[2, 3], [4, 0]], dtype=np.uint64),
-        "base_lines": np.asarray([1, 1], dtype=np.uint64),
-    }
-    loss, components = _sequence_nll(
-        model, context, grammar, np.asarray([0, 1], dtype=np.int64), 7, 1
-    )
-    if (
-        not torch.isfinite(loss)
-        or components["sampled_stop_decisions"] != 2
-        or components["sampled_emit_decisions"] != 0
-        or components["grammar_atoms"] != 2
-        or components["codec_exact_atoms"] != 0
-    ):
-        raise RuntimeError("sampled STOP was not absorbing across action ranks")
-
-
-def self_test_teacher_loss_isolation():
-    torch.manual_seed(2718)
-    model = GlobalLocalGrammarStrideLSTM(4)
-    state = torch.randn(3, 4)
-    events = np.asarray([1, 2, 3], dtype=np.int64)
-    first_targets = np.asarray([1, -128, SIGNED_LINE_MAX], dtype=np.int64)
-    second_targets = np.asarray([-1, 64, SIGNED_LINE_MIN], dtype=np.int64)
-    target_valid = np.ones(len(events), dtype=np.bool_)
-    first_state, first_delta, first_lengths, first_loss, first_atoms = (
-        _sample_codec_path(
-            model, state, events, 7, "train", 1, 0,
-            target_increments=first_targets, target_valid=target_valid,
-        )
-    )
-    second_state, second_delta, second_lengths, second_loss, second_atoms = (
-        _sample_codec_path(
-            model, state, events, 7, "train", 1, 0,
-            target_increments=second_targets, target_valid=target_valid,
-        )
-    )
-    if (
-        not torch.equal(first_delta, second_delta)
-        or not torch.equal(first_state, second_state)
-        or not np.array_equal(first_lengths, second_lengths)
-        or not torch.isfinite(first_loss)
-        or not torch.isfinite(second_loss)
-        or first_atoms["codec_exact_atoms"] <= 0
-        or second_atoms["codec_exact_atoms"] <= 0
-    ):
-        raise RuntimeError("teacher loss changed sampled main codec rollout")
-    no_label_state, no_label_delta, no_label_lengths, no_label_loss, atoms = (
-        _sample_codec_path(model, state, events, 7, "train", 1, 0)
-    )
-    if (
-        not torch.equal(first_delta, no_label_delta)
-        or not torch.equal(first_state, no_label_state)
-        or not np.array_equal(first_lengths, no_label_lengths)
-        or float(no_label_loss.item()) != 0.0
-        or atoms["codec_exact_atoms"] != 0
-        or atoms["codec_termination_atoms"] != 0
-    ):
-        raise RuntimeError("label-free codec rollout isolation failed")
+def self_test_rank_independence(hidden_size):
+    delta_prior = [1.0 / DELTA_OUTPUT_CLASSES] * DELTA_OUTPUT_CLASSES
+    model = IndependentRankDeltaStrideLSTM(
+        hidden_size, [0.5, 0.5], 0.0, delta_prior
+    ).eval()
+    context = torch.randn(3, hidden_size)
+    first = _rank_context(model, context, 1)
+    second = _rank_context(model, context, 1)
+    if not torch.equal(first, second):
+        raise RuntimeError("rank decoder is not deterministic")
+    signature = inspect.signature(_rank_context)
+    if list(signature.parameters) != ["model", "context", "rank"]:
+        raise RuntimeError("rank decoder acquired action feedback")
 
 
 def build_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--describe-model-points", action="store_true",
-        help="print the canonical v19 model-point contract as JSON",
-    )
     parser.add_argument("--policy", required=True, choices=[POLICY])
     for role in ("train", "guard", "eval"):
         parser.add_argument(
@@ -1650,12 +1065,24 @@ def build_parser():
     parser.add_argument("--model-family", choices=["lstm"], required=True)
     parser.add_argument("--model-size", type=int, required=True)
     parser.add_argument("--pair-id", required=True)
-    parser.add_argument("--seed", type=int, default=7)
-    parser.add_argument("--decoder-seed", type=int, default=7)
-    parser.add_argument("--epochs", type=int, default=10)
-    parser.add_argument("--chunk-len", type=int, default=1024)
-    parser.add_argument("--accumulate-chunks", type=int, default=16)
-    parser.add_argument("--learning-rate", type=float, default=0.002)
+    parser.add_argument("--seed", type=int, default=TRAINING_SEED)
+    parser.add_argument("--epochs", type=int, default=TRAINING_EPOCHS)
+    parser.add_argument("--chunk-len", type=int, default=TRAINING_CHUNK_LEN)
+    parser.add_argument(
+        "--accumulate-chunks", type=int,
+        default=TRAINING_ACCUMULATE_CHUNKS,
+    )
+    parser.add_argument(
+        "--learning-rate", type=float, default=TRAINING_LEARNING_RATE
+    )
+    parser.add_argument(
+        "--decode-per-callback-watchdog", type=int,
+        default=DECODE_PER_CALLBACK_WATCHDOG,
+    )
+    parser.add_argument(
+        "--decode-per-role-watchdog", type=int,
+        default=DECODE_PER_ROLE_WATCHDOG,
+    )
     parser.add_argument(
         "--device", choices=["auto", "cpu", "cuda"], default="auto"
     )
@@ -1663,110 +1090,164 @@ def build_parser():
 
 
 def main():
-    if sys.argv[1:] == ["--describe-model-points"]:
-        print(json.dumps(model_points_description(), indent=2, sort_keys=True))
-        return
     args = build_parser().parse_args()
+    source_hashes = {
+        "trainer_source_sha256": sha256(TRAINER_SOURCE_PATH),
+        "model_contract_source_sha256": sha256(MODEL_CONTRACT_SOURCE_PATH),
+        "threshold_free_policy_source_sha256": sha256(
+            THRESHOLD_FREE_POLICY_SOURCE_PATH
+        ),
+    }
     expected_pair = MODEL_POINTS["lstm"].get(args.model_size)
     if expected_pair is None or args.pair_id != expected_pair:
-        raise RuntimeError("model size/pair is not a configured v19 LSTM point")
+        raise RuntimeError("model size/pair is not a configured v20 LSTM point")
+    pinned_training = {
+        "seed": TRAINING_SEED,
+        "epochs": TRAINING_EPOCHS,
+        "chunk_len": TRAINING_CHUNK_LEN,
+        "accumulate_chunks": TRAINING_ACCUMULATE_CHUNKS,
+        "learning_rate": TRAINING_LEARNING_RATE,
+    }
+    observed_training = {
+        "seed": args.seed,
+        "epochs": args.epochs,
+        "chunk_len": args.chunk_len,
+        "accumulate_chunks": args.accumulate_chunks,
+        "learning_rate": args.learning_rate,
+    }
+    if observed_training != pinned_training:
+        raise RuntimeError(
+            "RUN_ID pins training config: observed={} expected={}".format(
+                observed_training, pinned_training
+            )
+        )
     if (
-        args.model_size < 1 or args.epochs < 1 or args.chunk_len < 1
-        or args.accumulate_chunks < 1 or args.learning_rate <= 0
+        args.epochs < 1 or args.chunk_len < 1 or args.accumulate_chunks < 1
+        or args.learning_rate <= 0 or args.decode_per_callback_watchdog < 1
+        or args.decode_per_role_watchdog < 1
     ):
         raise RuntimeError("model/training dimensions must be positive")
 
-    self_test_codec()
-    self_test_sampler()
-    self_test_nontermination_watchdog()
     self_test_exact_integer_parser()
-    self_test_parameter_count(args.model_size)
     self_test_causal_encoder()
-    self_test_global_local_encoder_behavior()
-    self_test_rankwise_stop_absorption()
-    self_test_teacher_loss_isolation()
+    self_test_vocabulary()
+    self_test_parameter_count(args.model_size)
+    self_test_rank_independence(args.model_size)
 
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
-    if hasattr(torch, "use_deterministic_algorithms"):
-        torch.use_deterministic_algorithms(True, warn_only=True)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    if not hasattr(torch, "set_float32_matmul_precision"):
+        raise RuntimeError("pinned v20 requires torch matmul precision control")
+    torch.set_float32_matmul_precision("highest")
+    torch.use_deterministic_algorithms(True)
     device = torch.device(
         "cuda" if args.device == "auto" and torch.cuda.is_available()
         else "cpu" if args.device == "auto" else args.device
     )
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but unavailable")
+    device_name = (
+        torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu"
+    )
+    if device.type != "cuda" or "A100" not in device_name:
+        raise RuntimeError(
+            "the pinned v20 run requires an A100 CUDA device; observed {}"
+            .format(device_name)
+        )
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     roles = ("train", "guard", "eval")
-    stream_paths = {
-        role: getattr(args, role + "_stream") for role in roles
-    }
-    action_paths = {
-        role: getattr(args, role + "_candidates") for role in roles
-    }
+    stream_paths = {role: getattr(args, role + "_stream") for role in roles}
+    action_paths = {role: getattr(args, role + "_candidates") for role in roles}
     rows = {role: load_stream(stream_paths[role]) for role in roles}
-    teacher = {
+    actions = {
         role: load_teacher_actions(action_paths[role], rows[role])
         for role in roles
     }
 
-    train_runtime = runtime_features(rows["train"])
-    if not all(
-        np.array_equal(train_runtime[key], runtime_features(rows["train"])[key])
-        for key in ("raw", "local")
-    ):
-        raise RuntimeError("training/inference runtime encoder differs")
-    train_grammar = teacher_grammar(
-        [line for _, line, _ in rows["train"]], teacher["train"]
+    exact_vocabulary, train_delta_frequencies = build_delta_vocabulary(
+        rows["train"], actions["train"]
     )
+    counts_train = np.asarray(
+        [len(items) for items in actions["train"]], dtype=np.int64
+    )
+    positive_callbacks = int(np.count_nonzero(counts_train))
+    zero_callbacks = int(np.count_nonzero(counts_train == 0))
+    if positive_callbacks <= 0 or zero_callbacks <= 0:
+        raise RuntimeError("gate prior requires both natural train classes")
+    gate_prior = [
+        zero_callbacks / float(len(counts_train)),
+        positive_callbacks / float(len(counts_train)),
+    ]
+    gate_initial_bias = [math.log(value) for value in gate_prior]
+    positive_log_count_initial_bias = float(
+        np.log(counts_train[counts_train > 0]).mean()
+    )
+    delta_prior = delta_class_prior(
+        exact_vocabulary, train_delta_frequencies
+    )
+    delta_initial_bias = [math.log(value) for value in delta_prior]
 
-    model = GlobalLocalGrammarStrideLSTM(args.model_size)
-    parameter_count = sum(
-        parameter.numel() for parameter in model.parameters()
+    runtime_train = runtime_features(rows["train"])
+    train_guard_rows = rows["train"] + rows["guard"]
+    runtime_train_guard = runtime_features(train_guard_rows)
+    if not np.array_equal(
+        runtime_train_guard[:len(rows["train"])], runtime_train
+    ):
+        raise RuntimeError("longer chronology changed the train feature prefix")
+
+    model = IndependentRankDeltaStrideLSTM(
+        args.model_size, gate_prior, positive_log_count_initial_bias,
+        delta_prior,
     )
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
     expected_parameters = expected_parameter_count(args.model_size)
     if parameter_count != expected_parameters:
-        raise RuntimeError("v19 parameter count changed")
-    history = train_model(
-        model, rows["train"], train_runtime, train_grammar, device,
-        args.epochs, args.chunk_len, args.accumulate_chunks,
-        args.learning_rate, args.decoder_seed,
+        raise RuntimeError("v20 parameter count changed")
+    history, best_epoch, best_selection_key = train_model(
+        model, rows, runtime_train, runtime_train_guard, actions,
+        exact_vocabulary, device, args.epochs, args.chunk_len,
+        args.accumulate_chunks, args.learning_rate,
+        args.decode_per_callback_watchdog, args.decode_per_role_watchdog,
     )
+    del runtime_train
 
-    history_rows = rows["train"] + rows["guard"] + rows["eval"]
-    history_runtime = runtime_features(history_rows)
-    for branch in ("raw", "local"):
-        if not np.array_equal(
-            history_runtime[branch][:len(rows["train"])],
-            train_runtime[branch],
-        ):
-            raise RuntimeError("complete-history encoder changed train prefix")
-    encoded_history, encoder_diagnostics = score_model(
-        model, history_rows, history_runtime, device, args.chunk_len
+    # Evaluation is decoded exactly once, after guard-only checkpoint choice.
+    complete_rows = train_guard_rows + rows["eval"]
+    complete_runtime = runtime_features(complete_rows)
+    if not np.array_equal(
+        complete_runtime[:len(train_guard_rows)], runtime_train_guard
+    ):
+        raise RuntimeError("evaluation chronology changed an earlier feature")
+    del runtime_train_guard
+    eval_start = len(train_guard_rows)
+    eval_context, encoder_diagnostics = score_suffix(
+        model, complete_rows, complete_runtime, device, args.chunk_len, eval_start
     )
-    eval_start = len(rows["train"]) + len(rows["guard"])
-    eval_context = encoded_history[eval_start:]
-    (
-        predicted_counts, predicted_lines, predicted_fills,
-        decoder_diagnostics,
-    ) = decode(
-        model, eval_context,
-        [line for _, line, _ in rows["eval"]],
-        device, args.decoder_seed,
+    del complete_runtime
+    predicted_counts, predicted_lines, predicted_fills, decoder_diagnostics = decode(
+        model, eval_context, [line for _, line, _ in rows["eval"]],
+        exact_vocabulary, device, args.decode_per_callback_watchdog,
+        args.decode_per_role_watchdog, "eval",
     )
-    behavior = behavior_metrics(
-        predicted_counts, predicted_lines, predicted_fills, teacher["eval"]
+    heldout = behavior_metrics(
+        predicted_counts, predicted_lines, predicted_fills, actions["eval"]
     )
-    behavior.update(trigger_metrics(predicted_counts, teacher["eval"]))
+    heldout.update(trigger_metrics(predicted_counts, actions["eval"]))
+    heldout["request_ratio_vs_teacher"] = (
+        heldout["predicted_actions"] / float(heldout["normal_actions"])
+        if heldout["normal_actions"] else 0.0
+    )
 
     normal_path = args.out_dir / "offline_stride.replay.csv"
     nn_path = args.out_dir / "offline_nn.replay.csv"
     normal_entries, normal_triggers = write_replay(
-        normal_path, rows["eval"], teacher["eval"]
+        normal_path, rows["eval"], actions["eval"]
     )
     nn_entries, nn_triggers = write_replay(
         nn_path, rows["eval"], predicted_lines
@@ -1774,25 +1255,38 @@ def main():
     write_table(args.out_dir / "training_history.csv", history)
 
     tag = model_tag(args.model_size)
-    torch.save({
+    checkpoint = {
         "state_dict": model.state_dict(),
         "model_family": "lstm",
         "model_size": args.model_size,
-        "raw_runtime_features": RAW_FEATURES,
-        "local_runtime_features": LOCAL_FEATURES,
+        "exact_delta_vocabulary": [int(value) for value in exact_vocabulary],
+        "other_delta_class": OTHER_DELTA_CLASS,
+        "gate_empirical_prior": gate_prior,
+        "positive_log_count_initial_bias": positive_log_count_initial_bias,
+        "delta_class_empirical_prior": delta_prior,
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
-    }, args.out_dir / "model.pt")
+        "decoder_revision": DECODER_REVISION,
+        "selected_guard_epoch": best_epoch,
+        "training_config": dict(model_points_description()["training_config"]),
+        "trainer_source_sha256": source_hashes["trainer_source_sha256"],
+        "model_contract_source_sha256": source_hashes[
+            "model_contract_source_sha256"
+        ],
+        "threshold_free_policy_source_sha256": source_hashes[
+            "threshold_free_policy_source_sha256"
+        ],
+    }
+    torch.save(checkpoint, args.out_dir / "model.pt")
 
-    train_counts = train_grammar["counts"]
-    train_unique_pc_count = len({pc for pc, _, _ in rows["train"]})
-    history_unique_pc_count = len({pc for pc, _, _ in history_rows})
-    sampler_key_fields = [
-        "sampler_revision", "decoder_seed", "trace", "policy", "role",
-        "epoch", "event_index", "action_rank", "field", "codec_position",
-    ]
     encoder_hash = runtime_encoder_sha256()
     router_hash = state_router_sha256()
+    role_vocabulary_stats = {
+        role: vocabulary_statistics(rows[role], actions[role], exact_vocabulary)
+        for role in roles
+    }
+    train_unique_pc_count = len({pc for pc, _, _ in rows["train"]})
+    complete_unique_pc_count = len({pc for pc, _, _ in complete_rows})
     metadata = {
         "trace": TRACE,
         "model_tag": tag,
@@ -1807,268 +1301,212 @@ def main():
         "parameter_formula": model_points_description()["parameter_formula"],
         "model_point_contract": model_points_description(),
         "parameter_bytes_float32": parameter_count * 4,
-        "input_projection_size": model.input_size,
         "seed": args.seed,
-        "decoder_seed": args.decoder_seed,
         "epochs": args.epochs,
         "chunk_len": args.chunk_len,
         "accumulate_chunks": args.accumulate_chunks,
         "learning_rate": args.learning_rate,
-        "runtime_feature_count": RUNTIME_FEATURES,
-        "raw_runtime_feature_count": RAW_FEATURES,
-        "pc_local_runtime_feature_count": LOCAL_FEATURES,
-        "runtime_encoding": (
-            "lossless PC64+line58 global branch plus causal lossless "
-            "line58+same-PC signed-delta58+reuse-age64+valid1 local branch"
+        "training_device": str(device),
+        "training_device_name": device_name,
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
+        "torch_deterministic_algorithms_enabled": (
+            torch.are_deterministic_algorithms_enabled()
         ),
-        "runtime_pc_bits": ADDRESS_BITS,
-        "runtime_line_number_bits": LINE_NUMBER_BITS,
-        "runtime_reuse_age_bits": REUSE_AGE_BITS,
-        "runtime_constant_offset_bits_removed": CACHE_LINE_OFFSET_BITS,
-        "source_decision_effective_external_input": SOURCE_INPUTS,
+        "cudnn_deterministic": bool(torch.backends.cudnn.deterministic),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+        "float32_matmul_precision": torch.get_float32_matmul_precision(),
+        "training_config": dict(model_points_description()["training_config"]),
+        "training_config_pinned_by_run_id": True,
+        "trainer_source_sha256": source_hashes["trainer_source_sha256"],
+        "model_contract_source_sha256": source_hashes[
+            "model_contract_source_sha256"
+        ],
+        "threshold_free_policy_source_sha256": source_hashes[
+            "threshold_free_policy_source_sha256"
+        ],
+        "source_decision_effective_external_input": SOURCE_INPUT_LIST,
         "same_external_input_contract": True,
+        "training_runtime_fields": SOURCE_INPUT_LIST,
+        "inference_runtime_fields": SOURCE_INPUT_LIST,
+        "training_inference_input_encoder_identical": True,
+        "runtime_feature_count": RUNTIME_FEATURES,
+        "raw_runtime_feature_count": RAW_RUNTIME_FEATURES,
+        "causal_runtime_feature_count": CAUSAL_RUNTIME_FEATURES,
+        "runtime_feature_breakdown": model_points_description()[
+            "runtime_feature_breakdown"
+        ],
+        "runtime_encoding": (
+            "lossless PC64+line58+current_same_PC_delta58+prior_same_PC_"
+            "delta58+distinct_PC_reuse_distance64+valid2"
+        ),
         "causal_derived_features_from_same_external_input": [
-            "same_pc_signed_line_delta", "same_pc_reuse_age",
-            "same_pc_history_valid",
+            "current_same_pc_signed_line_delta",
+            "prior_same_pc_signed_line_delta",
+            "distinct_pc_reuse_distance",
+            "same_pc_delta_validity_bits",
         ],
         "derived_features_use_teacher_or_future": False,
-        "training_inference_input_encoder_identical": True,
-        "runtime_encoder_entrypoint": (
-            "623_offline_lstm_stride.train_and_offline_infer.runtime_features"
-        ),
         "runtime_encoder_sha256": encoder_hash,
         "training_runtime_encoder_sha256": encoder_hash,
         "inference_runtime_encoder_sha256": encoder_hash,
-        "training_runtime_fields": SOURCE_INPUTS,
-        "inference_runtime_fields": SOURCE_INPUTS,
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
         "normal_policy_outputs_used_as_training_targets": True,
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
-        "normal_tracker_capacity_used_by_neural_inference": False,
-        "normal_degree_used_by_neural_inference": False,
+        "normal_policy_templates_used_by_neural_inference": False,
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
+        "inference_policy_hardcodes_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
         "future_label_window_used": False,
-        "handcrafted_semantic_features_used": True,
-        "handcrafted_features_scope": (
-            "causal relative delta/reuse age derived losslessly from PC+addr"
-        ),
         "manual_loss_weights_used": False,
-        "gradient_accumulation_weighting": (
-            "exact_categorical_atom_count_for_global_natural_sequence_NLL"
-        ),
         "training_regularization_used": False,
-        "inference_policy_hardcodes_used": False,
-        "learned_request_count": True,
         "nn_generates_own_target_addresses": True,
-        "complete_action_space": (
-            "learned unbounded STOP/EMIT grammar with exact signed 58-bit "
-            "increments; sampler-precision watchdog aborts the whole run "
-            "instead of materializing a nonterminating sequence"
+        "full_signed_line_delta_range_reachable": False,
+        "every_signed_line_delta_exactly_representable": False,
+        "exact_delta_representability_scope": "train_vocabulary_only",
+        "delta_vocabulary_source": "train_labels_only",
+        "delta_vocabulary_order": "descending_train_frequency_then_signed_integer",
+        "delta_vocabulary_max_exact": MAX_EXACT_DELTA_CLASSES,
+        "delta_vocabulary_exact": [int(value) for value in exact_vocabulary],
+        "delta_vocabulary_exact_size": len(exact_vocabulary),
+        "delta_vocabulary_train_frequencies": [
+            int(train_delta_frequencies[value]) for value in exact_vocabulary
+        ],
+        "delta_class_prior_smoothing": "add_one_over_256_output_classes",
+        "delta_class_empirical_prior": delta_prior,
+        "delta_class_initial_bias": delta_initial_bias,
+        "delta_class_bias_initialization": (
+            "log_add_one_smoothed_TRAIN_exact_plus_OTHER_frequency"
         ),
-        "decision_rule": (
-            "rankwise_keyed_inverse_cdf_STOP_EMIT_then_exact_"
-            "ZigZag_LEB128_increment"
+        "delta_other_class": OTHER_DELTA_CLASS,
+        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_other_decode_precision": (
+            "rounded_float32_approximate_except_exact_vocabulary"
         ),
+        "delta_coordinate_auxiliary_trained_on_all_teacher_actions": True,
+        "delta_coordinate_used_for_decode_only_on_other": True,
+        "delta_vocabulary_statistics": role_vocabulary_stats,
         "decoder_training_mode": DECODER_TRAINING_MODE,
-        "decoder_previous_teacher_action_used_as_input": True,
-        "decoder_previous_teacher_action_input_scope": (
-            "isolated_loss_only_teacher_prefix_likelihood_branch"
-        ),
-        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
-        "teacher_prefix_tokens_condition_loss_logits": True,
-        "teacher_prefix_tokens_recurrently_advance_loss_branch_state": True,
-        "teacher_prefix_tokens_mutate_main_rollout_state": False,
-        "teacher_prefix_branch_role": (
-            "loss_only_canonical_autoregressive_sequence_likelihood"
-        ),
-        "sampled_prefix_branch_role": (
-            "only_branch_that_mutates_next_rank_state_and_origin"
-        ),
-        "decoder_free_running_self_test": "PASS",
-        "request_count_model": "rankwise learned STOP_EMIT action grammar",
-        "request_count_training_objective": REQUEST_COUNT_OBJECTIVE,
-        "request_count_decoding_rule": (
-            "stateless_event_rank_keyed_categorical_inverse_cdf_until_STOP"
-        ),
-        "request_count_residual_scope": "none_rankwise_action_grammar",
-        "gate_training_objective": "NOT_APPLICABLE_no_separate_hurdle_gate",
-        "gate_decoding_rule": "NOT_APPLICABLE_STOP_EMIT_is_action_token",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_rank_conditioning": "fixed_generic_sinusoidal_code",
+        "decoder_rank_code_features": RANK_CODE_FEATURES,
+        "all_teacher_ranks_supervised": True,
+        "gate_training_objective": GATE_OBJECTIVE,
+        "gate_decoding_rule": "raw_deterministic_two_class_argmax",
         "gate_class_weighting_used": False,
-        "data_derived_gate_class_weights_used": False,
-        "gate_class_weights_source": None,
-        "gate_class_weights": None,
+        "gate_empirical_prior_source": "natural_train_zero_positive_frequencies",
+        "gate_empirical_prior": gate_prior,
+        "gate_bias_initialization": "log_train_empirical_zero_positive_prior",
+        "gate_initial_bias": gate_initial_bias,
+        "positive_count_training_objective": COUNT_OBJECTIVE,
+        "positive_log_count_initial_bias": positive_log_count_initial_bias,
+        "positive_log_count_bias_initialization": (
+            "TRAIN_positive_mean_log_count"
+        ),
+        "request_count_training_objective": (
+            GATE_OBJECTIVE + " + " + COUNT_OBJECTIVE
+        ),
+        "request_count_decoding_rule": (
+            "gate_argmax_then_round_exp_positive_log_count"
+        ),
+        "request_count_training_label_statistics": {
+            "decision_callbacks": int(len(counts_train)),
+            "positive_callbacks": positive_callbacks,
+            "zero_callbacks": zero_callbacks,
+            "teacher_actions": int(counts_train.sum()),
+            "maximum_teacher_count": int(counts_train.max()),
+            "count_distribution": {
+                str(key): int(value)
+                for key, value in sorted(Counter(counts_train.tolist()).items())
+            },
+        },
         "poisson_objective_used": False,
         "poisson_decoder_used": False,
+        "delta_training_objective": DELTA_OBJECTIVE,
+        "delta_decoding_rule": (
+            "rank_conditioned_exact_class_MAP_or_rounded_signed_log_OTHER"
+        ),
         "delta_mixture_components": 0,
         "gmm_objective_used": False,
         "gmm_decoder_used": False,
-        "delta_training_objective": DELTA_OBJECTIVE,
-        "delta_decoding_rule": (
-            "stateless_keyed_inverse_cdf_exact_ZigZag_LEB128_signed_increment"
-        ),
-        "delta_decoder_feedback_rule": (
-            "main_rollout_uses_only_actual_hard_sampled_STOP_EMIT_"
-            "payload_bits_continuation_tokens"
-        ),
-        "delta_codec": "signed_ZigZag_then_canonical_LEB128",
-        "delta_codec_max_bytes": LEB128_MAX_BYTES,
-        "delta_codec_complete_signed_bits": LINE_NUMBER_BITS,
-        "delta_codec_payload_factorization": (
-            "seven shared binary payload decisions; final group 3 classes"
-        ),
-        "delta_codec_canonical_legality_mask": True,
-        "on_policy_rollout": True,
-        "teacher_prefix_likelihood_branch_isolated_from_rollout": True,
-        "sampled_stop_rows_reactivated": False,
-        "teacher_selected_emit_used_as_feedback": False,
-        "teacher_codec_token_used_as_feedback": True,
-        "teacher_codec_token_feedback_scope": (
-            "isolated_loss_only_teacher_prefix_likelihood_branch"
-        ),
-        "teacher_codec_token_used_as_main_rollout_feedback": False,
-        "increment_supervision_origin": (
-            "actual_previous_sampled_target_or_current_demand"
-        ),
-        "host_nontermination_guard": (
-            "fail_closed_if_STOP_has_no_53bit_sampler_support_or_if_"
-            "sampled_path_reaches_sampler_precision_watchdog"
-        ),
-        "fail_closed_nontermination_watchdog_ranks": (
-            NONTERMINATION_WATCHDOG_RANKS
-        ),
-        "nontermination_watchdog_is_policy_degree_cap": False,
-        "successful_run_hit_nontermination_watchdog": False,
-        "nontermination_watchdog_behavior": (
-            "raise_and_produce_no_replay_never_truncate_or_force_STOP"
-        ),
-        "stop_sampler_representability_check": True,
-        "sampler_uniform_grid_bits": SAMPLER_GRID_BITS,
-        "sampler_minimum_open_midpoint_uniform": SAMPLER_MIN_UNIFORM,
-        "delta_codec_source_sha256": codec_source_sha256(),
-        "fill_decoding_rule": "fixed_track_contract_FILL_L2",
-        "request_count_training_label_statistics": {
-            "decision_callbacks": int(len(train_counts)),
-            "positive_callbacks": int(np.count_nonzero(train_counts)),
-            "zero_callbacks": int(np.count_nonzero(train_counts == 0)),
-            "teacher_actions": int(train_counts.sum()),
-            "grammar_categorical_atoms": _grammar_atom_count(train_counts),
-        },
-        "request_count_decoder_diagnostics": decoder_diagnostics,
-        "decoder_sampler": {
-            "sampler_revision": SAMPLER_REVISION,
-            "key_fields": sampler_key_fields,
-            "backend": (
-                "vectorized_splitmix64_53bit_open_midpoints_float64_cdf"
-            ),
-            "categorical_method": "inverse_cdf",
-            "cross_event_rng_state": False,
-        },
-        "sampler_revision": SAMPLER_REVISION,
-        "decoder_key_fields": sampler_key_fields,
-        "decoder_event_key_definition": "zero_based_role_event_index",
-        "decoder_codec_position_definition": (
-            "generic token coordinate: byte index for continuation/final "
-            "payload, flattened byte*7+bit for payload-bit decisions"
-        ),
-        "decoder_event_key_uses_teacher_information": False,
-        "decoder_action_rank_origin": 0,
-        "decoder_key_includes_sampler_revision": True,
-        "decoder_sampler_source_sha256": sampler_source_sha256(),
-        "decoder_sampling_schedule_sha256": hashlib.sha256(
-            json.dumps({
-                "grammar_field": FIELD_GRAMMAR,
-                "payload_bit_field": FIELD_PAYLOAD_BIT,
-                "final_payload_field": FIELD_FINAL_PAYLOAD,
-                "continuation_field": FIELD_CONTINUATION,
-                "max_codec_bytes": LEB128_MAX_BYTES,
-                "payload_bits_per_regular_byte": LEB128_PAYLOAD_BITS,
-                "roles": sorted(ROLE_CODES),
-            }, sort_keys=True).encode()
-        ).hexdigest(),
-        "deterministic_decoding": False,
-        "deterministic_decoding_reproducible": False,
-        "stochastic_decoding": True,
-        "stochastic_decoding_reproducible": True,
-        "common_random_numbers_across_capacities": True,
-        "strict_common_random_numbers_across_capacities": True,
-        "cross_event_rng_state_used": False,
-        "decoder_sampling_roles": ["train", "eval"],
-        "decoder_train_sampling_performed": True,
+        "decision_rule": DECODING_RULE,
+        "deterministic_decoding": True,
+        "deterministic_decoding_reproducible": True,
+        "stochastic_decoding": False,
+        "decoder_sampling_roles": [],
+        "decoder_train_sampling_performed": False,
         "decoder_guard_sampling_performed": False,
-        "sampled_outputs_used_as_decoder_feedback": True,
-        "decoder_probability_mass_carries_train_guard_history": False,
-        "cross_event_probability_credit_used": False,
-        "training_labels": (
-            "captured Stride actions; grammar labels, isolated teacher-prefix "
-            "codec likelihood, and comparator replay only"
+        "decoder_eval_sampling_performed": False,
+        "sampled_outputs_used_as_decoder_feedback": False,
+        "decode_per_callback_resource_watchdog": (
+            args.decode_per_callback_watchdog
         ),
-        "forbidden_inputs": [
-            "normal_actions_at_inference", "Stride_tracker_table",
-            "last_stride", "normal_degree", "cycle", "cache_hit",
-            "queue_state", "future_rows",
+        "decode_per_role_resource_watchdog": args.decode_per_role_watchdog,
+        "decode_resource_watchdog_behavior": (
+            "fail_closed_raise_before_replay_never_truncate_or_change_count"
+        ),
+        "decode_resource_watchdog_is_neural_degree_cap": False,
+        "successful_run_hit_decode_resource_watchdog": False,
+        "checkpoint_selection": CHECKPOINT_SELECTION,
+        "checkpoint_selection_roles": ["guard"],
+        "checkpoint_selection_metrics": [
+            "maximize_target_f1", "maximize_trigger_f1",
+            "minimize_absolute_request_ratio_error",
         ],
+        "selected_guard_epoch": best_epoch,
+        "selected_guard_key": [float(value) for value in best_selection_key],
+        "guard_role": "checkpoint_selection_only_no_threshold_calibration",
+        "evaluation_used_for_checkpoint_selection": False,
+        "evaluation_decode_passes": 1,
         "training_chunks_shuffled": False,
-        "training_state_mode": "chronological_global_and_pc_local_tbptt",
+        "training_state_mode": "exact_pc_keyed_stateful_tbptt",
         "training_state_carried_across_chunks": True,
         "training_state_detached_between_chunks": True,
-        "training_state_routing": (
-            "one chronological global state plus dynamic exact-PC local map"
-        ),
         "training_state_reset": "only_at_epoch_start",
         "inference_history_mode": (
-            "fresh_state_then_complete_train_guard_eval_chronology"
+            "fresh_exact_PC_state_then_complete_train_guard_eval_chronology"
         ),
-        "inference_state_routing": (
-            "one chronological global state plus dynamic exact-PC local map"
-        ),
-        "learned_local_validity_gate": True,
-        "local_validity_gate_rule": (
-            "sigmoid learned from chronological global and PC-local contexts"
-        ),
-        "encoder_diagnostics": encoder_diagnostics,
-        "guard_role": "causal_input_history_warmup_and_audit_only",
+        "training_state_routing": "one_lstm_state_per_exact_observed_PC",
+        "inference_state_routing": "one_lstm_state_per_exact_observed_PC",
+        "standard_lstm_forget_gates_learn_staleness": True,
         "train_unique_pc_count": train_unique_pc_count,
-        "history_unique_pc_count": history_unique_pc_count,
-        "global_recurrent_state_bytes_float32": 2 * args.model_size * 4,
+        "history_unique_pc_count": complete_unique_pc_count,
         "local_recurrent_state_bytes_per_observed_pc_float32": (
             2 * args.model_size * 4
         ),
-        "training_state_router_sha256": router_hash,
-        "inference_state_router_sha256": router_hash,
         "peak_training_recurrent_state_bytes_float32": (
-            (train_unique_pc_count + 1) * 2 * args.model_size * 4
+            train_unique_pc_count * 2 * args.model_size * 4
         ),
         "peak_inference_recurrent_state_bytes_float32": (
-            (history_unique_pc_count + 1) * 2 * args.model_size * 4
+            complete_unique_pc_count * 2 * args.model_size * 4
         ),
         "peak_persistent_recurrent_state_bytes": (
-            (history_unique_pc_count + 1) * 2 * args.model_size * 4
+            complete_unique_pc_count * 2 * args.model_size * 4
         ),
+        "training_state_router_sha256": router_hash,
+        "inference_state_router_sha256": router_hash,
         "causal_no_future_self_test": "PASS",
-        "pc_keyed_causality_self_test": "PASS",
-        "global_chronology_self_test": "PASS",
-        "learned_validity_self_test": "PASS",
-        "event_keyed_crn_self_test": "PASS",
-        "rankwise_stop_emit_self_test": "PASS",
-        "main_rollout_isolation_self_test": "PASS",
-        "teacher_prefix_loss_isolation_self_test": "PASS",
-        "stop_sampler_representability_self_test": "PASS",
-        "always_emit_nontermination_watchdog_self_test": "PASS",
+        "exact_pc_state_routing_self_test": "PASS",
+        "distinct_pc_reuse_distance_self_test": "PASS",
+        "gate_prior_bias_initialization_self_test": "PASS",
+        "positive_log_count_bias_initialization_self_test": "PASS",
+        "delta_class_prior_bias_initialization_self_test": "PASS",
+        "train_only_delta_vocabulary_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
+        "signed_log_other_escape_self_test": "PASS",
         "exact_integer_parser_self_test": "PASS",
-        "zigzag_leb128_exact_codec_self_test": "PASS",
-        "hard_self_action_feedback_self_test": "PASS",
         "compact_parameter_self_test": "PASS",
         "cnn_architecture_self_test": "NOT_APPLICABLE",
         "cnn_temporal_layers": 0,
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
+        "decoder_revision": DECODER_REVISION,
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "offline_normal_entries": normal_entries,
@@ -2077,10 +1515,12 @@ def main():
         "offline_nn_triggers": nn_triggers,
         "normal_list_sha256": sha256(normal_path),
         "nn_list_sha256": sha256(nn_path),
-        "heldout_behavior_metrics": behavior,
-        "train_action_summary": _count_summary(teacher["train"]),
-        "guard_action_summary": _count_summary(teacher["guard"]),
-        "eval_action_summary": _count_summary(teacher["eval"]),
+        "heldout_behavior_metrics": heldout,
+        "request_count_decoder_diagnostics": decoder_diagnostics,
+        "encoder_diagnostics": encoder_diagnostics,
+        "train_action_summary": _count_summary(actions["train"]),
+        "guard_action_summary": _count_summary(actions["guard"]),
+        "eval_action_summary": _count_summary(actions["eval"]),
         "train_history": history,
         "python": platform.python_version(),
         "torch": torch.__version__,
@@ -2102,6 +1542,7 @@ def main():
         "status": "PASS",
         "model_tag": tag,
         "parameters": parameter_count,
+        "selected_guard_epoch": best_epoch,
         "decision_rule": metadata["decision_rule"],
         "offline_normal_entries": normal_entries,
         "offline_nn_entries": nn_entries,

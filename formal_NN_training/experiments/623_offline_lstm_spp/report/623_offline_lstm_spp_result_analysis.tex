@@ -35,10 +35,10 @@
 \begin{infobox}[colback=orange!8,colframe=orange]
 \textbf{Historical-results boundary.}  All numerical results in this document
 are from the completed v11 artifact shown below.  The current implementation is
-\texttt{compact\_crn\_joint\_delta\_fill\_mixture\_v15} with default run
-\texttt{623\_offline\_lstm\_spp\_keyed\_crn\_joint\_fill\_v15\_seed7}; its replay
+\texttt{global\_chronological\_lstm\_independent\_actions\_v20} with default run
+\texttt{623\_offline\_lstm\_spp\_independent\_vocab\_v20\_seed7}; its replay
 results are pending and must not be inferred from these tables.  Because the
-recorded fill-callback stream comes from source SPP, v15 supports a matched-input
+recorded fill-callback stream comes from source SPP, v20 supports a matched-input
 offline claim, not a closed-loop live-NN claim.
 \end{infobox}
 \begin{center}
@@ -55,7 +55,7 @@ Primary comparison & Offline SPP actions versus independently generated LSTM act
 Shared external input & chronological DEMAND(address) and CACHE\_FILL(evicted-address) callbacks.\\
 Neural history & stateful LSTM over complete train--guard--evaluation chronology; chronological TBPTT carries and detaches state.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
-Historical run artifact & \texttt{623\_offline\_lstm\_spp\_variable\_delta\_free\_running\_v11\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v15 or useful neural behavior.\\
+Historical run artifact & \texttt{623\_offline\_lstm\_spp\_variable\_delta\_free\_running\_v11\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v20 or useful neural behavior.\\
 \end{tabularx}
 \end{infobox}
 

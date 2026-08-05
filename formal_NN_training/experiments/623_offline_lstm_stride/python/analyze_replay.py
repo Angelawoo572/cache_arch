@@ -11,7 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from model_contract import (
-    EXPERIMENT_REVISION, MODEL_REVISION as V19_MODEL_REVISION,
+    EXPERIMENT_REVISION, MODEL_REVISION as ACTIVE_MODEL_REVISION,
     POLICY, RUN_ID, TRACE, model_points_description,
 )
 
@@ -21,9 +21,9 @@ V16_MODEL_REVISION = "compact_pc_keyed_balanced_deterministic_scalar_v16"
 V17_MODEL_REVISION = "compact_pc_keyed_prior_corrected_hurdle_scalar_v17"
 V18_MODEL_REVISION = "compact_pc_keyed_natural_hurdle_scalar_v18"
 TRACK_MODEL_FAMILY = "lstm"
-V19_CONTRACT = model_points_description()
+ACTIVE_CONTRACT = model_points_description()
 DEFAULT_MODEL_TAGS = ",".join(
-    point["model_tag"] for point in V19_CONTRACT["points"]
+    point["model_tag"] for point in ACTIVE_CONTRACT["points"]
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -45,9 +45,9 @@ EXPECTED_PARAMETERS_BY_REVISION = {
     V18_MODEL_REVISION: {
         8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
     },
-    V19_MODEL_REVISION: {
+    ACTIVE_MODEL_REVISION: {
         point["model_size"]: point["parameter_count"]
-        for point in V19_CONTRACT["points"]
+        for point in ACTIVE_CONTRACT["points"]
     },
 }
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
@@ -340,6 +340,7 @@ def policy_for_method(method):
     normal = "offline_" + POLICY
     if (
         method == normal
+        or method.startswith("offline_independent_rank_delta_stride_lstm_")
         or method.startswith("offline_independent_delta_" + POLICY + "_")
         or method.startswith("offline_global_local_grammar_" + POLICY + "_")
     ):
@@ -349,7 +350,8 @@ def policy_for_method(method):
 
 def model_tag_for_method(method):
     if (
-        method.startswith("offline_independent_delta_" + POLICY + "_")
+        method.startswith("offline_independent_rank_delta_stride_lstm_")
+        or method.startswith("offline_independent_delta_" + POLICY + "_")
         or method.startswith("offline_global_local_grammar_" + POLICY + "_")
     ):
         return method[len("offline_"):]
@@ -428,12 +430,27 @@ def add_comparison_metrics(rows, failures):
             )
 
 
-def validate_v19_metadata(metadata, tag, inputs, failures):
-    """Fail closed on the redesigned global/local action-grammar contract."""
+def validate_v20_metadata(metadata, tag, inputs, failures):
+    """Fail closed on the independent, deterministic v20 contract."""
+    experiment = Path(__file__).resolve().parents[1]
+    repository = Path(__file__).resolve().parents[4]
+    source_hashes = {
+        "trainer_source_sha256": sha256(
+            experiment / "python" / "train_and_offline_infer.py"
+        ),
+        "model_contract_source_sha256": sha256(
+            experiment / "python" / "model_contract.py"
+        ),
+        "threshold_free_policy_source_sha256": sha256(
+            repository / "formal_NN_training" / "common"
+            / "threshold_free_policy.py"
+        ),
+    }
     expected = {
         "trace": TRACE,
         "model_tag": tag,
         "matched_normal_prefetcher": POLICY,
+        "neural_role": "standalone_direct_action_prefetcher",
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
@@ -445,8 +462,10 @@ def validate_v19_metadata(metadata, tag, inputs, failures):
         "normal_policy_outputs_used_as_training_targets": True,
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
+        "normal_policy_templates_used_by_neural_inference": False,
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
+        "inference_policy_hardcodes_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
@@ -454,89 +473,110 @@ def validate_v19_metadata(metadata, tag, inputs, failures):
         "derived_features_use_teacher_or_future": False,
         "manual_loss_weights_used": False,
         "training_regularization_used": False,
-        "inference_policy_hardcodes_used": False,
-        "learned_request_count": True,
         "nn_generates_own_target_addresses": True,
-        "decoder_training_mode": V19_CONTRACT["decoder_training_mode"],
-        "decoder_previous_teacher_action_used_as_input": True,
-        "decoder_previous_teacher_action_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
-        "decoder_previous_teacher_action_used_as_main_rollout_input": False,
-        "teacher_prefix_tokens_condition_loss_logits": True,
-        "teacher_prefix_tokens_recurrently_advance_loss_branch_state": True,
-        "teacher_prefix_tokens_mutate_main_rollout_state": False,
-        "decoder_free_running_self_test": "PASS",
-        "request_count_training_objective": V19_CONTRACT[
-            "request_count_training_objective"
+        "decoder_training_mode": ACTIVE_CONTRACT["decoder_training_mode"],
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "all_teacher_ranks_supervised": True,
+        "delta_vocabulary_source": "train_labels_only",
+        "delta_vocabulary_max_exact": 255,
+        "delta_class_bias_initialization": (
+            "log_add_one_smoothed_TRAIN_exact_plus_OTHER_frequency"
+        ),
+        "positive_log_count_bias_initialization": (
+            "TRAIN_positive_mean_log_count"
+        ),
+        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_other_decode_precision": (
+            "rounded_float32_approximate_except_exact_vocabulary"
+        ),
+        "delta_coordinate_auxiliary_trained_on_all_teacher_actions": True,
+        "delta_coordinate_used_for_decode_only_on_other": True,
+        "full_signed_line_delta_range_reachable": False,
+        "every_signed_line_delta_exactly_representable": False,
+        "exact_delta_representability_scope": "train_vocabulary_only",
+        "gate_training_objective": ACTIVE_CONTRACT[
+            "gate_training_objective"
         ],
-        "request_count_decoding_rule": "stateless_event_rank_keyed_categorical_inverse_cdf_until_STOP",
-        "gate_training_objective": "NOT_APPLICABLE_no_separate_hurdle_gate",
-        "gate_decoding_rule": "NOT_APPLICABLE_STOP_EMIT_is_action_token",
+        "positive_count_training_objective": ACTIVE_CONTRACT[
+            "positive_count_training_objective"
+        ],
+        "delta_training_objective": ACTIVE_CONTRACT[
+            "delta_training_objective"
+        ],
+        "gate_decoding_rule": "raw_deterministic_two_class_argmax",
+        "request_count_decoding_rule": (
+            "gate_argmax_then_round_exp_positive_log_count"
+        ),
+        "delta_decoding_rule": (
+            "rank_conditioned_exact_class_MAP_or_rounded_signed_log_OTHER"
+        ),
         "poisson_objective_used": False,
         "poisson_decoder_used": False,
         "gmm_objective_used": False,
         "gmm_decoder_used": False,
         "delta_mixture_components": 0,
-        "delta_training_objective": V19_CONTRACT[
-            "delta_training_objective"
-        ],
-        "delta_decoding_rule": "stateless_keyed_inverse_cdf_exact_ZigZag_LEB128_signed_increment",
-        "delta_decoder_feedback_rule": "main_rollout_uses_only_actual_hard_sampled_STOP_EMIT_payload_bits_continuation_tokens",
-        "delta_codec": "signed_ZigZag_then_canonical_LEB128",
-        "delta_codec_max_bytes": V19_CONTRACT["leb128_max_bytes"],
-        "delta_codec_complete_signed_bits": V19_CONTRACT["line_number_bits"],
-        "sampled_outputs_used_as_decoder_feedback": True,
-        "deterministic_decoding": False,
-        "stochastic_decoding": True,
-        "stochastic_decoding_reproducible": True,
-        "common_random_numbers_across_capacities": True,
-        "strict_common_random_numbers_across_capacities": True,
-        "cross_event_rng_state_used": False,
-        "decoder_sampling_roles": ["train", "eval"],
-        "decoder_train_sampling_performed": True,
+        "deterministic_decoding": True,
+        "deterministic_decoding_reproducible": True,
+        "stochastic_decoding": False,
+        "decoder_sampling_roles": [],
+        "decoder_train_sampling_performed": False,
         "decoder_guard_sampling_performed": False,
-        "decoder_event_key_uses_teacher_information": False,
-        "decoder_action_rank_origin": 0,
-        "decoder_key_includes_sampler_revision": True,
-        "runtime_feature_count": V19_CONTRACT["runtime_feature_count"],
-        "raw_runtime_feature_count": V19_CONTRACT[
+        "decoder_eval_sampling_performed": False,
+        "sampled_outputs_used_as_decoder_feedback": False,
+        "decode_per_callback_resource_watchdog": ACTIVE_CONTRACT[
+            "decode_per_callback_resource_watchdog"
+        ],
+        "decode_per_role_resource_watchdog": ACTIVE_CONTRACT[
+            "decode_per_role_resource_watchdog"
+        ],
+        "decode_resource_watchdog_behavior": ACTIVE_CONTRACT[
+            "decode_resource_watchdog_behavior"
+        ],
+        "decode_resource_watchdog_is_neural_degree_cap": False,
+        "successful_run_hit_decode_resource_watchdog": False,
+        "checkpoint_selection": ACTIVE_CONTRACT["checkpoint_selection"],
+        "checkpoint_selection_roles": ["guard"],
+        "guard_role": "checkpoint_selection_only_no_threshold_calibration",
+        "evaluation_used_for_checkpoint_selection": False,
+        "evaluation_decode_passes": 1,
+        "runtime_feature_count": ACTIVE_CONTRACT["runtime_feature_count"],
+        "raw_runtime_feature_count": ACTIVE_CONTRACT[
             "raw_runtime_feature_count"
         ],
-        "pc_local_runtime_feature_count": V19_CONTRACT[
-            "pc_local_runtime_feature_count"
+        "causal_runtime_feature_count": ACTIVE_CONTRACT[
+            "causal_runtime_feature_count"
         ],
-        "learned_local_validity_gate": True,
         "training_chunks_shuffled": False,
-        "training_state_mode": "chronological_global_and_pc_local_tbptt",
+        "training_state_mode": "exact_pc_keyed_stateful_tbptt",
         "training_state_carried_across_chunks": True,
         "training_state_detached_between_chunks": True,
-        "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
         "causal_no_future_self_test": "PASS",
-        "event_keyed_crn_self_test": "PASS",
-        "rankwise_stop_emit_self_test": "PASS",
-        "zigzag_leb128_exact_codec_self_test": "PASS",
-        "main_rollout_isolation_self_test": "PASS",
-        "teacher_prefix_loss_isolation_self_test": "PASS",
-        "stop_sampler_representability_self_test": "PASS",
-        "always_emit_nontermination_watchdog_self_test": "PASS",
-        "fail_closed_nontermination_watchdog_ranks": V19_CONTRACT[
-            "nontermination_watchdog_ranks"
-        ],
-        "nontermination_watchdog_is_policy_degree_cap": False,
-        "successful_run_hit_nontermination_watchdog": False,
-        "sampler_minimum_open_midpoint_uniform": V19_CONTRACT[
-            "sampler_min_uniform"
-        ],
-        "decoder_probability_mass_carries_train_guard_history": False,
-        "cross_event_probability_credit_used": False,
-        "cnn_architecture_self_test": "NOT_APPLICABLE",
-        "cnn_temporal_layers": 0,
+        "exact_pc_state_routing_self_test": "PASS",
+        "distinct_pc_reuse_distance_self_test": "PASS",
+        "gate_prior_bias_initialization_self_test": "PASS",
+        "train_only_delta_vocabulary_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
+        "signed_log_other_escape_self_test": "PASS",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "candidate_attachment_mode": CANDIDATE_ATTACHMENT_MODE,
         "experiment_revision": EXPERIMENT_REVISION,
-        "model_revision": V19_MODEL_REVISION,
-        "neural_role": "standalone_direct_action_prefetcher",
+        "model_revision": ACTIVE_MODEL_REVISION,
         "track_model_family": TRACK_MODEL_FAMILY,
+        "training_config": ACTIVE_CONTRACT["training_config"],
+        "training_config_pinned_by_run_id": True,
+        "training_device": "cuda",
+        "cublas_workspace_config": ACTIVE_CONTRACT[
+            "determinism_contract"
+        ]["cublas_workspace_config"],
+        "torch_deterministic_algorithms_enabled": True,
+        "cudnn_deterministic": True,
+        "cudnn_benchmark": False,
+        "float32_matmul_precision": ACTIVE_CONTRACT[
+            "determinism_contract"
+        ]["float32_matmul_precision"],
     }
+    expected.update(source_hashes)
     for key, value in expected.items():
         if metadata.get(key) != value:
             failures.append(
@@ -544,70 +584,156 @@ def validate_v19_metadata(metadata, tag, inputs, failures):
                     tag, key, metadata.get(key), value
                 )
             )
-    points = {
-        point["model_size"]: point for point in V19_CONTRACT["points"]
-    }
-    size = metadata.get("model_size")
-    point = points.get(size)
-    if metadata.get("model_family") != "lstm" or point is None:
-        failures.append("{} is not a pinned v19 LSTM point".format(tag))
-    elif (
-        metadata.get("architecture_pair_id")
-        != point["architecture_pair_id"]
-        or metadata.get("parameter_count") != point["parameter_count"]
-        or tag != point["model_tag"]
-    ):
-        failures.append("{} v19 point/tag/parameter mismatch".format(tag))
-
-    expected_key_fields = [
-        "sampler_revision", "decoder_seed", "trace", "policy", "role",
-        "epoch", "event_index", "action_rank", "field", "codec_position",
+    for key, value in ACTIVE_CONTRACT["training_config"].items():
+        if metadata.get(key) != value:
+            failures.append(
+                "{} pinned training {}={!r}; expected {!r}".format(
+                    tag, key, metadata.get(key), value
+                )
+            )
+    accelerator = ACTIVE_CONTRACT["determinism_contract"][
+        "required_accelerator_name_contains"
     ]
-    sampler = metadata.get("decoder_sampler") or {}
-    if (
-        sampler.get("sampler_revision")
-        != "splitmix64_event_rank_field_inverse_cdf_crn_v2"
-        or sampler.get("key_fields") != expected_key_fields
-        or sampler.get("categorical_method") != "inverse_cdf"
-        or sampler.get("cross_event_rng_state") is not False
-        or metadata.get("decoder_key_fields") != expected_key_fields
+    if accelerator not in str(metadata.get("training_device_name")):
+        failures.append(
+            "{} training device {!r} lacks {!r}".format(
+                tag, metadata.get("training_device_name"), accelerator
+            )
+        )
+    points = {
+        point["model_size"]: point for point in ACTIVE_CONTRACT["points"]
+    }
+    point = points.get(metadata.get("model_size"))
+    if metadata.get("model_family") != "lstm" or point is None:
+        failures.append("{} is not a pinned v20 LSTM point".format(tag))
+    elif any(
+        metadata.get(key) != point[key]
+        for key in ("architecture_pair_id", "parameter_count", "model_tag")
     ):
-        failures.append("{} keyed v19 sampler contract mismatch".format(tag))
-    for key in (
-        "runtime_encoder_sha256", "training_runtime_encoder_sha256",
-        "inference_runtime_encoder_sha256", "training_state_router_sha256",
-        "inference_state_router_sha256", "decoder_sampler_source_sha256",
-        "decoder_sampling_schedule_sha256", "delta_codec_source_sha256",
-    ):
-        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key))) is None:
-            failures.append("{} invalid {}".format(tag, key))
-    if len({
+        failures.append("{} v20 point/tag/parameter mismatch".format(tag))
+
+    encoder_hashes = {
         metadata.get("runtime_encoder_sha256"),
         metadata.get("training_runtime_encoder_sha256"),
         metadata.get("inference_runtime_encoder_sha256"),
-    }) != 1:
+    }
+    if (
+        len(encoder_hashes) != 1
+        or re.fullmatch(r"[0-9a-f]{64}", str(next(iter(encoder_hashes))))
+           is None
+    ):
         failures.append("{} train/inference encoder hash mismatch".format(tag))
+    for key in (
+        "training_state_router_sha256", "inference_state_router_sha256",
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key))) is None:
+            failures.append("{} invalid {}".format(tag, key))
     if metadata.get("training_state_router_sha256") != metadata.get(
         "inference_state_router_sha256"
     ):
         failures.append("{} train/inference state router mismatch".format(tag))
-    for key in (
-        "peak_training_recurrent_state_bytes_float32",
-        "peak_inference_recurrent_state_bytes_float32",
-    ):
-        if not isinstance(metadata.get(key), int) or metadata.get(key) <= 0:
-            failures.append("{} invalid {}".format(tag, key))
-    statistics = metadata.get("request_count_training_label_statistics") or {}
+
+    vocabulary = metadata.get("delta_vocabulary_exact")
+    frequencies = metadata.get("delta_vocabulary_train_frequencies")
+    size = metadata.get("delta_vocabulary_exact_size")
     if (
-        not isinstance(statistics.get("decision_callbacks"), int)
-        or statistics.get("decision_callbacks", 0) <= 0
-        or statistics.get("positive_callbacks", 0) <= 0
-        or statistics.get("zero_callbacks", 0) <= 0
-        or statistics.get("positive_callbacks", 0)
-        + statistics.get("zero_callbacks", 0)
-        != statistics.get("decision_callbacks")
+        not isinstance(vocabulary, list) or not isinstance(frequencies, list)
+        or not isinstance(size, int) or isinstance(size, bool)
+        or not 0 < size <= 255 or len(vocabulary) != size
+        or len(frequencies) != size or len(set(vocabulary)) != size
+        or any(not isinstance(value, int) or isinstance(value, bool)
+               for value in vocabulary + frequencies)
+        or any(value <= 0 for value in frequencies)
     ):
-        failures.append("{} invalid natural sequence label evidence".format(tag))
+        failures.append("{} invalid train-only delta vocabulary".format(tag))
+    statistics = metadata.get("delta_vocabulary_statistics") or {}
+    if (
+        set(statistics) != {"train", "guard", "eval"}
+        or not isinstance(frequencies, list)
+    ):
+        failures.append("{} missing delta vocabulary OOV evidence".format(tag))
+    else:
+        train_statistics = statistics.get("train") or {}
+        other_count = train_statistics.get("other_escape_actions")
+        teacher_actions = train_statistics.get("teacher_actions")
+        priors = metadata.get("delta_class_empirical_prior")
+        biases = metadata.get("delta_class_initial_bias")
+        if (
+            not isinstance(other_count, int)
+            or not isinstance(teacher_actions, int)
+            or not isinstance(priors, list) or len(priors) != 256
+            or not isinstance(biases, list) or len(biases) != 256
+        ):
+            failures.append("{} missing delta prior evidence".format(tag))
+        else:
+            class_counts = [0] * 256
+            for index, value in enumerate(frequencies):
+                class_counts[index] = value
+            class_counts[255] = other_count
+            denominator = float(teacher_actions + 256)
+            expected_priors = [
+                (value + 1.0) / denominator for value in class_counts
+            ]
+            if any(
+                not math.isclose(actual, expected, rel_tol=1e-6,
+                                 abs_tol=1e-9)
+                for actual, expected in zip(priors, expected_priors)
+            ) or any(
+                not math.isclose(actual, math.log(expected), rel_tol=1e-6,
+                                 abs_tol=1e-7)
+                for actual, expected in zip(biases, expected_priors)
+            ):
+                failures.append("{} invalid delta prior/bias".format(tag))
+
+    count_statistics = (
+        metadata.get("request_count_training_label_statistics") or {}
+    )
+    if (
+        not isinstance(count_statistics.get("decision_callbacks"), int)
+        or count_statistics.get("decision_callbacks", 0) <= 0
+        or count_statistics.get("positive_callbacks", 0) <= 0
+        or count_statistics.get("zero_callbacks", 0) <= 0
+        or count_statistics.get("positive_callbacks", 0)
+        + count_statistics.get("zero_callbacks", 0)
+        != count_statistics.get("decision_callbacks")
+    ):
+        failures.append("{} invalid natural gate labels".format(tag))
+    else:
+        distribution = count_statistics.get("count_distribution") or {}
+        expected_count_bias = sum(
+            int(value) * math.log(int(key))
+            for key, value in distribution.items() if int(key) > 0
+        ) / float(count_statistics["positive_callbacks"])
+        observed_count_bias = metadata.get("positive_log_count_initial_bias")
+        if (
+            not isinstance(observed_count_bias, (int, float))
+            or not math.isclose(
+                observed_count_bias, expected_count_bias,
+                rel_tol=1e-6, abs_tol=1e-7,
+            )
+        ):
+            failures.append(
+                "{} invalid positive log-count bias".format(tag)
+            )
+    prior = metadata.get("gate_empirical_prior")
+    bias = metadata.get("gate_initial_bias")
+    if (
+        not isinstance(prior, list) or not isinstance(bias, list)
+        or len(prior) != 2 or len(bias) != 2
+        or any(not isinstance(value, (int, float)) or value <= 0
+               for value in prior)
+        or not math.isclose(sum(prior), 1.0, rel_tol=1e-7, abs_tol=1e-8)
+        or any(not math.isclose(math.log(p), b, rel_tol=1e-6, abs_tol=1e-7)
+               for p, b in zip(prior, bias))
+    ):
+        failures.append("{} invalid natural gate prior/bias".format(tag))
+    selected_epoch = metadata.get("selected_guard_epoch")
+    if (
+        not isinstance(selected_epoch, int) or isinstance(selected_epoch, bool)
+        or not 1 <= selected_epoch <= metadata.get("epochs", 0)
+    ):
+        failures.append("{} invalid guard-selected epoch".format(tag))
+
     for role in ("train", "guard", "eval"):
         for kind in ("stream", "candidate"):
             key = role + "_" + kind + "_content_sha256"
@@ -624,8 +750,8 @@ def validate_v19_metadata(metadata, tag, inputs, failures):
 
 
 def validate_metadata(metadata, tag, inputs, failures):
-    if metadata.get("model_revision") == V19_MODEL_REVISION:
-        validate_v19_metadata(metadata, tag, inputs, failures)
+    if metadata.get("model_revision") == ACTIVE_MODEL_REVISION:
+        validate_v20_metadata(metadata, tag, inputs, failures)
         return
     policy = POLICY
     common = {
@@ -1116,7 +1242,8 @@ def main():
         raise SystemExit("--model-tags is empty")
     for tag in model_tags:
         if not (
-            tag.startswith("independent_delta_stride_lstm_")
+            tag.startswith("independent_rank_delta_stride_lstm_")
+            or tag.startswith("independent_delta_stride_lstm_")
             or tag.startswith("global_local_grammar_stride_lstm_")
         ):
             raise SystemExit("invalid model tag {}".format(tag))
@@ -1568,15 +1695,17 @@ def main():
             "selected threshold, request budget, candidate bank, fixed "
             "page-offset table, same-page rule, or Stride degree cap."
         ),
-        V19_MODEL_REVISION: (
-            "The neural model fuses a chronological global LSTM with an "
-            "exact-PC local LSTM through a learned soft validity gate. A "
-            "rank-wise STOP/EMIT grammar learns request count, and exact "
-            "signed incremental targets use ZigZag plus LEB128. Stateless "
-            "event/rank/field-keyed inverse-CDF sampling provides hard "
-            "self-feedback and strict common random numbers. There is no "
-            "hurdle, selected threshold, Poisson count, GMM, request budget, "
-            "same-page table, or degree cap."
+        ACTIVE_MODEL_REVISION: (
+            "The neural model uses one exact-PC keyed LSTM over lossless raw "
+            "PC/line and causal same-input delta/reuse features. Natural "
+            "gate and positive log-count heads learn cardinality. Every "
+            "teacher rank is supervised independently by a shared generic "
+            "rank head with up to 255 TRAIN-frequency exact deltas plus a "
+            "continuous signed-log OTHER escape. Decode is deterministic; "
+            "guard chooses only the checkpoint and evaluation is decoded "
+            "once. There is no selected threshold, source action template, "
+            "page rule, request budget, previous-action feedback, or degree "
+            "cap."
         ),
     }
     payload = {
@@ -1717,7 +1846,8 @@ def main():
             points = []
             for tag in model_tags:
                 if not (
-                    tag.startswith("independent_delta_" + policy + "_")
+                    tag.startswith("independent_rank_delta_stride_lstm_")
+                    or tag.startswith("independent_delta_" + policy + "_")
                     or tag.startswith(
                         "global_local_grammar_" + policy + "_"
                     )

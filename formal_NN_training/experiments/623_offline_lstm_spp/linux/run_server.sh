@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
-MODEL_POINTS_SCRIPT="$EXP/python/model_points_v19.py"
+MODEL_POINTS_SCRIPT="$EXP/python/model_contract.py"
 TRACE="$(python3 "$MODEL_POINTS_SCRIPT" --field trace)"
 POLICY="$(python3 "$MODEL_POINTS_SCRIPT" --field policy)"
 DEFAULT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field run_id)"
@@ -33,6 +33,9 @@ BUILD_REPLAYER="$EXP/linux/build_keyed_replayer.sh"
 NORMALIZE="$EXP/python/normalize_events.py"
 VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
+TRAINER="$EXP/python/train_and_offline_infer.py"
+THRESHOLD_FREE_POLICY="$ROOT/formal_NN_training/common/threshold_free_policy.py"
+KEYED_SAMPLING="$ROOT/formal_NN_training/common/keyed_sampling.py"
 INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 SOURCE_CONTRACT_REPO="$EXP/data/spp_source_contract.json"
@@ -50,7 +53,8 @@ require_repo_file() {
 }
 for required_file in \
   "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
-  "$ANALYZE" "$INSTALL_COLAB_OUTPUT" "$SOURCE_CONTRACT_REPO" \
+  "$ANALYZE" "$TRAINER" "$THRESHOLD_FREE_POLICY" "$KEYED_SAMPLING" \
+  "$INSTALL_COLAB_OUTPUT" "$SOURCE_CONTRACT_REPO" \
   "$MODEL_POINTS_SCRIPT"; do
   require_repo_file "$required_file"
 done
@@ -304,11 +308,12 @@ validate_preserved_inputs() {
     rm -f "$validated_manifest"
     return 1
   fi
-  if ! cmp -s "$COLLECTION_MANIFEST" "$validated_manifest"; then
-    rm -f "$validated_manifest"
-    echo "[error] collected SPP input manifest no longer reproduces byte-for-byte" >&2
-    return 1
-  fi
+  # The checked-in validator now records v20 TRAIN/guard/eval histograms and
+  # action-space semantics.  The reused v18 collection manifest is historical
+  # provenance, not the current decoder contract, so byte equality between the
+  # two JSON schemas would be incorrect.  Successful current validation checks
+  # the actual gzip contents; SHA256SUMS below independently pins every reused
+  # input byte, including the historical manifest itself.
   rm -f "$validated_manifest"
   ( cd "$STREAM_DIR" && sha256sum -c SHA256SUMS )
 }
@@ -316,7 +321,8 @@ validate_preserved_inputs() {
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
 assert_model_metadata_v18_legacy() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" <<'PY'
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" \
+    "$TRAINER" "$THRESHOLD_FREE_POLICY" "$KEYED_SAMPLING" <<'PY'
 import csv
 import hashlib
 import json
@@ -839,6 +845,177 @@ if bad:
     raise SystemExit("invalid 623 SPP v19 metadata: {}".format(bad))
 PY
 }
+assert_model_metadata_v20() {
+  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" \
+    "$TRAINER" "$THRESHOLD_FREE_POLICY" "$KEYED_SAMPLING" <<'PY'
+import csv
+import hashlib
+import json
+import re
+import runpy
+import sys
+from pathlib import Path
+
+(
+    metadata_path, source_path, contract_path, trainer_path,
+    threshold_policy_path, keyed_sampling_path,
+) = map(Path, sys.argv[1:])
+namespace = runpy.run_path(str(contract_path))
+contract = namespace["describe_model_points"]()
+expected_parameter_count = namespace["expected_parameter_count"]
+metadata = json.loads(metadata_path.read_text())
+root = metadata_path.parent
+source_inputs = contract["external_input_fields"]
+expected = {
+    "run_id": contract["run_id"], "trace": contract["trace"],
+    "matched_normal_prefetcher": contract["policy"],
+    "neural_role": "standalone_direct_action_prefetcher",
+    "model_family": "lstm", "track_model_family": "lstm",
+    "operation": contract["operation"],
+    "experiment_revision": contract["experiment_revision"],
+    "model_revision": contract["model_revision"],
+    "decoder_revision": contract["decoder_revision"],
+    "source_decision_effective_external_input": source_inputs,
+    "training_runtime_fields": source_inputs,
+    "inference_runtime_fields": source_inputs,
+    "runtime_feature_count": contract["runtime_feature_count"],
+    "same_external_input_contract": True,
+    "training_inference_input_encoder_identical": True,
+    "decoder_training_mode": "fully_supervised_independent_ranks_no_action_feedback",
+    "decoder_previous_teacher_action_used_as_input": False,
+    "teacher_action_values_used_as_decoder_feedback": False,
+    "sampled_outputs_used_as_decoder_feedback": False,
+    "model_does_not_use_pc": True,
+    "pc_is_replay_transport_only": True,
+    "normal_policy_outputs_used_as_model_inputs": False,
+    "normal_policy_candidates_used_as_model_inputs": False,
+    "normal_policy_private_state_used_as_model_inputs": False,
+    "normal_policy_outputs_used_as_training_targets": True,
+    "normal_policy_request_rate_used_as_budget": False,
+    "normal_policy_constants_used_by_neural_inference": False,
+    "probability_threshold_used": False,
+    "threshold_related_hardcodes_used": False,
+    "inference_policy_hardcodes_used": False,
+    "neural_degree_cap": None,
+    "fixed_page_offset_classes": None,
+    "same_page_rule_used_by_neural_inference": False,
+    "delta_other_escape": contract["delta_other_escape"],
+    "delta_other_decode_precision": contract["delta_other_decode_precision"],
+    "full_signed_line_delta_range_reachable": False,
+    "every_signed_line_delta_exactly_representable": False,
+    "exact_delta_representability_scope": "train_vocabulary_only",
+    "request_count_sampling_performed": False,
+    "fill_argmax_used": False,
+    "fill_conditioned_on_actual_emitted_target": True,
+    "global_chronological_lstm": True,
+    "routed_demand_fill_recurrent_paths": False,
+    "page_local_causal_state": False,
+    "common_random_numbers_across_capacities": True,
+    "strict_common_random_numbers_across_capacities": True,
+    "decoder_train_sampling_performed": False,
+    "decoder_guard_sampling_performed": True,
+    "decoder_eval_sampling_performed": True,
+    "guard_selected_checkpoint": True,
+    "evaluation_used_for_selection": False,
+    "evaluation_decode_count": 1,
+    "output_materialization_watchdog_is_neural_degree_cap": False,
+    "same_source_input_offline_claim_allowed": True,
+    "closed_loop_live_claim_allowed": False,
+    "keyed_sampling_self_test": "PASS",
+    "integer_csv_exactness_self_test": "PASS",
+    "cublas_workspace_config": ":4096:8",
+    "torch_deterministic_algorithms_enabled": True,
+    "cudnn_deterministic": True,
+    "cudnn_benchmark": False,
+    "float32_matmul_precision": "highest",
+    "determinism_fail_closed": True,
+}
+expected.update(contract["training_config"])
+bad = {key: (metadata.get(key), value) for key, value in expected.items()
+       if metadata.get(key) != value}
+if metadata.get("model_point_contract") != contract:
+    bad["model_point_contract"] = (metadata.get("model_point_contract"), contract)
+if metadata.get("training_config") != contract["training_config"]:
+    bad["training_config"] = (metadata.get("training_config"), contract["training_config"])
+if "A100" not in str(metadata.get("cuda_device_name", "")):
+    bad["cuda_device_name"] = (metadata.get("cuda_device_name"), "NVIDIA A100")
+for key, path in (
+    ("trainer_source_sha256", trainer_path),
+    ("model_contract_source_sha256", contract_path),
+    ("threshold_free_policy_source_sha256", threshold_policy_path),
+    ("decoder_sampler_source_sha256", keyed_sampling_path),
+):
+    observed = hashlib.sha256(path.read_bytes()).hexdigest()
+    if metadata.get(key) != observed:
+        bad[key] = (metadata.get(key), observed)
+points = {(point["size"], point["pair_id"], point["tag"]): point
+          for point in contract["points"]}
+point_key = (metadata.get("model_size"), metadata.get("architecture_pair_id"),
+             metadata.get("model_tag"))
+point = points.get(point_key)
+vocab = metadata.get("exact_delta_vocabulary_size")
+if point is None or not isinstance(vocab, int) or not 0 < vocab <= 255:
+    bad["model_point"] = (point_key, "configured v20 point and 1..255 TRAIN vocabulary")
+elif metadata.get("parameter_count") != expected_parameter_count(point_key[0], vocab):
+    bad["parameter_count"] = (metadata.get("parameter_count"),
+                              expected_parameter_count(point_key[0], vocab))
+hashes = {metadata.get("runtime_encoder_sha256"),
+          metadata.get("training_runtime_encoder_sha256"),
+          metadata.get("inference_runtime_encoder_sha256")}
+if len(hashes) != 1 or re.fullmatch(r"[0-9a-f]{64}", next(iter(hashes), "")) is None:
+    bad["runtime_encoder_sha256"] = (hashes, "one shared SHA256")
+for key in (
+    "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
+    "decoder_guard_event_key_stream_sha256", "decoder_eval_event_key_stream_sha256",
+    "decoder_guard_sampling_schedule_sha256", "decoder_eval_sampling_schedule_sha256",
+    "decision_router_source_sha256", "train_decision_router_sha256",
+    "guard_decision_router_sha256", "eval_decision_router_sha256",
+    "model_checkpoint_sha256", "training_history_sha256",
+):
+    if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
+        bad[key] = (metadata.get(key), "SHA256")
+if not source_path.is_file() or metadata.get("source_contract_sha256") != hashlib.sha256(source_path.read_bytes()).hexdigest():
+    bad["source_contract_sha256"] = (metadata.get("source_contract_sha256"), "current source contract")
+
+def replay_info(path, allow_empty):
+    count = 0; fills = {"FILL_L2": 0, "FILL_LLC": 0}
+    with path.open(newline="") as handle:
+        reader = csv.reader(handle)
+        if next(reader, None) != ["pc", "line", "occ", "prefetch_addr", "fill_level"]:
+            raise SystemExit("invalid replay header {}".format(path))
+        for fields in reader:
+            if len(fields) != 5 or int(fields[4], 0) not in (2, 4):
+                raise SystemExit("invalid replay row {}".format(path))
+            fills["FILL_L2" if int(fields[4], 0) == 2 else "FILL_LLC"] += 1
+            count += 1
+    if not allow_empty and not count:
+        raise SystemExit("empty normal replay")
+    return count, hashlib.sha256(path.read_bytes()).hexdigest(), fills
+
+for name, count_key, hash_key, fill_key, allow_empty in (
+    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
+    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
+):
+    path = root / name
+    if not path.is_file():
+        bad[name] = (None, "present"); continue
+    count, digest, fills = replay_info(path, allow_empty)
+    for key, actual in ((count_key, count), (hash_key, digest), (fill_key, fills)):
+        if metadata.get(key) != actual: bad[key] = (metadata.get(key), actual)
+diagnostics = metadata.get("action_output_diagnostics")
+if (
+    not isinstance(diagnostics, dict)
+    or metadata.get("offline_nn_entries") != metadata.get("materialized_action_count")
+    or metadata.get("raw_predicted_action_count") != metadata.get("materialized_action_count")
+    or diagnostics.get("duplicate_outputs_are_preserved_for_replay") is not True
+):
+    bad["action_output_diagnostics"] = (diagnostics, "list-preserving v20 output accounting")
+if bad:
+    raise SystemExit("invalid 623 SPP v20 metadata: {}".format(bad))
+print("[PASS] validated {}".format(metadata.get("model_tag")))
+PY
+}
+
 run_method() {
   local method="$1"
   local log="$LOG_DIR/$TRACE.$method.log"
@@ -871,7 +1048,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_routed_grammar_spp_lstm_*)
+    offline_independent_vocab_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -902,7 +1079,7 @@ require_colab_outputs() {
         exit 2
       }
     done
-    assert_model_metadata_v19 "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v20 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 
