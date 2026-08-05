@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Torch-free source of truth for the independent 623 SPP v20 points.
+"""Torch-free source of truth for the 623 SPP v21 model points.
 
 The exact delta vocabulary is learned from TRAIN labels, so its realized size
 and the corresponding parameter count are run metadata rather than constants.
@@ -11,16 +11,15 @@ import re
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
-RUN_ID = "623_offline_lstm_spp_independent_vocab_v20_seed7"
+RUN_ID = "623_offline_lstm_spp_stop_emit_vocab_v21_seed7"
 EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "global_chronological_lstm_independent_actions_v20"
-DECODER_REVISION = "gate_logcount_rank_vocab_other_keyed_fill_v20"
-OPERATION = "train-v20"
-MODEL_TAG_PREFIX = "independent_vocab_spp_lstm_h"
-MODEL_POINTS = {"lstm": {16: "p0", 32: "p1"}}
+MODEL_REVISION = "global_chronological_lstm_rank_stop_emit_v21"
+DECODER_REVISION = "deterministic_stop_emit_vocab_other_fill_map_v21"
+OPERATION = "train-v21"
+MODEL_TAG_PREFIX = "stop_emit_vocab_spp_lstm_h"
+MODEL_POINTS = {"lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}}
 
 SEED = 7
-DECODER_SEED = 7
 EPOCHS = 10
 CHUNK_LEN = 1024
 ACCUMULATE_CHUNKS = 16
@@ -35,22 +34,31 @@ RUNTIME_FEATURE_COUNT = LINE_ADDRESS_BITS + 1
 FILL_LEVELS = (2, 4)
 MAX_EXACT_DELTAS = 255
 RANK_CODE_SIZE = 4
+STOP_TOKEN = 0
+EMIT_TOKEN = 1
+TOKEN_CLASSES = 2
 EXTERNAL_INPUT_FIELDS = (
     "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
 )
 
-DECODER_TRAINING_MODE = "fully_supervised_independent_ranks_no_action_feedback"
-GATE_OBJECTIVE = "natural_prior_two_class_cross_entropy"
-COUNT_OBJECTIVE = "positive_only_log_count_regression"
+DECODER_TRAINING_MODE = (
+    "fully_supervised_independent_rank_stop_emit_with_terminal_stop_"
+    "and_no_action_feedback"
+)
+TOKEN_OBJECTIVE = (
+    "natural_frequency_unweighted_binary_stop_emit_cross_entropy_"
+    "including_terminal_stop"
+)
 DELTA_OBJECTIVE = (
-    "train_vocabulary_cross_entropy_plus_all_action_signed_log_regression"
+    "train_vocabulary_cross_entropy_plus_all_emit_signed_log_regression"
 )
 FILL_OBJECTIVE = (
-    "teacher_delta_class_and_rank_conditioned_inverse_frequency_cross_entropy"
+    "teacher_delta_class_value_and_rank_conditioned_"
+    "inverse_frequency_cross_entropy"
 )
 DECODING_RULE = (
-    "gate_MAP_rounded_exp_count_delta_class_MAP_OTHER_signed_log_"
-    "and_prior_corrected_keyed_fill_draw"
+    "rankwise_stop_emit_MAP_until_STOP_delta_class_MAP_OTHER_signed_log_"
+    "and_TRAIN_prior_corrected_fill_MAP"
 )
 
 
@@ -63,13 +71,13 @@ def expected_parameter_count(hidden_size, exact_vocabulary_size):
     hidden = int(hidden_size)
     vocab = int(exact_vocabulary_size)
     if hidden not in MODEL_POINTS["lstm"] or not 0 < vocab <= MAX_EXACT_DELTAS:
-        raise ValueError("unsupported SPP v20 dimensions")
+        raise ValueError("unsupported SPP v21 dimensions")
     classes = vocab + 1
     embed = delta_embed_size(hidden)
-    # input projection + LSTM + gate + count + rank fusion + delta heads +
-    # class embedding + target/rank-conditioned fill head.
+    # input projection + LSTM + rank fusion + STOP/EMIT + delta heads +
+    # class embedding + decoded-target/rank-conditioned fill head.
     return (
-        9 * hidden * hidden + 79 * hidden + 16
+        9 * hidden * hidden + 78 * hidden + 15
         + classes * (hidden + 1 + embed) + 2 * embed
     )
 
@@ -77,7 +85,7 @@ def expected_parameter_count(hidden_size, exact_vocabulary_size):
 def model_tag(family, size):
     size = int(size)
     if family != "lstm" or size not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported SPP v20 model point")
+        raise ValueError("unsupported SPP v21 model point")
     return MODEL_TAG_PREFIX + str(size)
 
 
@@ -113,14 +121,12 @@ def describe_model_points():
         "model_revision": MODEL_REVISION,
         "decoder_revision": DECODER_REVISION,
         "seed": SEED,
-        "decoder_seed": DECODER_SEED,
         "epochs": EPOCHS,
         "chunk_len": CHUNK_LEN,
         "accumulate_chunks": ACCUMULATE_CHUNKS,
         "learning_rate": LEARNING_RATE,
         "training_config": {
             "seed": SEED,
-            "decoder_seed": DECODER_SEED,
             "epochs": EPOCHS,
             "chunk_len": CHUNK_LEN,
             "accumulate_chunks": ACCUMULATE_CHUNKS,
@@ -133,13 +139,16 @@ def describe_model_points():
             "cudnn_deterministic": True,
             "cudnn_benchmark": False,
             "float32_matmul_precision": "highest",
+            "deterministic_argmax_decoding": True,
             "fail_closed": True,
         },
         "decoder_training_mode": DECODER_TRAINING_MODE,
-        "gate_training_objective": GATE_OBJECTIVE,
-        "request_count_training_objective": COUNT_OBJECTIVE,
+        "stop_emit_training_objective": TOKEN_OBJECTIVE,
         "delta_training_objective": DELTA_OBJECTIVE,
         "fill_training_objective": FILL_OBJECTIVE,
+        "fill_prior_correction_at_decode_used": True,
+        "fill_prior_correction_rule": "balanced_logits_plus_log_TRAIN_natural_prior",
+        "fill_decoding_rule": "deterministic_prior_corrected_argmax",
         "decoding_rule": DECODING_RULE,
         "neural_role": "standalone_direct_action_prefetcher",
         "teacher_actions_are_model_inputs": False,
@@ -163,15 +172,25 @@ def describe_model_points():
         "inference_policy_hardcodes_used": False,
         "neural_degree_cap": None,
         "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
         "teacher_target_fill_conditioning_scope": "conditional_loss_factor_only",
         "teacher_target_used_for_loss_local_fill_conditioning": True,
+        "terminal_stop_supervised": True,
+        "stop_emit_class_weighting_used": False,
+        "stop_emit_prior_extremely_sparse": False,
+        "stochastic_decoding": False,
         "runtime_feature_count": RUNTIME_FEATURE_COUNT,
         "max_exact_train_delta_vocabulary": MAX_EXACT_DELTAS,
         "rank_code_size": RANK_CODE_SIZE,
         "fill_levels": list(FILL_LEVELS),
         "external_input_fields": list(EXTERNAL_INPUT_FIELDS),
+        "guard_selection_rule": (
+            "lexicographic_joint_target_fill_f1_target_f1_l2_joint_f1_"
+            "trigger_f1_count_exact_fill_accuracy_negative_train_loss_earlier_epoch"
+        ),
         "parameter_formula": (
-            "9*H^2 + 79*H + 16 + (V+1)*(H+1+E) + 2*E; "
+            "9*H^2 + 78*H + 15 + (V+1)*(H+1+E) + 2*E; "
             "E=max(4,H//4), 1<=V<=255"
         ),
         "parameter_count_is_dataset_dependent": True,
@@ -192,14 +211,15 @@ def describe_model_points():
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--describe-model-points", action="store_true")
     parser.add_argument("--tags-csv", action="store_true")
     parser.add_argument("--base-tag", action="store_true")
     parser.add_argument("--field")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
     selected = sum((
-        args.json, args.tags_csv, args.base_tag, args.field is not None,
-        args.self_test,
+        args.json, args.describe_model_points, args.tags_csv, args.base_tag,
+        args.field is not None, args.self_test,
     ))
     if selected != 1:
         parser.error("select exactly one output mode")
@@ -210,7 +230,7 @@ def main():
             if expected_parameter_count(size, MAX_EXACT_DELTAS) <= 0:
                 raise RuntimeError("invalid maximum parameter count")
         print("PASS")
-    elif args.json:
+    elif args.json or args.describe_model_points:
         print(json.dumps(contract, indent=2, sort_keys=True))
     elif args.tags_csv:
         print(",".join(point["tag"] for point in contract["points"]))

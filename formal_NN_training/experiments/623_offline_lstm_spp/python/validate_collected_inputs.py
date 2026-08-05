@@ -280,8 +280,14 @@ def main():
         "teacher_actions_are_model_inputs": False,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": "fully_supervised_independent_ranks_no_action_feedback",
+        "decoder_training_mode": (
+            "fully_supervised_independent_rank_stop_emit_with_terminal_stop_"
+            "and_no_action_feedback"
+        ),
         "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
+        "terminal_stop_supervised": True,
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
         "normal_policy_outputs_used_as_model_inputs": False,
@@ -305,8 +311,14 @@ def main():
         "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
         "neural_action_decoder": (
-            "natural-prior gate, positive log-count, TRAIN-derived exact "
-            "delta vocabulary plus signed-log OTHER, and target-conditioned fill"
+            "natural-prior rankwise STOP/EMIT with terminal STOP, TRAIN-derived "
+            "exact delta vocabulary plus signed-log OTHER, and deterministic "
+            "TRAIN-prior-corrected target-conditioned fill"
+        ),
+        "request_count_head_used": False,
+        "stochastic_decoding": False,
+        "fill_prior_correction_rule": (
+            "balanced_logits_plus_log_TRAIN_natural_prior"
         ),
         "complete_neural_action_space": True,
         "delta_vocabulary_source": "train_labels_only",

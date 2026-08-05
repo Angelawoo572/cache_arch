@@ -1,8 +1,8 @@
 # ============================================================
 # cache_arch .gitignore
 # ============================================================
-# Track source code, docs, notebooks, curated summaries, and the compressed
-# standalone NN oracle datasets needed by Colab. Keep transient artifacts local.
+# Track source code, docs, notebooks, and curated summaries. Generated training
+# data and every Colab transfer payload stay outside GitHub.
 
 # OS / editor
 .DS_Store
@@ -132,6 +132,10 @@ formal_NN_training/data/upload/*
 !formal_NN_training/data/upload/*/candidate_table_*.csv.gz.part_*
 !formal_NN_training/data/upload/*/spp_events_*.csv.gz.part_*
 
+# Current transfer policy supersedes the historical upload exceptions above:
+# datasets move through SCP/Drive multipart archives and are never committed.
+formal_NN_training/data/upload/**
+
 # By default all NN results are local.
 formal_NN_training/results/*
 !formal_NN_training/results/.gitkeep
@@ -201,5 +205,11 @@ formal_NN_training/experiments/*/runs/
 # Source notebooks remain tracked; generated inputs, outputs, and models do not.
 **/*.colab_input.tar.gz
 **/*.colab_output.tar.gz
+**/*.colab_input.tar.gz.part-*
+**/*.colab_output.tar.gz.part-*
+**/*.colab_input.tar.gz.parts.json
+**/*.colab_output.tar.gz.parts.json
+**/input_transfer_parts/
+**/output_transfer_parts/
 formal_NN_training/experiments/**/colab_input/
 formal_NN_training/experiments/**/colab_output/

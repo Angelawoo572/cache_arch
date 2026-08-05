@@ -45,6 +45,16 @@ also show that the NN can improve by deviating from its teacher, so those runs
 support the fairness protocol; they do not justify copying a normal
 prefetcher's internal state machine into the NN.
 
+| Track | Reused from 602 | Changed for 623 v21 | Evidence-based reason |
+|---|---|---|---|
+| Stride | exact-PC causal LSTM state; sparse-label balancing; signed-line-delta output | raw PC64/line58 encoder; dynamic exact-delta+OTHER head; rankwise STOP/EMIT replaces hurdle and rounded count | 623's prior models produced mismatched/no-fill targets, while 602 capacity results were non-monotone; the primary encoder should not pre-impose a Stride feature hypothesis |
+| SPP | one global chronological demand/fill LSTM; target-conditioned fill | unweighted rankwise STOP/EMIT; independent ranks; deterministic prior-corrected fill MAP | SPP's action-token prior is dense, and v16--v18 exposed count/target and rare-fill factorization failures; keyed sampling added variance without solving them |
+
+Thus the two 623 tracks deliberately do not share one loss recipe.  They share
+the same direct-action representation and causal/no-feedback discipline, while
+the observed TRAIN token priors determine whether STOP/EMIT balancing is
+appropriate.
+
 ## Audited 623 history
 
 The 623 commit history was reviewed as a sequence of hypotheses rather than as
@@ -59,8 +69,13 @@ an architecture to preserve:
 | v19 routed grammar | Global/local recurrent routing with sampled STOP/EMIT and exact LEB128 address generation | Exact addresses required a long fragile token trajectory; the replay pipeline's Python 3.6 issue was fixed, but no completed v19 model-quality replay result exists |
 
 The v19 plumbing fix is therefore not evidence that v19 succeeds or fails.
-The active v20 redesign starts from the fairness boundary and the observed
-failures, not from the v19 grammar.
+The active v21 redesign starts from the fairness boundary and the observed
+failures, not from the v19 grammar or the v20 gate/count factorization.  v20
+made the address support train-derived, but still trained trigger, rounded
+positive count, and target decisions as separate heads.  The hard action list
+could therefore disagree with every one of those individually reasonable
+predictions.  No completed v20 replay establishes that this mismatch was
+solved.
 
 ## Active 623 design constraints
 
@@ -71,21 +86,36 @@ experiments/623_offline_lstm_stride/
 experiments/623_offline_lstm_spp/
 ```
 
-Both are independent direct-action LSTMs.  They share a learned, bounded exact
-signed-delta vocabulary derived from training labels and a learned continuous
-`OTHER` escape for broad bounded line-delta coverage. They use natural-prior
-objectives and learned posterior decisions rather than hand-written
-probability thresholds.  Neither decoder copies normal source templates,
-forces same-page actions, or inherits the normal degree.
+Both are independent direct-action LSTMs.  They share a rank-conditioned
+direct-action decoder: at each rank the network predicts `STOP` or `EMIT`, and
+an emitted action selects a TRAIN-derived exact signed-line-delta class or a
+learned continuous `OTHER` escape.  The terminal `STOP` is supervised directly,
+so trigger and request count are one learned sequence decision rather than a
+gate plus rounded count template.  Ranks are conditionally independent given
+the causal callback state and rank encoding: neither teacher nor predicted
+actions are fed back.  Inference uses deterministic argmax decisions and a
+fail-closed resource watchdog, not a probability threshold or a policy degree
+cap.  Neither decoder copies normal source templates or forces same-page
+actions.
 
 Stride retains the useful 602 insight that exact-PC causal recurrence matches
-the public PC/address stream, but its address and count decisions are learned;
-the current same-PC delta is a causal input feature, not an output rule.  SPP
-retains the 602 chronological `DEMAND(addr)`/`CACHE_FILL(evicted_addr)` input
-and learns target-conditioned fill, but its target support is not restricted to
-the source SPP's page rule.  The recorded SPP fill-callback stream is
-source-conditioned, so the result is a matched-input offline comparison, not a
-closed-loop live-NN claim.
+the public PC/address stream, but v21 deliberately returns the primary encoder
+to lossless raw PC/address bits.  Its sparse `STOP`/`EMIT` supervision uses only
+a TRAIN-derived inverse-frequency class weight; that is a loss statistic, not
+an inference threshold.  SPP retains the 602 chronological
+`DEMAND(addr)`/`CACHE_FILL(evicted_addr)` input and one global causal LSTM.  Its
+denser action-token prior uses unweighted `STOP`/`EMIT` loss, and its learned
+fill choice is conditioned on the decoded target and rank and selected by
+argmax.  The recorded SPP fill-callback stream is source-conditioned, so the
+result is a matched-input offline comparison, not a closed-loop live-NN claim.
+
+Both tracks sweep hidden sizes 8, 16, 32, 64, and 128 because the completed 602
+results were strongly non-monotone in capacity.  Guard checkpoint selection is
+lexicographic over separately reported action diagnostics; it never averages
+unlike metrics into a composite.  Evaluation rows remain excluded from
+training and checkpoint selection.  However, prior 623 iterations have already
+been inspected on this benchmark region, so a v21 replay is comparative held-out
+evidence rather than a pristine once-only confirmatory test.
 
 The exact run IDs, hidden-size points, parameter counts, objectives, and
 decoder revisions are generated from each track's
@@ -96,3 +126,10 @@ Historical scripts remain under `legacy/scripts/` for provenance only.  The
 active two-track workflow keeps track-specific collection, training, replay,
 analysis, and report scripts in their existing experiment directories; no
 cosmetic folder duplication is required.
+
+Large run data and Colab artifacts remain outside Git.  The single shared
+`common/split_colab_archive.py` helper creates or rejoins gzip archives as
+numbered parts of at most 90 MiB and verifies whole-archive and per-part SHA-256
+values from a JSON manifest.  The active notebooks can recover such parts from
+Google Drive or the Colab file chooser and use the same format for large
+outputs.

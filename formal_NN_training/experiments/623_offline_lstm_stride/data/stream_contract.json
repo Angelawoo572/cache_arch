@@ -1,43 +1,61 @@
 {
   "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-  "model_revision": "pc_keyed_independent_rank_delta_v20",
-  "decoder_revision": "deterministic_train_vocab_other_escape_v20",
+  "model_revision": "pc_keyed_raw_rank_stop_emit_v21",
+  "decoder_revision": "deterministic_rank_stop_emit_train_vocab_v21",
+  "run_id": "623_offline_lstm_stride_rank_stop_emit_v21_seed7",
+  "operation": "train-v21",
   "event_logger_schema": "623_causal_trigger_v5",
   "normal_prefetcher": "stride",
   "neural_role": "standalone_direct_action_prefetcher",
   "source_decision_effective_external_input": ["pc", "addr"],
-  "external_input_reused_byte_for_byte_from_v18_v19": true,
+  "external_input_reused_byte_for_byte_from_v19": true,
   "training_runtime_fields": ["pc", "addr"],
   "inference_runtime_fields": ["pc", "addr"],
   "training_inference_input_encoder_identical": true,
   "runtime_encoding": {
-    "raw": "lossless uint64 PC plus lossless 58-bit cache-line number",
-    "causal_same_input_history": [
-      "current exact-PC signed line delta in lossless 58-bit two's complement",
-      "prior exact-PC signed line delta in lossless 58-bit two's complement",
-      "exact distinct-PC reuse distance in lossless uint64",
-      "previous-line-valid and prior-delta-valid bits"
-    ],
-    "derived_only_from_same_external_input_history": true,
-    "teacher_or_future_used": false,
+    "encoding": "lossless raw little-endian bits",
+    "fields": {
+      "pc": 64,
+      "aligned_cache_line_number": 58
+    },
     "raw_feature_count": 122,
-    "causal_feature_count": 182,
-    "total_feature_count": 304
+    "engineered_feature_count": 0,
+    "total_feature_count": 122,
+    "same_pc_delta_features": false,
+    "reuse_distance_features": false,
+    "validity_features": false,
+    "teacher_or_future_used": false
   },
   "architecture": {
+    "input_projection": "linear 122 to H followed by tanh",
     "state": "one single-layer LSTM dynamically routed by exact observed PC",
     "global_recurrent_branch": false,
     "source_tracker_or_replacement_logic_copied": false,
-    "staleness": "standard learned LSTM forget gates see exact distinct-PC reuse distance",
     "stateful_training": "exact-PC keyed chronological TBPTT with state carried and detached at chunk boundaries",
-    "inference_history": "fresh exact-PC state followed by complete train, guard, and evaluation chronology; only the requested suffix is decoded"
+    "inference_history": "fresh exact-PC state followed by complete train, guard, and evaluation chronology; only the requested suffix is decoded",
+    "rank_conditioning": "fixed generic 8-value sinusoidal rank code projected and added to the current LSTM context",
+    "decoder_heads": [
+      "shared binary STOP/EMIT head",
+      "shared dynamic exact-delta-plus-OTHER class head",
+      "shared signed-log delta coordinate head"
+    ],
+    "separate_global_gate_used": false,
+    "separate_count_head_used": false,
+    "log_count_used": false
+  },
+  "model_sweep": {
+    "family": "lstm",
+    "hidden_sizes": [8, 16, 32, 64, 128],
+    "pair_ids": ["p0", "p1", "p2", "p3", "p4"],
+    "source_of_truth": "python/model_contract.py"
   },
   "training_config_pinned_by_run_id": {
     "seed": 7,
     "epochs": 10,
     "chunk_len": 1024,
     "accumulate_chunks": 16,
-    "learning_rate": 0.002
+    "learning_rate": 0.002,
+    "chunks_shuffled": false
   },
   "source_provenance_required": [
     "python/train_and_offline_infer.py SHA256",
@@ -52,58 +70,82 @@
     "cudnn_benchmark": false,
     "float32_matmul_precision": "highest"
   },
-  "decoder_training_mode": "full_teacher_rank_supervision_without_teacher_or_predicted_action_feedback",
-  "decoder_previous_teacher_action_used_as_input": false,
-  "decoder_previous_predicted_action_used_as_input": false,
-  "rank_conditioning": "fixed generic 8-value sinusoidal positional code with shared heads",
-  "request_count": {
-    "gate_training": "natural-frequency unweighted two-class cross-entropy",
-    "gate_initialization": "log empirical TRAIN zero/positive prior",
-    "positive_count_training": "smooth-L1 on log positive teacher count",
-    "positive_count_initialization": "TRAIN positive mean log-count bias",
-    "decoding": "deterministic gate argmax then round(exp(log-count))",
-    "probability_threshold": null,
-    "request_budget": null,
-    "normal_degree_cap": null,
-    "neural_degree_cap": null,
-    "poisson": null
+  "rank_sequence_training": {
+    "classes": ["STOP", "EMIT"],
+    "class_indices": {"STOP": 0, "EMIT": 1},
+    "teacher_sequence": "one EMIT for every captured action followed by exactly one terminal STOP",
+    "decision_loss": "binary cross-entropy implemented as two-class categorical cross-entropy at every supervised rank",
+    "class_weight_source": "TRAIN labels only",
+    "class_weight_formula": "N/(2*N_class)",
+    "class_weight_order": ["STOP", "EMIT"],
+    "equal_aggregate_train_mass": true,
+    "bias_initialization": "zeros",
+    "teacher_or_predicted_action_feedback": false,
+    "previous_sampled_action_feedback": false,
+    "action_prefix_input": false,
+    "decoded_count": "number of consecutive EMIT decisions before first STOP"
   },
   "target_decoder": {
-    "coordinate": "every target is relative to the current demand line, never a previous action",
-    "delta_vocabulary_source": "train_labels_only",
+    "coordinate": "every target delta is relative to the current demand line, never a previous action",
+    "delta_vocabulary_source": "TRAIN labels only",
     "delta_vocabulary_order": "descending TRAIN frequency with signed-integer tie break",
-    "class_bias_initialization": "log add-one-smoothed TRAIN exact-class plus OTHER frequency",
     "delta_vocabulary_max_exact": 255,
-    "delta_output_alphabet": "up to 255 exact deltas plus one OTHER class",
+    "delta_output_classes": "realized exact vocabulary size plus one final OTHER class",
+    "maximum_delta_output_classes": 256,
+    "class_bias_initialization": "log add-one-smoothed TRAIN exact-class plus OTHER frequency over realized classes",
     "delta_other_escape": "signed_log_continuous_bounded_approximation",
     "delta_other_decode_precision": "rounded_float32_approximate_except_exact_vocabulary",
     "full_signed_line_delta_range_reachable": false,
     "every_signed_line_delta_exactly_representable": false,
-    "exact_delta_representability_scope": "train_vocabulary_only",
-    "training": "unweighted exact-class cross-entropy plus auxiliary smooth-L1 signed-log regression at every teacher rank",
-    "decoding": "deterministic categorical MAP; exact table value or rounded inverse signed-log OTHER",
+    "exact_delta_representability_scope": "TRAIN vocabulary only",
+    "training": "unweighted realized-class cross-entropy plus auxiliary smooth-L1 signed-log regression at every emitted teacher rank",
+    "decoding": "deterministic class argmax; exact table value or rounded inverse signed-log OTHER",
     "continuous_auxiliary_used_for_decode_only_on_OTHER": true,
     "teacher_or_predicted_action_feedback": false,
+    "fixed_page_offset_table": null,
+    "same_page_rule": null,
+    "stride_template": null,
     "gmm": null,
     "leb128": null,
     "sampling": null
   },
+  "inference": {
+    "rule": "at rank zero start active; apply raw STOP/EMIT argmax; emit a current-demand-relative delta on EMIT; repeat only emitted rows at the next rank; end each row at STOP",
+    "probability_threshold": null,
+    "normal_request_budget": null,
+    "normal_degree_cap": null,
+    "neural_degree_cap": null,
+    "sampling": null,
+    "truncation": null
+  },
   "decode_resource_watchdog": {
     "per_callback_actions": 4096,
     "per_role_actions": 10000000,
-    "behavior": "fail closed and raise before replay; never truncate or change a learned count",
+    "behavior": "fail closed and raise before replay; never convert EMIT to STOP, truncate, or accept a partial role",
     "is_neural_degree_cap": false
   },
   "checkpoint_selection": {
-    "role": "guard only",
+    "primary_role": "guard",
+    "TRAIN_loss_used_as_tiebreak_only": true,
+    "composite_or_mean_used": false,
     "order": [
       "maximize target F1",
       "maximize trigger F1",
-      "minimize absolute action-request ratio error"
+      "maximize count exact-match rate",
+      "minimize absolute action-request ratio error",
+      "minimize TRAIN objective loss",
+      "prefer earlier epoch"
     ],
     "probability_or_action_threshold_calibration": false,
     "evaluation_used_for_selection": false,
     "evaluation_decode_passes": 1
+  },
+  "parameter_accounting": {
+    "formula": "8*H^2 + (122+8+C+13)*H + C + 3",
+    "realized_delta_classes_C": "realized exact TRAIN vocabulary size plus one OTHER",
+    "pre_run_planning": "model points expose maximum_parameter_count at C=256",
+    "run_metadata": "records realized_delta_output_classes, realized_parameter_count, expected realized count, and maximum_parameter_count",
+    "validation": "realized count must equal the formula at realized C and be no greater than the point maximum"
   },
   "captured_stride_actions_role": "offline-normal replay, supervised losses, and TRAIN-only learned output vocabulary",
   "teacher_actions_are_model_inputs": false,
@@ -122,10 +164,9 @@
   "probability_threshold_used": false,
   "future_label_window": null,
   "manual_loss_weights": false,
+  "data_derived_rank_class_weights": true,
   "training_regularization": false,
   "inference_policy_hardcodes_used": false,
-  "gradient_accumulation": "weighted by the exact number of natural gate, positive-count, rank-class, and OTHER-regression atoms",
-  "architecture_points_source": "python/model_contract.py (also exposed by trainer --describe-model-points)",
-  "parameter_formula_source": "python/model_contract.py; asserted against every instantiated module",
+  "gradient_accumulation": "normalized by the exact number of natural STOP/EMIT, emitted-delta-class, and emitted-coordinate objective atoms",
   "persistent_state_accounting": "2H float32 values per exact observed PC; reported separately from weights"
 }

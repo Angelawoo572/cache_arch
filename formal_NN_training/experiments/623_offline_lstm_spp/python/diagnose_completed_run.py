@@ -13,7 +13,7 @@ import json
 from pathlib import Path
 
 from model_contract import (
-    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as V20_MODEL_REVISION, POLICY,
+    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as ACTIVE_MODEL_REVISION, POLICY,
     RUN_ID as DEFAULT_RUN_ID, TRACE, describe_model_points,
 )
 
@@ -21,7 +21,7 @@ V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
 V16A_MODEL_REVISION = "compact_crn_joint_delta_fill_guard_map_v16a"
 V17_MODEL_REVISION = "compact_crn_factorized_delta_keyed_fill_v17"
 V18_MODEL_REVISION = "compact_crn_hard_distinct_delta_keyed_fill_v18"
-V20_POINT_CONTRACT = describe_model_points()
+ACTIVE_POINT_CONTRACT = describe_model_points()
 REVISION_PROFILES = {
     V15_MODEL_REVISION: (
         "offline_joint_delta_fill_spp_lstm_",
@@ -39,9 +39,9 @@ REVISION_PROFILES = {
         "offline_hard_distinct_delta_fill_spp_lstm_",
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
-    V20_MODEL_REVISION: (
-        "offline_independent_vocab_spp_lstm_",
-        "independent_vocab_spp_lstm_h{}",
+    ACTIVE_MODEL_REVISION: (
+        "offline_stop_emit_vocab_spp_lstm_",
+        "stop_emit_vocab_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
@@ -97,8 +97,23 @@ def input_contract_mismatches(metadata):
         "model_does_not_use_pc": True,
         "pc_is_replay_transport_only": True,
         "closed_loop_live_claim_allowed": False,
-        "delta_other_escape": V20_POINT_CONTRACT["delta_other_escape"],
-        "delta_other_decode_precision": V20_POINT_CONTRACT[
+        "decoder_training_mode": ACTIVE_POINT_CONTRACT["decoder_training_mode"],
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
+        "terminal_stop_supervised": True,
+        "stop_emit_class_weighting_used": False,
+        "stochastic_decoding": False,
+        "fill_argmax_used": True,
+        "fill_prior_correction_at_decode_used": True,
+        "fill_prior_correction_rule": ACTIVE_POINT_CONTRACT[
+            "fill_prior_correction_rule"
+        ],
+        "fill_decoding_rule": ACTIVE_POINT_CONTRACT["fill_decoding_rule"],
+        "guard_selection_rule": ACTIVE_POINT_CONTRACT["guard_selection_rule"],
+        "guard_selection_composite_or_mean_used": False,
+        "delta_other_escape": ACTIVE_POINT_CONTRACT["delta_other_escape"],
+        "delta_other_decode_precision": ACTIVE_POINT_CONTRACT[
             "delta_other_decode_precision"
         ],
         "full_signed_line_delta_range_reachable": False,
@@ -111,7 +126,7 @@ def input_contract_mismatches(metadata):
         "float32_matmul_precision": "highest",
         "determinism_fail_closed": True,
     }
-    expected.update(V20_POINT_CONTRACT["training_config"])
+    expected.update(ACTIVE_POINT_CONTRACT["training_config"])
     mismatches = []
     for key, value in expected.items():
         if metadata.get(key) != value:
@@ -120,11 +135,11 @@ def input_contract_mismatches(metadata):
                 "actual": metadata.get(key),
                 "expected": value,
             })
-    if metadata.get("training_config") != V20_POINT_CONTRACT["training_config"]:
+    if metadata.get("training_config") != ACTIVE_POINT_CONTRACT["training_config"]:
         mismatches.append({
             "field": "training_config",
             "actual": metadata.get("training_config"),
-            "expected": V20_POINT_CONTRACT["training_config"],
+            "expected": ACTIVE_POINT_CONTRACT["training_config"],
         })
     if "A100" not in str(metadata.get("cuda_device_name", "")):
         mismatches.append({
@@ -137,9 +152,6 @@ def input_contract_mismatches(metadata):
         "model_contract_source_sha256": EXPERIMENT / "python" / "model_contract.py",
         "threshold_free_policy_source_sha256": (
             REPO_ROOT / "formal_NN_training" / "common" / "threshold_free_policy.py"
-        ),
-        "decoder_sampler_source_sha256": (
-            REPO_ROOT / "formal_NN_training" / "common" / "keyed_sampling.py"
         ),
     }
     for key, path in provenance_paths.items():
@@ -282,57 +294,59 @@ def model_record(row, metadata, normal, no_pref, matched):
         ),
     }
     diagnostic_keys = (
-        "request_count_training_label_statistics",
-        "request_count_decoder_diagnostics",
         "heldout_behavior_metrics",
-        "train_action_summary",
-        "guard_action_summary",
-        "eval_action_summary",
-        "joint_delta_fill_training_label_diagnostics",
-        "training_joint_label_diagnostics",
+        "decoder_training_mode",
+        "decoder_previous_teacher_action_used_as_input",
+        "decoder_previous_predicted_action_used_as_input",
+        "decoder_previous_sampled_action_used_as_input",
+        "stop_emit_training_objective",
+        "stop_emit_train_class_counts",
+        "stop_emit_train_class_priors",
+        "stop_emit_class_weighting_used",
+        "terminal_stop_supervised",
+        "separate_gate_head_used",
+        "request_count_head_used",
+        "request_count_regression_used",
         "delta_training_objective",
-        "delta_mixture_decoding_rule",
         "delta_decoding_rule",
-        "delta_codec",
+        "delta_vocabulary_source",
+        "exact_delta_vocabulary_size",
+        "delta_vocabulary_statistics",
+        "delta_other_escape",
+        "delta_other_decode_precision",
         "duplicate_target_handling",
         "fill_training_objective",
+        "fill_train_class_counts",
+        "fill_train_priors",
+        "fill_train_inverse_frequency_weights",
+        "fill_prior_correction_at_decode_used",
+        "fill_prior_correction_rule",
         "fill_decoding_rule",
         "fill_conditioned_on_actual_emitted_target",
-        "factorized_delta_fill_heads",
+        "fill_argmax_used",
+        "fill_target_conditioning_features",
+        "decoder_guard_diagnostics",
+        "decoder_eval_diagnostics",
+        "global_chronological_lstm",
         "routed_demand_fill_recurrent_paths",
         "page_local_causal_state",
-        "page_state_validity_rule",
         "dynamic_page_state_pages",
         "peak_persistent_recurrent_state_bytes",
         "action_output_diagnostics",
         "raw_predicted_action_count",
         "materialized_action_count",
-        "exact_delta_vocabulary_size",
-        "delta_vocabulary_statistics",
-        "delta_other_decode_precision",
         "full_signed_line_delta_range_reachable",
         "every_signed_line_delta_exactly_representable",
         "exact_delta_representability_scope",
+        "guard_selection_rule",
+        "guard_selection_key_fields",
+        "guard_selection_key",
         "guard_selection_metrics",
+        "guard_selection_composite_or_mean_used",
         "selected_epoch",
-        "teacher_count_role",
-        "delta_decoder_feedback_rule",
-        "fill_decoder_feedback_rule",
-        "keyed_fill_uniform_dtype",
-        "address_confidence_fill_heuristic_used",
         "offline_normal_fill_level_counts",
         "offline_nn_fill_level_counts",
         "decoder_revision",
-        "decoder_candidate_modes",
-        "selected_decoder_mode",
-        "guard_decoder_selection",
-        "guard_selection_objective",
-        "parent_run_id",
-        "parent_model_revision",
-        "weights_model_revision",
-        "parent_checkpoint_sha256",
-        "parent_run_metadata_sha256",
-        "parent_training_history_sha256",
         "weights_retrained",
         "checkpoint_reused",
     )
@@ -382,8 +396,8 @@ def main():
         ))
     neural_method_prefix, tag_template = profile
     model_sizes = tuple(
-        point["size"] for point in V20_POINT_CONTRACT["points"]
-    ) if model_revision == V20_MODEL_REVISION else (
+        point["size"] for point in ACTIVE_POINT_CONTRACT["points"]
+    ) if model_revision == ACTIVE_MODEL_REVISION else (
         8, 16, 32, 64, 128
     )
     expected_model_tags = {tag_template.format(size) for size in model_sizes}

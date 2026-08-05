@@ -7,6 +7,10 @@ EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
 MODEL_POINTS_SCRIPT="$EXP/python/model_contract.py"
 DEFAULT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field run_id)"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
+if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+  echo "[error] RUN_ID must be one safe path token: $RUN_ID" >&2
+  exit 2
+fi
 STAGE="${1:-${STAGE:-replay}}"
 CANONICAL_RUN_DIR="$EXP/runs/$RUN_ID"
 if [[ -n "${RUN_DIR:-}" && "$RUN_DIR" != "$CANONICAL_RUN_DIR" ]]; then

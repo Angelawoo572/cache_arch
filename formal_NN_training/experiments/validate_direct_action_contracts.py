@@ -286,6 +286,8 @@ def validate_active_model_contract(track, stream, model):
         "neural_degree_cap",
         "neural_role",
         "decoder_previous_teacher_action_used_as_input",
+        "decoder_previous_predicted_action_used_as_input",
+        "decoder_previous_sampled_action_used_as_input",
     ):
         if key not in model:
             fail("{} stable model contract lacks {}".format(name, key))
@@ -335,34 +337,53 @@ def validate_active_model_contract(track, stream, model):
     if previous_teacher is not False:
         fail("{} feeds a previous teacher action to its decoder".format(name))
 
-    gate_objective = aliased_value(
+    rank_objective = aliased_value(
         name, stream, model,
-        ("gate_training_objective", "gate_objective"), required=True,
+        ("rank_decision_training_objective", "stop_emit_training_objective"),
+        required=True,
     )
-    count_objective = aliased_value(
+    lowered_rank_objective = str(rank_objective).lower()
+    if "stop" not in lowered_rank_objective or "emit" not in lowered_rank_objective:
+        fail("{} does not train a direct STOP/EMIT rank decision".format(name))
+    if "threshold" in lowered_rank_objective:
+        fail("{} STOP/EMIT objective embeds a threshold".format(name))
+    terminal_stop = aliased_value(
         name, stream, model,
         (
-            "request_count_training_objective",
-            "positive_count_training_objective",
-            "count_training_objective",
+            "terminal_stop_supervised",
+            "terminal_stop_supervised_for_every_teacher_sequence",
         ),
         required=True,
     )
-    for label, objective in (
-        ("gate", gate_objective), ("count", count_objective),
-    ):
-        lowered = str(objective).lower()
-        if "threshold" in lowered or "inverse_frequency" in lowered:
-            fail("{} {} objective violates natural-prior decoding".format(
-                name, label
+    if terminal_stop is not True:
+        fail("{} does not supervise a terminal STOP".format(name))
+
+    for key in ("separate_global_gate_used", "separate_count_head_used", "log_count_used"):
+        if key in model and same_value(name, stream, model, key) is not False:
+            fail("{} retains the failed gate/count factorization at {}".format(
+                name, key
             ))
-    if not any(
-        token in str(gate_objective).lower()
-        for token in ("natural", "unweighted", "empirical_prior")
-    ):
-        fail("{} gate objective does not preserve the natural prior".format(name))
-    if "log_count" not in str(count_objective).lower():
-        fail("{} count objective is not a learned positive log-count".format(name))
+    previous_sampled = aliased_value(
+        name, stream, model,
+        (
+            "decoder_previous_predicted_action_used_as_input",
+            "decoder_previous_sampled_action_used_as_input",
+        ),
+        required=True,
+    )
+    if previous_sampled is not False:
+        fail("{} feeds a previous decoded action to the next rank".format(name))
+
+    selection = model.get(
+        "checkpoint_selection", model.get("guard_selection_rule")
+    )
+    if selection is None:
+        fail("{} stable model contract lacks a guard selection rule".format(name))
+    lowered_selection = str(selection).lower()
+    if "lexicographic" not in lowered_selection:
+        fail("{} guard selection is not lexicographic".format(name))
+    if any(token in lowered_selection for token in ("mean", "average", "composite")):
+        fail("{} guard selection averages unlike metrics".format(name))
 
     forbidden_keys = (
         "source_action_templates",
@@ -376,15 +397,50 @@ def validate_active_model_contract(track, stream, model):
     points = model.get("points")
     if not isinstance(points, list) or not points:
         fail("{} stable model contract has no architecture points".format(name))
+    observed_sizes = []
     for point in points:
         if not isinstance(point, dict):
             fail("{} model point is not an object".format(name))
+        size = point.get("model_size", point.get("size"))
+        observed_sizes.append(size)
         count = point.get(
             "parameter_count",
             point.get("parameters", point.get("maximum_parameter_count")),
         )
         if isinstance(count, bool) or not isinstance(count, int) or count <= 0:
             fail("{} model point has invalid parameter count".format(name))
+    if observed_sizes != [8, 16, 32, 64, 128]:
+        fail("{} must sweep h8,h16,h32,h64,h128".format(name))
+
+    parameter_contract = str(model.get("parameter_count_contract", "")).lower()
+    if (
+        model.get("parameter_count_is_dataset_dependent") is not True
+        and not all(
+            point.get("parameter_count_is_pre_run_maximum") is True
+            for point in points
+        )
+        and not (
+            "realized" in parameter_contract and "maximum" in parameter_contract
+        )
+    ):
+        fail("{} does not distinguish realized dynamic-vocabulary size".format(name))
+
+    if name.endswith("_stride"):
+        if "inverse_frequency" not in lowered_rank_objective:
+            fail("{} sparse STOP/EMIT loss is not TRAIN-balanced".format(name))
+        if model.get("engineered_runtime_features") != []:
+            fail("{} primary encoder retains engineered Stride features".format(name))
+        if model.get("causal_runtime_feature_count") != 0:
+            fail("{} primary encoder is not raw PC/address only".format(name))
+    elif name.endswith("_spp"):
+        if not any(token in lowered_rank_objective for token in ("unweighted", "natural")):
+            fail("{} dense STOP/EMIT loss does not preserve its natural prior".format(name))
+        if model.get("stochastic_decoding") is not False:
+            fail("{} must use deterministic action decoding".format(name))
+        if "argmax" not in str(model.get("fill_decoding_rule", "")).lower():
+            fail("{} fill decoding is not deterministic argmax".format(name))
+        if model.get("fill_prior_correction_at_decode_used") is not True:
+            fail("{} does not undo TRAIN fill reweighting at decode".format(name))
 
     # SPP may condition the supervised fill factor on the teacher target class
     # and rank.  That is output-loss factorization, not decoder feedback.  If
@@ -469,12 +525,34 @@ def validate_track(track):
             fail("{} notebook does not query the stable model contract".format(
                 name
             ))
+        for token in (
+            "drive.mount(", "files.upload()", "split_colab_archive",
+            ".parts.json", "MAX_PART_BYTES", "[8,16,32,64,128]",
+        ):
+            if token not in notebook:
+                fail("{} notebook lacks multipart/Drive token {}".format(
+                    name, token
+                ))
         for relative in ("linux/run_server.sh", "linux/launch_server.sh"):
             source = (track / relative).read_text()
             if model["run_id"] not in source and "model_contract.py" not in source:
                 fail("{} does not derive {} from the stable model contract".format(
                     relative, name
                 ))
+        run_server = (track / "linux" / "run_server.sh").read_text()
+        for token in (
+            "active v21 replay requires the exact five configured MODEL_TAGS",
+            "require_safe_path_token RUN_ID",
+            "assert_model_metadata_v21",
+            "analyze() {\n  require_colab_outputs",
+        ):
+            if token not in run_server:
+                fail("{} run server lacks fail-closed token {}".format(
+                    name, token
+                ))
+        launcher = (track / "linux" / "launch_server.sh").read_text()
+        if "RUN_ID must be one safe path token" not in launcher:
+            fail("{} launcher does not reject unsafe RUN_ID values".format(name))
     else:
         mode = stream.get("decoder_training_mode", "")
         if mode and "free_running" not in str(mode):
@@ -507,6 +585,28 @@ def validate_portability():
         ):
             if token not in installer_source:
                 fail("Colab output installer missing {}".format(token))
+
+    transfer = COMMON / "split_colab_archive.py"
+    transfer_source = transfer.read_text()
+    for token in (
+        "MAX_PART_MIB = 90", "def split_archive(", "def validate_parts(",
+        "def reassemble_archive(", "def safe_extract_tar_gz(",
+        "def validate_sha256sums(", "duplicate tar member",
+    ):
+        if token not in transfer_source:
+            fail("multipart transfer helper missing {}".format(token))
+    if "from __future__ import " + "annotations" in transfer_source:
+        fail("multipart transfer helper is not Python-3.6 compatible")
+
+    ignore = (ROOT / ".gitignore").read_text()
+    for token in (
+        "**/*.colab_input.tar.gz.part-*",
+        "**/*.colab_output.tar.gz.part-*",
+        "**/*.colab_input.tar.gz.parts.json",
+        "**/*.colab_output.tar.gz.parts.json",
+    ):
+        if token not in ignore:
+            fail(".gitignore does not exclude {}".format(token))
 
 
 def validate_spp_boundaries():
@@ -550,7 +650,8 @@ def main():
     print("[PASS] eight matched-input direct-action tracks satisfy the static contract")
     print("[PASS] active 623 contracts are loaded from stable model_contract.py files")
     print("[PASS] active 623 uses no threshold, normal template, page rule, or degree cap")
-    print("[PASS] exact TRAIN vocabularies retain a rounded bounded approximate OTHER escape")
+    print("[PASS] active 623 uses rankwise STOP/EMIT with dynamic TRAIN vocabularies")
+    print("[PASS] Colab transfer is SHA-verified and split into at-most-90-MiB parts")
 
 
 if __name__ == "__main__":

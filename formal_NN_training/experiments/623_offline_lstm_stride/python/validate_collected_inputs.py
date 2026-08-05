@@ -197,9 +197,18 @@ def main():
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": "full_teacher_rank_supervision_without_teacher_or_predicted_action_feedback",
+        "decoder_training_mode": (
+            "independent_rank_STOP_EMIT_with_each_teacher_action_and_terminal_"
+            "STOP_without_teacher_or_predicted_action_feedback"
+        ),
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
+        "terminal_stop_supervised_for_every_teacher_sequence": True,
+        "separate_global_gate_used": False,
+        "separate_count_head_used": False,
+        "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
+        "engineered_runtime_features": [],
         "training_runtime_fields": ["pc", "addr"],
         "inference_runtime_fields": ["pc", "addr"],
         "normal_policy_private_state": [

@@ -17,6 +17,15 @@ JOBS="${JOBS:-8}"
 BUILD="${BUILD:-1}"
 MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
 BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
+
+[[ "$MODEL_TAGS_CSV" == "$DEFAULT_MODEL_TAGS" ]] || {
+  echo "[error] active v21 replay requires the exact five configured MODEL_TAGS" >&2
+  exit 2
+}
+[[ "$BASE_TAG" == "$DEFAULT_BASE_TAG" ]] || {
+  echo "[error] active v21 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
+  exit 2
+}
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
 TRACE_FILE="${TRACE_FILE:-$ROOT/traces/$TRACE.champsimtrace.xz}"
 RUN_DIR="${RUN_DIR:-$EXP/runs/$RUN_ID}"
@@ -35,14 +44,41 @@ VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
 TRAINER="$EXP/python/train_and_offline_infer.py"
 THRESHOLD_FREE_POLICY="$ROOT/formal_NN_training/common/threshold_free_policy.py"
-KEYED_SAMPLING="$ROOT/formal_NN_training/common/keyed_sampling.py"
 INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
+SPLIT_COLAB_ARCHIVE="$ROOT/formal_NN_training/common/split_colab_archive.py"
+VALIDATE_MODEL_METADATA="$ROOT/formal_NN_training/common/validate_623_model_metadata.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 SOURCE_CONTRACT_REPO="$EXP/data/spp_source_contract.json"
 SOURCE_CONTRACT_INPUT="$STREAM_DIR/spp_source_contract.json"
 
 IFS=',' read -r -a MODEL_TAGS <<< "$MODEL_TAGS_CSV"
 [[ "${#MODEL_TAGS[@]}" -gt 0 ]] || { echo "[error] MODEL_TAGS is empty" >&2; exit 2; }
+
+require_safe_path_token() {
+  local label="$1" value="$2"
+  [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
+    echo "[error] $label must be one safe path token: $value" >&2
+    exit 2
+  }
+}
+
+require_safe_path_token RUN_ID "$RUN_ID"
+require_safe_path_token BASE_TAG "$BASE_TAG"
+seen_model_tags=","
+base_tag_is_configured=0
+for tag in "${MODEL_TAGS[@]}"; do
+  require_safe_path_token MODEL_TAG "$tag"
+  [[ "$seen_model_tags" != *",$tag,"* ]] || {
+    echo "[error] duplicate MODEL_TAG $tag" >&2
+    exit 2
+  }
+  seen_model_tags+="$tag,"
+  [[ "$tag" != "$BASE_TAG" ]] || base_tag_is_configured=1
+done
+[[ "$base_tag_is_configured" == 1 ]] || {
+  echo "[error] BASE_TAG must be one of MODEL_TAGS: $BASE_TAG" >&2
+  exit 2
+}
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
 
 require_repo_file() {
@@ -53,9 +89,9 @@ require_repo_file() {
 }
 for required_file in \
   "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
-  "$ANALYZE" "$TRAINER" "$THRESHOLD_FREE_POLICY" "$KEYED_SAMPLING" \
-  "$INSTALL_COLAB_OUTPUT" "$SOURCE_CONTRACT_REPO" \
-  "$MODEL_POINTS_SCRIPT"; do
+  "$ANALYZE" "$TRAINER" "$THRESHOLD_FREE_POLICY" \
+  "$INSTALL_COLAB_OUTPUT" "$SPLIT_COLAB_ARCHIVE" "$SOURCE_CONTRACT_REPO" \
+  "$MODEL_POINTS_SCRIPT" "$VALIDATE_MODEL_METADATA"; do
   require_repo_file "$required_file"
 done
 
@@ -124,6 +160,19 @@ print("[PASS] audited SPP source sha256={}".format(
     hashlib.sha256(source.encode()).hexdigest()
 ))
 PY
+}
+
+prepare_colab_output_archive() {
+  local archive="$RUN_DIR/$RUN_ID.colab_output.tar.gz"
+  local manifest="$archive.parts.json"
+  if [[ -s "$manifest" ]]; then
+    python3 "$SPLIT_COLAB_ARCHIVE" join "$manifest" \
+      --parts-dir "$RUN_DIR" --output "$archive" --overwrite
+  fi
+  [[ -s "$archive" ]] || {
+    echo "[error] missing $archive or verified multipart manifest $manifest" >&2
+    exit 2
+  }
 }
 
 ensure_libbf() {
@@ -296,7 +345,10 @@ collect() {
   ( cd "$STREAM_DIR" && sha256sum "${input_files[@]}" > SHA256SUMS )
   tar -C "$STREAM_DIR" -czf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" \
     "${input_files[@]}" SHA256SUMS
-  echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz"
+  python3 "$SPLIT_COLAB_ARCHIVE" split \
+    "$RUN_DIR/$RUN_ID.colab_input.tar.gz" --output-dir "$RUN_DIR" \
+    --max-part-mib 90 --overwrite
+  echo "[ready for Colab] $RUN_DIR/$RUN_ID.colab_input.tar.gz.parts.json"
 }
 
 validate_preserved_inputs() {
@@ -308,8 +360,8 @@ validate_preserved_inputs() {
     rm -f "$validated_manifest"
     return 1
   fi
-  # The checked-in validator now records v20 TRAIN/guard/eval histograms and
-  # action-space semantics.  The reused v18 collection manifest is historical
+  # The checked-in validator records current TRAIN/guard/eval histograms and
+  # action-space semantics.  The reused source collection manifest is historical
   # provenance, not the current decoder contract, so byte equality between the
   # two JSON schemas would be incorrect.  Successful current validation checks
   # the actual gzip contents; SHA256SUMS below independently pins every reused
@@ -320,700 +372,12 @@ validate_preserved_inputs() {
 
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-assert_model_metadata_v18_legacy() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" \
-    "$TRAINER" "$THRESHOLD_FREE_POLICY" "$KEYED_SAMPLING" <<'PY'
-import csv
-import hashlib
-import json
-import re
-import runpy
-import sys
-from pathlib import Path
-
-metadata_path = Path(sys.argv[1])
-source_contract = Path(sys.argv[2])
-point_contract = runpy.run_path(sys.argv[3])["describe_model_points"]()
-metadata = json.loads(metadata_path.read_text())
-root = metadata_path.parent
-tag = metadata.get("model_tag", "")
-family = metadata.get("model_family")
-source_inputs = point_contract["external_input_fields"]
-common = {
-    "trace": point_contract["trace"],
-    "matched_normal_prefetcher": point_contract["policy"],
-    "neural_role": "standalone_direct_action_prefetcher",
-    "track_model_family": "lstm",
-    "operation": "train-v18",
-    "model_revision": "compact_crn_hard_distinct_delta_keyed_fill_v18",
-    "decoder_revision": "hard_distinct_delta_keyed_fill_v18",
-    "model_does_not_use_pc": True,
-    "pc_is_replay_transport_only": True,
-    "model_input_is_causal_external_event_sequence_only": True,
-    "cache_fill_feedback_used_as_raw_external_input": True,
-    "cache_fill_private_state_used_as_model_input": False,
-    "cache_hit_and_type_are_audit_only": True,
-    "teacher_actions_are_model_inputs": False,
-    "same_external_input_contract": True,
-    "training_inference_input_encoder_identical": True,
-    "decoder_training_mode": "teacher_count_scheduled_loss_with_hard_self_action_feedback",
-    "decoder_previous_teacher_action_used_as_input": False,
-    "decoder_free_running_self_test": "PASS",
-    "teacher_count_role": "schedules_loss_bearing_action_ranks_only",
-    "teacher_count_used_as_decoder_feedback": False,
-    "training_runtime_fields": source_inputs,
-    "inference_runtime_fields": source_inputs,
-    "normal_policy_outputs_used_as_model_inputs": False,
-    "normal_policy_candidates_used_as_model_inputs": False,
-    "normal_policy_private_state_used_as_model_inputs": False,
-    "teacher_action_canonicalization": "per_target_min_fill_queue_effect",
-    "training_chunks_shuffled": False,
-    "normal_policy_outputs_used_as_training_targets": True,
-    "normal_policy_request_rate_used_as_budget": False,
-    "normal_policy_constants_used_by_neural_inference": False,
-    "probability_threshold_used": False,
-    "threshold_related_hardcodes_used": False,
-    "neural_degree_cap": None,
-    "fixed_page_offset_classes": None,
-    "same_page_rule_used_by_neural_inference": False,
-    "future_label_window_used": False,
-    "fill_lead_cutoff_used": False,
-    "handcrafted_semantic_features_used": False,
-    "manual_loss_weights_used": False,
-    "gate_class_weighting_used": False,
-    "gate_training_objective": "unweighted_bernoulli_nll",
-    "gate_decoding_rule": "deterministic_raw_logit_sign",
-    "request_count_training_objective": "unweighted_bernoulli_hurdle_plus_positive_poisson_excess_nll",
-    "request_count_decoding_rule": "deterministic_raw_hurdle_plus_rounded_conditional_excess_mean",
-    "request_count_residual_scope": "none_event_local",
-    "joint_delta_fill_dependency_modeled": False,
-    "joint_pair_classes": 0,
-    "joint_delta_fill_training_objective": None,
-    "joint_delta_fill_decoding_rule": None,
-    "delta_mixture_components": 4,
-    "delta_training_objective": "four_component_signed_log_delta_mixture_nll",
-    "delta_mixture_decoding_rule": "component_peak_density_order_then_hard_quantized_legal_delta",
-    "fill_training_objective": "unweighted_two_class_cross_entropy",
-    "fill_decoding_rule": "event_keyed_categorical_inverse_cdf",
-    "fill_argmax_used": False,
-    "fill_probability_feedback_used": False,
-    "hard_fill_one_hot_feedback_used": True,
-    "keyed_fill_uniform_dtype": "float64",
-    "address_confidence_fill_heuristic_used": False,
-    "delta_decoder_feedback_rule": "actual_hard_quantized_emitted_delta_with_straight_through_training",
-    "fill_decoder_feedback_rule": "actual_keyed_hard_fill_one_hot_with_straight_through_training",
-    "straight_through_hard_action_feedback_used": True,
-    "delta_component_order_score": "log_mixture_mass_minus_log_scale",
-    "delta_component_score_tie_break": "ascending_component_index_stable",
-    "delta_legality_constraints": [
-        "nonzero_signed_delta", "distinct_target_within_callback",
-    ],
-    "delta_legality_fallback": "nearest_signed_delta_only_if_all_component_means_are_illegal",
-    "delta_legality_uses_teacher_or_private_state": False,
-    "signed_delta_canonicalization": "58_bit_modulo_with_positive_half_range_mapped_to_negative",
-    "decoder_probability_mass_carries_train_guard_history": False,
-    "cross_event_probability_credit_used": False,
-    "sampled_outputs_used_as_decoder_feedback": True,
-    "stochastic_decoding_reproducible": True,
-    "training_regularization_used": False,
-    "inference_policy_hardcodes_used": False,
-    "learned_request_count": True,
-    "causal_no_future_self_test": "PASS",
-    "deterministic_hurdle_count_self_test": "PASS",
-    "hard_distinct_action_feedback_self_test": "PASS",
-    "keyed_sampling_self_test": "PASS",
-    "factorized_delta_fill_sampling_self_test": "PASS",
-    "cnn_architecture_self_test": "NOT_APPLICABLE",
-    "event_logger_schema": "623_causal_trigger_fill_v6",
-    "action_attachment_mode": "explicit_trigger_event_id",
-    "experiment_revision": "spp_source_input_variable_delta_fill_feedback_free_running_v11",
-    "replay_preserves_explicit_fill_level": True,
-    "source_decision_effective_external_input": source_inputs,
-    "runtime_feature_count": 59,
-    "runtime_encoding": "lossless 58-bit cache-line number plus one DEMAND/FILL kind bit",
-    "same_source_input_offline_claim_allowed": True,
-    "closed_loop_live_claim_allowed": False,
-    "common_random_numbers_across_capacities": True,
-    "strict_common_random_numbers_across_capacities": True,
-    "cross_event_rng_state_used": False,
-    "decoder_sampling_roles": ["train", "eval"],
-    "decoder_train_sampling_performed": True,
-    "decoder_guard_sampling_performed": False,
-    "decoder_count_sampling_performed": False,
-    "guard_selected_decoder": False,
-    "joint_map_used": False,
-    "weights_retrained": True,
-    "checkpoint_reused": False,
-    "collection_manifest_role": "historical_input_package_provenance_only",
-    "collection_manifest_decoder_fields_are_current_contract": False,
-}
-bad = {
-    key: (metadata.get(key), expected)
-    for key, expected in common.items()
-    if metadata.get(key) != expected
-}
-expected_key_fields = [
-    "revision", "decoder_seed", "trace", "policy", "role",
-    "event_key", "head", "action_rank",
-]
-sampler = metadata.get("decoder_sampler")
-if (
-    not isinstance(sampler, dict)
-    or sampler.get("sampler_revision")
-    != "sha256_event_keyed_inverse_cdf_crn_v1"
-    or sampler.get("key_fields") != expected_key_fields
-    or sampler.get("poisson_backend") != "scipy.stats.poisson.ppf"
-    or sampler.get("cross_event_rng_state") is not False
-    or metadata.get("decoder_key_fields") != expected_key_fields
-    or metadata.get("decoder_sampler_key_fields") != expected_key_fields
-):
-    bad["decoder_sampler"] = (
-        sampler, "stateless keyed inverse-CDF CRN v1"
-    )
-for key in (
-    "decoder_sampler_source_sha256",
-    "decoder_sampler_key_schedule_sha256",
-    "decoder_eval_event_key_stream_sha256",
-    "decoder_eval_sampling_schedule_sha256",
-    "decoder_train_sampling_schedule_sha256",
-    "decision_router_source_sha256",
-    "train_decision_router_sha256",
-    "guard_decision_router_sha256",
-    "eval_decision_router_sha256",
-    "model_checkpoint_sha256",
-    "training_history_sha256",
-):
-    value = metadata.get(key)
-    if (
-        not isinstance(value, str)
-        or re.fullmatch(r"[0-9a-f]{64}", value) is None
-    ):
-        bad[key] = (value, "64 lowercase hex characters")
-if family != "lstm":
-    bad["model_family"] = (family, "lstm")
-if not tag.startswith("hard_distinct_delta_fill_spp_lstm_h"):
-    bad["model_tag"] = (tag, "hard_distinct_delta_fill_spp_lstm_h<size>")
-expected_points = {
-    ("lstm", 8): ("p0", 2664),
-    ("lstm", 16): ("p1", 6208),
-    ("lstm", 32): ("p2", 15984),
-    ("lstm", 64): ("p3", 46288),
-    ("lstm", 128): ("p4", 149904),
-}
-point = expected_points.get((family, metadata.get("model_size")))
-if point is None:
-    bad["model_point"] = (
-        (family, metadata.get("model_size")), "pinned v18 point"
-    )
-else:
-    if metadata.get("architecture_pair_id") != point[0]:
-        bad["architecture_pair_id"] = (
-            metadata.get("architecture_pair_id"), point[0]
-        )
-    if metadata.get("parameter_count") != point[1]:
-        bad["parameter_count"] = (
-            metadata.get("parameter_count"), point[1]
-        )
-encoder_hashes = {
-    metadata.get("runtime_encoder_sha256"),
-    metadata.get("training_runtime_encoder_sha256"),
-    metadata.get("inference_runtime_encoder_sha256"),
-}
-encoder_hash = (
-    next(iter(encoder_hashes)) if len(encoder_hashes) == 1 else None
-)
-if not isinstance(encoder_hash, str) or len(encoder_hash) != 64:
-    bad["runtime_encoder_sha256"] = (
-        encoder_hashes, "one shared 64-hex digest"
-    )
-for key, value in {
-    "training_state_mode": "chronological_stateful_tbptt",
-    "training_state_carried_across_chunks": True,
-    "training_state_detached_between_chunks": True,
-    "inference_history_mode": "fresh_state_then_complete_train_guard_eval_chronology",
-    "cnn_temporal_layers": 0,
-}.items():
-    if metadata.get(key) != value:
-        bad[key] = (metadata.get(key), value)
-if not source_contract.is_file():
-    bad["source_contract"] = ("missing", str(source_contract))
-else:
-    observed_source_hash = hashlib.sha256(
-        source_contract.read_bytes()
-    ).hexdigest()
-    if metadata.get("source_contract_sha256") != observed_source_hash:
-        bad["source_contract_sha256"] = (
-            metadata.get("source_contract_sha256"), observed_source_hash
-        )
-
-def inspect_replay(path, allow_empty):
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    count = 0
-    fill_counts = {"FILL_L2": 0, "FILL_LLC": 0}
-    with path.open(newline="") as handle:
-        reader = csv.reader(handle)
-        if next(reader, None) != [
-            "pc", "line", "occ", "prefetch_addr", "fill_level"
-        ]:
-            raise SystemExit("invalid SPP replay header in {}".format(path))
-        for line_number, fields in enumerate(reader, 2):
-            if len(fields) != 5:
-                raise SystemExit(
-                    "invalid SPP replay row {}".format(line_number)
-                )
-            try:
-                pc = int(fields[0], 0)
-                line = int(fields[1], 0)
-                occurrence = int(fields[2], 10)
-                address = int(fields[3], 0)
-                fill_level = int(fields[4], 0)
-            except ValueError as exc:
-                raise SystemExit(
-                    "invalid SPP replay integer at {}: {}".format(
-                        line_number, exc
-                    )
-                )
-            if min(pc, line, occurrence, address) < 0 or address % 64:
-                raise SystemExit(
-                    "unaligned/negative SPP replay row {}".format(line_number)
-                )
-            if fill_level not in (2, 4):
-                raise SystemExit(
-                    "invalid SPP fill level at row {}".format(line_number)
-                )
-            fill_counts[
-                "FILL_L2" if fill_level == 2 else "FILL_LLC"
-            ] += 1
-            count += 1
-    if count <= 0 and not allow_empty:
-        raise SystemExit("empty SPP replay list {}".format(path))
-    return count, digest, fill_counts
-
-for name, count_key, hash_key, fill_key, allow_empty in (
-    (
-        "offline_spp.replay.csv", "offline_normal_entries",
-        "normal_list_sha256", "offline_normal_fill_level_counts", False,
-    ),
-    (
-        "offline_nn.replay.csv", "offline_nn_entries",
-        "nn_list_sha256", "offline_nn_fill_level_counts", True,
-    ),
-):
-    path = root / name
-    if not path.is_file():
-        bad[name] = ("missing", "validated replay list")
-        continue
-    count, digest, fill_counts = inspect_replay(path, allow_empty)
-    if metadata.get(count_key) != count:
-        bad[count_key] = (metadata.get(count_key), count)
-    if metadata.get(hash_key) != digest:
-        bad[hash_key] = (metadata.get(hash_key), digest)
-    if metadata.get(fill_key) != fill_counts:
-        bad[fill_key] = (metadata.get(fill_key), fill_counts)
-for name, key in (
-    ("model.pt", "model_checkpoint_sha256"),
-    ("training_history.csv", "training_history_sha256"),
-):
-    path = root / name
-    observed = (
-        hashlib.sha256(path.read_bytes()).hexdigest()
-        if path.is_file() else None
-    )
-    if metadata.get(key) != observed:
-        bad[key] = (metadata.get(key), observed)
-legality = metadata.get("action_legality_diagnostics")
-if (
-    not isinstance(legality, dict)
-    or legality.get("self_target_actions") != 0
-    or legality.get("duplicate_target_actions") != 0
-    or metadata.get("raw_predicted_action_count")
-    != legality.get("raw_predicted_action_count")
-    or metadata.get("materialized_distinct_action_count")
-    != legality.get("materialized_distinct_action_count")
-    or metadata.get("offline_nn_entries")
-    != metadata.get("materialized_distinct_action_count")
-):
-    bad["action_legality_diagnostics"] = (
-        legality, "zero self/duplicates and metadata-bound raw/materialized counts"
-    )
-if bad:
-    raise SystemExit("invalid 623 SPP v18 metadata: {}".format(bad))
-PY
-}
-
-assert_model_metadata_v19() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" <<'PY'
-import csv
-import hashlib
-import json
-import re
-import runpy
-import sys
-from pathlib import Path
-
-metadata_path = Path(sys.argv[1])
-source_contract = Path(sys.argv[2])
-point_contract = runpy.run_path(sys.argv[3])["describe_model_points"]()
-metadata = json.loads(metadata_path.read_text())
-root = metadata_path.parent
-source_inputs = point_contract["external_input_fields"]
-expected = {
-    "run_id": point_contract["run_id"],
-    "trace": point_contract["trace"],
-    "matched_normal_prefetcher": point_contract["policy"],
-    "neural_role": "standalone_direct_action_prefetcher",
-    "model_family": "lstm",
-    "track_model_family": "lstm",
-    "operation": point_contract["operation"],
-    "experiment_revision": point_contract["experiment_revision"],
-    "model_revision": point_contract["model_revision"],
-    "decoder_revision": point_contract["decoder_revision"],
-    "source_decision_effective_external_input": source_inputs,
-    "training_runtime_fields": source_inputs,
-    "inference_runtime_fields": source_inputs,
-    "runtime_feature_count": point_contract["runtime_feature_count"],
-    "same_external_input_contract": True,
-    "training_inference_input_encoder_identical": True,
-    "decoder_training_mode": "sampled_rank_grammar_rollout_with_separate_teacher_prefix_output_nll",
-    "decoder_previous_teacher_action_used_as_input": True,
-    "decoder_previous_teacher_action_used_as_input_scope": "isolated_loss_only_teacher_prefix_likelihood_branch",
-    "decoder_previous_teacher_action_used_as_main_rollout_input": False,
-    "teacher_count_role": "labels_STOP_or_EMIT_only_at_ranks_reached_by_sampled_rollout",
-    "teacher_count_used_as_decoder_feedback": False,
-    "teacher_prefix_role": "loss_only_exact_autoregressive_target_likelihood_branch",
-    "teacher_prefix_advances_loss_only_likelihood_byte_state": True,
-    "teacher_prefix_used_as_main_rollout_recurrent_feedback": False,
-    "teacher_target_conditions_loss_only_fill_factor": True,
-    "teacher_action_values_used_as_main_rollout_recurrent_feedback": False,
-    "model_does_not_use_pc": True,
-    "model_input_is_causal_external_event_sequence_only": True,
-    "cache_fill_feedback_used_as_raw_external_input": True,
-    "teacher_actions_are_model_inputs": False,
-    "teacher_actions_are_model_inputs_scope": "external_or_runtime_inference_inputs_only",
-    "teacher_actions_used_as_supervised_output_conditioning": True,
-    "normal_policy_outputs_used_as_model_inputs": False,
-    "normal_policy_candidates_used_as_model_inputs": False,
-    "normal_policy_private_state_used_as_model_inputs": False,
-    "normal_policy_outputs_used_as_training_targets": True,
-    "normal_policy_request_rate_used_as_budget": False,
-    "probability_threshold_used": False,
-    "threshold_related_hardcodes_used": False,
-    "neural_degree_cap": None,
-    "gate_training_objective": None,
-    "gate_decoding_rule": None,
-    "request_count_training_objective": "rankwise_unweighted_stop_emit_categorical_nll",
-    "request_count_decoding_rule": "first_keyed_learned_STOP_token_ends_action_sequence",
-    "request_count_sampling_performed": True,
-    "stop_emit_sampling_rule": "event_rank_keyed_categorical_inverse_cdf",
-    "stop_emit_sampler_representability_check": "STOP_mass_strictly_above_open_uniform_half_bin",
-    "action_rollout_fail_closed_watchdog_ranks": point_contract["action_rollout_watchdog_ranks"],
-    "action_rollout_watchdog_role": "error_without_replay_not_truncation_or_forced_STOP",
-    "action_rollout_watchdog_is_neural_degree_cap": False,
-    "delta_mixture_components": 0,
-    "delta_training_objective": "exact_autoregressive_teacher_prefix_canonical_leb128_nll_with_sampled_history_duplicate_support",
-    "delta_decoding_rule": "keyed_exact_signed_zigzag_canonical_leb128",
-    "delta_zero_allowed": True,
-    "self_target_actions_allowed": True,
-    "delta_legality_constraints": ["distinct_target_within_callback"],
-    "delta_legality_fallback": None,
-    "duplicate_target_handling": "mask_categorical_probability_and_renormalize",
-    "duplicate_prefix_feasibility_mask_used": True,
-    "fill_training_objective": "unweighted_two_class_cross_entropy_conditioned_on_teacher_target_loss_only",
-    "fill_conditioned_on_actual_emitted_target": True,
-    "fill_argmax_used": False,
-    "optimizer_gradient_normalization": "total_categorical_atom_count_per_accumulation_group",
-    "routed_demand_fill_recurrent_paths": True,
-    "page_local_causal_state": True,
-    "common_random_numbers_across_capacities": True,
-    "strict_common_random_numbers_across_capacities": True,
-    "cross_event_rng_state_used": False,
-    "decoder_sampling_roles": ["train", "eval"],
-    "decoder_train_sampling_performed": True,
-    "decoder_guard_sampling_performed": False,
-    "decoder_count_sampling_performed": True,
-    "sampled_outputs_used_as_decoder_feedback": True,
-    "decoder_previous_teacher_action_used_as_input": True,
-    "weights_retrained": True,
-    "checkpoint_reused": False,
-    "guard_selected_decoder": False,
-    "same_source_input_offline_claim_allowed": True,
-    "closed_loop_live_claim_allowed": False,
-    "keyed_sampling_self_test": "PASS",
-    "rank_stop_emit_grammar_self_test": "PASS",
-    "exact_leb128_codec_self_test": "PASS",
-    "duplicate_prefix_no_dead_end_self_test": "PASS",
-    "teacher_prefix_state_isolation_self_test": "PASS",
-    "stop_sampler_representability_self_test": "PASS",
-    "always_emit_watchdog_self_test": "PASS",
-    "integer_csv_exactness_self_test": "PASS",
-    "target_conditioned_fill_self_test": "PASS",
-    "routed_page_state_self_test": "PASS",
-    "collection_manifest_role": "historical_input_package_provenance_only",
-    "collection_manifest_decoder_fields_are_current_contract": False,
-}
-bad = {
-    key: (metadata.get(key), value)
-    for key, value in expected.items() if metadata.get(key) != value
-}
-points = {
-    (item["size"], item["pair_id"], item["tag"]): item["parameter_count"]
-    for item in point_contract["points"]
-}
-point = (
-    metadata.get("model_size"), metadata.get("architecture_pair_id"),
-    metadata.get("model_tag"),
-)
-if point not in points or metadata.get("parameter_count") != points.get(point):
-    bad["model_point"] = (point, "pinned v19 point")
-if metadata.get("model_point_contract") != point_contract:
-    bad["model_point_contract"] = (metadata.get("model_point_contract"), point_contract)
-encoder_hashes = {
-    metadata.get("runtime_encoder_sha256"),
-    metadata.get("training_runtime_encoder_sha256"),
-    metadata.get("inference_runtime_encoder_sha256"),
-}
-if len(encoder_hashes) != 1 or re.fullmatch(r"[0-9a-f]{64}", next(iter(encoder_hashes), "")) is None:
-    bad["runtime_encoder_sha256"] = (encoder_hashes, "one shared SHA256")
-for key in (
-    "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
-    "decoder_eval_event_key_stream_sha256", "decoder_eval_sampling_schedule_sha256",
-    "decoder_train_sampling_schedule_sha256", "decision_router_source_sha256",
-    "train_decision_router_sha256", "guard_decision_router_sha256",
-    "eval_decision_router_sha256", "model_checkpoint_sha256",
-    "training_history_sha256",
-):
-    if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
-        bad[key] = (metadata.get(key), "SHA256")
-if not source_contract.is_file():
-    bad["source_contract"] = (None, str(source_contract))
-else:
-    observed = hashlib.sha256(source_contract.read_bytes()).hexdigest()
-    if metadata.get("source_contract_sha256") != observed:
-        bad["source_contract_sha256"] = (metadata.get("source_contract_sha256"), observed)
-
-def replay_info(path, allow_empty):
-    count = 0
-    fills = {"FILL_L2": 0, "FILL_LLC": 0}
-    with path.open(newline="") as handle:
-        reader = csv.reader(handle)
-        if next(reader, None) != ["pc", "line", "occ", "prefetch_addr", "fill_level"]:
-            raise SystemExit("invalid replay header {}".format(path))
-        for fields in reader:
-            if len(fields) != 5 or int(fields[4], 0) not in (2, 4):
-                raise SystemExit("invalid replay row {}".format(path))
-            fills["FILL_L2" if int(fields[4], 0) == 2 else "FILL_LLC"] += 1
-            count += 1
-    if not allow_empty and not count:
-        raise SystemExit("empty normal replay")
-    return count, hashlib.sha256(path.read_bytes()).hexdigest(), fills
-
-for name, count_key, hash_key, fill_key, allow_empty in (
-    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
-    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
-):
-    path = root / name
-    if not path.is_file():
-        bad[name] = (None, "present")
-        continue
-    count, digest, fills = replay_info(path, allow_empty)
-    for key, actual in ((count_key, count), (hash_key, digest), (fill_key, fills)):
-        if metadata.get(key) != actual:
-            bad[key] = (metadata.get(key), actual)
-legality = metadata.get("action_legality_diagnostics")
-if (
-    not isinstance(legality, dict)
-    or legality.get("duplicate_target_actions") != 0
-    or legality.get("self_target_actions_allowed") is not True
-    or legality.get("delta_legality_fallback") is not None
-    or metadata.get("offline_nn_entries")
-       != metadata.get("materialized_distinct_action_count")
-    or metadata.get("raw_predicted_action_count")
-       != metadata.get("materialized_distinct_action_count")
-):
-    bad["action_legality_diagnostics"] = (legality, "v19 exact distinct action accounting")
-if (
-    not isinstance(metadata.get("peak_persistent_recurrent_state_bytes"), int)
-    or metadata.get("peak_persistent_recurrent_state_bytes") <= 0
-    or not isinstance(metadata.get("dynamic_page_state_pages"), int)
-    or metadata.get("dynamic_page_state_pages") <= 0
-):
-    bad["dynamic_state_accounting"] = (
-        metadata.get("peak_persistent_recurrent_state_bytes"),
-        metadata.get("dynamic_page_state_pages"),
-    )
-if bad:
-    raise SystemExit("invalid 623 SPP v19 metadata: {}".format(bad))
-PY
-}
-assert_model_metadata_v20() {
-  python3 - "$1" "$SOURCE_CONTRACT_INPUT" "$MODEL_POINTS_SCRIPT" \
-    "$TRAINER" "$THRESHOLD_FREE_POLICY" "$KEYED_SAMPLING" <<'PY'
-import csv
-import hashlib
-import json
-import re
-import runpy
-import sys
-from pathlib import Path
-
-(
-    metadata_path, source_path, contract_path, trainer_path,
-    threshold_policy_path, keyed_sampling_path,
-) = map(Path, sys.argv[1:])
-namespace = runpy.run_path(str(contract_path))
-contract = namespace["describe_model_points"]()
-expected_parameter_count = namespace["expected_parameter_count"]
-metadata = json.loads(metadata_path.read_text())
-root = metadata_path.parent
-source_inputs = contract["external_input_fields"]
-expected = {
-    "run_id": contract["run_id"], "trace": contract["trace"],
-    "matched_normal_prefetcher": contract["policy"],
-    "neural_role": "standalone_direct_action_prefetcher",
-    "model_family": "lstm", "track_model_family": "lstm",
-    "operation": contract["operation"],
-    "experiment_revision": contract["experiment_revision"],
-    "model_revision": contract["model_revision"],
-    "decoder_revision": contract["decoder_revision"],
-    "source_decision_effective_external_input": source_inputs,
-    "training_runtime_fields": source_inputs,
-    "inference_runtime_fields": source_inputs,
-    "runtime_feature_count": contract["runtime_feature_count"],
-    "same_external_input_contract": True,
-    "training_inference_input_encoder_identical": True,
-    "decoder_training_mode": "fully_supervised_independent_ranks_no_action_feedback",
-    "decoder_previous_teacher_action_used_as_input": False,
-    "teacher_action_values_used_as_decoder_feedback": False,
-    "sampled_outputs_used_as_decoder_feedback": False,
-    "model_does_not_use_pc": True,
-    "pc_is_replay_transport_only": True,
-    "normal_policy_outputs_used_as_model_inputs": False,
-    "normal_policy_candidates_used_as_model_inputs": False,
-    "normal_policy_private_state_used_as_model_inputs": False,
-    "normal_policy_outputs_used_as_training_targets": True,
-    "normal_policy_request_rate_used_as_budget": False,
-    "normal_policy_constants_used_by_neural_inference": False,
-    "probability_threshold_used": False,
-    "threshold_related_hardcodes_used": False,
-    "inference_policy_hardcodes_used": False,
-    "neural_degree_cap": None,
-    "fixed_page_offset_classes": None,
-    "same_page_rule_used_by_neural_inference": False,
-    "delta_other_escape": contract["delta_other_escape"],
-    "delta_other_decode_precision": contract["delta_other_decode_precision"],
-    "full_signed_line_delta_range_reachable": False,
-    "every_signed_line_delta_exactly_representable": False,
-    "exact_delta_representability_scope": "train_vocabulary_only",
-    "request_count_sampling_performed": False,
-    "fill_argmax_used": False,
-    "fill_conditioned_on_actual_emitted_target": True,
-    "global_chronological_lstm": True,
-    "routed_demand_fill_recurrent_paths": False,
-    "page_local_causal_state": False,
-    "common_random_numbers_across_capacities": True,
-    "strict_common_random_numbers_across_capacities": True,
-    "decoder_train_sampling_performed": False,
-    "decoder_guard_sampling_performed": True,
-    "decoder_eval_sampling_performed": True,
-    "guard_selected_checkpoint": True,
-    "evaluation_used_for_selection": False,
-    "evaluation_decode_count": 1,
-    "output_materialization_watchdog_is_neural_degree_cap": False,
-    "same_source_input_offline_claim_allowed": True,
-    "closed_loop_live_claim_allowed": False,
-    "keyed_sampling_self_test": "PASS",
-    "integer_csv_exactness_self_test": "PASS",
-    "cublas_workspace_config": ":4096:8",
-    "torch_deterministic_algorithms_enabled": True,
-    "cudnn_deterministic": True,
-    "cudnn_benchmark": False,
-    "float32_matmul_precision": "highest",
-    "determinism_fail_closed": True,
-}
-expected.update(contract["training_config"])
-bad = {key: (metadata.get(key), value) for key, value in expected.items()
-       if metadata.get(key) != value}
-if metadata.get("model_point_contract") != contract:
-    bad["model_point_contract"] = (metadata.get("model_point_contract"), contract)
-if metadata.get("training_config") != contract["training_config"]:
-    bad["training_config"] = (metadata.get("training_config"), contract["training_config"])
-if "A100" not in str(metadata.get("cuda_device_name", "")):
-    bad["cuda_device_name"] = (metadata.get("cuda_device_name"), "NVIDIA A100")
-for key, path in (
-    ("trainer_source_sha256", trainer_path),
-    ("model_contract_source_sha256", contract_path),
-    ("threshold_free_policy_source_sha256", threshold_policy_path),
-    ("decoder_sampler_source_sha256", keyed_sampling_path),
-):
-    observed = hashlib.sha256(path.read_bytes()).hexdigest()
-    if metadata.get(key) != observed:
-        bad[key] = (metadata.get(key), observed)
-points = {(point["size"], point["pair_id"], point["tag"]): point
-          for point in contract["points"]}
-point_key = (metadata.get("model_size"), metadata.get("architecture_pair_id"),
-             metadata.get("model_tag"))
-point = points.get(point_key)
-vocab = metadata.get("exact_delta_vocabulary_size")
-if point is None or not isinstance(vocab, int) or not 0 < vocab <= 255:
-    bad["model_point"] = (point_key, "configured v20 point and 1..255 TRAIN vocabulary")
-elif metadata.get("parameter_count") != expected_parameter_count(point_key[0], vocab):
-    bad["parameter_count"] = (metadata.get("parameter_count"),
-                              expected_parameter_count(point_key[0], vocab))
-hashes = {metadata.get("runtime_encoder_sha256"),
-          metadata.get("training_runtime_encoder_sha256"),
-          metadata.get("inference_runtime_encoder_sha256")}
-if len(hashes) != 1 or re.fullmatch(r"[0-9a-f]{64}", next(iter(hashes), "")) is None:
-    bad["runtime_encoder_sha256"] = (hashes, "one shared SHA256")
-for key in (
-    "decoder_sampler_source_sha256", "decoder_sampler_key_schedule_sha256",
-    "decoder_guard_event_key_stream_sha256", "decoder_eval_event_key_stream_sha256",
-    "decoder_guard_sampling_schedule_sha256", "decoder_eval_sampling_schedule_sha256",
-    "decision_router_source_sha256", "train_decision_router_sha256",
-    "guard_decision_router_sha256", "eval_decision_router_sha256",
-    "model_checkpoint_sha256", "training_history_sha256",
-):
-    if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
-        bad[key] = (metadata.get(key), "SHA256")
-if not source_path.is_file() or metadata.get("source_contract_sha256") != hashlib.sha256(source_path.read_bytes()).hexdigest():
-    bad["source_contract_sha256"] = (metadata.get("source_contract_sha256"), "current source contract")
-
-def replay_info(path, allow_empty):
-    count = 0; fills = {"FILL_L2": 0, "FILL_LLC": 0}
-    with path.open(newline="") as handle:
-        reader = csv.reader(handle)
-        if next(reader, None) != ["pc", "line", "occ", "prefetch_addr", "fill_level"]:
-            raise SystemExit("invalid replay header {}".format(path))
-        for fields in reader:
-            if len(fields) != 5 or int(fields[4], 0) not in (2, 4):
-                raise SystemExit("invalid replay row {}".format(path))
-            fills["FILL_L2" if int(fields[4], 0) == 2 else "FILL_LLC"] += 1
-            count += 1
-    if not allow_empty and not count:
-        raise SystemExit("empty normal replay")
-    return count, hashlib.sha256(path.read_bytes()).hexdigest(), fills
-
-for name, count_key, hash_key, fill_key, allow_empty in (
-    ("offline_spp.replay.csv", "offline_normal_entries", "normal_list_sha256", "offline_normal_fill_level_counts", False),
-    ("offline_nn.replay.csv", "offline_nn_entries", "nn_list_sha256", "offline_nn_fill_level_counts", True),
-):
-    path = root / name
-    if not path.is_file():
-        bad[name] = (None, "present"); continue
-    count, digest, fills = replay_info(path, allow_empty)
-    for key, actual in ((count_key, count), (hash_key, digest), (fill_key, fills)):
-        if metadata.get(key) != actual: bad[key] = (metadata.get(key), actual)
-diagnostics = metadata.get("action_output_diagnostics")
-if (
-    not isinstance(diagnostics, dict)
-    or metadata.get("offline_nn_entries") != metadata.get("materialized_action_count")
-    or metadata.get("raw_predicted_action_count") != metadata.get("materialized_action_count")
-    or diagnostics.get("duplicate_outputs_are_preserved_for_replay") is not True
-):
-    bad["action_output_diagnostics"] = (diagnostics, "list-preserving v20 output accounting")
-if bad:
-    raise SystemExit("invalid 623 SPP v20 metadata: {}".format(bad))
-print("[PASS] validated {}".format(metadata.get("model_tag")))
-PY
+# Active v21 validation is shared by both 623 tracks and imports only the
+# torch-free model contract.  Historical validators remain in git history
+# instead of the active replay path.
+assert_model_metadata_v21() {
+  python3 "$VALIDATE_MODEL_METADATA" \
+    --track spp --metadata "$1" --experiment-dir "$EXP"
 }
 
 run_method() {
@@ -1048,7 +412,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_independent_vocab_spp_lstm_*)
+    offline_stop_emit_vocab_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -1068,6 +432,7 @@ run_method() {
 require_colab_outputs() {
   local tag
   validate_preserved_inputs
+  prepare_colab_output_archive
   python3 "$INSTALL_COLAB_OUTPUT" \
     --archive "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
     --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
@@ -1079,13 +444,17 @@ require_colab_outputs() {
         exit 2
       }
     done
-    assert_model_metadata_v20 "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v21 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 
-analyze() {
-  validate_preserved_inputs
+run_analyzer() {
   python3 "$ANALYZE" --run-dir "$RUN_DIR" --model-tags "$MODEL_TAGS_CSV"
+}
+
+analyze() {
+  require_colab_outputs
+  run_analyzer
 }
 
 replay() {
@@ -1097,7 +466,7 @@ replay() {
   run_method offline_spp
   local tag
   for tag in "${MODEL_TAGS[@]}"; do run_method "offline_$tag"; done
-  analyze
+  run_analyzer
 }
 
 case "$STAGE" in

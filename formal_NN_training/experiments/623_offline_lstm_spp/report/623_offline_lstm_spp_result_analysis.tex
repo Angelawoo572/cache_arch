@@ -35,10 +35,10 @@
 \begin{infobox}[colback=orange!8,colframe=orange]
 \textbf{Historical-results boundary.}  All numerical results in this document
 are from the completed v11 artifact shown below.  The current implementation is
-\texttt{global\_chronological\_lstm\_independent\_actions\_v20} with default run
-\texttt{623\_offline\_lstm\_spp\_independent\_vocab\_v20\_seed7}; its replay
+\texttt{global\_chronological\_lstm\_rank\_stop\_emit\_v21} with default run
+\texttt{623\_offline\_lstm\_spp\_stop\_emit\_vocab\_v21\_seed7}; its replay
 results are pending and must not be inferred from these tables.  Because the
-recorded fill-callback stream comes from source SPP, v20 supports a matched-input
+recorded fill-callback stream comes from source SPP, v21 supports a matched-input
 offline claim, not a closed-loop live-NN claim.
 \end{infobox}
 \begin{center}
@@ -54,9 +54,22 @@ offline claim, not a closed-loop live-NN claim.
 Primary comparison & Offline SPP actions versus independently generated LSTM actions, replayed through the same transport and measured against the same no-prefetch baseline.\\
 Shared external input & chronological DEMAND(address) and CACHE\_FILL(evicted-address) callbacks.\\
 Neural history & stateful LSTM over complete train--guard--evaluation chronology; chronological TBPTT carries and detaches state.\\
+Current output model & each rank independently predicts STOP or EMIT from the chronological callback state and rank code.  EMIT chooses a dynamic TRAIN-only exact-delta class or OTHER coordinate; a target/rank-conditioned fill head uses deterministic MAP.  Every teacher action and the terminal STOP are supervised, with no separate count head or prior-action feedback.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
-Historical run artifact & \texttt{623\_offline\_lstm\_spp\_variable\_delta\_free\_running\_v11\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v20 or useful neural behavior.\\
+Historical run artifact & \texttt{623\_offline\_lstm\_spp\_variable\_delta\_free\_running\_v11\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v21 or useful neural behavior.\\
 \end{tabularx}
+\end{infobox}
+
+\begin{infobox}[colback=blue!5,colframe=blue]
+\textbf{v21 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
+are trained because 602 showed non-monotone capacity and fill-collapse effects.
+The naturally denser STOP/EMIT token stream uses unweighted categorical loss;
+the rare fill classes use only TRAIN-derived inverse-frequency weights.
+Inference is deterministic argmax.  The guard key is lexicographic over joint
+target/fill F1, target F1, L2-joint F1, trigger F1, exact count, fill accuracy,
+train loss, and epoch; no heterogeneous average is formed.  Evaluation never
+selects a checkpoint, but prior 623 iterations have already inspected this
+benchmark region, so the replay is not a pristine once-only confirmatory test.
 \end{infobox}
 
 \section*{1. What is measured}
@@ -241,7 +254,7 @@ IPC.
 \begin{itemize}[itemsep=1pt,topsep=1pt]
 \item Offline SPP is itself a weak but positive comparator on 623: IPC 0.35390 versus 0.35321, with 2.38\% miss reduction and only 0.304\% coverage.
 \item Every LSTM model predicts zero actions.  IPC, miss rate, and cache counters therefore equal no prefetch; accuracy and timeliness are undefined rather than evidence of precise behavior.
-\item Because both LSTM and CNN collapse identically and target F1 is zero, the immediate evidence points to action-count/label imbalance or decoder learning, not to a clean recurrent-versus-convolutional architecture result.
+\item Because all three displayed historical LSTM capacities collapse identically and target F1 is zero, the immediate evidence points to action-count/label imbalance or decoder learning; the table does not establish a recurrent-versus-convolutional architecture result.
 \end{itemize}
 \end{infobox}
 
