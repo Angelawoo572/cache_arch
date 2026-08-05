@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Torch-free source of truth for the matched-input 623 Stride v21 sweep.
+"""Torch-free source of truth for the matched-input 623 Stride v22 sweep.
 
 The neural runtime sees only lossless ``pc64`` and aligned ``line58`` bits.
 Captured Stride actions are TRAIN labels and offline-normal replay entries, not
-runtime features, candidates, budgets, prefixes, or templates.  A single LSTM
-is routed by exact PC.  Its rank-conditioned decoder independently predicts a
-binary STOP/EMIT action and, on EMIT, a current-demand-relative delta.
+runtime features, candidates, budgets, prefixes, or templates.  One LSTM is
+routed by exact PC.  A callback-level learned hurdle predicts zero versus
+positive cardinality, a positive-only log-count head predicts the finite
+deterministic count, and a rank-conditioned head emits direct signed deltas.
 
 The exact delta alphabet is derived from TRAIN and is therefore known only
 after the input archive is loaded.  Contract points expose the maximum weight
@@ -14,20 +15,21 @@ and parameter counts.
 """
 import argparse
 import json
+import math
 from decimal import Decimal, InvalidOperation
 
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
-RUN_ID = "623_offline_lstm_stride_rank_stop_emit_v21_seed7"
+RUN_ID = "623_offline_lstm_stride_raw_hurdle_count_v22_seed7"
 
 # The collected bytes are reused unchanged.  This names their source-input
-# revision, not the v21 model or decoder revision.
+# revision, not the v22 model or decoder revision.
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "pc_keyed_raw_rank_stop_emit_v21"
-DECODER_REVISION = "deterministic_rank_stop_emit_train_vocab_v21"
-OPERATION = "train-v21"
-MODEL_TAG_PREFIX = "rank_stop_emit_stride_lstm_h"
+MODEL_REVISION = "pc_keyed_raw_hurdle_count_rank_delta_v22"
+DECODER_REVISION = "deterministic_hurdle_log_count_train_vocab_v22"
+OPERATION = "train-v22"
+MODEL_TAG_PREFIX = "hurdle_count_stride_lstm_h"
 MODEL_POINTS = {
     "lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}
 }
@@ -50,31 +52,33 @@ RAW_RUNTIME_FEATURES = RUNTIME_FEATURES
 CAUSAL_RUNTIME_FEATURES = 0
 
 # The realized alphabet has C=|TRAIN exact vocabulary|+1 rows.  The final row
-# is OTHER.  255 is capacity, not a page topology or request-degree cap.
+# is OTHER.  255 is vocabulary capacity, not a page topology or degree cap.
 MAX_EXACT_DELTA_CLASSES = 255
 MAX_DELTA_OUTPUT_CLASSES = MAX_EXACT_DELTA_CLASSES + 1
 RANK_CODE_FEATURES = 8
-RANK_DECISION_CLASSES = 2
-STOP_CLASS = 0
-EMIT_CLASS = 1
+ZERO_CLASS = 0
+POSITIVE_CLASS = 1
 SOURCE_INPUTS = ("pc", "addr")
+MAX_HOST_ACTION_COUNT = (1 << 63) - 1
 DECODE_PER_CALLBACK_WATCHDOG = 4096
 DECODE_PER_ROLE_WATCHDOG = 10000000
 
 DECODER_TRAINING_MODE = (
-    "independent_rank_STOP_EMIT_with_each_teacher_action_and_terminal_STOP_"
+    "callback_hurdle_and_positive_log_count_plus_teacher_rank_direct_delta_"
     "without_teacher_or_predicted_action_feedback"
 )
-RANK_DECISION_OBJECTIVE = (
-    "TRAIN_inverse_frequency_STOP_EMIT_cross_entropy_with_equal_aggregate_"
+HURDLE_OBJECTIVE = (
+    "TRAIN_inverse_frequency_zero_positive_cross_entropy_with_equal_aggregate_"
     "class_mass"
 )
+COUNT_OBJECTIVE = "positive_only_log_count_smooth_l1"
 DELTA_OBJECTIVE = (
     "dynamic_TRAIN_exact_delta_cross_entropy_plus_every_emitted_rank_signed_"
     "log_auxiliary_smooth_l1"
 )
 DECODING_RULE = (
-    "deterministic_rank_loop_argmax_STOP_or_EMIT_until_STOP_then_delta_MAP"
+    "deterministic_hurdle_argmax_then_finite_rounded_exp_positive_log_count_"
+    "and_rank_conditioned_delta_MAP"
 )
 CHECKPOINT_SELECTION = (
     "guard_only_lexicographic_target_f1_trigger_f1_count_exact_negative_"
@@ -100,11 +104,85 @@ def parse_exact_integer(value):
     return int(decimal)
 
 
+def hurdle_statistics_from_counts(counts):
+    """Return the unique TRAIN-derived balanced hurdle weights and biases.
+
+    Inverse-frequency weights make the aggregate weighted mass of zero and
+    positive labels exactly equal.  The initial logits are the centered log of
+    those effective masses.  They are therefore neutral (0, 0), but are
+    derived and checked from the same TRAIN counts rather than hand selected.
+    The positive log-count intercept is the finite mean TRAIN log count.
+    """
+    integers = [int(value) for value in counts]
+    if not integers or any(value < 0 for value in integers):
+        raise ValueError("hurdle counts must be a nonempty nonnegative sequence")
+    zero = sum(value == 0 for value in integers)
+    positive_values = [value for value in integers if value > 0]
+    positive = len(positive_values)
+    if zero <= 0 or positive <= 0:
+        raise ValueError("hurdle training requires zero and positive TRAIN rows")
+    total = zero + positive
+    frequencies = [zero, positive]
+    weights = [total / float(2 * frequency) for frequency in frequencies]
+    weighted_mass = [
+        frequencies[index] * weights[index] for index in range(2)
+    ]
+    effective_prior = [value / sum(weighted_mass) for value in weighted_mass]
+    raw_bias = [math.log(value) for value in effective_prior]
+    center = sum(raw_bias) / 2.0
+    initial_bias = [value - center for value in raw_bias]
+    positive_log_bias = sum(
+        math.log(value) for value in positive_values
+    ) / float(positive)
+    values = weights + effective_prior + initial_bias + [positive_log_bias]
+    if not all(math.isfinite(value) for value in values):
+        raise ValueError("non-finite TRAIN-derived hurdle initialization")
+    return {
+        "zero_labels": zero,
+        "positive_labels": positive,
+        "total_callbacks": total,
+        "class_weights_ZERO_POSITIVE": weights,
+        "weighted_zero_mass": weighted_mass[ZERO_CLASS],
+        "weighted_positive_mass": weighted_mass[POSITIVE_CLASS],
+        "effective_weighted_class_prior_ZERO_POSITIVE": effective_prior,
+        "hurdle_initial_bias_ZERO_POSITIVE": initial_bias,
+        "positive_log_count_initial_bias": positive_log_bias,
+        "weight_formula": "N/(2*N_class)",
+        "source": "TRAIN callback zero/positive action counts only",
+    }
+
+
+def positive_count_mode(log_count, host_max=MAX_HOST_ACTION_COUNT):
+    """Map a learned real log-count to a finite positive host integer.
+
+    The learned coordinate is mathematically unbounded.  The implementation
+    never clips or wraps it: non-finite or out-of-domain results fail closed.
+    """
+    value = float(log_count)
+    maximum = int(host_max)
+    if maximum < 1:
+        raise ValueError("host count maximum must be positive")
+    if not math.isfinite(value):
+        raise ValueError("positive log-count is not finite")
+    if value > math.log(float(maximum)):
+        raise ValueError("positive log-count exceeds host integer domain")
+    try:
+        magnitude = math.exp(value)
+    except OverflowError as exc:
+        raise ValueError("positive log-count exceeds host integer domain") from exc
+    if not math.isfinite(magnitude):
+        raise ValueError("positive log-count exceeds host integer domain")
+    count = max(1, int(math.floor(magnitude + 0.5)))
+    if count > maximum:
+        raise ValueError("rounded positive count exceeds host integer domain")
+    return count
+
+
 def expected_parameter_count(hidden_size, delta_output_classes=None):
     """Return realized weights for C classes, or the C=256 maximum.
 
-    Modules are raw projection, one LSTM, rank projection, STOP/EMIT head,
-    dynamic delta-class head, and one signed-log coordinate head.
+    Modules are raw projection, one LSTM, rank projection, two-class hurdle,
+    positive log-count, dynamic delta-class, and signed-log coordinate heads.
     """
     hidden_size = int(hidden_size)
     classes = (
@@ -117,30 +195,27 @@ def expected_parameter_count(hidden_size, delta_output_classes=None):
         raise ValueError("delta output classes must be in [2, 256]")
     return (
         8 * hidden_size * hidden_size
-        + (
-            RUNTIME_FEATURES + RANK_CODE_FEATURES + classes + 13
-        ) * hidden_size
-        + classes + 3
+        + (RUNTIME_FEATURES + RANK_CODE_FEATURES + classes + 14) * hidden_size
+        + classes + 4
     )
 
 
 def model_tag(hidden_size):
     hidden_size = int(hidden_size)
     if hidden_size not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported Stride v21 hidden size")
+        raise ValueError("unsupported Stride v22 hidden size")
     return MODEL_TAG_PREFIX + str(hidden_size)
 
 
 def model_points_description():
     points = []
     for hidden_size, pair_id in sorted(MODEL_POINTS["lstm"].items()):
-        maximum = expected_parameter_count(hidden_size)
         points.append({
             "model_family": "lstm",
             "model_size": hidden_size,
             "architecture_pair_id": pair_id,
             "model_tag": model_tag(hidden_size),
-            "maximum_parameter_count": maximum,
+            "maximum_parameter_count": expected_parameter_count(hidden_size),
         })
     return {
         "operation": OPERATION,
@@ -151,7 +226,8 @@ def model_points_description():
         "model_revision": MODEL_REVISION,
         "decoder_revision": DECODER_REVISION,
         "decoder_training_mode": DECODER_TRAINING_MODE,
-        "rank_decision_training_objective": RANK_DECISION_OBJECTIVE,
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "positive_count_training_objective": COUNT_OBJECTIVE,
         "delta_training_objective": DELTA_OBJECTIVE,
         "decoding_rule": DECODING_RULE,
         "checkpoint_selection": CHECKPOINT_SELECTION,
@@ -163,22 +239,33 @@ def model_points_description():
         "normal_policy_private_state_used_as_model_inputs": False,
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_outputs_used_as_training_targets": True,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
-        "log_count_used": False,
-        "rank_decision_classes": ["STOP", "EMIT"],
-        "rank_decision_class_indices": {"STOP": STOP_CLASS, "EMIT": EMIT_CLASS},
-        "rank_decision_class_weight_source": "TRAIN_actions_plus_terminal_STOPs",
-        "rank_decision_class_weight_formula": "N/(2*N_class)",
-        "rank_decision_equal_aggregate_train_mass": True,
-        "rank_decision_bias_initialization": "zeros",
-        "terminal_stop_supervised_for_every_teacher_sequence": True,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "log_count_used": True,
+        "hurdle_classes": ["ZERO", "POSITIVE"],
+        "hurdle_class_indices": {"ZERO": ZERO_CLASS, "POSITIVE": POSITIVE_CLASS},
+        "hurdle_class_weight_source": "TRAIN_callback_zero_positive_counts",
+        "hurdle_class_weight_formula": "N/(2*N_class)",
+        "hurdle_equal_aggregate_train_mass": True,
+        "hurdle_bias_initialization": (
+            "centered_log_effective_weighted_TRAIN_class_mass"
+        ),
+        "positive_log_count_bias_initialization": (
+            "mean_log_positive_TRAIN_count"
+        ),
+        "positive_count_support": "mathematically_unbounded_positive_integers",
+        "positive_count_host_behavior": "fail_closed_no_clip_or_wrap",
+        "positive_count_mode": "max_1_round_exp_log_count",
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
         "delta_vocabulary_source": "train_labels_only",
         "delta_vocabulary_max_exact": MAX_EXACT_DELTA_CLASSES,
         "delta_output_classes": "realized_exact_classes_plus_one_OTHER",
         "maximum_delta_output_classes": MAX_DELTA_OUTPUT_CLASSES,
         "delta_class_bias_initialization": (
             "log_add_one_smoothed_TRAIN_exact_plus_OTHER_frequency"
+        ),
+        "delta_coordinate_bias_initialization": (
+            "mean_TRAIN_signed_log_delta"
         ),
         "delta_other_escape": "signed_log_continuous_bounded_approximation",
         "delta_other_decode_precision": (
@@ -226,6 +313,7 @@ def model_points_description():
             "model_contract_source_sha256",
             "threshold_free_policy_source_sha256",
         ],
+        "maximum_host_action_count": MAX_HOST_ACTION_COUNT,
         "decode_per_callback_resource_watchdog": DECODE_PER_CALLBACK_WATCHDOG,
         "decode_per_role_resource_watchdog": DECODE_PER_ROLE_WATCHDOG,
         "decode_resource_watchdog_behavior": (
@@ -234,7 +322,7 @@ def model_points_description():
         "decode_resource_watchdog_is_neural_degree_cap": False,
         "external_input_fields": list(SOURCE_INPUTS),
         "parameter_formula": (
-            "8*H^2 + (RUNTIME_FEATURES+RANK_CODE_FEATURES+C+13)*H + C + 3; "
+            "8*H^2 + (RUNTIME_FEATURES+RANK_CODE_FEATURES+C+14)*H + C + 4; "
             "C=realized_exact_delta_classes+1"
         ),
         "parameter_count_contract": (
@@ -256,6 +344,33 @@ def self_test_contract():
         except ValueError:
             continue
         raise RuntimeError("exact integer parser accepted {!r}".format(value))
+
+    statistics = hurdle_statistics_from_counts([0, 0, 0, 1, 2])
+    weights = statistics["class_weights_ZERO_POSITIVE"]
+    if not math.isclose(3 * weights[0], 2 * weights[1]):
+        raise RuntimeError("balanced hurdle weights do not equalize TRAIN mass")
+    if any(abs(value) > 1e-12 for value in statistics[
+        "hurdle_initial_bias_ZERO_POSITIVE"
+    ]):
+        raise RuntimeError("effective balanced hurdle bias is not neutral")
+    expected_log_bias = (math.log(1) + math.log(2)) / 2.0
+    if not math.isclose(
+        statistics["positive_log_count_initial_bias"], expected_log_bias
+    ):
+        raise RuntimeError("positive log-count bias is not TRAIN-derived")
+
+    modes = [positive_count_mode(value) for value in (
+        -100.0, 0.0, math.log(1.6), math.log(2.6)
+    )]
+    if modes != [1, 1, 2, 3]:
+        raise RuntimeError("finite positive count mode changed")
+    for value in (float("nan"), float("inf"), math.log(100.0)):
+        try:
+            positive_count_mode(value, host_max=10)
+        except ValueError:
+            continue
+        raise RuntimeError("host-domain count check accepted {!r}".format(value))
+
     previous = 0
     for hidden_size in sorted(MODEL_POINTS["lstm"]):
         realized = expected_parameter_count(hidden_size, 2)
@@ -265,6 +380,17 @@ def self_test_contract():
         previous = maximum
     if RUNTIME_FEATURES != 122 or CAUSAL_RUNTIME_FEATURES != 0:
         raise RuntimeError("raw pc64+line58 contract changed")
+    description = model_points_description()
+    if (
+        description["separate_global_gate_used"] is not True
+        or description["separate_count_head_used"] is not True
+        or description["log_count_used"] is not True
+        or description["terminal_stop_supervised_for_every_teacher_sequence"]
+        is not False
+        or description["decoder_previous_teacher_action_used_as_input"]
+        or description["decoder_previous_predicted_action_used_as_input"]
+    ):
+        raise RuntimeError("v22 hurdle/count/no-feedback contract changed")
 
 
 def main():
