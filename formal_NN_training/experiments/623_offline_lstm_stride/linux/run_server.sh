@@ -32,7 +32,7 @@ VALIDATE_INPUTS="$EXP/python/validate_collected_inputs.py"
 ANALYZE="$EXP/python/analyze_replay.py"
 INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 SPLIT_COLAB_ARCHIVE="$ROOT/formal_NN_training/common/split_colab_archive.py"
-VALIDATE_MODEL_METADATA="$ROOT/formal_NN_training/common/validate_623_model_metadata.py"
+VALIDATE_MODEL_METADATA="$EXP/python/validate_active_metadata.py"
 COLLECTION_MANIFEST="$STREAM_DIR/collection_manifest.json"
 
 DEFAULT_MODEL_TAGS="$(python3 "$MODEL_CONTRACT" --tags-csv)"
@@ -41,11 +41,11 @@ MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
 BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
 
 [[ "$MODEL_TAGS_CSV" == "$DEFAULT_MODEL_TAGS" ]] || {
-  echo "[error] active v21 replay requires the exact five configured MODEL_TAGS" >&2
+  echo "[error] active v22 replay requires the exact five configured MODEL_TAGS" >&2
   exit 2
 }
 [[ "$BASE_TAG" == "$DEFAULT_BASE_TAG" ]] || {
-  echo "[error] active v21 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
+  echo "[error] active v22 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
   exit 2
 }
 
@@ -274,11 +274,11 @@ validate_preserved_inputs() {
 
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-# Active v21 validation is shared by both 623 tracks and imports only the
-# torch-free model contract, so the replay host does not need torch or numpy.
-assert_model_metadata_v21() {
+# Active v22 validation is local to Stride and imports only torch-free modules,
+# so the replay host does not need torch or numpy.
+assert_model_metadata_v22() {
   python3 "$VALIDATE_MODEL_METADATA" \
-    --track stride --metadata "$1" --experiment-dir "$EXP"
+    --metadata "$1" --input-dir "$STREAM_DIR"
 }
 
 run_method() {
@@ -313,7 +313,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_rank_stop_emit_stride_lstm_*)
+    offline_hurdle_count_stride_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -345,7 +345,7 @@ require_colab_outputs() {
         exit 2
       }
     done
-    assert_model_metadata_v21 "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v22 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 
