@@ -323,9 +323,10 @@ def validate_active_model_contract(track, stream, model):
     mode = same_value(
         name, stream, model, "decoder_training_mode", required=True
     )
+    lowered_mode = str(mode).lower()
     if not isinstance(mode, str) or not any(
-        token in mode for token in (
-            "free_running", "teacher_labels_only", "no_action_feedback",
+        token in lowered_mode for token in (
+            "free_running", "no_action_feedback",
             "without_teacher_or_predicted_action_feedback",
         )
     ):
@@ -337,16 +338,74 @@ def validate_active_model_contract(track, stream, model):
     if previous_teacher is not False:
         fail("{} feeds a previous teacher action to its decoder".format(name))
 
-    rank_objective = aliased_value(
+    hurdle_objective = aliased_value(
         name, stream, model,
-        ("rank_decision_training_objective", "stop_emit_training_objective"),
+        (
+            "hurdle_training_objective", "gate_training_objective",
+            "zero_positive_training_objective",
+            "request_hurdle_training_objective",
+        ),
         required=True,
     )
-    lowered_rank_objective = str(rank_objective).lower()
-    if "stop" not in lowered_rank_objective or "emit" not in lowered_rank_objective:
-        fail("{} does not train a direct STOP/EMIT rank decision".format(name))
-    if "threshold" in lowered_rank_objective:
-        fail("{} STOP/EMIT objective embeds a threshold".format(name))
+    lowered_hurdle_objective = str(hurdle_objective).lower()
+    if "threshold" in lowered_hurdle_objective or not any(
+        token in lowered_hurdle_objective
+        for token in ("hurdle", "categorical", "cross_entropy", "nll", "zero_positive")
+    ):
+        fail("{} hurdle objective is missing or threshold-based".format(name))
+    hurdle_classes = model.get(
+        "hurdle_classes", model.get("hurdle_class_order")
+    )
+    if hurdle_classes != ["ZERO", "POSITIVE"]:
+        indices = model.get("hurdle_class_indices")
+        if indices != {"ZERO": 0, "POSITIVE": 1}:
+            fail("{} does not expose learned ZERO/POSITIVE hurdle classes".format(
+                name
+            ))
+
+    positive_count_objective = aliased_value(
+        name, stream, model,
+        (
+            "positive_count_training_objective", "count_training_objective",
+            "positive_count_objective",
+        ),
+        required=True,
+    )
+    lowered_positive_count_objective = str(positive_count_objective).lower()
+    if not all(
+        token in lowered_positive_count_objective for token in ("positive", "count")
+    ):
+        fail("{} lacks a positive-count training objective".format(name))
+    positive_count_decoding = aliased_value(
+        name, stream, model,
+        ("positive_count_decoding_rule", "positive_count_mode"),
+        required=True,
+    )
+    lowered_positive_count_decoding = str(positive_count_decoding).lower()
+    if (
+        "threshold" in lowered_positive_count_decoding
+        or "log_count" not in lowered_positive_count_decoding
+        or not any(
+            token in lowered_positive_count_decoding
+            for token in ("round_exp", "predicted_log_count")
+        )
+    ):
+        fail("{} positive-count decode is not learned log-count decoding".format(
+            name
+        ))
+    support_values = [
+        source["positive_count_support"]
+        for source in (model, stream) if "positive_count_support" in source
+    ]
+    if not support_values:
+        fail("{} lacks positive-count support provenance".format(name))
+    for support in support_values:
+        lowered_support = str(support).lower().replace(" ", "_")
+        if "positive" not in lowered_support or not any(
+            token in lowered_support
+            for token in ("unbounded", "all_positive")
+        ):
+            fail("{} positive-count support is artificially capped".format(name))
     terminal_stop = aliased_value(
         name, stream, model,
         (
@@ -355,14 +414,10 @@ def validate_active_model_contract(track, stream, model):
         ),
         required=True,
     )
-    if terminal_stop is not True:
-        fail("{} does not supervise a terminal STOP".format(name))
-
-    for key in ("separate_global_gate_used", "separate_count_head_used", "log_count_used"):
-        if key in model and same_value(name, stream, model, key) is not False:
-            fail("{} retains the failed gate/count factorization at {}".format(
-                name, key
-            ))
+    if terminal_stop is not False:
+        fail("{} unexpectedly retains terminal STOP supervision".format(name))
+    if model.get("stop_emit_head_used") not in (None, False):
+        fail("{} unexpectedly retains a STOP/EMIT head".format(name))
     previous_sampled = aliased_value(
         name, stream, model,
         (
@@ -372,7 +427,7 @@ def validate_active_model_contract(track, stream, model):
         required=True,
     )
     if previous_sampled is not False:
-        fail("{} feeds a previous decoded action to the next rank".format(name))
+        fail("{} feeds a previous decoded action back into inference".format(name))
 
     selection = model.get(
         "checkpoint_selection", model.get("guard_selection_rule")
@@ -426,15 +481,17 @@ def validate_active_model_contract(track, stream, model):
         fail("{} does not distinguish realized dynamic-vocabulary size".format(name))
 
     if name.endswith("_stride"):
-        if "inverse_frequency" not in lowered_rank_objective:
-            fail("{} sparse STOP/EMIT loss is not TRAIN-balanced".format(name))
+        if "inverse_frequency" not in lowered_hurdle_objective:
+            fail("{} sparse hurdle loss is not TRAIN-balanced".format(name))
         if model.get("engineered_runtime_features") != []:
             fail("{} primary encoder retains engineered Stride features".format(name))
         if model.get("causal_runtime_feature_count") != 0:
             fail("{} primary encoder is not raw PC/address only".format(name))
     elif name.endswith("_spp"):
-        if not any(token in lowered_rank_objective for token in ("unweighted", "natural")):
-            fail("{} dense STOP/EMIT loss does not preserve its natural prior".format(name))
+        if not any(
+            token in lowered_hurdle_objective for token in ("unweighted", "natural", "empirical_prior")
+        ):
+            fail("{} dense hurdle loss does not preserve its natural prior".format(name))
         if model.get("stochastic_decoding") is not False:
             fail("{} must use deterministic action decoding".format(name))
         if "argmax" not in str(model.get("fill_decoding_rule", "")).lower():
@@ -526,11 +583,34 @@ def validate_track(track):
                 name
             ))
         for token in (
-            "drive.mount(", "files.upload()", "split_colab_archive",
-            ".parts.json", "MAX_PART_BYTES", "[8,16,32,64,128]",
+            "drive.mount(",
+            "files.upload()",
+            "CANONICAL_INPUT_ARCHIVE",
+            "input_archive_provenance.json",
+            "single_upload",
+            "multipart_upload_fallback",
+            "safe_extract_tar_gz",
+            "validate_sha256sums",
+            "validate_collected_inputs.py",
+            "PYTHONUNBUFFERED",
+            "stderr=subprocess.STDOUT",
+            "trainer_logs",
+            "USE_MULTIPART_OUTPUT_FALLBACK=False",
+            "files.download(str(OUTPUT_ARCHIVE))",
+            "[8,16,32,64,128]",
         ):
             if token not in notebook:
-                fail("{} notebook lacks multipart/Drive token {}".format(
+                fail("{} notebook lacks single-archive/Drive token {}".format(
+                    name, token
+                ))
+        # Multipart is retained only as an explicitly named compatibility
+        # fallback.  The static contract requires that it stay verifiable, but
+        # it must not replace the single-archive default above.
+        for token in (
+            ".parts.json", "validate_parts(", "reassemble_archive(",
+        ):
+            if token not in notebook:
+                fail("{} notebook lacks optional multipart fallback {}".format(
                     name, token
                 ))
         for relative in ("linux/run_server.sh", "linux/launch_server.sh"):
@@ -541,9 +621,9 @@ def validate_track(track):
                 ))
         run_server = (track / "linux" / "run_server.sh").read_text()
         for token in (
-            "active v21 replay requires the exact five configured MODEL_TAGS",
+            "requires the exact five configured MODEL_TAGS",
             "require_safe_path_token RUN_ID",
-            "assert_model_metadata_v21",
+            "assert_model_metadata",
             "analyze() {\n  require_colab_outputs",
         ):
             if token not in run_server:
@@ -650,8 +730,8 @@ def main():
     print("[PASS] eight matched-input direct-action tracks satisfy the static contract")
     print("[PASS] active 623 contracts are loaded from stable model_contract.py files")
     print("[PASS] active 623 uses no threshold, normal template, page rule, or degree cap")
-    print("[PASS] active 623 uses rankwise STOP/EMIT with dynamic TRAIN vocabularies")
-    print("[PASS] Colab transfer is SHA-verified and split into at-most-90-MiB parts")
+    print("[PASS] active 623 uses learned hurdle/count action factorization")
+    print("[PASS] Colab defaults to one SHA-verified archive; multipart is optional")
 
 
 if __name__ == "__main__":
