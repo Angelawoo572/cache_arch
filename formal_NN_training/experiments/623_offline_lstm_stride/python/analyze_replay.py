@@ -343,6 +343,7 @@ def policy_for_method(method):
     normal = "offline_" + POLICY
     if (
         method == normal
+        or method.startswith("offline_" + MODEL_TAG_PREFIX)
         or method.startswith("offline_rank_stop_emit_stride_lstm_")
         or method.startswith("offline_independent_delta_" + POLICY + "_")
         or method.startswith("offline_global_local_grammar_" + POLICY + "_")
@@ -353,7 +354,8 @@ def policy_for_method(method):
 
 def model_tag_for_method(method):
     if (
-        method.startswith("offline_rank_stop_emit_stride_lstm_")
+        method.startswith("offline_" + MODEL_TAG_PREFIX)
+        or method.startswith("offline_rank_stop_emit_stride_lstm_")
         or method.startswith("offline_independent_delta_" + POLICY + "_")
         or method.startswith("offline_global_local_grammar_" + POLICY + "_")
     ):
@@ -434,7 +436,7 @@ def add_comparison_metrics(rows, failures):
 
 
 def validate_active_metadata(metadata, tag, inputs, failures):
-    """Fail closed on the raw-input v21 rank STOP/EMIT contract."""
+    """Fail closed on the raw-input v22 hurdle/count/rank-delta contract."""
     experiment = Path(__file__).resolve().parents[1]
     repository = Path(__file__).resolve().parents[4]
     source_hashes = {
@@ -502,19 +504,32 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "all_teacher_ranks_supervised": True,
-        "terminal_stop_supervised_for_every_teacher_sequence": True,
-        "rank_decision_training_objective": ACTIVE_CONTRACT[
-            "rank_decision_training_objective"
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "hurdle_training_objective": ACTIVE_CONTRACT[
+            "hurdle_training_objective"
         ],
-        "rank_decision_classes": ["STOP", "EMIT"],
-        "rank_decision_equal_aggregate_train_mass": True,
-        "rank_decision_bias_initialization": "zeros",
-        "rank_decision_decoding_rule": (
-            "deterministic_raw_argmax_each_rank"
+        "hurdle_classes": ["ZERO", "POSITIVE"],
+        "hurdle_equal_aggregate_train_mass": True,
+        "hurdle_bias_initialization": (
+            "centered_log_effective_weighted_TRAIN_class_mass"
         ),
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
-        "log_count_used": False,
+        "hurdle_decoding_rule": "deterministic_raw_two_class_argmax",
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "log_count_used": True,
+        "positive_count_training_objective": ACTIVE_CONTRACT[
+            "positive_count_training_objective"
+        ],
+        "positive_log_count_bias_initialization": (
+            "mean_log_positive_TRAIN_count"
+        ),
+        "positive_count_support": (
+            "mathematically_unbounded_positive_integers"
+        ),
+        "positive_count_host_behavior": "fail_closed_no_clip_or_wrap",
+        "positive_count_decoding_rule": "max_1_round_exp_log_count",
+        "data_derived_hurdle_class_weights_used": True,
+        "manual_loss_weights_used": False,
         "delta_training_objective": ACTIVE_CONTRACT[
             "delta_training_objective"
         ],
@@ -540,6 +555,9 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         ],
         "decode_resource_watchdog_is_neural_degree_cap": False,
         "successful_run_hit_decode_resource_watchdog": False,
+        "maximum_host_action_count": ACTIVE_CONTRACT[
+            "maximum_host_action_count"
+        ],
         "checkpoint_selection": ACTIVE_CONTRACT[
             "checkpoint_selection"
         ],
@@ -564,6 +582,12 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         "inference_state_routing": (
             "one_lstm_state_per_exact_observed_PC"
         ),
+        "hurdle_equal_mass_self_test": "PASS",
+        "data_derived_stable_bias_initialization_self_test": "PASS",
+        "finite_positive_count_mode_self_test": "PASS",
+        "host_domain_count_rejection_self_test": "PASS",
+        "separate_hurdle_and_count_heads_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
         "training_config": ACTIVE_CONTRACT["training_config"],
         "training_config_pinned_by_run_id": True,
         "training_device": "cuda",
@@ -727,25 +751,36 @@ def validate_active_metadata(metadata, tag, inputs, failures):
                 failures.append(
                     "{} invalid dynamic delta prior/bias".format(tag)
                 )
+        coordinate_bias = metadata.get("delta_coordinate_initial_bias")
+        if (
+            not isinstance(coordinate_bias, (int, float))
+            or isinstance(coordinate_bias, bool)
+            or not math.isfinite(float(coordinate_bias))
+            or metadata.get("delta_coordinate_bias_initialization")
+            != "mean_TRAIN_signed_log_delta"
+        ):
+            failures.append(
+                "{} invalid TRAIN delta-coordinate initialization".format(tag)
+            )
 
-    rank_stats = metadata.get("rank_decision_training_statistics") or {}
-    weights = metadata.get("rank_decision_class_weights_STOP_EMIT")
-    stop_count = rank_stats.get("stop_labels")
-    emit_count = rank_stats.get("emit_labels")
+    hurdle_stats = metadata.get("hurdle_training_statistics") or {}
+    weights = metadata.get("hurdle_class_weights_ZERO_POSITIVE")
+    zero_count = hurdle_stats.get("zero_labels")
+    positive_count = hurdle_stats.get("positive_labels")
     if (
-        not isinstance(stop_count, int)
-        or not isinstance(emit_count, int)
-        or stop_count <= 0
-        or emit_count <= 0
+        not isinstance(zero_count, int)
+        or not isinstance(positive_count, int)
+        or zero_count <= 0
+        or positive_count <= 0
         or not isinstance(weights, list)
         or len(weights) != 2
     ):
-        failures.append("{} invalid STOP/EMIT TRAIN weights".format(tag))
+        failures.append("{} invalid ZERO/POSITIVE TRAIN weights".format(tag))
     else:
-        total = float(stop_count + emit_count)
+        total = float(zero_count + positive_count)
         expected_weights = [
-            total / (2.0 * stop_count),
-            total / (2.0 * emit_count),
+            total / (2.0 * zero_count),
+            total / (2.0 * positive_count),
         ]
         if any(
             not math.isclose(
@@ -753,11 +788,29 @@ def validate_active_metadata(metadata, tag, inputs, failures):
             )
             for actual, expected in zip(weights, expected_weights)
         ) or not math.isclose(
-            stop_count * weights[0], emit_count * weights[1],
+            zero_count * weights[0], positive_count * weights[1],
             rel_tol=1e-7, abs_tol=1e-6,
         ):
             failures.append(
-                "{} STOP/EMIT weights do not equalize TRAIN mass".format(tag)
+                "{} hurdle weights do not equalize TRAIN mass".format(tag)
+            )
+        biases = metadata.get("hurdle_initial_bias_ZERO_POSITIVE")
+        log_count_bias = metadata.get("positive_log_count_initial_bias")
+        if (
+            hurdle_stats.get("class_weights_ZERO_POSITIVE") != weights
+            or not isinstance(biases, list) or len(biases) != 2
+            or any(not math.isfinite(float(value)) for value in biases)
+            or any(abs(float(value)) > 1e-8 for value in biases)
+            or not isinstance(log_count_bias, (int, float))
+            or not math.isfinite(float(log_count_bias))
+            or not math.isclose(
+                float(log_count_bias),
+                float(hurdle_stats.get("positive_log_count_initial_bias")),
+                rel_tol=1e-7, abs_tol=1e-9,
+            )
+        ):
+            failures.append(
+                "{} invalid TRAIN-derived hurdle/count initialization".format(tag)
             )
 
     selected_epoch = metadata.get("selected_guard_epoch")
@@ -1761,12 +1814,12 @@ def main():
         ACTIVE_MODEL_REVISION: (
             "The neural model uses one exact-PC keyed LSTM over lossless raw "
             "PC64/line58 bits with no engineered stride or reuse feature. "
-            "Every teacher action is an EMIT token and every sequence adds "
-            "one terminal STOP; TRAIN-only inverse-frequency weights give "
-            "the two token classes equal aggregate loss mass. Each EMIT "
-            "selects a dynamic TRAIN-frequency exact delta or the signed-log "
-            "OTHER escape, always relative to the current demand. Decode is "
-            "deterministic and has no count head or prior-action feedback; "
+            "A TRAIN-balanced learned hurdle predicts zero versus positive, "
+            "a positive-only log-count predicts finite deterministic "
+            "cardinality, and every scheduled rank selects a dynamic "
+            "TRAIN-frequency exact delta or the signed-log OTHER escape, "
+            "always relative to the current demand. Decode is deterministic "
+            "and has no prior-action feedback; "
             "guard uses a lexicographic checkpoint key and evaluation is "
             "decoded once. There is no selected threshold, source template, "
             "page rule, request budget, or neural degree cap."
@@ -1847,7 +1900,7 @@ def main():
                 "history": "one hidden/cell pair per exact observed PC",
                 "training": "chronological keyed TBPTT with state carried and detached",
                 "runtime_features": "raw PC64 plus aligned line58 only",
-                "action_decoder": "deterministic independent-rank STOP/EMIT plus dynamic TRAIN delta vocabulary and OTHER",
+                "action_decoder": "deterministic learned hurdle plus positive log-count and independent rank-conditioned TRAIN delta vocabulary/OTHER",
             }
         ),
         "metric_definitions": {
@@ -1909,7 +1962,8 @@ def main():
             points = []
             for tag in model_tags:
                 if not (
-                    tag.startswith("rank_stop_emit_stride_lstm_")
+                    tag.startswith(MODEL_TAG_PREFIX)
+                    or tag.startswith("rank_stop_emit_stride_lstm_")
                     or tag.startswith("independent_delta_" + policy + "_")
                     or tag.startswith(
                         "global_local_grammar_" + policy + "_"
