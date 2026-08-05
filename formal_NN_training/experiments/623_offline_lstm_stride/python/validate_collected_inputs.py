@@ -9,7 +9,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from model_contract import (
-    EXPERIMENT_REVISION, POLICY, TRACE, parse_exact_integer,
+    COUNT_OBJECTIVE, DECODER_TRAINING_MODE, EXPERIMENT_REVISION,
+    HURDLE_OBJECTIVE, POLICY, TRACE, parse_exact_integer,
 )
 
 ROLES = ("train", "guard", "eval")
@@ -197,16 +198,18 @@ def main():
         "source_decision_effective_external_input": ["pc", "addr"],
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": (
-            "independent_rank_STOP_EMIT_with_each_teacher_action_and_terminal_"
-            "STOP_without_teacher_or_predicted_action_feedback"
-        ),
+        "decoder_training_mode": DECODER_TRAINING_MODE,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "terminal_stop_supervised_for_every_teacher_sequence": True,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "log_count_used": True,
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "positive_count_training_objective": COUNT_OBJECTIVE,
+        "hurdle_class_weight_source": "TRAIN_callback_zero_positive_counts",
+        "positive_count_support": "mathematically_unbounded_positive_integers",
         "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
         "engineered_runtime_features": [],
         "training_runtime_fields": ["pc", "addr"],
