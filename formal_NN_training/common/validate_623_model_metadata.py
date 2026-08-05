@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed, torch-free validation for active 623 v21 model metadata.
+"""Fail-closed, torch-free validation for active 623 v22 model metadata.
 
 The validator imports only the selected track's ``model_contract.py``.  It
 therefore remains usable on the Python-3.6 CPU replay host without importing
@@ -116,7 +116,7 @@ class Checks(object):
     def finish(self, track, metadata_path):
         if self.bad:
             raise SystemExit(
-                "invalid 623 {} v21 metadata {}:\n{}".format(
+                "invalid 623 {} v22 metadata {}:\n{}".format(
                     track, metadata_path,
                     json.dumps(self.bad, indent=2, sort_keys=True),
                 )
@@ -258,23 +258,43 @@ def validate_stride(checks, metadata, contract, namespace, trainer_path):
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "sampled_outputs_used_as_decoder_feedback": False,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
-        "log_count_used": False,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "log_count_used": True,
         "poisson_objective_used": False,
         "poisson_decoder_used": False,
-        "terminal_stop_supervised_for_every_teacher_sequence": True,
-        "rank_decision_training_objective": contract[
-            "rank_decision_training_objective"
+        "gmm_objective_used": False,
+        "gmm_decoder_used": False,
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "hurdle_training_objective": contract[
+            "hurdle_training_objective"
         ],
-        "rank_decision_classes": ["STOP", "EMIT"],
-        "rank_decision_class_weighting": (
+        "hurdle_classes": ["ZERO", "POSITIVE"],
+        "hurdle_class_indices": {"ZERO": 0, "POSITIVE": 1},
+        "hurdle_class_weighting": (
             "TRAIN_inverse_frequency_N_over_2N_class"
         ),
-        "rank_decision_equal_aggregate_train_mass": True,
-        "data_derived_rank_class_weights_used": True,
+        "hurdle_equal_aggregate_train_mass": True,
+        "data_derived_hurdle_class_weights_used": True,
         "manual_loss_weights_used": False,
-        "rank_decision_decoding_rule": "deterministic_raw_argmax_each_rank",
+        "hurdle_bias_initialization": contract[
+            "hurdle_bias_initialization"
+        ],
+        "hurdle_decoding_rule": "deterministic_raw_two_class_argmax",
+        "positive_count_training_objective": contract[
+            "positive_count_training_objective"
+        ],
+        "positive_log_count_bias_initialization": contract[
+            "positive_log_count_bias_initialization"
+        ],
+        "positive_count_support": contract["positive_count_support"],
+        "positive_count_host_behavior": contract[
+            "positive_count_host_behavior"
+        ],
+        "positive_count_decoding_rule": contract["positive_count_mode"],
+        "decoded_count_definition": (
+            "zero_on_hurdle_ZERO_else_finite_mode_of_positive_log_count"
+        ),
         "delta_training_objective": contract["delta_training_objective"],
         "decision_rule": contract["decoding_rule"],
         "deterministic_decoding": True,
@@ -307,12 +327,26 @@ def validate_stride(checks, metadata, contract, namespace, trainer_path):
         ],
         "decode_resource_watchdog_is_neural_degree_cap": False,
         "successful_run_hit_decode_resource_watchdog": False,
+        "maximum_host_action_count": contract["maximum_host_action_count"],
         "training_state_mode": "exact_pc_keyed_stateful_tbptt",
+        "training_config_pinned_by_run_id": True,
         "raw_pc64_line58_lossless_self_test": "PASS",
-        "rank_stop_emit_equal_mass_self_test": "PASS",
-        "separate_gate_and_count_heads_absent_self_test": "PASS",
+        "engineered_runtime_features_absent_self_test": "PASS",
+        "exact_pc_state_routing_self_test": "PASS",
+        "hurdle_equal_mass_self_test": "PASS",
+        "data_derived_stable_bias_initialization_self_test": "PASS",
+        "finite_positive_count_mode_self_test": "PASS",
+        "host_domain_count_rejection_self_test": "PASS",
+        "separate_hurdle_and_count_heads_self_test": "PASS",
+        "terminal_stop_supervision_self_test": "NOT_APPLICABLE",
+        "delta_class_prior_bias_initialization_self_test": "PASS",
+        "train_only_delta_vocabulary_self_test": "PASS",
         "rank_no_action_feedback_self_test": "PASS",
+        "signed_log_other_escape_self_test": "PASS",
+        "exact_integer_parser_self_test": "PASS",
         "dynamic_realized_parameter_self_test": "PASS",
+        "cnn_architecture_self_test": "NOT_APPLICABLE",
+        "cnn_temporal_layers": 0,
     }
     for key, value in expected.items():
         checks.equal(key, metadata.get(key), value)
@@ -351,7 +385,7 @@ def validate_stride(checks, metadata, contract, namespace, trainer_path):
         maximum_parameters = namespace["expected_parameter_count"](hidden)
         for key in (
             "parameter_count", "realized_parameter_count",
-            "expected_parameter_count",
+            "expected_parameter_count", "expected_realized_parameter_count",
         ):
             checks.equal(key, metadata.get(key), expected_parameters)
         checks.equal(
@@ -367,23 +401,71 @@ def validate_stride(checks, metadata, contract, namespace, trainer_path):
             expected_parameters <= maximum_parameters,
             expected_parameters, "<= {}".format(maximum_parameters),
         )
+        checks.equal(
+            "parameter_formula", metadata.get("parameter_formula"),
+            contract["parameter_formula"],
+        )
+        checks.equal(
+            "parameter_bytes_float32", metadata.get("parameter_bytes_float32"),
+            expected_parameters * 4,
+        )
+        checks.equal(
+            "maximum_parameter_bytes_float32",
+            metadata.get("maximum_parameter_bytes_float32"),
+            maximum_parameters * 4,
+        )
+        checks.equal(
+            "realized_parameter_count_matches_formula",
+            metadata.get("realized_parameter_count_matches_formula"), True,
+        )
+        checks.equal(
+            "realized_parameter_count_within_maximum_flag",
+            metadata.get("realized_parameter_count_within_maximum"), True,
+        )
 
-    statistics = metadata.get("rank_decision_training_statistics") or {}
-    weights = metadata.get("rank_decision_class_weights_STOP_EMIT")
-    stop = statistics.get("stop_labels")
-    emit = statistics.get("emit_labels")
-    total = statistics.get("total_rank_decisions")
+    prior = metadata.get("delta_class_empirical_prior")
+    bias = metadata.get("delta_class_initial_bias")
+    if is_integer(size):
+        classes = size + 1
+        valid_prior = (
+            isinstance(prior, list) and len(prior) == classes
+            and all(finite_number(value) and value > 0 for value in prior)
+            and math.isclose(sum(prior), 1.0, rel_tol=1e-12, abs_tol=1e-12)
+        )
+        checks.require(
+            "delta_class_empirical_prior", valid_prior, prior,
+            "{} positive TRAIN-smoothed probabilities summing to one".format(
+                classes
+            ),
+        )
+        valid_bias = (
+            valid_prior and isinstance(bias, list) and len(bias) == classes
+            and all(finite_number(value) for value in bias)
+            and all(math.isclose(actual, math.log(expected_value),
+                                 rel_tol=1e-12, abs_tol=1e-12)
+                    for actual, expected_value in zip(bias, prior))
+        )
+        checks.require(
+            "delta_class_initial_bias", valid_bias, bias,
+            "elementwise log(delta_class_empirical_prior)",
+        )
+
+    statistics = metadata.get("hurdle_training_statistics") or {}
+    weights = metadata.get("hurdle_class_weights_ZERO_POSITIVE")
+    zero = statistics.get("zero_labels")
+    positive = statistics.get("positive_labels")
+    total = statistics.get("total_callbacks")
     valid_counts = (
-        is_integer(stop) and stop > 0 and is_integer(emit) and emit > 0
-        and is_integer(total) and total == stop + emit
+        is_integer(zero) and zero > 0 and is_integer(positive) and positive > 0
+        and is_integer(total) and total == zero + positive
     )
     checks.require(
-        "rank_decision_training_statistics", valid_counts, statistics,
-        "positive TRAIN STOP/EMIT counts with N=STOP+EMIT",
+        "hurdle_training_statistics", valid_counts, statistics,
+        "positive TRAIN ZERO/POSITIVE callback counts with N=ZERO+POSITIVE",
     )
     if valid_counts:
         expected_weights = [
-            total / float(2 * stop), total / float(2 * emit),
+            total / float(2 * zero), total / float(2 * positive),
         ]
         valid_weights = (
             isinstance(weights, list) and len(weights) == 2
@@ -392,33 +474,107 @@ def validate_stride(checks, metadata, contract, namespace, trainer_path):
                     for actual, expected in zip(weights, expected_weights))
         )
         checks.require(
-            "rank_decision_class_weights_STOP_EMIT", valid_weights, weights,
+            "hurdle_class_weights_ZERO_POSITIVE", valid_weights, weights,
             expected_weights,
         )
         checks.equal(
-            "statistics_class_weights_STOP_EMIT",
-            statistics.get("class_weights_STOP_EMIT"), weights,
+            "statistics_class_weights_ZERO_POSITIVE",
+            statistics.get("class_weights_ZERO_POSITIVE"), weights,
         )
         checks.equal(
-            "rank_decision_weight_formula", statistics.get("weight_formula"),
+            "hurdle_weight_formula", statistics.get("weight_formula"),
             "N/(2*N_class)",
         )
         checks.equal(
-            "rank_decision_weight_source", statistics.get("source"),
-            "TRAIN teacher actions plus one terminal STOP per sequence",
+            "hurdle_weight_source", statistics.get("source"),
+            "TRAIN callback zero/positive action counts only",
         )
         checks.require(
-            "rank_decision_equal_weighted_mass",
-            finite_number(statistics.get("weighted_stop_mass"))
-            and finite_number(statistics.get("weighted_emit_mass"))
+            "hurdle_equal_weighted_mass",
+            finite_number(statistics.get("weighted_zero_mass"))
+            and finite_number(statistics.get("weighted_positive_mass"))
             and math.isclose(
-                statistics["weighted_stop_mass"], total / 2.0,
+                statistics["weighted_zero_mass"], total / 2.0,
                 rel_tol=1e-12, abs_tol=1e-9,
             )
             and math.isclose(
-                statistics["weighted_emit_mass"], total / 2.0,
+                statistics["weighted_positive_mass"], total / 2.0,
                 rel_tol=1e-12, abs_tol=1e-9,
             ), statistics, "equal aggregate TRAIN class mass N/2",
+        )
+        effective_prior = statistics.get(
+            "effective_weighted_class_prior_ZERO_POSITIVE"
+        )
+        initial_bias = statistics.get("hurdle_initial_bias_ZERO_POSITIVE")
+        valid_neutral = (
+            isinstance(effective_prior, list) and len(effective_prior) == 2
+            and isinstance(initial_bias, list) and len(initial_bias) == 2
+            and all(finite_number(value) for value in effective_prior + initial_bias)
+            and all(math.isclose(value, 0.5, rel_tol=1e-12, abs_tol=1e-12)
+                    for value in effective_prior)
+            and all(math.isclose(value, 0.0, rel_tol=1e-12, abs_tol=1e-12)
+                    for value in initial_bias)
+        )
+        checks.require(
+            "hurdle_balanced_prior_and_bias", valid_neutral,
+            {"prior": effective_prior, "bias": initial_bias},
+            "balanced [0.5,0.5] effective prior and neutral [0,0] bias",
+        )
+        checks.equal(
+            "hurdle_initial_bias_ZERO_POSITIVE",
+            metadata.get("hurdle_initial_bias_ZERO_POSITIVE"), initial_bias,
+        )
+
+    label_stats = metadata.get("teacher_sequence_training_label_statistics") or {}
+    distribution = label_stats.get("count_distribution")
+    parsed_distribution = None
+    if isinstance(distribution, dict) and distribution:
+        try:
+            parsed_distribution = {
+                int(key): value for key, value in distribution.items()
+            }
+        except (TypeError, ValueError):
+            parsed_distribution = None
+    valid_distribution = (
+        isinstance(parsed_distribution, dict) and parsed_distribution
+        and all(is_integer(key) and key >= 0 for key in parsed_distribution)
+        and all(is_integer(value) and value > 0
+                for value in parsed_distribution.values())
+    )
+    checks.require(
+        "teacher_count_distribution", valid_distribution, distribution,
+        "nonempty nonnegative integer count -> positive frequency map",
+    )
+    if valid_distribution and valid_counts:
+        callbacks = sum(parsed_distribution.values())
+        actions = sum(
+            count * frequency
+            for count, frequency in parsed_distribution.items()
+        )
+        positives = sum(
+            frequency for count, frequency in parsed_distribution.items()
+            if count > 0
+        )
+        checks.equal("teacher_sequences", label_stats.get("teacher_sequences"), callbacks)
+        checks.equal("teacher_actions", label_stats.get("teacher_actions"), actions)
+        checks.equal("maximum_teacher_count", label_stats.get("maximum_teacher_count"), max(parsed_distribution))
+        checks.equal("hurdle_zero_from_distribution", parsed_distribution.get(0, 0), zero)
+        checks.equal("hurdle_positive_from_distribution", positives, positive)
+        expected_log_bias = sum(
+            math.log(count) * frequency
+            for count, frequency in parsed_distribution.items() if count > 0
+        ) / float(positives)
+        actual_log_bias = metadata.get("positive_log_count_initial_bias")
+        checks.require(
+            "positive_log_count_initial_bias",
+            finite_number(actual_log_bias)
+            and math.isclose(actual_log_bias, expected_log_bias,
+                             rel_tol=1e-12, abs_tol=1e-12),
+            actual_log_bias, expected_log_bias,
+        )
+        checks.equal(
+            "statistics_positive_log_count_initial_bias",
+            statistics.get("positive_log_count_initial_bias"), actual_log_bias,
         )
 
     expected_router = expected_router_source_sha256("stride", trainer_path)
@@ -446,21 +602,47 @@ def validate_spp(checks, metadata, contract, namespace, experiment_dir,
         "teacher_action_values_used_as_decoder_feedback": False,
         "teacher_target_used_as_recurrent_feedback": False,
         "sampled_outputs_used_as_decoder_feedback": False,
-        "separate_gate_head_used": False,
-        "request_count_head_used": False,
-        "request_count_regression_used": False,
+        "separate_gate_head_used": True,
+        "request_count_head_used": True,
+        "request_count_regression_used": True,
+        "learned_request_count": True,
         "action_or_byte_grammar_used": False,
-        "stop_emit_training_objective": contract[
-            "stop_emit_training_objective"
+        "hurdle_training_objective": contract[
+            "hurdle_training_objective"
         ],
-        "stop_emit_class_weighting_used": False,
-        "stop_emit_prior_extremely_sparse": False,
-        "stop_emit_train_class_order": ["STOP", "EMIT"],
-        "stop_emit_prior_initialization": "TRAIN_natural_class_log_priors",
-        "terminal_stop_supervised": True,
-        "stop_emit_decoding_rule": (
-            "rank_conditioned_two_class_MAP_until_STOP"
+        "hurdle_train_class_order": ["ZERO", "POSITIVE"],
+        "hurdle_prior_initialization": contract[
+            "hurdle_prior_initialization"
+        ],
+        "hurdle_head_weights_zero_initialized": True,
+        "hurdle_class_weighting_used": False,
+        "hurdle_decoding_rule": (
+            "deterministic_ZERO_POSITIVE_categorical_MAP"
         ),
+        "positive_count_training_objective": contract[
+            "positive_count_training_objective"
+        ],
+        "positive_count_target_transform": (
+            "natural_log_of_teacher_count_conditioned_on_count_ge_1"
+        ),
+        "positive_count_prior_initialization": contract[
+            "positive_count_prior_initialization"
+        ],
+        "positive_count_head_weights_zero_initialized": True,
+        "positive_count_decoding_rule": contract[
+            "positive_count_decoding_rule"
+        ],
+        "positive_count_support": contract["positive_count_support"],
+        "maximum_positive_count_domain": contract[
+            "maximum_positive_count_domain"
+        ],
+        "positive_count_output_cap": None,
+        "positive_count_rounding_rule": (
+            "max_1_floor_exp_log_count_plus_one_half"
+        ),
+        "positive_count_loss_condition": "teacher_count_ge_1_only",
+        "stop_emit_head_used": False,
+        "terminal_stop_supervised": False,
         "delta_training_objective": contract["delta_training_objective"],
         "delta_vocabulary_source": (
             "TRAIN_labels_only_top_frequency_then_signed_value_tie_break"
@@ -505,11 +687,27 @@ def validate_spp(checks, metadata, contract, namespace, experiment_dir,
             "matched-input open-loop offline comparison only"
         ),
         "maximum_action_count_is_learned_not_fixed": True,
+        "decode_count_representation_domain": "signed_int64_positive",
+        "decode_per_callback_resource_watchdog": contract[
+            "decode_per_callback_resource_watchdog"
+        ],
+        "decode_per_role_resource_watchdog": contract[
+            "decode_per_role_resource_watchdog"
+        ],
+        "decode_resource_watchdog_behavior": contract[
+            "decode_resource_watchdog_behavior"
+        ],
         "output_materialization_watchdog_role": (
             "fail_closed_resource_guard_no_truncation_or_forced_count"
         ),
         "output_materialization_watchdog_is_neural_degree_cap": False,
+        "hurdle_log_count_self_test": "PASS",
+        "gate_count_prior_initialization_self_test": "PASS",
+        "positive_count_domain_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
         "independent_rank_decoder_self_test": "PASS",
+        "signed_log_other_codec_self_test": "PASS",
+        "integer_csv_exactness_self_test": "PASS",
         "fill_prior_corrected_argmax_self_test": "PASS",
         "fail_closed_watchdog_self_test": "PASS",
     }
@@ -586,33 +784,71 @@ def validate_spp(checks, metadata, contract, namespace, experiment_dir,
             expected_parameters <= maximum_parameters,
             expected_parameters, "<= {}".format(maximum_parameters),
         )
-
-    token_counts = metadata.get("stop_emit_train_class_counts")
-    token_priors = metadata.get("stop_emit_train_class_priors")
-    valid_counts = (
-        isinstance(token_counts, list) and len(token_counts) == 2
-        and all(is_integer(value) and value > 0 for value in token_counts)
-    )
-    checks.require(
-        "stop_emit_train_class_counts", valid_counts, token_counts,
-        "positive natural-frequency [STOP, EMIT] TRAIN counts",
-    )
-    if valid_counts:
-        total = float(sum(token_counts))
-        expected_priors = [value / total for value in token_counts]
-        valid_priors = (
-            isinstance(token_priors, list) and len(token_priors) == 2
-            and all(finite_number(value) for value in token_priors)
-            and all(math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
-                    for actual, expected in zip(token_priors, expected_priors))
-        )
-        checks.require(
-            "stop_emit_train_class_priors", valid_priors, token_priors,
-            expected_priors,
+        checks.equal(
+            "parameter_count_is_dataset_dependent",
+            metadata.get("parameter_count_is_dataset_dependent"), True,
         )
         checks.equal(
-            "terminal_stop_count_train",
-            metadata.get("terminal_stop_count_train"), token_counts[0],
+            "parameter_formula", metadata.get("parameter_formula"),
+            contract["parameter_formula"],
+        )
+        checks.equal(
+            "parameter_storage_bytes_float32",
+            metadata.get("parameter_storage_bytes_float32"),
+            expected_parameters * 4,
+        )
+
+    hurdle_counts = metadata.get("hurdle_train_class_counts")
+    hurdle_priors = metadata.get("hurdle_train_class_priors")
+    valid_counts = (
+        isinstance(hurdle_counts, list) and len(hurdle_counts) == 2
+        and all(is_integer(value) and value > 0 for value in hurdle_counts)
+    )
+    checks.require(
+        "hurdle_train_class_counts", valid_counts, hurdle_counts,
+        "positive natural-frequency [ZERO, POSITIVE] TRAIN callback counts",
+    )
+    if valid_counts:
+        total = float(sum(hurdle_counts))
+        expected_priors = [value / total for value in hurdle_counts]
+        valid_priors = (
+            isinstance(hurdle_priors, list) and len(hurdle_priors) == 2
+            and all(finite_number(value) for value in hurdle_priors)
+            and all(math.isclose(actual, expected, rel_tol=1e-12, abs_tol=1e-12)
+                    for actual, expected in zip(hurdle_priors, expected_priors))
+        )
+        checks.require(
+            "hurdle_train_class_priors", valid_priors, hurdle_priors,
+            expected_priors,
+        )
+        positive_samples = metadata.get("positive_count_train_samples")
+        checks.equal(
+            "positive_count_train_samples", positive_samples,
+            hurdle_counts[1],
+        )
+        minimum = metadata.get("positive_count_train_min")
+        maximum = metadata.get("positive_count_train_max")
+        checks.require(
+            "positive_count_train_range",
+            is_integer(minimum) and is_integer(maximum)
+            and 1 <= minimum <= maximum,
+            {"minimum": minimum, "maximum": maximum},
+            "positive integer range 1 <= min <= max",
+        )
+        checks.equal(
+            "train_positive_count_max",
+            metadata.get("train_positive_count_max"), maximum,
+        )
+        checks.require(
+            "positive_log_count_train_mean",
+            finite_number(metadata.get("positive_log_count_train_mean")),
+            metadata.get("positive_log_count_train_mean"), "finite",
+        )
+        checks.require(
+            "positive_log_count_train_std",
+            finite_number(metadata.get("positive_log_count_train_std"))
+            and metadata.get("positive_log_count_train_std") >= 0,
+            metadata.get("positive_log_count_train_std"), "finite and >= 0",
         )
 
     fill_counts = metadata.get("fill_train_class_counts")
@@ -644,14 +880,22 @@ def validate_spp(checks, metadata, contract, namespace, experiment_dir,
             )
             checks.require(key, valid_values, actual, expected_values)
 
-    for key in (
-        "output_materialization_watchdog_actions_per_callback",
-        "output_materialization_watchdog_actions_per_role",
+    for key, expected_value in (
+        (
+            "output_materialization_watchdog_actions_per_callback",
+            contract["decode_per_callback_resource_watchdog"],
+        ),
+        (
+            "output_materialization_watchdog_actions_per_role",
+            contract["decode_per_role_resource_watchdog"],
+        ),
     ):
         checks.require(
-            key, is_integer(metadata.get(key)) and metadata.get(key) > 0,
+            key + "_domain", is_integer(metadata.get(key))
+            and metadata.get(key) > 0,
             metadata.get(key), "positive fail-closed resource limit",
         )
+        checks.equal(key, metadata.get(key), expected_value)
 
     source_contract = experiment_dir / "data" / "spp_source_contract.json"
     checks.require(
@@ -706,7 +950,7 @@ def main():
             raise ValueError("model contract has no description entry point")
         contract = describe()
     except Exception as exc:
-        raise SystemExit("cannot load v21 metadata/contract: {}".format(exc))
+        raise SystemExit("cannot load v22 metadata/contract: {}".format(exc))
 
     checks = Checks()
     checks.equal("contract_policy", contract.get("policy"), args.track)
@@ -721,7 +965,7 @@ def main():
             checks, metadata, contract, namespace, experiment_dir, trainer_path,
         )
     checks.finish(args.track, metadata_path)
-    print("[PASS] validated 623 {} v21 metadata {}".format(
+    print("[PASS] validated 623 {} v22 metadata {}".format(
         args.track, metadata.get("model_tag")
     ))
 
