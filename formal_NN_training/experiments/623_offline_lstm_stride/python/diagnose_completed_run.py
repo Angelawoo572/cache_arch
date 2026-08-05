@@ -17,7 +17,7 @@ from model_contract import POLICY, RUN_ID, TRACE, model_points_description
 
 DEFAULT_RUN_ID = RUN_ID
 SOURCE_INPUTS = ["pc", "addr"]
-NEURAL_METHOD_PREFIX = "offline_rank_stop_emit_stride_lstm_"
+NEURAL_METHOD_PREFIX = "offline_hurdle_count_stride_lstm_"
 EXPECTED_TAGS = {
     point["model_tag"] for point in model_points_description()["points"]
 }
@@ -90,14 +90,19 @@ def input_contract_mismatches(metadata):
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "decoder_training_mode": contract["decoder_training_mode"],
-        "terminal_stop_supervised_for_every_teacher_sequence": True,
-        "rank_decision_training_objective": contract[
-            "rank_decision_training_objective"
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "hurdle_training_objective": contract[
+            "hurdle_training_objective"
         ],
-        "rank_decision_equal_aggregate_train_mass": True,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
-        "log_count_used": False,
+        "hurdle_equal_aggregate_train_mass": True,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
+        "log_count_used": True,
+        "positive_count_training_objective": contract[
+            "positive_count_training_objective"
+        ],
+        "positive_count_support": "mathematically_unbounded_positive_integers",
+        "positive_count_host_behavior": "fail_closed_no_clip_or_wrap",
         "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
         "engineered_runtime_features": [],
         "causal_runtime_feature_count": 0,
@@ -340,11 +345,14 @@ def model_record(row, metadata, normal, no_pref, matched):
         "decoder_rank_conditioning",
         "all_teacher_ranks_supervised",
         "terminal_stop_supervised_for_every_teacher_sequence",
-        "rank_decision_training_objective",
-        "rank_decision_class_weighting",
-        "rank_decision_class_weights_STOP_EMIT",
-        "rank_decision_training_statistics",
-        "rank_decision_decoding_rule",
+        "hurdle_training_objective",
+        "hurdle_class_weighting",
+        "hurdle_class_weights_ZERO_POSITIVE",
+        "hurdle_training_statistics",
+        "hurdle_decoding_rule",
+        "positive_count_training_objective",
+        "positive_count_decoding_rule",
+        "positive_log_count_initial_bias",
         "decoded_count_definition",
         "separate_global_gate_used",
         "separate_count_head_used",
@@ -365,7 +373,7 @@ def model_record(row, metadata, normal, no_pref, matched):
         "selected_guard_epoch",
         "selected_guard_key",
         "evaluation_decode_passes",
-        "rank_stop_emit_decoder_diagnostics",
+        "hurdle_count_decoder_diagnostics",
         "encoder_diagnostics",
         "heldout_behavior_metrics",
         "train_action_summary",
