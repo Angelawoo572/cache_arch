@@ -40,8 +40,8 @@ REVISION_PROFILES = {
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
     ACTIVE_MODEL_REVISION: (
-        "offline_stop_emit_vocab_spp_lstm_",
-        "stop_emit_vocab_spp_lstm_h{}",
+        "offline_hurdle_count_vocab_spp_lstm_",
+        "hurdle_count_vocab_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
@@ -101,8 +101,21 @@ def input_contract_mismatches(metadata):
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "terminal_stop_supervised": True,
-        "stop_emit_class_weighting_used": False,
+        "terminal_stop_supervised": False,
+        "stop_emit_head_used": False,
+        "hurdle_training_objective": ACTIVE_POINT_CONTRACT[
+            "hurdle_training_objective"
+        ],
+        "hurdle_class_weighting_used": False,
+        "positive_count_training_objective": ACTIVE_POINT_CONTRACT[
+            "positive_count_training_objective"
+        ],
+        "positive_count_decoding_rule": ACTIVE_POINT_CONTRACT[
+            "positive_count_decoding_rule"
+        ],
+        "separate_gate_head_used": True,
+        "request_count_head_used": True,
+        "request_count_regression_used": True,
         "stochastic_decoding": False,
         "fill_argmax_used": True,
         "fill_prior_correction_at_decode_used": True,
@@ -299,10 +312,17 @@ def model_record(row, metadata, normal, no_pref, matched):
         "decoder_previous_teacher_action_used_as_input",
         "decoder_previous_predicted_action_used_as_input",
         "decoder_previous_sampled_action_used_as_input",
-        "stop_emit_training_objective",
-        "stop_emit_train_class_counts",
-        "stop_emit_train_class_priors",
-        "stop_emit_class_weighting_used",
+        "hurdle_training_objective",
+        "hurdle_train_class_counts",
+        "hurdle_train_class_priors",
+        "hurdle_class_weighting_used",
+        "positive_count_training_objective",
+        "positive_count_train_samples",
+        "positive_count_train_min",
+        "positive_count_train_max",
+        "positive_log_count_train_mean",
+        "positive_log_count_train_std",
+        "positive_count_decoding_rule",
         "terminal_stop_supervised",
         "separate_gate_head_used",
         "request_count_head_used",
