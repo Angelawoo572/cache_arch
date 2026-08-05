@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train and decode the rankwise STOP/EMIT 623 SPP v21 prefetcher.
+"""Train and decode the hurdle/log-count 623 SPP v22 prefetcher.
 
 Runtime input is only the chronological source-visible callback stream:
 DEMAND(addr) and CACHE_FILL(evicted_addr).  PC is replay transport.  Normal
@@ -7,10 +7,12 @@ SPP actions and fill levels are labels and comparator data only.
 
 The model deliberately has no normal-SPP template: no page rule, candidate
 bank, SPP threshold, signature table, action feedback, or teacher-forced
-decoder state.  A single global LSTM learns the sequence.  At every rank an
-independent binary head chooses STOP or EMIT; each teacher callback includes
-one supervised terminal STOP.  Delta and fill are trained only at EMIT ranks.
-Inference is deterministic categorical argmax for STOP/EMIT, delta, and fill.
+decoder state.  A single global LSTM learns the sequence.  A natural-frequency
+ZERO/POSITIVE hurdle and a conditional positive log-count determine a finite
+cardinality.  At each materialized rank, delta and fill are predicted directly
+and independently of prior actions.  Inference is deterministic categorical
+MAP for the hurdle, delta, and fill and a finite rounded exponential mode for
+positive count.
 """
 import argparse
 import copy
@@ -37,15 +39,18 @@ if str(REPO_ROOT) not in sys.path:
 import model_contract as model_contract_module
 from model_contract import (
     ACCUMULATE_CHUNKS, ADDRESS_BITS, CACHE_LINE_BYTES, CACHE_LINE_SHIFT,
-    CHUNK_LEN, DECODER_REVISION, EPOCHS,
+    CHUNK_LEN, DECODER_REVISION, DECODE_PER_CALLBACK_RESOURCE_WATCHDOG,
+    DECODE_PER_ROLE_RESOURCE_WATCHDOG, EPOCHS,
     DECODER_TRAINING_MODE, DELTA_OBJECTIVE, EXPERIMENT_REVISION,
-    EMIT_TOKEN, EXTERNAL_INPUT_FIELDS, FILL_LEVELS, FILL_OBJECTIVE,
+    EXTERNAL_INPUT_FIELDS, FILL_LEVELS, FILL_OBJECTIVE, HURDLE_OBJECTIVE,
     LINE_ADDRESS_BITS, LINE_ADDRESS_MODULUS, MAX_EXACT_DELTAS, MODEL_POINTS,
-    LEARNING_RATE, MODEL_REVISION, OPERATION, POLICY, RANK_CODE_SIZE,
-    RUNTIME_FEATURE_COUNT, RUN_ID, SEED, STOP_TOKEN, TOKEN_OBJECTIVE, TRACE,
+    LEARNING_RATE, MAX_POSITIVE_COUNT_DOMAIN, MODEL_REVISION, OPERATION,
+    POLICY, POSITIVE_COUNT_OBJECTIVE, POSITIVE_TOKEN, RANK_CODE_SIZE,
+    RUNTIME_FEATURE_COUNT, RUN_ID, SEED, TRACE, ZERO_TOKEN,
     delta_embed_size,
     describe_model_points, exact_int as as_int,
-    expected_parameter_count, model_tag, self_test_exact_int,
+    expected_parameter_count, model_tag, positive_count_mode,
+    self_test_exact_int, self_test_positive_count_mode,
 )
 
 # The replay server must be able to inspect and validate a Colab archive on a
@@ -55,12 +60,23 @@ if __name__ == "__main__" and sys.argv[1:] == ["--describe-model-points"]:
     raise SystemExit(0)
 if __name__ == "__main__" and sys.argv[1:] == ["--self-test"]:
     self_test_exact_int()
+    self_test_positive_count_mode()
     expected_sizes = [8, 16, 32, 64, 128]
     if sorted(MODEL_POINTS["lstm"]) != expected_sizes:
-        raise RuntimeError("SPP v21 capacity contract changed")
+        raise RuntimeError("SPP v22 capacity contract changed")
     for hidden_size in expected_sizes:
         if expected_parameter_count(hidden_size, MAX_EXACT_DELTAS) < 1:
-            raise RuntimeError("SPP v21 parameter contract is invalid")
+            raise RuntimeError("SPP v22 parameter contract is invalid")
+    contract = describe_model_points()
+    required = {
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "positive_count_training_objective": POSITIVE_COUNT_OBJECTIVE,
+        "terminal_stop_supervised": False,
+        "stop_emit_head_used": False,
+    }
+    for key, expected in required.items():
+        if contract.get(key) != expected:
+            raise RuntimeError("SPP v22 contract mismatch for {}".format(key))
     print("PASS")
     raise SystemExit(0)
 
@@ -80,7 +96,7 @@ RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1
 OTHER_NAME = "OTHER"
 
 if RUNTIME_FEATURES != RUNTIME_FEATURE_COUNT:
-    raise RuntimeError("SPP v21 runtime feature contract changed")
+    raise RuntimeError("SPP v22 runtime feature contract changed")
 
 
 def sha256(path):
@@ -385,19 +401,33 @@ class GlobalSPPLSTM(nn.Module):
         self.embed_size = delta_embed_size(hidden_size)
         self.input_projection = nn.Linear(RUNTIME_FEATURES, hidden_size)
         self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        self.hurdle = nn.Linear(hidden_size, 2)
+        self.positive_log_count = nn.Linear(hidden_size, 1)
         self.rank_fusion = nn.Linear(hidden_size + RANK_CODE_SIZE, hidden_size)
-        self.stop_emit = nn.Linear(hidden_size, 2)
         self.delta_class = nn.Linear(hidden_size, self.class_count)
         self.delta_signed_log = nn.Linear(hidden_size, 1)
         self.delta_embedding = nn.Embedding(self.class_count, self.embed_size)
         self.fill = nn.Linear(hidden_size + RANK_CODE_SIZE + self.embed_size + 1, 2)
 
-    def initialize_label_priors(self, token_counts, delta_class_counts):
+    def initialize_label_priors(
+        self, hurdle_counts, positive_log_count_mean, delta_class_counts,
+    ):
         with torch.no_grad():
-            tokens = torch.as_tensor(token_counts, dtype=self.stop_emit.bias.dtype)
-            if bool((tokens <= 0).any()):
-                raise RuntimeError("both natural STOP/EMIT classes require TRAIN support")
-            self.stop_emit.bias.copy_(torch.log(tokens / tokens.sum()))
+            hurdle = torch.as_tensor(
+                hurdle_counts, dtype=self.hurdle.bias.dtype
+            )
+            if bool((hurdle <= 0).any()):
+                raise RuntimeError(
+                    "both natural ZERO/POSITIVE classes require TRAIN support"
+                )
+            if not math.isfinite(float(positive_log_count_mean)):
+                raise RuntimeError("TRAIN positive log-count mean is not finite")
+            # Zero weights make the initial gate/count exactly the TRAIN-only
+            # natural priors rather than random perturbations of those priors.
+            self.hurdle.weight.zero_()
+            self.hurdle.bias.copy_(torch.log(hurdle / hurdle.sum()))
+            self.positive_log_count.weight.zero_()
+            self.positive_log_count.bias.fill_(float(positive_log_count_mean))
             classes = torch.as_tensor(delta_class_counts, dtype=self.delta_class.bias.dtype)
             # Add-one is a probability estimator, not a decision threshold; it
             # keeps the TRAIN-unseen OTHER escape representable.
@@ -417,9 +447,8 @@ class GlobalSPPLSTM(nn.Module):
         state, code = self.ranked_state(contexts, ranks)
         return self.delta_class(state), self.delta_signed_log(state).squeeze(1), state, code
 
-    def token_logits(self, contexts, ranks):
-        state, _ = self.ranked_state(contexts, ranks)
-        return self.stop_emit(state)
+    def cardinality_heads(self, contexts):
+        return self.hurdle(contexts), self.positive_log_count(contexts).squeeze(1)
 
     def fill_logits(self, ranked_state, code, delta_classes, delta_signed_logs):
         embedded = self.delta_embedding(delta_classes)
@@ -437,26 +466,33 @@ def detach_state(state):
 def training_priors(targets, class_count):
     counts, classes, _, _, fills = targets
     decisions = counts >= 0
-    # Every decision contributes exactly one terminal STOP and one EMIT for
-    # each teacher action.  The natural token prior is dense enough that no
-    # class weighting is warranted.
-    token_counts = np.asarray([
-        int(decisions.sum()), int(counts[decisions].sum())
+    decision_counts = counts[decisions]
+    hurdle_counts = np.asarray([
+        int((decision_counts == 0).sum()), int((decision_counts > 0).sum())
     ], dtype=np.int64)
+    positive_counts = decision_counts[decision_counts > 0]
+    positive_logs = np.log(positive_counts.astype(np.float64))
     delta_counts = np.zeros(class_count, dtype=np.int64)
     fill_counts = np.zeros(2, dtype=np.int64)
     for row in np.flatnonzero(decisions):
         for rank in range(int(counts[row])):
             delta_counts[int(classes[row, rank])] += 1
             fill_counts[int(fills[row, rank])] += 1
-    if not bool((token_counts > 0).all()):
-        raise RuntimeError("both STOP and EMIT require TRAIN support")
+    if not bool((hurdle_counts > 0).all()) or not len(positive_logs):
+        raise RuntimeError("both ZERO and POSITIVE require TRAIN support")
+    if not bool(np.isfinite(positive_logs).all()):
+        raise RuntimeError("TRAIN positive log counts are not finite")
     if not bool((fill_counts > 0).all()):
         raise RuntimeError("both fill classes require TRAIN support")
     fill_priors = fill_counts.astype(np.float64) / float(fill_counts.sum())
     fill_weights = 0.5 / fill_priors
     return {
-        "stop_emit_counts": token_counts,
+        "hurdle_counts": hurdle_counts,
+        "positive_count_samples": int(len(positive_counts)),
+        "positive_count_min": int(positive_counts.min()),
+        "positive_count_max": int(positive_counts.max()),
+        "positive_log_count_mean": float(positive_logs.mean()),
+        "positive_log_count_std": float(positive_logs.std()),
         "delta_class_counts": delta_counts, "fill_counts": fill_counts,
         "fill_priors": fill_priors, "fill_weights": fill_weights,
     }
@@ -470,31 +506,41 @@ def chunk_loss(model, contexts, targets, fill_weights, device):
         return None, None
     decision_context = contexts[decision]
     decision_rows = torch.nonzero(decision, as_tuple=False).squeeze(1).cpu().tolist()
-    token_rows, token_ranks, token_truth = [], [], []
     action_rows, action_ranks = [], []
     for local_row, original_row in enumerate(decision_rows):
         action_count = int(counts_np[original_row])
-        for rank in range(action_count + 1):
-            token_rows.append(local_row)
-            token_ranks.append(rank)
-            token_truth.append(EMIT_TOKEN if rank < action_count else STOP_TOKEN)
         for rank in range(action_count):
             action_rows.append(local_row); action_ranks.append(rank)
 
-    token_row_tensor = torch.as_tensor(token_rows, dtype=torch.long, device=device)
-    token_rank_tensor = torch.as_tensor(token_ranks, dtype=torch.long, device=device)
-    stop_emit_sum = F.cross_entropy(
-        model.token_logits(
-            decision_context.index_select(0, token_row_tensor), token_rank_tensor
-        ),
-        torch.as_tensor(token_truth, dtype=torch.long, device=device),
+    hurdle_truth = (counts[decision] > 0).to(dtype=torch.long)
+    hurdle_logits, positive_log_predictions = model.cardinality_heads(
+        decision_context
+    )
+    hurdle_sum = F.cross_entropy(
+        hurdle_logits, hurdle_truth,
         reduction="sum",
     )
-    atoms = len(token_rows)
-    loss_sum = stop_emit_sum
+    positive_mask = hurdle_truth == POSITIVE_TOKEN
+    if bool(positive_mask.any()):
+        positive_count_truth = counts[decision][positive_mask]
+        positive_log_truth = torch.log(
+            positive_count_truth.to(dtype=positive_log_predictions.dtype)
+        )
+        positive_count_sum = F.smooth_l1_loss(
+            positive_log_predictions[positive_mask], positive_log_truth,
+            reduction="sum",
+        )
+        positive_atoms = int(positive_mask.sum().item())
+    else:
+        positive_count_sum = decision_context.new_zeros(())
+        positive_atoms = 0
+    atoms = len(decision_rows) + positive_atoms
+    loss_sum = hurdle_sum + positive_count_sum
     components = {
-        "stop_emit_sum": float(stop_emit_sum.detach()),
-        "stop_emit_atoms": len(token_rows),
+        "hurdle_sum": float(hurdle_sum.detach()),
+        "hurdle_atoms": len(decision_rows),
+        "positive_count_sum": float(positive_count_sum.detach()),
+        "positive_count_atoms": positive_atoms,
     }
 
     if action_rows:
@@ -565,62 +611,120 @@ def decode_actions(
     materialization_watchdog_per_callback,
     materialization_watchdog_total, chunk_len=8192,
 ):
-    """Decode rankwise MAP tokens; abort rather than truncate on runaway EMIT."""
+    """Decode hurdle/count MAP; abort instead of clipping any learned count."""
     require_equal_lengths("decode", contexts, base_lines)
+    if (
+        len(vocabulary) < 1 or len(vocabulary) > MAX_EXACT_DELTAS
+        or len(set(map(int, vocabulary))) != len(vocabulary)
+        or any(
+            int(value) < -LINE_ADDRESS_HALF_RANGE
+            or int(value) >= LINE_ADDRESS_HALF_RANGE
+            for value in vocabulary
+        )
+    ):
+        raise RuntimeError("decode received an invalid exact-delta vocabulary")
+    if (
+        materialization_watchdog_per_callback < 1
+        or materialization_watchdog_total < 1
+    ):
+        raise RuntimeError("decode resource watchdogs must be positive")
+    base_array = np.asarray(base_lines)
+    if (
+        base_array.ndim != 1
+        or not np.issubdtype(base_array.dtype, np.integer)
+        or bool((base_array < 0).any())
+        or bool((base_array >= LINE_ADDRESS_MODULUS).any())
+    ):
+        raise RuntimeError("decode base lines are outside the 58-bit domain")
     counts = np.zeros(len(contexts), dtype=np.int64)
     predicted_lines = [[] for _ in contexts]
     predicted_fills = [[] for _ in contexts]
     predicted_classes = [[] for _ in contexts]
     materialized_so_far = 0
-    token_evaluations = terminal_stops = 0
+    hurdle_evaluations = positive_count_evaluations = 0
     maximum_emitted_rank = -1
     model.eval()
     with torch.no_grad():
+        # First determine every callback cardinality.  No output action is
+        # materialized until all finite/domain/resource checks pass.
         for start, stop in _iter_chunks(len(contexts), chunk_len):
             callback_contexts = torch.from_numpy(contexts[start:stop]).to(device)
-            active = torch.arange(stop - start, dtype=torch.long, device=device)
-            rank = 0
-            while int(active.numel()) > 0:
-                active_context = callback_contexts.index_select(0, active)
-                rank_tensor = torch.full(
-                    (len(active),), rank, dtype=torch.long, device=device
-                )
-                ranked, code = model.ranked_state(active_context, rank_tensor)
-                tokens = model.stop_emit(ranked).argmax(dim=1)
-                token_evaluations += len(active)
-                emit_indices = torch.nonzero(
-                    tokens == EMIT_TOKEN, as_tuple=False
+            if not bool(torch.isfinite(callback_contexts).all()):
+                raise RuntimeError("decode context contains a non-finite value")
+            hurdle_logits = model.hurdle(callback_contexts)
+            if not bool(torch.isfinite(hurdle_logits).all()):
+                raise RuntimeError("hurdle produced non-finite logits")
+            hurdle = hurdle_logits.argmax(dim=1)
+            hurdle_evaluations += len(callback_contexts)
+            positive_rows = torch.nonzero(
+                hurdle == POSITIVE_TOKEN, as_tuple=False
+            ).squeeze(1)
+            if int(positive_rows.numel()) > 0:
+                log_counts = model.positive_log_count(
+                    callback_contexts.index_select(0, positive_rows)
                 ).squeeze(1)
-                terminal_stops += len(active) - len(emit_indices)
-                if int(emit_indices.numel()) == 0:
-                    break
-                if rank >= materialization_watchdog_per_callback:
-                    raise RuntimeError(
-                        "learned STOP/EMIT sequence exceeds the fail-closed "
-                        "per-callback materialization watchdog; no replay will be emitted"
-                    )
-                if materialized_so_far + len(emit_indices) > materialization_watchdog_total:
-                    raise RuntimeError(
-                        "learned STOP/EMIT sequence exceeds the fail-closed total "
-                        "materialization watchdog; no replay will be emitted"
-                    )
-                emit_rows = active.index_select(0, emit_indices)
-                emit_ranked = ranked.index_select(0, emit_indices)
-                emit_code = code.index_select(0, emit_indices)
-                class_logits = model.delta_class(emit_ranked)
-                value_predictions = model.delta_signed_log(emit_ranked).squeeze(1)
+                positive_count_evaluations += len(positive_rows)
+                for local_row, scalar in zip(
+                    positive_rows.cpu().tolist(), log_counts.cpu().tolist()
+                ):
+                    try:
+                        count = positive_count_mode(scalar)
+                    except ValueError as error:
+                        raise RuntimeError(
+                            "positive count domain failure at callback {}: {}"
+                            .format(start + int(local_row), error)
+                        )
+                    if count > materialization_watchdog_per_callback:
+                        raise RuntimeError(
+                            "learned positive count exceeds the fail-closed "
+                            "per-callback materialization watchdog; no replay will be emitted"
+                        )
+                    counts[start + int(local_row)] = count
+            chunk_total = int(counts[start:stop].sum())
+            if materialized_so_far + chunk_total > materialization_watchdog_total:
+                raise RuntimeError(
+                    "learned positive counts exceed the fail-closed total "
+                    "materialization watchdog; no replay will be emitted"
+                )
+            materialized_so_far += chunk_total
+
+        # Each rank depends only on callback context and its rank code.  The
+        # finite learned cardinality schedules action heads; actions never feed
+        # another action or the recurrent history.
+        for start, stop in _iter_chunks(len(contexts), chunk_len):
+            callback_contexts = torch.from_numpy(contexts[start:stop]).to(device)
+            chunk_counts = counts[start:stop]
+            for rank in range(int(chunk_counts.max()) if len(chunk_counts) else 0):
+                active_np = np.flatnonzero(chunk_counts > rank)
+                if not len(active_np):
+                    continue
+                active = torch.as_tensor(active_np, dtype=torch.long, device=device)
+                rank_tensor = torch.full(
+                    (len(active_np),), rank, dtype=torch.long, device=device
+                )
+                active_context = callback_contexts.index_select(0, active)
+                class_logits, value_predictions, ranked, code = model.action_heads(
+                    active_context, rank_tensor
+                )
+                if (
+                    not bool(torch.isfinite(class_logits).all())
+                    or not bool(torch.isfinite(value_predictions).all())
+                ):
+                    raise RuntimeError("delta head produced a non-finite value")
                 classes = class_logits.argmax(dim=1)
                 deltas = []
                 for cls, scalar in zip(classes.cpu().tolist(), value_predictions.cpu().tolist()):
                     deltas.append(vocabulary[cls] if cls < len(vocabulary) else inverse_signed_log(scalar))
-                global_rows = [start + int(index) for index in emit_rows.cpu().tolist()]
+                global_rows = [start + int(index) for index in active_np]
                 actual_signed_logs = torch.as_tensor(
                     [signed_log(delta) for delta in deltas],
-                    dtype=emit_ranked.dtype, device=device,
+                    dtype=ranked.dtype, device=device,
                 )
                 fill_logits = model.fill_logits(
-                    emit_ranked, emit_code, classes, actual_signed_logs,
+                    ranked, code, classes, actual_signed_logs,
                 )
+                if not bool(torch.isfinite(fill_logits).all()):
+                    raise RuntimeError("fill head produced non-finite logits")
                 fill_predictions = deterministic_fill_map(
                     fill_logits, fill_priors
                 ).cpu().tolist()
@@ -631,20 +735,19 @@ def decode_actions(
                     predicted_lines[row].append(target)
                     predicted_fills[row].append(fill)
                     predicted_classes[row].append(int(cls))
-                    counts[row] += 1
-                materialized_so_far += len(emit_indices)
                 maximum_emitted_rank = max(maximum_emitted_rank, rank)
-                active = emit_rows
-                rank += 1
     if int(counts.sum()) != sum(map(len, predicted_lines)):
         raise RuntimeError("decoded count/action materialization mismatch")
-    if terminal_stops != len(contexts):
-        raise RuntimeError("successful decode did not observe one terminal STOP per callback")
     decoder_diagnostics = {
-        "stop_emit_token_evaluations": token_evaluations,
-        "terminal_stop_tokens": terminal_stops,
-        "emitted_action_tokens": materialized_so_far,
+        "hurdle_evaluations": hurdle_evaluations,
+        "positive_count_head_evaluations": positive_count_evaluations,
+        "decoded_zero_callbacks": int((counts == 0).sum()),
+        "decoded_positive_callbacks": int((counts > 0).sum()),
+        "materialized_rank_actions": materialized_so_far,
+        "maximum_decoded_count": int(counts.max()) if len(counts) else 0,
         "maximum_emitted_rank": maximum_emitted_rank,
+        "positive_count_mode": "max_1_round_exp_predicted_log_count",
+        "maximum_positive_count_representation_domain": MAX_POSITIVE_COUNT_DOMAIN,
         "deterministic_argmax": True,
     }
     return counts, predicted_lines, predicted_fills, predicted_classes, decoder_diagnostics
@@ -756,7 +859,7 @@ def train_model(model, bundles, targets, streams, teachers, vocabulary, priors, 
                 if loss is None:
                     continue
                 if not torch.isfinite(loss):
-                    raise RuntimeError("non-finite SPP v21 training loss")
+                    raise RuntimeError("non-finite SPP v22 training loss")
                 group_losses.append(loss); group_atoms += components["total_atoms"]
                 totals.update(components)
             if not group_losses:
@@ -764,7 +867,8 @@ def train_model(model, bundles, targets, streams, teachers, vocabulary, priors, 
             (torch.stack(group_losses).sum() / group_atoms).backward()
             optimizer.step(); optimizer_steps += 1
         normalized = (
-            totals["stop_emit_sum"] + totals["delta_class_sum"]
+            totals["hurdle_sum"] + totals["positive_count_sum"]
+            + totals["delta_class_sum"]
             + totals["delta_value_sum"] + totals["fill_sum"]
         ) / max(1, totals["total_atoms"])
         guard_contexts = score_role_history(model, bundles, ("train", "guard"), device)["guard"]
@@ -780,8 +884,12 @@ def train_model(model, bundles, targets, streams, teachers, vocabulary, priors, 
         selection = guard_selection_key(metrics, normalized, epoch)
         row = {
             "epoch": epoch, "normalized_train_loss": normalized,
-            "stop_emit_nll": (
-                totals["stop_emit_sum"] / max(1, totals["stop_emit_atoms"])
+            "hurdle_nll": (
+                totals["hurdle_sum"] / max(1, totals["hurdle_atoms"])
+            ),
+            "positive_log_count_loss": (
+                totals["positive_count_sum"]
+                / max(1, totals["positive_count_atoms"])
             ),
             "delta_class_nll": totals["delta_class_sum"] / max(1, totals["action_atoms"]),
             "delta_signed_log_loss": totals["delta_value_sum"] / max(1, totals["action_atoms"]),
@@ -805,11 +913,11 @@ def train_model(model, bundles, targets, streams, teachers, vocabulary, priors, 
                 "guard_metrics": metrics,
                 "state_dict": copy.deepcopy({key: value.detach().cpu() for key, value in model.state_dict().items()}),
             }
-        print("[train:spp-v21] epoch={} loss={:.8f} joint_f1={:.8f} target_f1={:.8f}".format(
+        print("[train:spp-v22] epoch={} loss={:.8f} joint_f1={:.8f} target_f1={:.8f}".format(
             epoch, normalized, metrics["joint_action_f1"], metrics["target_f1"]
         ))
     if best is None:
-        raise RuntimeError("SPP v21 produced no checkpoint")
+        raise RuntimeError("SPP v22 produced no checkpoint")
     model.load_state_dict(best["state_dict"])
     return history, best
 
@@ -821,7 +929,7 @@ def self_test_model(hidden_size):
         observed = sum(parameter.numel() for parameter in model.parameters())
         expected = expected_parameter_count(size, 7)
         if observed != expected:
-            raise RuntimeError("SPP v21 parameter formula mismatch: {} != {}".format(observed, expected))
+            raise RuntimeError("SPP v22 parameter formula mismatch: {} != {}".format(observed, expected))
     if inverse_signed_log(signed_log(-12345)) != -12345 or inverse_signed_log(signed_log(6789)) != 6789:
         raise RuntimeError("signed-log OTHER codec round trip failed")
     sample = GlobalSPPLSTM(hidden_size, 7)
@@ -830,21 +938,44 @@ def self_test_model(hidden_size):
         first, _ = sample.encode(features); second, _ = sample.encode(changed)
     if not torch.equal(first[:-1], second[:-1]):
         raise RuntimeError("future callback changed a prior global LSTM state")
-    forbidden = ("page", "candidate", "action_cell", "byte", "gate", "log_count")
+    forbidden = ("page", "candidate", "action_cell", "byte", "stop_emit")
     if any(any(token in name for token in forbidden) for name, _ in sample.named_parameters()):
-        raise RuntimeError("normal template/gate-count state leaked into v21")
+        raise RuntimeError("normal template or STOP/EMIT state leaked into v22")
+    sample.initialize_label_priors(
+        np.asarray([3, 2]), math.log(2.0), np.ones(8, dtype=np.int64)
+    )
+    if (
+        bool((sample.hurdle.weight != 0).any())
+        or bool((sample.positive_log_count.weight != 0).any())
+        or not math.isclose(
+            float(sample.positive_log_count.bias.item()), math.log(2.0),
+            rel_tol=1e-6, abs_tol=1e-6,
+        )
+    ):
+        raise RuntimeError("TRAIN-prior gate/count initialization failed")
     with torch.no_grad():
-        sample.stop_emit.weight.zero_()
-        sample.stop_emit.bias.copy_(torch.tensor([1.0, 0.0]))
+        sample.hurdle.weight.zero_()
+        sample.hurdle.bias.copy_(torch.tensor([1.0, 0.0]))
     stopped = decode_actions(
         sample, np.zeros((2, hidden_size), dtype=np.float32),
         np.asarray([0, 1], dtype=np.int64), list(range(7)),
         np.asarray([0.02, 0.98]), torch.device("cpu"), 2, 10,
     )
-    if stopped[0].tolist() != [0, 0] or stopped[4]["terminal_stop_tokens"] != 2:
-        raise RuntimeError("terminal STOP decoder self-test failed")
+    if stopped[0].tolist() != [0, 0]:
+        raise RuntimeError("ZERO hurdle decoder self-test failed")
     with torch.no_grad():
-        sample.stop_emit.bias.copy_(torch.tensor([0.0, 1.0]))
+        sample.hurdle.bias.copy_(torch.tensor([0.0, 1.0]))
+        sample.positive_log_count.weight.zero_()
+        sample.positive_log_count.bias.fill_(math.log(2.0))
+    positive = decode_actions(
+        sample, np.zeros((1, hidden_size), dtype=np.float32),
+        np.asarray([0], dtype=np.int64), list(range(7)),
+        np.asarray([0.02, 0.98]), torch.device("cpu"), 2, 10,
+    )
+    if positive[0].tolist() != [2] or len(positive[1][0]) != 2:
+        raise RuntimeError("finite positive log-count decoder self-test failed")
+    with torch.no_grad():
+        sample.positive_log_count.bias.fill_(math.log(3.0))
     try:
         decode_actions(
             sample, np.zeros((1, hidden_size), dtype=np.float32),
@@ -855,7 +986,20 @@ def self_test_model(hidden_size):
         if "watchdog" not in str(error):
             raise
     else:
-        raise RuntimeError("runaway EMIT decoder did not fail closed")
+        raise RuntimeError("oversized positive count did not fail closed")
+    with torch.no_grad():
+        sample.positive_log_count.bias.fill_(float("inf"))
+    try:
+        decode_actions(
+            sample, np.zeros((1, hidden_size), dtype=np.float32),
+            np.asarray([0], dtype=np.int64), list(range(7)),
+            np.asarray([0.02, 0.98]), torch.device("cpu"), 4, 10,
+        )
+    except RuntimeError as error:
+        if "domain" not in str(error):
+            raise
+    else:
+        raise RuntimeError("non-finite positive log-count did not fail closed")
     logits = torch.tensor([[0.0, 0.0], [5.0, 0.0]])
     one = deterministic_fill_map(logits, np.asarray([0.02, 0.98]))
     two = deterministic_fill_map(logits, np.asarray([0.02, 0.98]))
@@ -879,8 +1023,14 @@ def main():
     parser.add_argument("--chunk-len", type=int, default=CHUNK_LEN)
     parser.add_argument("--accumulate-chunks", type=int, default=ACCUMULATE_CHUNKS)
     parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE)
-    parser.add_argument("--materialization-watchdog-per-callback", type=int, default=4096)
-    parser.add_argument("--materialization-watchdog-total", type=int, default=10000000)
+    parser.add_argument(
+        "--materialization-watchdog-per-callback", type=int,
+        default=DECODE_PER_CALLBACK_RESOURCE_WATCHDOG,
+    )
+    parser.add_argument(
+        "--materialization-watchdog-total", type=int,
+        default=DECODE_PER_ROLE_RESOURCE_WATCHDOG,
+    )
     parser.add_argument("--device", default="cuda")
     args = parser.parse_args()
     pinned_training_config = {
@@ -903,13 +1053,20 @@ def main():
     if source_contract.get("decision_effective_external_input") != SOURCE_INPUTS:
         raise RuntimeError("unexpected SPP source input contract")
     if MODEL_POINTS["lstm"].get(args.model_size) != args.pair_id:
-        raise RuntimeError("model size/pair is not a configured v21 point")
+        raise RuntimeError("model size/pair is not a configured v22 point")
     if min(
         args.epochs, args.chunk_len, args.accumulate_chunks,
         args.materialization_watchdog_per_callback,
         args.materialization_watchdog_total,
     ) < 1:
         raise RuntimeError("model/training dimensions must be positive")
+    if (
+        args.materialization_watchdog_per_callback
+        != DECODE_PER_CALLBACK_RESOURCE_WATCHDOG
+        or args.materialization_watchdog_total
+        != DECODE_PER_ROLE_RESOURCE_WATCHDOG
+    ):
+        raise RuntimeError("decode resource watchdogs differ from pinned v22 contract")
     device = torch.device(args.device)
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but unavailable")
@@ -918,7 +1075,7 @@ def main():
     )
     if device.type != "cuda" or "A100" not in cuda_device_name:
         raise RuntimeError(
-            "pinned v21 run requires an NVIDIA A100; observed {!r}".format(
+            "pinned v22 run requires an NVIDIA A100; observed {!r}".format(
                 cuda_device_name
             )
         )
@@ -959,11 +1116,12 @@ def main():
 
     model = GlobalSPPLSTM(args.model_size, len(vocabulary)).to(device)
     model.initialize_label_priors(
-        priors["stop_emit_counts"], priors["delta_class_counts"]
+        priors["hurdle_counts"], priors["positive_log_count_mean"],
+        priors["delta_class_counts"],
     )
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     if parameter_count != expected_parameter_count(args.model_size, len(vocabulary)):
-        raise RuntimeError("measured SPP v21 parameter count changed")
+        raise RuntimeError("measured SPP v22 parameter count changed")
     history, best = train_model(
         model, bundles, targets, streams, teachers, vocabulary, priors, device,
         args,
@@ -1010,6 +1168,10 @@ def main():
         "model_size": args.model_size, "runtime_features": RUNTIME_FEATURES,
         "exact_delta_vocabulary": vocabulary, "other_class": len(vocabulary),
         "fill_levels": FILL_LEVELS, "fill_priors": priors["fill_priors"].tolist(),
+        "hurdle_priors": (
+            priors["hurdle_counts"] / priors["hurdle_counts"].sum()
+        ).tolist(),
+        "positive_log_count_prior_mean": priors["positive_log_count_mean"],
         "selected_epoch": best["epoch"], "stochastic_decoding": False,
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION, "decoder_revision": DECODER_REVISION,
@@ -1102,21 +1264,43 @@ def main():
         "teacher_target_used_as_recurrent_feedback": False,
         "sampled_outputs_used_as_decoder_feedback": False,
         "rank_conditioning": "generic_four_component_sinusoidal_position_code",
-        "stop_emit_training_objective": TOKEN_OBJECTIVE,
-        "stop_emit_train_class_counts": priors["stop_emit_counts"].tolist(),
-        "stop_emit_train_class_priors": (
-            priors["stop_emit_counts"] / priors["stop_emit_counts"].sum()
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "hurdle_train_class_counts": priors["hurdle_counts"].tolist(),
+        "hurdle_train_class_priors": (
+            priors["hurdle_counts"] / priors["hurdle_counts"].sum()
         ).tolist(),
-        "stop_emit_train_class_order": ["STOP", "EMIT"],
-        "stop_emit_prior_initialization": "TRAIN_natural_class_log_priors",
-        "stop_emit_class_weighting_used": False,
-        "stop_emit_prior_extremely_sparse": False,
-        "terminal_stop_supervised": True,
-        "terminal_stop_count_train": int(priors["stop_emit_counts"][STOP_TOKEN]),
-        "stop_emit_decoding_rule": "rank_conditioned_two_class_MAP_until_STOP",
-        "separate_gate_head_used": False,
-        "request_count_head_used": False,
-        "request_count_regression_used": False,
+        "hurdle_train_class_order": ["ZERO", "POSITIVE"],
+        "hurdle_prior_initialization": (
+            "zero_weights_plus_TRAIN_natural_class_log_prior_bias"
+        ),
+        "hurdle_head_weights_zero_initialized": True,
+        "hurdle_class_weighting_used": False,
+        "hurdle_decoding_rule": "deterministic_ZERO_POSITIVE_categorical_MAP",
+        "positive_count_training_objective": POSITIVE_COUNT_OBJECTIVE,
+        "positive_count_target_transform": "natural_log_of_teacher_count_conditioned_on_count_ge_1",
+        "positive_count_train_samples": priors["positive_count_samples"],
+        "positive_count_train_min": priors["positive_count_min"],
+        "positive_count_train_max": priors["positive_count_max"],
+        "positive_log_count_train_mean": priors["positive_log_count_mean"],
+        "positive_log_count_train_std": priors["positive_log_count_std"],
+        "positive_count_prior_initialization": (
+            "zero_weights_plus_TRAIN_mean_log_positive_count_bias"
+        ),
+        "positive_count_head_weights_zero_initialized": True,
+        "positive_count_decoding_rule": describe_model_points()[
+            "positive_count_decoding_rule"
+        ],
+        "positive_count_support": describe_model_points()["positive_count_support"],
+        "maximum_positive_count_domain": MAX_POSITIVE_COUNT_DOMAIN,
+        "positive_count_output_cap": None,
+        "positive_count_rounding_rule": "max_1_floor_exp_log_count_plus_one_half",
+        "positive_count_loss_condition": "teacher_count_ge_1_only",
+        "stop_emit_head_used": False,
+        "terminal_stop_supervised": False,
+        "separate_gate_head_used": True,
+        "request_count_head_used": True,
+        "request_count_regression_used": True,
+        "learned_request_count": True,
         "action_or_byte_grammar_used": False,
         "delta_training_objective": DELTA_OBJECTIVE,
         "delta_decoding_rule": "class_MAP_exact_TRAIN_delta_or_signed_log_OTHER_relative_to_callback_line",
@@ -1163,16 +1347,24 @@ def main():
         "teacher_max_actions_per_callback": {
             role: max(map(len, teachers[role])) for role in roles
         },
-        "train_terminal_stop_max_rank": max(map(len, teachers["train"])),
+        "train_positive_count_max": priors["positive_count_max"],
         "guard_decoded_max_actions_per_callback": int(guard_decode[0].max()),
         "eval_decoded_max_actions_per_callback": int(eval_decode[0].max()),
         "maximum_action_count_is_learned_not_fixed": True,
+        "decode_count_representation_domain": "signed_int64_positive",
+        "decode_per_callback_resource_watchdog": args.materialization_watchdog_per_callback,
+        "decode_per_role_resource_watchdog": args.materialization_watchdog_total,
+        "decode_resource_watchdog_behavior": "fail_closed_without_truncation_or_forced_count",
         "output_materialization_watchdog_actions_per_callback": args.materialization_watchdog_per_callback,
         "output_materialization_watchdog_actions_per_role": args.materialization_watchdog_total,
         "output_materialization_watchdog_role": "fail_closed_resource_guard_no_truncation_or_forced_count",
         "output_materialization_watchdog_is_neural_degree_cap": False,
         "causal_no_future_self_test": "PASS", "independent_rank_decoder_self_test": "PASS",
-        "terminal_stop_self_test": "PASS", "fail_closed_watchdog_self_test": "PASS",
+        "hurdle_log_count_self_test": "PASS",
+        "gate_count_prior_initialization_self_test": "PASS",
+        "positive_count_domain_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
+        "fail_closed_watchdog_self_test": "PASS",
         "signed_log_other_codec_self_test": "PASS",
         "fill_prior_corrected_argmax_self_test": "PASS",
         "integer_csv_exactness_self_test": "PASS",
