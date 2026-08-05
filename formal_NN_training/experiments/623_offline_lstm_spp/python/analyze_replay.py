@@ -50,6 +50,7 @@ MODEL_TAG_PREFIXES = (
     "hard_distinct_delta_fill_spp_lstm_",
     "routed_grammar_spp_lstm_",
     "stop_emit_vocab_spp_lstm_",
+    "hurdle_count_vocab_spp_lstm_",
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -393,6 +394,8 @@ def policy_for_method(method):
         "offline_routed_grammar_spp_"
     ) or method.startswith(
         "offline_stop_emit_vocab_spp_"
+    ) or method.startswith(
+        "offline_hurdle_count_vocab_spp_"
     ):
         return POLICY
     return ""
@@ -409,6 +412,8 @@ def model_tag_for_method(method):
         "offline_routed_grammar_spp_"
     ) or method.startswith(
         "offline_stop_emit_vocab_spp_"
+    ) or method.startswith(
+        "offline_hurdle_count_vocab_spp_"
     ):
         return method[len("offline_"):]
     return ""
@@ -487,7 +492,7 @@ def add_comparison_metrics(rows, failures):
 
 
 def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failures):
-    """Fail closed on the deterministic v21 STOP/EMIT contract."""
+    """Fail closed on the deterministic v22 hurdle/log-count contract."""
     expected = {
         "run_id": ACTIVE_POINT_CONTRACT["run_id"],
         "trace": TRACE,
@@ -528,14 +533,38 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "decoder_previous_sampled_action_used_as_input": False,
         "teacher_action_values_used_as_decoder_feedback": False,
         "sampled_outputs_used_as_decoder_feedback": False,
-        "terminal_stop_supervised": True,
-        "stop_emit_training_objective": ACTIVE_POINT_CONTRACT[
-            "stop_emit_training_objective"
+        "terminal_stop_supervised": False,
+        "stop_emit_head_used": False,
+        "hurdle_training_objective": ACTIVE_POINT_CONTRACT[
+            "hurdle_training_objective"
         ],
-        "stop_emit_class_weighting_used": False,
-        "separate_gate_head_used": False,
-        "request_count_head_used": False,
-        "request_count_regression_used": False,
+        "hurdle_class_weighting_used": False,
+        "hurdle_train_class_order": ["ZERO", "POSITIVE"],
+        "hurdle_prior_initialization": ACTIVE_POINT_CONTRACT[
+            "hurdle_prior_initialization"
+        ],
+        "hurdle_head_weights_zero_initialized": True,
+        "positive_count_training_objective": ACTIVE_POINT_CONTRACT[
+            "positive_count_training_objective"
+        ],
+        "positive_count_prior_initialization": ACTIVE_POINT_CONTRACT[
+            "positive_count_prior_initialization"
+        ],
+        "positive_count_head_weights_zero_initialized": True,
+        "positive_count_decoding_rule": ACTIVE_POINT_CONTRACT[
+            "positive_count_decoding_rule"
+        ],
+        "positive_count_support": ACTIVE_POINT_CONTRACT[
+            "positive_count_support"
+        ],
+        "maximum_positive_count_domain": ACTIVE_POINT_CONTRACT[
+            "maximum_positive_count_domain"
+        ],
+        "positive_count_output_cap": None,
+        "separate_gate_head_used": True,
+        "request_count_head_used": True,
+        "request_count_regression_used": True,
+        "learned_request_count": True,
         "action_or_byte_grammar_used": False,
         "delta_other_escape": ACTIVE_POINT_CONTRACT["delta_other_escape"],
         "delta_other_decode_precision": ACTIVE_POINT_CONTRACT[
@@ -566,6 +595,20 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "page_local_causal_state": False,
         "handcrafted_semantic_features_used": False,
         "output_materialization_watchdog_is_neural_degree_cap": False,
+        "decode_per_callback_resource_watchdog": ACTIVE_POINT_CONTRACT[
+            "decode_per_callback_resource_watchdog"
+        ],
+        "decode_per_role_resource_watchdog": ACTIVE_POINT_CONTRACT[
+            "decode_per_role_resource_watchdog"
+        ],
+        "decode_resource_watchdog_behavior": ACTIVE_POINT_CONTRACT[
+            "decode_resource_watchdog_behavior"
+        ],
+        "hurdle_log_count_self_test": "PASS",
+        "gate_count_prior_initialization_self_test": "PASS",
+        "positive_count_domain_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
+        "fail_closed_watchdog_self_test": "PASS",
         "maximum_action_count_is_learned_not_fixed": True,
         "weights_retrained": True,
         "checkpoint_reused": False,
@@ -712,28 +755,49 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
             "{} SPP source-contract SHA256 mismatch".format(tag)
         )
 
-    stop_counts = metadata.get("stop_emit_train_class_counts")
-    stop_priors = metadata.get("stop_emit_train_class_priors")
+    hurdle_counts = metadata.get("hurdle_train_class_counts")
+    hurdle_priors = metadata.get("hurdle_train_class_priors")
     if (
-        not isinstance(stop_counts, list)
-        or not isinstance(stop_priors, list)
-        or len(stop_counts) != 2
-        or len(stop_priors) != 2
+        not isinstance(hurdle_counts, list)
+        or not isinstance(hurdle_priors, list)
+        or len(hurdle_counts) != 2
+        or len(hurdle_priors) != 2
         or any(
             not isinstance(value, int) or isinstance(value, bool) or value <= 0
-            for value in stop_counts
+            for value in hurdle_counts
         )
     ):
-        failures.append("{} invalid STOP/EMIT TRAIN prior".format(tag))
+        failures.append("{} invalid ZERO/POSITIVE TRAIN prior".format(tag))
     else:
-        total = float(sum(stop_counts))
+        total = float(sum(hurdle_counts))
         if any(
             not math.isclose(
                 actual, count / total, rel_tol=1e-7, abs_tol=1e-9
             )
-            for actual, count in zip(stop_priors, stop_counts)
+            for actual, count in zip(hurdle_priors, hurdle_counts)
         ):
-            failures.append("{} STOP/EMIT prior mismatch".format(tag))
+            failures.append("{} ZERO/POSITIVE prior mismatch".format(tag))
+
+    positive_samples = metadata.get("positive_count_train_samples")
+    positive_min = metadata.get("positive_count_train_min")
+    positive_max = metadata.get("positive_count_train_max")
+    positive_mean = metadata.get("positive_log_count_train_mean")
+    positive_std = metadata.get("positive_log_count_train_std")
+    if (
+        not isinstance(positive_samples, int) or isinstance(positive_samples, bool)
+        or positive_samples <= 0
+        or not isinstance(positive_min, int) or positive_min < 1
+        or not isinstance(positive_max, int) or positive_max < positive_min
+        or not isinstance(positive_mean, (int, float))
+        or not math.isfinite(float(positive_mean))
+        or not isinstance(positive_std, (int, float))
+        or not math.isfinite(float(positive_std)) or positive_std < 0
+        or (
+            isinstance(hurdle_counts, list) and len(hurdle_counts) == 2
+            and positive_samples != hurdle_counts[1]
+        )
+    ):
+        failures.append("{} invalid positive log-count TRAIN statistics".format(tag))
 
     fill_counts = metadata.get("fill_train_class_counts")
     fill_priors = metadata.get("fill_train_priors")
@@ -810,7 +874,7 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         or metadata.get("raw_predicted_action_count")
         != metadata.get("materialized_action_count")
     ):
-        failures.append("{} invalid v21 action output accounting".format(tag))
+        failures.append("{} invalid v22 action output accounting".format(tag))
 
     for role in ("train", "guard", "eval"):
         for kind in ("stream", "teacher_actions"):
@@ -1539,7 +1603,8 @@ def main():
         ):
             raise SystemExit("invalid model tag {}".format(tag))
     revisions = {
-        "active" if tag.startswith("stop_emit_vocab_spp_lstm_") else
+        "active" if tag.startswith("hurdle_count_vocab_spp_lstm_") else
+        "v21" if tag.startswith("stop_emit_vocab_spp_lstm_") else
         "v19" if tag.startswith("routed_grammar_spp_lstm_") else
         "v18" if tag.startswith("hard_distinct_delta_fill_spp_lstm_") else
         "v16a" if tag.startswith("guard_joint_map_spp_lstm_") else
@@ -1594,6 +1659,8 @@ def main():
             "offline_routed_grammar_spp_"
         ) or method.startswith(
             "offline_stop_emit_vocab_spp_"
+        ) or method.startswith(
+            "offline_hurdle_count_vocab_spp_"
         ):
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
@@ -2102,7 +2169,7 @@ def main():
             "spp_track": [
                 "offline_spp",
                 (
-                    "offline_stop_emit_vocab_spp_{}_<capacity>"
+                    "offline_hurdle_count_vocab_spp_{}_<capacity>"
                     if "active" in revisions else
                     "offline_routed_grammar_spp_{}_<capacity>"
                     if "v19" in revisions else
@@ -2138,7 +2205,7 @@ def main():
         ),
         "direct_action_contract": {
             "count_distribution": (
-                "independent rankwise STOP/EMIT MAP with one supervised terminal STOP"
+                "natural ZERO/POSITIVE hurdle MAP plus finite positive log-count mode"
                 if "active" in revisions else
                 "rank-wise learned STOP/EMIT categorical grammar"
                 if "v19" in revisions else
@@ -2163,7 +2230,7 @@ def main():
             "fill_classes": ["FILL_L2", "FILL_LLC"],
             "decision": (
                 (
-                    "deterministic rankwise STOP/EMIT, delta MAP, and "
+                    "deterministic hurdle/log-count, independent-rank delta MAP, and "
                     "prior-corrected fill argmax without prior-action feedback"
                     if "active" in revisions else
                     "stateless event/rank-keyed learned STOP/EMIT, exact "
@@ -2233,7 +2300,7 @@ def main():
                 "history": "complete train then guard then evaluation chronology",
                 "training": "chronological TBPTT with state carried and detached",
                 "causal_derived_features": [],
-                "decoder": "independent rank STOP/EMIT with terminal STOP, TRAIN delta vocabulary plus OTHER, deterministic prior-corrected target-conditioned fill",
+                "decoder": "ZERO/POSITIVE hurdle plus positive log-count, independent-rank TRAIN delta vocabulary plus OTHER, deterministic prior-corrected target-conditioned fill",
                 "normal_policy_template": False,
             }
             if "active" in revisions else
