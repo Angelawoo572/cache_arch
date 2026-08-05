@@ -1,4 +1,4 @@
-# 623 Stride — raw exact-PC rank STOP/EMIT LSTM v21
+# 623 Stride — raw exact-PC hurdle/count LSTM v22
 
 This is the active matched-input Stride experiment for
 `623.xalancbmk_s-700B`. Normal Stride and the standalone NN receive the same
@@ -7,14 +7,23 @@ offline-normal replay entries and supervised labels only. They are never NN
 runtime inputs, candidates, prefixes, budgets, degree hints, or templates.
 
 Input revision: `stride_source_input_variable_delta_free_running_v9`  
-Model revision: `pc_keyed_raw_rank_stop_emit_v21`  
-Decoder revision: `deterministic_rank_stop_emit_train_vocab_v21`  
-Default run: `623_offline_lstm_stride_rank_stop_emit_v21_seed7`
+Model revision: `pc_keyed_raw_hurdle_count_rank_delta_v22`  
+Decoder revision: `deterministic_hurdle_log_count_train_vocab_v22`  
+Default run: `623_offline_lstm_stride_raw_hurdle_count_v22_seed7`
 
-## The v21 choice
+## The v22 choice
 
-v21 resets the model around the actual learning problem instead of encoding a
+v22 keeps the raw-input learning problem while fixing v21's unsafe cardinality
+representation instead of encoding a
 partial version of normal Stride.
+
+In v21, TRAIN supervised ranks only through each teacher sequence's terminal
+rank, while inference continued `EMIT` decisions with no learned finite bound.
+One mistaken terminal `EMIT` therefore entered out-of-support ranks until the
+4,096-action watchdog. Guard decode ran before the first epoch summary, which
+matches the observed outer `CalledProcessError`; because that report omitted
+the child traceback, this remains the strongest code-level diagnosis rather
+than a claim that the hidden stderr was observed.
 
 1. The runtime tensor is exactly 122 lossless raw bits: `pc64+line58`. There is
    no supplied same-PC delta, prior delta, reuse distance, validity flag,
@@ -24,16 +33,16 @@ partial version of normal Stride.
    carries one `(h,c)` pair per observed PC and detaches it only at chunk
    boundaries. There is no global recurrent branch and no finite Stride table
    copied into the model.
-3. At every rank, a shared binary head independently chooses `STOP` or `EMIT`.
-   A teacher sequence with `k` actions contributes `k` EMIT decisions and one
-   terminal STOP. There is no separate global gate, log-count head, or decoded
-   count rounding: cardinality is simply the number of EMIT decisions before
-   the first STOP.
-4. STOP/EMIT cross-entropy weights are computed only from TRAIN labels as
-   `N/(2*N_class)`. Therefore all TRAIN STOP labels and all TRAIN EMIT labels
-   have equal aggregate loss mass. These are data-derived loss weights, not a
-   hand-chosen probability threshold or operating point. The decision-head
-   bias starts at zero.
+3. A callback-level binary hurdle predicts `ZERO` or `POSITIVE`; a separate
+   positive-only log-count head learns cardinality. At inference raw hurdle
+   argmax is followed by `max(1, round(exp(log_count)))`. Non-finite, host-
+   overflow, or watchdog-violating counts abort the whole role; none are
+   clipped or wrapped.
+4. Hurdle cross-entropy weights are computed only from TRAIN callback labels as
+   `N/(2*N_class)`, giving ZERO and POSITIVE equal aggregate loss mass. The
+   hurdle bias is the centered log effective weighted TRAIN mass (therefore a
+   checked neutral bias), and the count bias is the mean positive TRAIN log
+   count. There is no selected probability threshold.
 5. Each emitted rank predicts a signed cache-line delta relative to the
    **current demand**, never relative to a teacher or predicted earlier action.
    The decoder receives only the LSTM context and a generic eight-value
@@ -45,11 +54,12 @@ partial version of normal Stride.
    receives auxiliary smooth-L1 loss on every emitted teacher rank, including
    exact-class ranks. This is an output alphabet learned from labels, not a
    page-offset table, same-page rule, stride template, or degree cap.
-7. Inference is a deterministic argmax rank loop until STOP. It uses no
+7. Inference is deterministic hurdle/count decoding followed by exactly the
+   learned number of independent rank-conditioned delta MAP decisions. It uses no
    sampling, probability threshold, normal request rate, action budget, or
    learned-count clipping. Generic host-resource watchdogs abort the whole role
    before replay if a callback would exceed 4,096 actions or a role would
-   exceed 10,000,000. They never convert EMIT to STOP or accept a truncated
+   exceed 10,000,000. They never change a learned count or accept a truncated
    prefix, so they are fail-closed resource checks rather than neural policy
    caps.
 8. After every epoch, guard-only behavior selects a checkpoint
@@ -65,17 +75,13 @@ state is routed by exact PC; training and inference use natural chronology;
 teacher actions enter losses only; outputs are direct deterministic addresses;
 and replay/accounting compares reachable matched callbacks.
 
-The cardinality and target decoder intentionally differ. Completed 602 had a
-sparse trigger problem for which a balanced hurdle decision plus a positive
-count objective worked, and its delta decoder could exploit the observed 602
-distribution. On 623, the earlier global decision/count and stochastic/token
-variants repeatedly separated “should emit,” “how many,” and “which integer
-addresses” into error-prone stages. v21 instead trains the exact sequential
-decision that inference executes: each action is EMIT, every sequence ends in
-STOP, and each emitted rank has a directly supervised integer-aligned delta.
-It retains 602's raw-input/exact-PC principle while removing engineered
-same-PC history that would bias the NN toward a manually supplied Stride-like
-representation.
+The 602 evidence and 623's sparse Stride labels favor the same count principle:
+a balanced learned hurdle prevents the all-zero shortcut, while positive-only
+log-count regression avoids Poisson-mode collapse. v22 does not copy normal
+Stride internals. It retains v21's raw-input/exact-PC state and dynamic direct
+delta vocabulary, but replaces the open-ended repeated EMIT loop with one
+learned finite count. Rank targets remain relative to the current demand and
+receive no teacher/predicted action feedback.
 
 ## Sweep and parameter accounting
 
@@ -84,11 +90,11 @@ Because `C = |TRAIN exact-delta vocabulary| + 1 OTHER`, the realized output
 head and parameter count are data-dependent:
 
 ```text
-parameters(H,C) = 8*H^2 + (122+8+C+13)*H + C + 3
+parameters(H,C) = 8*H^2 + (122+8+C+14)*H + C + 4
 ```
 
 Before TRAIN is loaded, the contract reports only `maximum_parameter_count` at
-`C=256`: 3,963; 8,691; 21,219; 58,563; and 182,403 parameters respectively.
+`C=256`: 3,972; 8,708; 21,252; 58,628; and 182,532 parameters respectively.
 Every run records realized `C`, realized parameter count, the formula result,
 and the point maximum. Validation must require exact agreement with realized
 `C` and `realized <= maximum`; it must not assume all data sets realize 256
@@ -122,7 +128,7 @@ cd ~/cache
 
 export EXP=formal_NN_training/experiments/623_offline_lstm_stride
 export SOURCE_RUN=623_offline_lstm_stride_global_local_grammar_v19_seed7
-export RUN_ID=623_offline_lstm_stride_rank_stop_emit_v21_seed7
+export RUN_ID=623_offline_lstm_stride_raw_hurdle_count_v22_seed7
 export SOURCE_DIR="$EXP/runs/$SOURCE_RUN"
 export RUN_DIR="$EXP/runs/$RUN_ID"
 
@@ -139,33 +145,35 @@ cmp "$SOURCE_DIR/$SOURCE_RUN.colab_input.tar.gz" \
   "$RUN_DIR/$RUN_ID.colab_input.tar.gz"
 diff -qr "$SOURCE_DIR/colab_input" "$RUN_DIR/colab_input"
 
-python3 formal_NN_training/common/split_colab_archive.py split \
-  "$RUN_DIR/$RUN_ID.colab_input.tar.gz" --output-dir "$RUN_DIR" \
-  --max-part-mib 90 --overwrite
-python3 formal_NN_training/common/split_colab_archive.py verify \
-  "$RUN_DIR/$RUN_ID.colab_input.tar.gz.parts.json" --parts-dir "$RUN_DIR"
+gzip -t "$RUN_DIR/$RUN_ID.colab_input.tar.gz"
+tar -tzf "$RUN_DIR/$RUN_ID.colab_input.tar.gz" >/dev/null
+sha256sum "$RUN_DIR/$RUN_ID.colab_input.tar.gz"
 ```
 
 The reused `collection_manifest.json` correctly describes the historical v9
-collection. v21 model/output semantics are pinned by
+collection. v22 model/output semantics are pinned by
 `data/stream_contract.json`, `python/model_contract.py`, the trainer metadata,
 and their recorded hashes. Run archives and large data remain outside GitHub.
 
 Run `colab/623_offline_lstm_stride_A100.ipynb` on one A100 after its contract
-cell reports all five v21 points. In its upload chooser, select the input
-`.parts.json` manifest and every numbered part together. The notebook persists
-them under the run-specific Google Drive directory, verifies every part and
-the whole archive, rejoins it, and safely extracts it. Large outputs use the
-same at-most-90-MiB manifest/part format. Copy either the single output archive
-or its manifest and every part into `$RUN_DIR`; `run_server.sh` rejoins and
-verifies multipart output automatically.
+cell reports all five v22 points. By default, select exactly one input
+`.tar.gz`; the notebook records its original name and SHA-256, caches the
+validated bytes under the current run ID in Google Drive, verifies the archive
+and packaged `SHA256SUMS`, and safely extracts it. The default output is also
+one verified `.tar.gz`.
+
+Multipart input/output remains an explicit fallback only if a real transfer
+limit prevents the single-file path. In that case use
+`formal_NN_training/common/split_colab_archive.py`, and select the manifest plus
+all numbered parts together. `run_server.sh` still accepts and verifies either
+form.
 
 ```text
 $RUN_DIR/$RUN_ID.colab_output.tar.gz
 ```
 
-Then replay and diagnose with the server/analyzer versions that validate v21's
-realized parameter formula and STOP/EMIT metadata:
+Then replay and diagnose with the server/analyzer versions that validate v22's
+realized parameter formula and hurdle/count metadata:
 
 ```bash
 BUILD=1 FORCE=0 RESET_PATCH=0 JOBS=8 RUN_ID="$RUN_ID" \
