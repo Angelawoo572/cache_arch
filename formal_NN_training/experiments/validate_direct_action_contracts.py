@@ -231,7 +231,7 @@ def validate_runtime_input_boundary(track_name, stream):
             fail("{} must set {}=false".format(track_name, key))
 
 
-def validate_active_model_contract(track, stream, model):
+def validate_active_model_contract_v23_legacy(track, stream, model):
     name = track.name
     model_fields = model.get(
         "external_input_fields", model.get("source_inputs")
@@ -578,6 +578,139 @@ def validate_active_model_contract(track, stream, model):
             fail("{} trainer omits {} provenance".format(name, required))
 
 
+def validate_active_model_contract(track, stream, model):
+    """Audit the v24 natural-cardinality contracts without copying code."""
+    name = track.name
+    training_fields, inference_fields = contract_fields(stream)
+    model_fields = model.get(
+        "external_input_fields", model.get("source_inputs")
+    )
+    if list(model_fields or ()) != training_fields or training_fields != inference_fields:
+        fail("{} stable model/runtime input fields differ".format(name))
+    for key in ("run_id", "model_revision", "decoder_revision"):
+        if not isinstance(model.get(key), str) or not model[key]:
+            fail("{} stable model contract lacks {}".format(name, key))
+        if key in stream and stream[key] != model[key]:
+            fail("{} stream/model {} mismatch".format(name, key))
+    stream_revision = stream.get("experiment_revision", stream.get("revision"))
+    if model.get("experiment_revision") != stream_revision:
+        fail("{} stable model/input revision mismatch".format(name))
+
+    required_false = (
+        "teacher_actions_are_model_inputs",
+        "normal_policy_outputs_used_as_model_inputs",
+        "normal_policy_candidates_used_as_model_inputs",
+        "normal_policy_private_state_used_as_model_inputs",
+        "normal_policy_request_rate_used_as_budget",
+        "probability_threshold_used",
+        "threshold_related_hardcodes_used",
+        "inference_policy_hardcodes_used",
+        "same_page_rule_used_by_neural_inference",
+        "normal_policy_templates_used_by_neural_inference",
+        "decoder_previous_teacher_action_used_as_input",
+        "decoder_previous_predicted_action_used_as_input",
+        "decoder_previous_sampled_action_used_as_input",
+        "count_regression_used",
+        "hurdle_head_used",
+        "stop_token_used",
+        "stop_padding_used",
+        "loss_class_reweighting_used",
+        "decode_prior_correction_used",
+    )
+    for key in required_false:
+        if model.get(key) is not False:
+            fail("{} must set {}=false".format(name, key))
+    if model.get("neural_degree_cap") is not None:
+        fail("{} inherits a fixed neural degree".format(name))
+    if model.get("neural_role") != "standalone_direct_action_prefetcher":
+        fail("{} is not an independent direct-action learner".format(name))
+    if model.get("count_head_used") is not True:
+        fail("{} lacks a natural categorical count head".format(name))
+    if model.get("count_zero_is_implicit_hurdle") is not True:
+        fail("{} does not use K=0 as the implicit hurdle".format(name))
+    if model.get("count_support_is_dataset_derived") is not True:
+        fail("{} count support is not TRAIN-derived".format(name))
+    if model.get("count_support_is_normal_request_budget") is not False:
+        fail("{} count support copies the normal request rate".format(name))
+    if model.get("count_support_is_tuned_degree") is not False:
+        fail("{} count support is a tuned degree".format(name))
+    if "unweighted" not in str(model.get("count_training_objective", "")):
+        fail("{} count objective is not natural unweighted CE".format(name))
+    if model.get("action_loss_scope") != "teacher_action_ranks_only":
+        fail("{} creates loss outside real teacher ranks".format(name))
+    mode = str(model.get("decoder_training_mode", "")).lower()
+    if "cardinality" not in mode or "without" not in mode or "feedback" not in mode:
+        fail("{} decoder mode is not feedback-free natural cardinality".format(name))
+
+    points = model.get("points")
+    if not isinstance(points, list) or [
+        point.get("size", point.get("model_size")) for point in points
+    ] != [
+        8, 16, 32, 64, 128
+    ]:
+        fail("{} must sweep h8,h16,h32,h64,h128".format(name))
+    if not isinstance(model.get("parameter_formula"), (dict, str)) or not model.get(
+        "parameter_formula"
+    ):
+        fail("{} lacks a realized parameter formula".format(name))
+    if model.get("input_archive_reused_byte_for_byte") is not True:
+        fail("{} does not require byte-identical input reuse".format(name))
+
+    if name.endswith("_stride"):
+        if model.get("engineered_runtime_features") != []:
+            fail("{} retains engineered Stride inputs".format(name))
+        if model.get("causal_runtime_feature_count") != 0:
+            fail("{} primary encoder is not raw PC/address only".format(name))
+        if model.get("training_state_routing") != "exact_observed_PC_keyed_hidden_cell":
+            fail("{} does not preserve exact-PC recurrence".format(name))
+        if model.get("fill_level") != "FILL_L2_only_no_fill_head":
+            fail("{} introduces an unnecessary Stride fill head".format(name))
+        if model.get("weights_retrained") is not True:
+            fail("{} v24 must train from scratch".format(name))
+        if model.get("checkpoint_reused") is not False:
+            fail("{} v24 must not reuse a parent checkpoint".format(name))
+        if model.get("original_guard_used_for_selection") is not False:
+            fail("{} uses phase-shift GUARD for selection".format(name))
+        if model.get("evaluation_used_for_selection") is not False:
+            fail("{} leaks EVAL into selection".format(name))
+        if "TRAIN_suffix" not in str(model.get("checkpoint_selection", "")):
+            fail("{} lacks blocked TRAIN validation".format(name))
+        if "FIT_TRAIN" not in str(model.get("delta_vocabulary_source", "")):
+            fail("{} delta vocabulary is not FIT-TRAIN-derived".format(name))
+    elif name.endswith("_spp"):
+        if model.get("model_does_not_use_pc") is not True:
+            fail("{} unexpectedly consumes PC".format(name))
+        if model.get("joint_action_vocabulary_cartesian_product_used") is not False:
+            fail("{} builds a Cartesian delta/fill vocabulary".format(name))
+        if "TRAIN_observed" not in str(model.get("joint_action_vocabulary_source", "")):
+            fail("{} action vocabulary is not TRAIN-observed".format(name))
+        if model.get("separate_delta_head_used") is not False or model.get(
+            "separate_fill_head_used"
+        ) is not False:
+            fail("{} splits the joint replay action".format(name))
+        if tuple(model.get("core_types", ())) != ("global", "event_routed"):
+            fail("{} core ablation is incomplete".format(name))
+        if model.get("core_selection_hidden_size") != 32:
+            fail("{} core selection is not pinned to h32".format(name))
+        if model.get("core_selection_uses_evaluation") is not False:
+            fail("{} leaks EVAL into core selection".format(name))
+        if model.get("event_routed_core_adds_runtime_input") is not False:
+            fail("{} event-routed core changes the input".format(name))
+        objective = str(model.get("joint_action_training_objective", ""))
+        if "unweighted" not in objective or "joint_delta_fill" not in objective:
+            fail("{} action objective is not natural joint CE".format(name))
+    else:
+        fail("unexpected active track {}".format(name))
+
+    train_source = (track / "python" / "train_and_offline_infer.py").read_text()
+    for forbidden in (
+        "SOURCE_ACTION_TEMPLATES", "legal_source_template",
+        "normal_action_template",
+    ):
+        if forbidden in train_source:
+            fail("{} trainer retains hard-coded template {}".format(name, forbidden))
+
+
 def validate_track(track):
     name = track.name
     stream_path = track / "data" / "stream_contract.json"
@@ -619,40 +752,28 @@ def validate_track(track):
                 name
             ))
         for token in (
-            "drive.mount(",
             "files.upload()",
-            "CANONICAL_INPUT_ARCHIVE",
-            "input_archive_provenance.json",
-            "single_upload",
-            "multipart_upload_fallback",
             "safe_extract_tar_gz",
             "validate_sha256sums",
             "validate_collected_inputs.py",
-            "PYTHONUNBUFFERED",
             "stderr=subprocess.STDOUT",
-            "USE_MULTIPART_OUTPUT_FALLBACK=False",
             "files.download(str(OUTPUT_ARCHIVE))",
             "[8,16,32,64,128]",
+            "trainer.stdout_stderr.log",
         ):
             if token not in notebook:
-                fail("{} notebook lacks single-archive/Drive token {}".format(
+                fail("{} notebook lacks active training token {}".format(
                     name, token
                 ))
-        expected_log_dir = (
-            "redecoder_logs" if name.endswith("_stride") else "trainer_logs"
-        )
-        if expected_log_dir not in notebook:
-            fail("{} notebook lacks {}".format(name, expected_log_dir))
-        # Multipart is retained only as an explicitly named compatibility
-        # fallback.  The static contract requires that it stay verifiable, but
-        # it must not replace the single-archive default above.
-        for token in (
-            ".parts.json", "validate_parts(", "reassemble_archive(",
-        ):
-            if token not in notebook:
-                fail("{} notebook lacks optional multipart fallback {}".format(
-                    name, token
-                ))
+        if name.endswith("_spp"):
+            for token in (
+                "core-ablation", "--core-selection-file",
+                "core_selection_uses_evaluation", "evaluation_files_loaded",
+            ):
+                if token not in notebook:
+                    fail("{} notebook lacks core-selection token {}".format(
+                        name, token
+                    ))
         for relative in ("linux/run_server.sh", "linux/launch_server.sh"):
             source = (track / relative).read_text()
             if model["run_id"] not in source and "model_contract.py" not in source:
@@ -770,9 +891,9 @@ def main():
     print("[PASS] eight matched-input direct-action tracks satisfy the static contract")
     print("[PASS] active 623 contracts are loaded from stable model_contract.py files")
     print("[PASS] active 623 uses no threshold, normal template, page rule, or degree cap")
-    print("[PASS] Stride reuses v22 weights with TRAIN-prior-corrected hurdle decode")
-    print("[PASS] SPP uses finite TRAIN-derived joint STOP/EMIT(delta,fill) labels")
-    print("[PASS] Colab defaults to one SHA-verified archive; multipart is optional")
+    print("[PASS] Stride uses natural count plus real-rank delta supervision")
+    print("[PASS] SPP uses GUARD-selected recurrence and natural joint actions")
+    print("[PASS] active Colab notebooks use one validated input/output archive")
 
 
 if __name__ == "__main__":
