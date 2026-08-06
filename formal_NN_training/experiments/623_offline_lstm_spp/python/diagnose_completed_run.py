@@ -40,8 +40,8 @@ REVISION_PROFILES = {
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
     ACTIVE_MODEL_REVISION: (
-        "offline_finite_joint_rank_spp_lstm_",
-        "finite_joint_rank_spp_lstm_h{}",
+        "offline_natural_cardinality_spp_lstm_",
+        "natural_cardinality_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
@@ -82,7 +82,7 @@ def flatten(prefix, value, output):
         output[prefix] = value
 
 
-def input_contract_mismatches(metadata):
+def input_contract_mismatches_v23_legacy(metadata):
     expected = {
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
@@ -180,6 +180,165 @@ def input_contract_mismatches(metadata):
         mismatches.append({
             "field": "cuda_device_name",
             "actual": metadata.get("cuda_device_name"),
+            "expected": "NVIDIA A100",
+        })
+    provenance_paths = {
+        "trainer_source_sha256": EXPERIMENT / "python" / "train_and_offline_infer.py",
+        "model_contract_source_sha256": EXPERIMENT / "python" / "model_contract.py",
+        "threshold_free_policy_source_sha256": (
+            REPO_ROOT / "formal_NN_training" / "common" / "threshold_free_policy.py"
+        ),
+    }
+    for key, path in provenance_paths.items():
+        observed = hashlib.sha256(path.read_bytes()).hexdigest()
+        if metadata.get(key) != observed:
+            mismatches.append({
+                "field": key,
+                "actual": metadata.get(key),
+                "expected": observed,
+            })
+    encoder_hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    if (
+        len(encoder_hashes) != 1
+        or not isinstance(next(iter(encoder_hashes)), str)
+        or len(next(iter(encoder_hashes))) != 64
+    ):
+        mismatches.append({
+            "field": "runtime_encoder_sha256",
+            "actual": sorted(str(value) for value in encoder_hashes),
+            "expected": "one identical 64-hex hash",
+        })
+    return mismatches
+
+
+def input_contract_mismatches(metadata):
+    expected = {
+        "run_mode": "final",
+        "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "training_runtime_fields": SOURCE_INPUTS,
+        "inference_runtime_fields": SOURCE_INPUTS,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "normal_policy_request_rate_used_as_budget": False,
+        "future_label_window_used": False,
+        "teacher_actions_are_model_inputs": False,
+        "model_does_not_use_pc": True,
+        "pc_is_replay_transport_only": True,
+        "closed_loop_live_claim_allowed": False,
+        "decoder_training_mode": ACTIVE_POINT_CONTRACT["decoder_training_mode"],
+        "decoding_rule": ACTIVE_POINT_CONTRACT["decoding_rule"],
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
+        "categorical_count_head_used": True,
+        "count_head_used": True,
+        "count_training_objective": ACTIVE_POINT_CONTRACT[
+            "count_training_objective"
+        ],
+        "count_regression_used": False,
+        "hurdle_head_used": False,
+        "count_zero_is_implicit_hurdle": True,
+        "stop_token_used": False,
+        "stop_padding_used": False,
+        "loss_class_reweighting_used": False,
+        "decode_prior_correction_used": False,
+        "manual_loss_weights_used": False,
+        "action_loss_scope": "teacher_action_ranks_only",
+        "joint_action_training_objective": ACTIVE_POINT_CONTRACT[
+            "joint_action_training_objective"
+        ],
+        "other_action_training_objective": ACTIVE_POINT_CONTRACT[
+            "other_action_training_objective"
+        ],
+        "joint_action_vocabulary_cartesian_product_used": False,
+        "joint_action_class_weights": None,
+        "separate_delta_head_used": False,
+        "separate_fill_head_used": False,
+        "count_support_is_dataset_derived": True,
+        "count_support_is_normal_request_budget": False,
+        "count_support_is_tuned_degree": False,
+        "count_class_weights": None,
+        "neural_degree_cap": None,
+        "probability_threshold_used": False,
+        "inference_policy_hardcodes_used": False,
+        "stochastic_decoding": False,
+        "checkpoint_selection": ACTIVE_POINT_CONTRACT["checkpoint_selection"],
+        "guard_selection_composite_or_mean_used": False,
+        "evaluation_used_for_selection": False,
+        "evaluation_loaded_after_checkpoint_selection": True,
+        "core_selection_uses_evaluation": False,
+        "core_ablation_role": ACTIVE_POINT_CONTRACT["core_ablation_role"],
+        "core_selection_hidden_size": ACTIVE_POINT_CONTRACT[
+            "core_selection_hidden_size"
+        ],
+        "core_selection_metric": ACTIVE_POINT_CONTRACT[
+            "core_selection_metric"
+        ],
+        "core_selection_tie_break": ACTIVE_POINT_CONTRACT[
+            "core_selection_tie_break"
+        ],
+        "event_routed_core_adds_runtime_input": False,
+        "non_neural_control_uses_model": False,
+        "non_neural_control_excluded_from_neural_claims": True,
+        "oracle_diagnostics_replayed": False,
+        "oracle_diagnostics_excluded_from_fair_claims": True,
+        "cublas_workspace_config": ":4096:8",
+        "torch_deterministic_algorithms_enabled": True,
+        "cudnn_deterministic": True,
+        "cudnn_benchmark": False,
+        "float32_matmul_precision": "highest",
+        "determinism_fail_closed": True,
+    }
+    expected.update(ACTIVE_POINT_CONTRACT["training_config"])
+    mismatches = []
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            mismatches.append({
+                "field": key,
+                "actual": metadata.get(key),
+                "expected": value,
+            })
+    if metadata.get("training_config") != ACTIVE_POINT_CONTRACT["training_config"]:
+        mismatches.append({
+            "field": "training_config",
+            "actual": metadata.get("training_config"),
+            "expected": ACTIVE_POINT_CONTRACT["training_config"],
+        })
+    count_support = metadata.get("count_support")
+    if (
+        not isinstance(count_support, list)
+        or not count_support
+        or count_support != list(range(len(count_support)))
+    ):
+        mismatches.append({
+            "field": "count_support",
+            "actual": count_support,
+            "expected": "zero through maximum TRAIN teacher count",
+        })
+    core = metadata.get("core_type")
+    selection = metadata.get("core_selection_payload") or {}
+    if (
+        core not in ACTIVE_POINT_CONTRACT["core_types"]
+        or metadata.get("selected_core_type") != core
+        or selection.get("selected_core") != core
+        or selection.get("evaluation_used") is not False
+    ):
+        mismatches.append({
+            "field": "core_selection_payload",
+            "actual": selection,
+            "expected": "GUARD-only selected global/event_routed core",
+        })
+    if "A100" not in str(metadata.get("training_device_name", "")):
+        mismatches.append({
+            "field": "training_device_name",
+            "actual": metadata.get("training_device_name"),
             "expected": "NVIDIA A100",
         })
     provenance_paths = {
@@ -344,24 +503,29 @@ def model_record(row, metadata, normal, no_pref, matched):
     }
     diagnostic_keys = (
         "heldout_behavior_metrics",
+        "core_type",
+        "selected_core_type",
+        "core_selection_payload",
+        "core_selection_metric",
         "decoder_training_mode",
         "decoder_previous_teacher_action_used_as_input",
         "decoder_previous_predicted_action_used_as_input",
         "decoder_previous_sampled_action_used_as_input",
         "joint_action_training_objective",
-        "other_delta_training_objective",
-        "joint_action_token_definition",
-        "joint_action_token_count",
-        "joint_action_train_token_counts",
-        "joint_action_train_group_counts",
-        "joint_action_train_group_weights",
-        "joint_action_prior_correction_at_decode_used",
-        "joint_action_prior_correction_rule",
-        "train_action_horizon",
-        "joint_decision_rank_count",
-        "finite_output_horizon_source",
-        "all_available_tail_stop_supervised",
-        "maximum_length_sequences_terminate_by_finite_support",
+        "other_action_training_objective",
+        "count_training_objective",
+        "count_support",
+        "count_train_statistics",
+        "stop_token_used",
+        "stop_padding_used",
+        "loss_class_reweighting_used",
+        "decode_prior_correction_used",
+        "joint_action_vocabulary_source",
+        "joint_action_vocabulary_cartesian_product_used",
+        "exact_joint_action_pairs",
+        "joint_action_output_classes",
+        "joint_action_train_class_counts",
+        "joint_action_add_one_natural_priors",
         "hurdle_training_objective",
         "hurdle_train_class_counts",
         "hurdle_train_class_priors",
@@ -397,6 +561,7 @@ def model_record(row, metadata, normal, no_pref, matched):
         "fill_target_conditioning_features",
         "decoder_guard_diagnostics",
         "decoder_eval_diagnostics",
+        "oracle_diagnostics",
         "global_chronological_lstm",
         "routed_demand_fill_recurrent_paths",
         "page_local_causal_state",
@@ -408,10 +573,8 @@ def model_record(row, metadata, normal, no_pref, matched):
         "full_signed_line_delta_range_reachable",
         "every_signed_line_delta_exactly_representable",
         "exact_delta_representability_scope",
-        "guard_selection_rule",
-        "guard_selection_key_fields",
-        "guard_selection_key",
-        "guard_selection_metrics",
+        "checkpoint_selection",
+        "selected_guard_natural_action_list_nll",
         "guard_selection_composite_or_mean_used",
         "selected_epoch",
         "offline_normal_fill_level_counts",
@@ -526,10 +689,19 @@ def main():
         metadata.get("runtime_encoder_sha256")
         for metadata in selected_metadata
     }
+    selected_cores = {
+        metadata.get("selected_core_type") for metadata in selected_metadata
+    }
+    core_selections = {
+        json.dumps(metadata.get("core_selection_payload"), sort_keys=True)
+        for metadata in selected_metadata
+    }
     contract_verified = (
         all(record["input_contract_verified"] for record in records)
         and all(record["analyzer_evidence_verified"] for record in records)
         and len(encoder_hashes) == 1
+        and len(selected_cores) == 1
+        and len(core_selections) == 1
     )
     if not contract_verified:
         problems = [{
@@ -559,6 +731,11 @@ def main():
         "input_contract_verified": True,
         "current_metadata_bound_to_analyzer_evidence": True,
         "cross_capacity_runtime_encoder_identical": True,
+        "cross_capacity_selected_core_identical": True,
+        "selected_core_type": next(iter(selected_cores)),
+        "core_selection_payload": selected_metadata[0].get(
+            "core_selection_payload"
+        ),
         "runtime_encoder_sha256": next(iter(encoder_hashes)),
         "same_external_input": SOURCE_INPUTS,
         "capacity_action_list_audit": matched.get(
