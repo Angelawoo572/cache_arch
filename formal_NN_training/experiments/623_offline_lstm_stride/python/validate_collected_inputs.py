@@ -207,6 +207,13 @@ def main():
         "separate_count_head_used": True,
         "log_count_used": True,
         "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "hurdle_prior_correction_at_decode_used": True,
+        "hurdle_prior_correction_rule": (
+            "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight"
+        ),
+        "hurdle_decoding_rule": (
+            "deterministic_prior_corrected_two_class_argmax"
+        ),
         "positive_count_training_objective": COUNT_OBJECTIVE,
         "hurdle_class_weight_source": "TRAIN_callback_zero_positive_counts",
         "positive_count_support": "mathematically_unbounded_positive_integers",
@@ -239,6 +246,10 @@ def main():
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,
         "nn_generates_own_target_addresses": True,
+        "weights_retrained": False,
+        "checkpoint_reused": True,
+        "training_history_reused": True,
+        "decoder_only_change": True,
         "captured_candidate_files_role": (
             "normal replay, supervised labels, and audit only; never model input or budget"
         ),

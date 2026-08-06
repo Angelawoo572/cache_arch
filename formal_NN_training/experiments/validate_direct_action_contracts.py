@@ -327,6 +327,7 @@ def validate_active_model_contract(track, stream, model):
     if not isinstance(mode, str) or not any(
         token in lowered_mode for token in (
             "free_running", "no_action_feedback",
+            "without_action_feedback",
             "without_teacher_or_predicted_action_feedback",
         )
     ):
@@ -338,86 +339,6 @@ def validate_active_model_contract(track, stream, model):
     if previous_teacher is not False:
         fail("{} feeds a previous teacher action to its decoder".format(name))
 
-    hurdle_objective = aliased_value(
-        name, stream, model,
-        (
-            "hurdle_training_objective", "gate_training_objective",
-            "zero_positive_training_objective",
-            "request_hurdle_training_objective",
-        ),
-        required=True,
-    )
-    lowered_hurdle_objective = str(hurdle_objective).lower()
-    if "threshold" in lowered_hurdle_objective or not any(
-        token in lowered_hurdle_objective
-        for token in ("hurdle", "categorical", "cross_entropy", "nll", "zero_positive")
-    ):
-        fail("{} hurdle objective is missing or threshold-based".format(name))
-    hurdle_classes = model.get(
-        "hurdle_classes", model.get("hurdle_class_order")
-    )
-    if hurdle_classes != ["ZERO", "POSITIVE"]:
-        indices = model.get("hurdle_class_indices")
-        if indices != {"ZERO": 0, "POSITIVE": 1}:
-            fail("{} does not expose learned ZERO/POSITIVE hurdle classes".format(
-                name
-            ))
-
-    positive_count_objective = aliased_value(
-        name, stream, model,
-        (
-            "positive_count_training_objective", "count_training_objective",
-            "positive_count_objective",
-        ),
-        required=True,
-    )
-    lowered_positive_count_objective = str(positive_count_objective).lower()
-    if not all(
-        token in lowered_positive_count_objective for token in ("positive", "count")
-    ):
-        fail("{} lacks a positive-count training objective".format(name))
-    positive_count_decoding = aliased_value(
-        name, stream, model,
-        ("positive_count_decoding_rule", "positive_count_mode"),
-        required=True,
-    )
-    lowered_positive_count_decoding = str(positive_count_decoding).lower()
-    if (
-        "threshold" in lowered_positive_count_decoding
-        or "log_count" not in lowered_positive_count_decoding
-        or not any(
-            token in lowered_positive_count_decoding
-            for token in ("round_exp", "predicted_log_count")
-        )
-    ):
-        fail("{} positive-count decode is not learned log-count decoding".format(
-            name
-        ))
-    support_values = [
-        source["positive_count_support"]
-        for source in (model, stream) if "positive_count_support" in source
-    ]
-    if not support_values:
-        fail("{} lacks positive-count support provenance".format(name))
-    for support in support_values:
-        lowered_support = str(support).lower().replace(" ", "_")
-        if "positive" not in lowered_support or not any(
-            token in lowered_support
-            for token in ("unbounded", "all_positive")
-        ):
-            fail("{} positive-count support is artificially capped".format(name))
-    terminal_stop = aliased_value(
-        name, stream, model,
-        (
-            "terminal_stop_supervised",
-            "terminal_stop_supervised_for_every_teacher_sequence",
-        ),
-        required=True,
-    )
-    if terminal_stop is not False:
-        fail("{} unexpectedly retains terminal STOP supervision".format(name))
-    if model.get("stop_emit_head_used") not in (None, False):
-        fail("{} unexpectedly retains a STOP/EMIT head".format(name))
     previous_sampled = aliased_value(
         name, stream, model,
         (
@@ -429,13 +350,138 @@ def validate_active_model_contract(track, stream, model):
     if previous_sampled is not False:
         fail("{} feeds a previous decoded action back into inference".format(name))
 
+    if name.endswith("_stride"):
+        hurdle_objective = aliased_value(
+            name, stream, model,
+            (
+                "hurdle_training_objective", "gate_training_objective",
+                "zero_positive_training_objective",
+                "request_hurdle_training_objective",
+            ),
+            required=True,
+        )
+        lowered_hurdle_objective = str(hurdle_objective).lower()
+        if "inverse_frequency" not in lowered_hurdle_objective:
+            fail("{} sparse hurdle loss is not TRAIN-balanced".format(name))
+        hurdle_classes = model.get(
+            "hurdle_classes", model.get("hurdle_class_order")
+        )
+        if hurdle_classes != ["ZERO", "POSITIVE"]:
+            indices = model.get("hurdle_class_indices")
+            if indices != {"ZERO": 0, "POSITIVE": 1}:
+                fail("{} lacks ZERO/POSITIVE hurdle classes".format(name))
+        positive_count_objective = aliased_value(
+            name, stream, model,
+            (
+                "positive_count_training_objective",
+                "count_training_objective", "positive_count_objective",
+            ),
+            required=True,
+        )
+        if not all(
+            token in str(positive_count_objective).lower()
+            for token in ("positive", "count")
+        ):
+            fail("{} lacks a positive-count objective".format(name))
+        positive_count_decoding = aliased_value(
+            name, stream, model,
+            ("positive_count_decoding_rule", "positive_count_mode"),
+            required=True,
+        )
+        lowered_count = str(positive_count_decoding).lower()
+        if "log_count" not in lowered_count or "round_exp" not in lowered_count:
+            fail("{} positive count is not learned log-count decode".format(name))
+        terminal_stop = aliased_value(
+            name, stream, model,
+            (
+                "terminal_stop_supervised",
+                "terminal_stop_supervised_for_every_teacher_sequence",
+            ),
+            required=True,
+        )
+        if terminal_stop is not False:
+            fail("{} decoder-only ablation unexpectedly uses STOP ranks".format(name))
+        if same_value(
+            name, stream, model,
+            "hurdle_prior_correction_at_decode_used", required=True,
+        ) is not True:
+            fail("{} does not undo TRAIN hurdle weighting".format(name))
+        correction = same_value(
+            name, stream, model, "hurdle_prior_correction_rule", required=True
+        )
+        if "minus_log" not in str(correction).lower():
+            fail("{} hurdle prior correction has the wrong direction".format(name))
+        if model.get("weights_retrained") is not False:
+            fail("{} v23 must reuse v22 weights".format(name))
+        if model.get("checkpoint_reused") is not True:
+            fail("{} v23 must reuse v22 checkpoints".format(name))
+        if model.get("decoder_only_change") is not True:
+            fail("{} v23 is not marked decoder-only".format(name))
+    elif name.endswith("_spp"):
+        objective = same_value(
+            name, stream, model,
+            "joint_action_training_objective", required=True,
+        )
+        if not all(
+            token in str(objective).lower()
+            for token in ("joint", "action", "cross_entropy")
+        ):
+            fail("{} lacks joint replay-action cross entropy".format(name))
+        for key in (
+            "separate_gate_head_used", "request_count_head_used",
+            "separate_delta_head_used", "separate_fill_head_used",
+        ):
+            if same_value(name, stream, model, key, required=True) is not False:
+                fail("{} retains factorized head {}".format(name, key))
+        if same_value(
+            name, stream, model,
+            "terminal_stop_supervised_for_every_teacher_sequence",
+            required=True,
+        ) is not False:
+            fail("{} adds an out-of-support terminal rank".format(name))
+        if same_value(
+            name, stream, model, "all_available_tail_stop_supervised",
+            required=True,
+        ) is not True:
+            fail("{} lacks all-available-tail STOP supervision".format(name))
+        if same_value(
+            name, stream, model,
+            "maximum_length_sequences_terminate_by_finite_support",
+            required=True,
+        ) is not True:
+            fail("{} lacks finite-support termination".format(name))
+        horizon = same_value(
+            name, stream, model, "finite_output_horizon_source", required=True
+        )
+        if "train" not in str(horizon).lower() or "maximum" not in str(horizon).lower():
+            fail("{} finite horizon is not TRAIN-derived".format(name))
+        for key, expected in (
+            ("finite_output_horizon_is_dataset_derived", True),
+            ("finite_output_horizon_is_normal_request_budget", False),
+            ("finite_output_horizon_is_tuned_degree", False),
+            ("joint_action_prior_correction_at_decode_used", True),
+        ):
+            if same_value(name, stream, model, key, required=True) is not expected:
+                fail("{} has invalid {}".format(name, key))
+        correction = same_value(
+            name, stream, model,
+            "joint_action_prior_correction_rule", required=True,
+        )
+        if "minus_log" not in str(correction).lower():
+            fail("{} joint prior correction has the wrong direction".format(name))
+        if model.get("stochastic_decoding") is not False:
+            fail("{} must use deterministic joint decoding".format(name))
+
     selection = model.get(
         "checkpoint_selection", model.get("guard_selection_rule")
     )
     if selection is None:
         fail("{} stable model contract lacks a guard selection rule".format(name))
     lowered_selection = str(selection).lower()
-    if "lexicographic" not in lowered_selection:
+    if name.endswith("_stride"):
+        if "parent_v22_guard" not in lowered_selection:
+            fail("{} does not preserve parent v22 guard selection".format(name))
+    elif "lexicographic" not in lowered_selection:
         fail("{} guard selection is not lexicographic".format(name))
     if any(token in lowered_selection for token in ("mean", "average", "composite")):
         fail("{} guard selection averages unlike metrics".format(name))
@@ -481,23 +527,13 @@ def validate_active_model_contract(track, stream, model):
         fail("{} does not distinguish realized dynamic-vocabulary size".format(name))
 
     if name.endswith("_stride"):
-        if "inverse_frequency" not in lowered_hurdle_objective:
-            fail("{} sparse hurdle loss is not TRAIN-balanced".format(name))
         if model.get("engineered_runtime_features") != []:
             fail("{} primary encoder retains engineered Stride features".format(name))
         if model.get("causal_runtime_feature_count") != 0:
             fail("{} primary encoder is not raw PC/address only".format(name))
     elif name.endswith("_spp"):
-        if not any(
-            token in lowered_hurdle_objective for token in ("unweighted", "natural", "empirical_prior")
-        ):
-            fail("{} dense hurdle loss does not preserve its natural prior".format(name))
-        if model.get("stochastic_decoding") is not False:
-            fail("{} must use deterministic action decoding".format(name))
-        if "argmax" not in str(model.get("fill_decoding_rule", "")).lower():
-            fail("{} fill decoding is not deterministic argmax".format(name))
-        if model.get("fill_prior_correction_at_decode_used") is not True:
-            fail("{} does not undo TRAIN fill reweighting at decode".format(name))
+        if model.get("global_chronological_lstm") is not True:
+            fail("{} is not a global chronological LSTM".format(name))
 
     # SPP may condition the supervised fill factor on the teacher target class
     # and rank.  That is output-loss factorization, not decoder feedback.  If
@@ -594,7 +630,6 @@ def validate_track(track):
             "validate_collected_inputs.py",
             "PYTHONUNBUFFERED",
             "stderr=subprocess.STDOUT",
-            "trainer_logs",
             "USE_MULTIPART_OUTPUT_FALLBACK=False",
             "files.download(str(OUTPUT_ARCHIVE))",
             "[8,16,32,64,128]",
@@ -603,6 +638,11 @@ def validate_track(track):
                 fail("{} notebook lacks single-archive/Drive token {}".format(
                     name, token
                 ))
+        expected_log_dir = (
+            "redecoder_logs" if name.endswith("_stride") else "trainer_logs"
+        )
+        if expected_log_dir not in notebook:
+            fail("{} notebook lacks {}".format(name, expected_log_dir))
         # Multipart is retained only as an explicitly named compatibility
         # fallback.  The static contract requires that it stay verifiable, but
         # it must not replace the single-archive default above.
@@ -730,7 +770,8 @@ def main():
     print("[PASS] eight matched-input direct-action tracks satisfy the static contract")
     print("[PASS] active 623 contracts are loaded from stable model_contract.py files")
     print("[PASS] active 623 uses no threshold, normal template, page rule, or degree cap")
-    print("[PASS] active 623 uses learned hurdle/count action factorization")
+    print("[PASS] Stride reuses v22 weights with TRAIN-prior-corrected hurdle decode")
+    print("[PASS] SPP uses finite TRAIN-derived joint STOP/EMIT(delta,fill) labels")
     print("[PASS] Colab defaults to one SHA-verified archive; multipart is optional")
 
 

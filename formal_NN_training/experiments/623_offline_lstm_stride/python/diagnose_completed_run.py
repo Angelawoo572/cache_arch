@@ -17,7 +17,7 @@ from model_contract import POLICY, RUN_ID, TRACE, model_points_description
 
 DEFAULT_RUN_ID = RUN_ID
 SOURCE_INPUTS = ["pc", "addr"]
-NEURAL_METHOD_PREFIX = "offline_hurdle_count_stride_lstm_"
+NEURAL_METHOD_PREFIX = "offline_prior_corrected_hurdle_count_stride_lstm_"
 EXPECTED_TAGS = {
     point["model_tag"] for point in model_points_description()["points"]
 }
@@ -65,6 +65,9 @@ def input_contract_mismatches(metadata):
         "trainer_source_sha256": hashlib.sha256(
             (EXPERIMENT / "python" / "train_and_offline_infer.py").read_bytes()
         ).hexdigest(),
+        "redecoder_source_sha256": hashlib.sha256(
+            (EXPERIMENT / "python" / "redecode_prior_corrected.py").read_bytes()
+        ).hexdigest(),
         "model_contract_source_sha256": hashlib.sha256(
             (EXPERIMENT / "python" / "model_contract.py").read_bytes()
         ).hexdigest(),
@@ -95,6 +98,13 @@ def input_contract_mismatches(metadata):
             "hurdle_training_objective"
         ],
         "hurdle_equal_aggregate_train_mass": True,
+        "hurdle_decoding_rule": (
+            "deterministic_prior_corrected_two_class_argmax"
+        ),
+        "hurdle_prior_correction_at_decode_used": True,
+        "hurdle_prior_correction_rule": (
+            "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight"
+        ),
         "separate_global_gate_used": True,
         "separate_count_head_used": True,
         "log_count_used": True,
@@ -125,11 +135,19 @@ def input_contract_mismatches(metadata):
         "successful_run_hit_decode_resource_watchdog": False,
         "checkpoint_selection": contract["checkpoint_selection"],
         "checkpoint_selection_roles": [
-            "guard_metrics", "TRAIN_loss_tiebreak_only"
+            "parent_v22_guard_selection"
         ],
         "guard_selection_composite_or_mean_used": False,
         "evaluation_used_for_checkpoint_selection": False,
-        "evaluation_decode_passes": 1,
+        "evaluation_decode_passes": 2,
+        "parent_raw_reproduction_decode_passes": 1,
+        "prior_corrected_evaluation_decode_passes": 1,
+        "weights_retrained": False,
+        "checkpoint_reused": True,
+        "training_history_reused": True,
+        "decoder_only_change": True,
+        "parent_artifact_identity_required": True,
+        "parent_raw_reproduction_matches": True,
         "training_config": contract["training_config"],
         "training_config_pinned_by_run_id": True,
         "training_device": "cuda",
@@ -159,6 +177,12 @@ def input_contract_mismatches(metadata):
         mismatches.append({
             "field": "training_device_name",
             "actual": metadata.get("training_device_name"),
+            "expected": "contains {}".format(accelerator),
+        })
+    if accelerator not in str(metadata.get("redecode_device_name")):
+        mismatches.append({
+            "field": "redecode_device_name",
+            "actual": metadata.get("redecode_device_name"),
             "expected": "contains {}".format(accelerator),
         })
     encoder_hashes = {
@@ -350,6 +374,8 @@ def model_record(row, metadata, normal, no_pref, matched):
         "hurdle_class_weights_ZERO_POSITIVE",
         "hurdle_training_statistics",
         "hurdle_decoding_rule",
+        "hurdle_prior_correction_at_decode_used",
+        "hurdle_prior_correction_rule",
         "positive_count_training_objective",
         "positive_count_decoding_rule",
         "positive_log_count_initial_bias",
@@ -374,6 +400,14 @@ def model_record(row, metadata, normal, no_pref, matched):
         "selected_guard_key",
         "evaluation_decode_passes",
         "hurdle_count_decoder_diagnostics",
+        "parent_raw_decoder_diagnostics",
+        "parent_raw_heldout_behavior_metrics",
+        "parent_run_id",
+        "parent_model_tag",
+        "parent_model_revision",
+        "parent_decoder_revision",
+        "parent_nn_list_sha256",
+        "parent_raw_reproduction_sha256",
         "encoder_diagnostics",
         "heldout_behavior_metrics",
         "train_action_summary",

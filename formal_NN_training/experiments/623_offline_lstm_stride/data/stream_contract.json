@@ -1,11 +1,17 @@
 {
   "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-  "model_revision": "pc_keyed_raw_hurdle_count_rank_delta_v22",
-  "decoder_revision": "deterministic_hurdle_log_count_train_vocab_v22",
-  "run_id": "623_offline_lstm_stride_raw_hurdle_count_v22_seed7",
-  "operation": "train-v22",
+  "model_revision": "pc_keyed_raw_hurdle_count_rank_delta_v22_reused_v23",
+  "decoder_revision": "train_weight_prior_corrected_hurdle_decode_v23",
+  "run_id": "623_offline_lstm_stride_prior_corrected_hurdle_v23_seed7",
+  "operation": "redecode-v23",
+  "parent_run_id": "623_offline_lstm_stride_raw_hurdle_count_v22_seed7",
+  "parent_model_revision": "pc_keyed_raw_hurdle_count_rank_delta_v22",
+  "parent_decoder_revision": "deterministic_hurdle_log_count_train_vocab_v22",
   "decoder_training_mode": "callback_hurdle_and_positive_log_count_plus_teacher_rank_direct_delta_without_teacher_or_predicted_action_feedback",
   "hurdle_training_objective": "TRAIN_inverse_frequency_zero_positive_cross_entropy_with_equal_aggregate_class_mass",
+  "hurdle_prior_correction_at_decode_used": true,
+  "hurdle_prior_correction_rule": "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight",
+  "hurdle_decoding_rule": "deterministic_prior_corrected_two_class_argmax",
   "positive_count_training_objective": "positive_only_log_count_smooth_l1",
   "positive_count_mode": "max_1_round_exp_log_count",
   "positive_count_support": "mathematically_unbounded_positive_integers",
@@ -69,6 +75,7 @@
   },
   "source_provenance_required": [
     "python/train_and_offline_infer.py SHA256",
+    "python/redecode_prior_corrected.py SHA256",
     "python/model_contract.py SHA256",
     "formal_NN_training/common/threshold_free_policy.py SHA256"
   ],
@@ -92,6 +99,9 @@
     "positive_count_loss": "positive-only smooth-L1 on log count",
     "positive_count_bias_initialization": "mean log positive TRAIN count",
     "positive_count_support": "mathematically unbounded positive integers; host overflow fails closed",
+    "decode_prior_correction": "subtract log of the TRAIN-derived inverse-frequency class weight from each weighted hurdle logit before deterministic argmax",
+    "decode_prior_correction_source": "the exact class weights stored in the byte-identical v22 parent checkpoint and independently recomputed from TRAIN labels",
+    "probability_threshold_or_tuned_offset": false,
     "teacher_or_predicted_action_feedback": false,
     "previous_sampled_action_feedback": false,
     "action_prefix_input": false,
@@ -122,7 +132,9 @@
     "sampling": null
   },
   "inference": {
-    "rule": "apply raw hurdle argmax once; decode a finite positive count when POSITIVE; emit exactly that many independently rank-conditioned current-demand-relative deltas",
+    "rule": "subtract log TRAIN class weight from each weighted hurdle logit, apply deterministic argmax once, then reuse the parent finite positive count and independently rank-conditioned current-demand-relative delta decoders",
+    "hurdle_prior_correction_at_decode_used": true,
+    "hurdle_prior_correction_rule": "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight",
     "probability_threshold": null,
     "normal_request_budget": null,
     "normal_degree_cap": null,
@@ -137,20 +149,19 @@
     "is_neural_degree_cap": false
   },
   "checkpoint_selection": {
-    "primary_role": "guard",
-    "TRAIN_loss_used_as_tiebreak_only": true,
+    "primary_role": "byte-identical v22 parent guard-selected checkpoint",
+    "TRAIN_loss_used_as_tiebreak_only": false,
     "composite_or_mean_used": false,
     "order": [
-      "maximize target F1",
-      "maximize trigger F1",
-      "maximize count exact-match rate",
-      "minimize absolute action-request ratio error",
-      "minimize TRAIN objective loss",
-      "prefer earlier epoch"
+      "reuse the exact v22 selected checkpoint without v23 reselection"
     ],
     "probability_or_action_threshold_calibration": false,
     "evaluation_used_for_selection": false,
-    "evaluation_decode_passes": 1
+    "evaluation_decode_passes": 2,
+    "evaluation_pass_roles": [
+      "reproduce the parent raw-argmax replay byte-for-byte",
+      "emit the v23 prior-corrected replay"
+    ]
   },
   "parameter_accounting": {
     "formula": "8*H^2 + (122+8+C+14)*H + C + 4",
@@ -160,6 +171,11 @@
     "validation": "realized count must equal the formula at realized C and be no greater than the point maximum"
   },
   "captured_stride_actions_role": "offline-normal replay, supervised losses, and TRAIN-only learned output vocabulary",
+  "weights_retrained": false,
+  "checkpoint_reused": true,
+  "training_history_reused": true,
+  "decoder_only_change": true,
+  "parent_artifact_identity_required": true,
   "teacher_actions_are_model_inputs": false,
   "normal_policy_outputs_used_as_model_inputs": false,
   "normal_policy_candidates_used_as_model_inputs": false,

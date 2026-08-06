@@ -12,7 +12,8 @@ from pathlib import Path
 
 from model_contract import (
     EXPERIMENT_REVISION, MODEL_REVISION as ACTIVE_MODEL_REVISION,
-    MODEL_TAG_PREFIX, POLICY, RUN_ID, TRACE, expected_parameter_count,
+    MODEL_TAG_PREFIX, PARENT_DECODER_REVISION, PARENT_MODEL_REVISION,
+    PARENT_RUN_ID, POLICY, RUN_ID, TRACE, expected_parameter_count,
     model_points_description,
 )
 
@@ -436,12 +437,15 @@ def add_comparison_metrics(rows, failures):
 
 
 def validate_active_metadata(metadata, tag, inputs, failures):
-    """Fail closed on the raw-input v22 hurdle/count/rank-delta contract."""
+    """Fail closed on the decoder-only v23 Stride ablation contract."""
     experiment = Path(__file__).resolve().parents[1]
     repository = Path(__file__).resolve().parents[4]
     source_hashes = {
         "trainer_source_sha256": sha256(
             experiment / "python" / "train_and_offline_infer.py"
+        ),
+        "redecoder_source_sha256": sha256(
+            experiment / "python" / "redecode_prior_corrected.py"
         ),
         "model_contract_source_sha256": sha256(
             experiment / "python" / "model_contract.py"
@@ -513,7 +517,13 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         "hurdle_bias_initialization": (
             "centered_log_effective_weighted_TRAIN_class_mass"
         ),
-        "hurdle_decoding_rule": "deterministic_raw_two_class_argmax",
+        "hurdle_decoding_rule": (
+            "deterministic_prior_corrected_two_class_argmax"
+        ),
+        "hurdle_prior_correction_at_decode_used": True,
+        "hurdle_prior_correction_rule": (
+            "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight"
+        ),
         "separate_global_gate_used": True,
         "separate_count_head_used": True,
         "log_count_used": True,
@@ -562,15 +572,27 @@ def validate_active_metadata(metadata, tag, inputs, failures):
             "checkpoint_selection"
         ],
         "checkpoint_selection_roles": [
-            "guard_metrics", "TRAIN_loss_tiebreak_only"
+            "parent_v22_guard_selection"
         ],
-        "checkpoint_selection_primary_role": "guard",
+        "checkpoint_selection_primary_role": "parent_v22_guard",
         "guard_selection_composite_or_mean_used": False,
         "guard_role": (
-            "checkpoint_selection_only_no_threshold_calibration"
+            "parent_v22_guard_selection_reused_no_v23_reselection"
         ),
         "evaluation_used_for_checkpoint_selection": False,
-        "evaluation_decode_passes": 1,
+        "evaluation_decode_passes": 2,
+        "parent_raw_reproduction_decode_passes": 1,
+        "prior_corrected_evaluation_decode_passes": 1,
+        "weights_retrained": False,
+        "checkpoint_reused": True,
+        "training_history_reused": True,
+        "decoder_only_change": True,
+        "parent_run_id": PARENT_RUN_ID,
+        "parent_model_revision": PARENT_MODEL_REVISION,
+        "parent_decoder_revision": PARENT_DECODER_REVISION,
+        "parent_artifact_identity_required": True,
+        "parent_raw_reproduction_matches": True,
+        "parent_checkpoint_state_dict_reloaded": True,
         "training_chunks_shuffled": False,
         "training_state_mode": "exact_pc_keyed_stateful_tbptt",
         "training_state_carried_across_chunks": True,
@@ -610,6 +632,35 @@ def validate_active_metadata(metadata, tag, inputs, failures):
                 )
             )
 
+    point_by_tag = {
+        point["model_tag"]: point for point in ACTIVE_CONTRACT["points"]
+    }
+    active_point = point_by_tag.get(tag)
+    expected_parent_tag = (
+        active_point.get("parent_model_tag") if active_point else None
+    )
+    if (
+        expected_parent_tag is None
+        or metadata.get("parent_model_tag") != expected_parent_tag
+    ):
+        failures.append("{} invalid parent model-tag mapping".format(tag))
+    for key in (
+        "parent_run_metadata_sha256",
+        "parent_model_checkpoint_sha256",
+        "parent_training_history_sha256",
+        "parent_normal_list_sha256",
+        "parent_nn_list_sha256",
+        "parent_raw_reproduction_sha256",
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
+            failures.append("{} invalid {}".format(tag, key))
+    if metadata.get("parent_nn_list_sha256") != metadata.get(
+        "parent_raw_reproduction_sha256"
+    ):
+        failures.append(
+            "{} parent raw action-list reproduction hash differs".format(tag)
+        )
+
     for key, value in ACTIVE_CONTRACT["training_config"].items():
         if metadata.get(key) != value:
             failures.append(
@@ -624,6 +675,12 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         failures.append(
             "{} training device {!r} lacks {!r}".format(
                 tag, metadata.get("training_device_name"), accelerator
+            )
+        )
+    if accelerator not in str(metadata.get("redecode_device_name", "")):
+        failures.append(
+            "{} re-decode device {!r} lacks {!r}".format(
+                tag, metadata.get("redecode_device_name"), accelerator
             )
         )
 

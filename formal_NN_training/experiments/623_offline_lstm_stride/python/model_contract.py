@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Torch-free source of truth for the matched-input 623 Stride v22 sweep.
+"""Torch-free source of truth for the matched-input 623 Stride v23 ablation.
 
 The neural runtime sees only lossless ``pc64`` and aligned ``line58`` bits.
 Captured Stride actions are TRAIN labels and offline-normal replay entries, not
-runtime features, candidates, budgets, prefixes, or templates.  One LSTM is
-routed by exact PC.  A callback-level learned hurdle predicts zero versus
-positive cardinality, a positive-only log-count head predicts the finite
-deterministic count, and a rank-conditioned head emits direct signed deltas.
+runtime features, candidates, budgets, prefixes, or templates.  v23 reuses the
+five v22 checkpoints and training histories byte-for-byte.  The only policy
+change is mathematically undoing the TRAIN inverse-frequency hurdle weights
+before deterministic argmax.  One LSTM is routed by exact PC; its learned
+positive log-count and rank-conditioned direct signed-delta heads are unchanged.
 
 The exact delta alphabet is derived from TRAIN and is therefore known only
 after the input archive is loaded.  Contract points expose the maximum weight
@@ -21,15 +22,19 @@ from decimal import Decimal, InvalidOperation
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "stride"
-RUN_ID = "623_offline_lstm_stride_raw_hurdle_count_v22_seed7"
+RUN_ID = "623_offline_lstm_stride_prior_corrected_hurdle_v23_seed7"
+PARENT_RUN_ID = "623_offline_lstm_stride_raw_hurdle_count_v22_seed7"
+PARENT_MODEL_REVISION = "pc_keyed_raw_hurdle_count_rank_delta_v22"
+PARENT_DECODER_REVISION = "deterministic_hurdle_log_count_train_vocab_v22"
+PARENT_MODEL_TAG_PREFIX = "hurdle_count_stride_lstm_h"
 
 # The collected bytes are reused unchanged.  This names their source-input
-# revision, not the v22 model or decoder revision.
+# revision, not the v23 decoder revision.
 EXPERIMENT_REVISION = "stride_source_input_variable_delta_free_running_v9"
-MODEL_REVISION = "pc_keyed_raw_hurdle_count_rank_delta_v22"
-DECODER_REVISION = "deterministic_hurdle_log_count_train_vocab_v22"
-OPERATION = "train-v22"
-MODEL_TAG_PREFIX = "hurdle_count_stride_lstm_h"
+MODEL_REVISION = "pc_keyed_raw_hurdle_count_rank_delta_v22_reused_v23"
+DECODER_REVISION = "train_weight_prior_corrected_hurdle_decode_v23"
+OPERATION = "redecode-v23"
+MODEL_TAG_PREFIX = "prior_corrected_hurdle_count_stride_lstm_h"
 MODEL_POINTS = {
     "lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}
 }
@@ -77,13 +82,42 @@ DELTA_OBJECTIVE = (
     "log_auxiliary_smooth_l1"
 )
 DECODING_RULE = (
-    "deterministic_hurdle_argmax_then_finite_rounded_exp_positive_log_count_"
-    "and_rank_conditioned_delta_MAP"
+    "deterministic_TRAIN_weight_prior_corrected_hurdle_argmax_then_finite_"
+    "rounded_exp_positive_log_count_and_rank_conditioned_delta_MAP"
 )
 CHECKPOINT_SELECTION = (
-    "guard_only_lexicographic_target_f1_trigger_f1_count_exact_negative_"
-    "request_ratio_error_negative_train_loss_earlier_epoch"
+    "byte_identical_parent_v22_guard_selected_checkpoint_no_v23_reselection"
 )
+
+
+def parent_model_tag(hidden_size):
+    hidden_size = int(hidden_size)
+    if hidden_size not in MODEL_POINTS["lstm"]:
+        raise ValueError("unsupported Stride v23 hidden size")
+    return PARENT_MODEL_TAG_PREFIX + str(hidden_size)
+
+
+def prior_correct_hurdle_logits(logits, class_weights):
+    """Undo weighted-cross-entropy prior shift without a threshold.
+
+    If weighted CE learns q(c|x) proportional to w_c p(c|x), natural-posterior
+    MAP is argmax(log q(c|x) - log w_c).  Values are ordinary Python sequences
+    so the contract remains torch-free and can be audited on Sacramento.
+    """
+    weights = [float(value) for value in class_weights]
+    if len(weights) != 2 or any(
+        not math.isfinite(value) or value <= 0 for value in weights
+    ):
+        raise ValueError("hurdle correction requires two positive finite weights")
+    corrected = []
+    for row in logits:
+        values = [float(value) for value in row]
+        if len(values) != 2 or not all(math.isfinite(value) for value in values):
+            raise ValueError("hurdle logits must be finite two-class rows")
+        corrected.append([
+            values[index] - math.log(weights[index]) for index in range(2)
+        ])
+    return corrected
 
 
 def parse_exact_integer(value):
@@ -203,7 +237,7 @@ def expected_parameter_count(hidden_size, delta_output_classes=None):
 def model_tag(hidden_size):
     hidden_size = int(hidden_size)
     if hidden_size not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported Stride v22 hidden size")
+        raise ValueError("unsupported Stride v23 hidden size")
     return MODEL_TAG_PREFIX + str(hidden_size)
 
 
@@ -215,11 +249,15 @@ def model_points_description():
             "model_size": hidden_size,
             "architecture_pair_id": pair_id,
             "model_tag": model_tag(hidden_size),
+            "parent_model_tag": parent_model_tag(hidden_size),
             "maximum_parameter_count": expected_parameter_count(hidden_size),
         })
     return {
         "operation": OPERATION,
         "run_id": RUN_ID,
+        "parent_run_id": PARENT_RUN_ID,
+        "parent_model_revision": PARENT_MODEL_REVISION,
+        "parent_decoder_revision": PARENT_DECODER_REVISION,
         "trace": TRACE,
         "policy": POLICY,
         "experiment_revision": EXPERIMENT_REVISION,
@@ -247,6 +285,13 @@ def model_points_description():
         "hurdle_class_weight_source": "TRAIN_callback_zero_positive_counts",
         "hurdle_class_weight_formula": "N/(2*N_class)",
         "hurdle_equal_aggregate_train_mass": True,
+        "hurdle_prior_correction_at_decode_used": True,
+        "hurdle_prior_correction_rule": (
+            "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight"
+        ),
+        "hurdle_decoding_rule": (
+            "deterministic_prior_corrected_two_class_argmax"
+        ),
         "hurdle_bias_initialization": (
             "centered_log_effective_weighted_TRAIN_class_mass"
         ),
@@ -310,6 +355,7 @@ def model_points_description():
         },
         "required_source_hashes": [
             "trainer_source_sha256",
+            "redecoder_source_sha256",
             "model_contract_source_sha256",
             "threshold_free_policy_source_sha256",
         ],
@@ -329,6 +375,11 @@ def model_points_description():
             "points expose C=256 maximum; run metadata records realized C and "
             "realized parameter count"
         ),
+        "weights_retrained": False,
+        "checkpoint_reused": True,
+        "training_history_reused": True,
+        "decoder_only_change": True,
+        "parent_artifact_identity_required": True,
         "points": points,
     }
 
@@ -358,6 +409,14 @@ def self_test_contract():
         statistics["positive_log_count_initial_bias"], expected_log_bias
     ):
         raise RuntimeError("positive log-count bias is not TRAIN-derived")
+
+    corrected = prior_correct_hurdle_logits(
+        [[math.log(weights[0]) + math.log(0.8),
+          math.log(weights[1]) + math.log(0.2)]],
+        weights,
+    )
+    if corrected[0][0] <= corrected[0][1]:
+        raise RuntimeError("TRAIN-weight prior correction changed natural MAP")
 
     modes = [positive_count_mode(value) for value in (
         -100.0, 0.0, math.log(1.6), math.log(2.6)
@@ -390,7 +449,14 @@ def self_test_contract():
         or description["decoder_previous_teacher_action_used_as_input"]
         or description["decoder_previous_predicted_action_used_as_input"]
     ):
-        raise RuntimeError("v22 hurdle/count/no-feedback contract changed")
+        raise RuntimeError("v23 hurdle/count/no-feedback contract changed")
+    if (
+        description["hurdle_prior_correction_at_decode_used"] is not True
+        or description["weights_retrained"] is not False
+        or description["checkpoint_reused"] is not True
+        or description["decoder_only_change"] is not True
+    ):
+        raise RuntimeError("v23 decoder-only parent-reuse contract changed")
 
 
 def main():

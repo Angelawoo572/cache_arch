@@ -9,8 +9,9 @@ from collections import defaultdict
 from pathlib import Path
 
 from model_contract import (
-    CACHE_LINE_BYTES, EXPERIMENT_REVISION, EXTERNAL_INPUT_FIELDS,
-    LINE_ADDRESS_BITS, POLICY, TRACE, exact_int as as_int,
+    CACHE_LINE_BYTES, DECODER_TRAINING_MODE, EXPERIMENT_REVISION,
+    EXTERNAL_INPUT_FIELDS, MAX_EXACT_DELTAS, PARENT_INPUT_RUN_ID, POLICY,
+    TRACE, exact_int as as_int,
 )
 
 ROLES = ("train", "guard", "eval")
@@ -270,6 +271,7 @@ def main():
         "trace": TRACE,
         "policy": POLICY,
         "experiment_revision": EXPERIMENT_REVISION,
+        "parent_input_run_id": PARENT_INPUT_RUN_ID,
         "event_logger_schema": LOGGER_SCHEMA,
         "action_attachment_mode": ATTACHMENT_MODE,
         "neural_role": "standalone_direct_action_prefetcher",
@@ -280,14 +282,13 @@ def main():
         "teacher_actions_are_model_inputs": False,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "decoder_training_mode": (
-            "fully_supervised_zero_positive_hurdle_and_positive_log_count_"
-            "with_independent_rank_actions_and_no_action_feedback"
-        ),
+        "decoder_training_mode": DECODER_TRAINING_MODE,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "terminal_stop_supervised": False,
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "all_available_tail_stop_supervised": True,
+        "maximum_length_sequences_terminate_by_finite_support": True,
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
         "normal_policy_outputs_used_as_model_inputs": False,
@@ -311,22 +312,22 @@ def main():
         "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
         "neural_action_decoder": (
-            "natural-prior ZERO/POSITIVE hurdle plus conditional positive "
-            "log-count, independent-rank TRAIN-derived exact delta vocabulary "
-            "plus signed-log OTHER, and deterministic TRAIN-prior-corrected "
-            "target-conditioned fill"
+            "finite TRAIN-derived joint rank tokens: STOP or "
+            "EMIT(delta,FILL_L2/FILL_LLC), with group prior correction"
         ),
-        "separate_gate_head_used": True,
-        "request_count_head_used": True,
-        "request_count_regression_used": True,
+        "separate_gate_head_used": False,
+        "request_count_head_used": False,
+        "request_count_regression_used": False,
+        "separate_delta_head_used": False,
+        "separate_fill_head_used": False,
         "stop_emit_head_used": False,
         "stochastic_decoding": False,
-        "fill_prior_correction_rule": (
-            "balanced_logits_plus_log_TRAIN_natural_prior"
+        "joint_action_prior_correction_rule": (
+            "weighted_joint_logits_minus_log_TRAIN_group_weight"
         ),
-        "complete_neural_action_space": True,
+        "complete_neural_action_space": False,
         "delta_vocabulary_source": "train_labels_only",
-        "delta_vocabulary_max_exact": 255,
+        "delta_vocabulary_max_exact": MAX_EXACT_DELTAS,
         "delta_other_escape": "signed_log_continuous_bounded_approximation",
         "delta_other_decode_precision": (
             "rounded_float32_approximate_except_exact_vocabulary"
@@ -335,6 +336,12 @@ def main():
         "every_signed_line_delta_exactly_representable": False,
         "exact_delta_representability_scope": "train_vocabulary_only",
         "normal_policy_templates_used_by_neural_inference": False,
+        "finite_output_horizon_source": (
+            "maximum_teacher_action_count_observed_in_TRAIN"
+        ),
+        "finite_output_horizon_is_dataset_derived": True,
+        "finite_output_horizon_is_normal_request_budget": False,
+        "finite_output_horizon_is_tuned_degree": False,
         "self_target_actions_allowed": True,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "tracks": {POLICY: {}},
@@ -368,6 +375,15 @@ def main():
             "teacher_actions_gzip_sha256": sha256(action_path),
             "teacher_actions_content_sha256": gzip_content_sha256(action_path),
         }
+
+    train_horizon = manifest["tracks"][POLICY]["train"][
+        "max_actions_per_callback"
+    ]
+    if not isinstance(train_horizon, int) or train_horizon < 1:
+        raise RuntimeError("TRAIN-derived finite action horizon is invalid")
+    manifest["train_action_horizon"] = train_horizon
+    manifest["joint_decision_rank_count"] = train_horizon
+    manifest["all_train_teacher_sequences_have_terminal_stop_label"] = False
 
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
     args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n")

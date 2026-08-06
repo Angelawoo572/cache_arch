@@ -34,9 +34,9 @@
 \begin{document}
 \begin{infobox}[colback=orange!8,colframe=orange]
 \textbf{Historical-results boundary.}  All numerical results in this document
-are from the completed v9 artifact shown below.  The current implementation is
-\texttt{pc\_keyed\_raw\_hurdle\_count\_rank\_delta\_v22} with default run
-\texttt{623\_offline\_lstm\_stride\_raw\_hurdle\_count\_v22\_seed7}; its replay results
+are from the completed historical artifact shown below.  The current implementation is
+\texttt{pc\_keyed\_raw\_hurdle\_count\_rank\_delta\_v22\_reused\_v23} with default run
+\texttt{623\_offline\_lstm\_stride\_prior\_corrected\_hurdle\_v23\_seed7}; its replay results
 are pending and must not be inferred from these tables.
 \end{infobox}
 \begin{center}
@@ -52,23 +52,19 @@ are pending and must not be inferred from these tables.
 Primary comparison & Offline Stride actions versus independently generated LSTM actions, replayed through the same transport and measured against the same no-prefetch baseline.\\
 Shared external input & current PC and current cache-line address, in chronological order.\\
 Neural history & one exact-PC keyed LSTM over lossless raw PC/address bits only; chronological TBPTT carries and detaches state.  No hand-engineered stride or reuse feature is a primary input.\\
-Current output model & a TRAIN-balanced learned hurdle predicts zero versus positive, a positive-only log-count predicts finite cardinality, and each scheduled rank independently chooses a dynamic TRAIN-only exact-delta class or OTHER signed-log coordinate relative to the current demand. There is no prior-action feedback.\\
+Current output model & the v22 checkpoint, count head, and rank-delta heads are reused byte-for-byte.  Only hurdle decode changes from weighted-logit argmax to \(z_c-\log w_c\), exactly undoing TRAIN inverse-frequency weighting before deterministic argmax.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, templates, request budget/degree, future rows, page rules, and probability thresholds. Teacher actions provide losses and the TRAIN-only learned output vocabulary, never runtime inputs.\\
-Historical run artifact & \texttt{623\_offline\_lstm\_stride\_variable\_delta\_free\_running\_v9\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v22 or useful neural behavior.\\
+Historical run artifact & prior completed runs provide diagnosis only.  ``PASS'' on those artifacts does not certify v23 or useful neural behavior.\\
 \end{tabularx}
 \end{infobox}
 
 \begin{infobox}[colback=blue!5,colframe=blue]
-\textbf{v22 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
-are trained because 602 showed non-monotone capacity effects.  Sparse
-ZERO/POSITIVE callback labels receive the unique TRAIN-derived inverse-frequency
-class weight that gives the two hurdle classes equal aggregate loss mass;
-inference uses raw argmax plus a finite deterministic log-count mode and no
-threshold.  The guard key is lexicographic
-(target F1, trigger F1, exact count, request-ratio error, train loss, epoch),
-not an averaged score.  Evaluation never selects a checkpoint, but prior 623
-iterations have already inspected this benchmark region, so the replay is not
-a pristine once-only confirmatory test.
+\textbf{v23 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
+reuse the corresponding v22 checkpoint and training history.  For every point,
+the notebook first reproduces the v22 raw-decode replay list byte-for-byte and
+then performs one prior-corrected decode.  No model is retrained, no checkpoint
+is reselected, and no threshold or request budget is introduced.  Parent and
+reproduced artifact SHA-256 values are fail-closed metadata requirements.
 \end{infobox}
 
 \section*{1. What is measured}

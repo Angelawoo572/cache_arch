@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train and decode the independent matched-input 623 Stride v22 model.
+"""Define the matched-input 623 Stride hurdle/count model and v22 trainer.
 
 The runtime boundary is deliberately small and auditable: only the current
 ``pc`` and aligned ``addr`` are external inputs, encoded losslessly as raw
@@ -16,7 +16,9 @@ row carries a bounded continuous signed-log approximation.  No teacher or
 predicted action is fed to a later rank.  Inference uses deterministic argmax,
 a finite rounded-exp count mode, and rankwise delta MAP, with no probability
 threshold, source template, page rule, normal budget, degree cap, or action
-feedback.
+feedback.  The active v23 workflow imports this exact architecture and decode
+implementation from ``redecode_prior_corrected.py`` and reuses v22 checkpoint
+bytes; calling this module's training entry point is intentionally rejected.
 """
 import argparse
 import csv
@@ -585,6 +587,7 @@ def _chunk_objective(
 def decode(
     model, context_numpy, base_lines, exact_vocabulary, device,
     per_callback_watchdog, per_role_watchdog, role, chunk_len=4096,
+    hurdle_class_weights=None, apply_hurdle_prior_correction=False,
 ):
     if len(context_numpy) != len(base_lines):
         raise RuntimeError("decoder row counts differ")
@@ -599,6 +602,7 @@ def decode(
         raise RuntimeError("invalid decoder resource watchdog domain")
     decoded_counts = []
     positive_probability_sum = 0.0
+    raw_positive_probability_sum = 0.0
     positive_log_values = []
     model.eval()
     with torch.no_grad():
@@ -606,10 +610,33 @@ def decode(
             stop = min(start + chunk_len, len(base_lines))
             context = torch.from_numpy(context_numpy[start:stop]).to(device)
             hurdle_logits = model.hurdle_head(context)
-            positive_probability_sum += float(
+            if not bool(torch.isfinite(hurdle_logits).all()):
+                raise RuntimeError("hurdle produced non-finite logits")
+            raw_positive_probability_sum += float(
                 torch.softmax(hurdle_logits, dim=1)[:, POSITIVE_CLASS].sum().item()
             )
-            decisions = torch.argmax(hurdle_logits, dim=1).cpu().tolist()
+            decision_logits = hurdle_logits
+            if apply_hurdle_prior_correction:
+                weights = torch.as_tensor(
+                    hurdle_class_weights,
+                    dtype=torch.float64, device=hurdle_logits.device,
+                )
+                if (
+                    tuple(weights.shape) != (2,)
+                    or bool((weights <= 0).any())
+                    or not bool(torch.isfinite(weights).all())
+                ):
+                    raise RuntimeError(
+                        "prior-corrected hurdle requires two positive finite "
+                        "TRAIN class weights"
+                    )
+                decision_logits = (
+                    hurdle_logits.to(torch.float64) - torch.log(weights).unsqueeze(0)
+                )
+            positive_probability_sum += float(
+                torch.softmax(decision_logits, dim=1)[:, POSITIVE_CLASS].sum().item()
+            )
+            decisions = torch.argmax(decision_logits, dim=1).cpu().tolist()
             log_counts = model.positive_log_count_head(
                 context
             ).squeeze(1).cpu().tolist()
@@ -712,6 +739,16 @@ def decode(
         "decoded_zero_callbacks": int(np.count_nonzero(counts == 0)),
         "mean_positive_probability_over_callbacks": (
             positive_probability_sum / max(1, len(base_lines))
+        ),
+        "mean_raw_weighted_positive_probability_over_callbacks": (
+            raw_positive_probability_sum / max(1, len(base_lines))
+        ),
+        "hurdle_prior_correction_at_decode_used": bool(
+            apply_hurdle_prior_correction
+        ),
+        "hurdle_prior_correction_rule": (
+            "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight"
+            if apply_hurdle_prior_correction else None
         ),
         "minimum_decoded_positive_log_count": (
             min(positive_log_values) if positive_log_values else None
@@ -1153,6 +1190,12 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
+    if OPERATION == "redecode-v23":
+        raise RuntimeError(
+            "active Stride v23 is decoder-only; run "
+            "python/redecode_prior_corrected.py so v22 checkpoint and training "
+            "history bytes are reused instead of retraining"
+        )
     source_hashes = {
         "trainer_source_sha256": sha256(TRAINER_SOURCE_PATH),
         "model_contract_source_sha256": sha256(MODEL_CONTRACT_SOURCE_PATH),

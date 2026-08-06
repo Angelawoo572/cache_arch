@@ -34,11 +34,11 @@
 \begin{document}
 \begin{infobox}[colback=orange!8,colframe=orange]
 \textbf{Historical-results boundary.}  All numerical results in this document
-are from the completed v11 artifact shown below.  The current implementation is
-\texttt{global\_chronological\_lstm\_hurdle\_log\_count\_v22} with default run
-\texttt{623\_offline\_lstm\_spp\_hurdle\_log\_count\_vocab\_v22\_seed7}; its replay
+are from the completed historical artifact shown below.  The current implementation is
+\texttt{global\_chronological\_lstm\_finite\_joint\_rank\_v23} with default run
+\texttt{623\_offline\_lstm\_spp\_finite\_joint\_rank\_v23\_seed7}; its replay
 results are pending and must not be inferred from these tables.  Because the
-recorded fill-callback stream comes from source SPP, v22 supports a matched-input
+recorded fill-callback stream comes from source SPP, v23 supports a matched-input
 offline claim, not a closed-loop live-NN claim.
 \end{infobox}
 \begin{center}
@@ -54,23 +54,21 @@ offline claim, not a closed-loop live-NN claim.
 Primary comparison & Offline SPP actions versus independently generated LSTM actions, replayed through the same transport and measured against the same no-prefetch baseline.\\
 Shared external input & chronological DEMAND(address) and CACHE\_FILL(evicted-address) callbacks.\\
 Neural history & stateful LSTM over complete train--guard--evaluation chronology; chronological TBPTT carries and detaches state.\\
-Current output model & a natural-frequency ZERO/POSITIVE hurdle and conditional positive log-count choose cardinality.  Each scheduled rank independently chooses a dynamic TRAIN-only exact-delta class or OTHER coordinate; a target/rank-conditioned fill head uses deterministic MAP.  There is no prior-action feedback.\\
+Current output model & one finite joint softmax directly predicts STOP or EMIT(delta, fill).  The exact finite support is the maximum TRAIN teacher-action count; shorter sequences receive STOP on every available tail rank, while maximum-length sequences end at finite support.  There are no separate gate, count, delta, or fill argmaxes and no prior-action feedback.\\
 Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
-Historical run artifact & \texttt{623\_offline\_lstm\_spp\_variable\_delta\_free\_running\_v11\_seed7}.  ``PASS'' certifies that historical experiment contract; it does not certify v22 or useful neural behavior.\\
+Historical run artifact & prior completed runs provide diagnosis only.  ``PASS'' on those artifacts does not certify v23 or useful neural behavior.\\
 \end{tabularx}
 \end{infobox}
 
 \begin{infobox}[colback=blue!5,colframe=blue]
-\textbf{v22 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
-are trained because 602 showed non-monotone capacity and fill-collapse effects.
-The ZERO/POSITIVE hurdle uses natural-frequency unweighted categorical loss,
-and positive callbacks use unweighted smooth-L1 on log action count;
-the rare fill classes use only TRAIN-derived inverse-frequency weights.
-Inference is deterministic argmax.  The guard key is lexicographic over joint
-target/fill F1, target F1, L2-joint F1, trigger F1, exact count, fill accuracy,
-train loss, and epoch; no heterogeneous average is formed.  Evaluation never
-selects a checkpoint, but prior 623 iterations have already inspected this
-benchmark region, so the replay is not a pristine once-only confirmatory test.
+\textbf{v23 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
+are trained because 602 and 623 showed non-monotone capacity behavior.  One
+joint token cross-entropy is grouped by STOP, EMIT-L2, and EMIT-LLC using only
+TRAIN rank-slot counts.  Decode subtracts the log TRAIN group weight and takes
+one deterministic joint argmax.  Guard selection remains lexicographic; no
+heterogeneous average, probability threshold, page rule, or normal request
+budget is used.  A TRAIN-modal-delta/all-LLC policy is replayed separately as
+an explicitly non-neural diagnostic control.
 \end{infobox}
 
 \section*{1. What is measured}

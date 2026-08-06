@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-# Independent 623 track: normal Stride versus direct LSTM only.
+# Independent 623 track: normal Stride versus the v23 decoder-only ablation.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_stride"
 TRAINER="$EXP/python/train_and_offline_infer.py"
+REDECODER="$EXP/python/redecode_prior_corrected.py"
 MODEL_CONTRACT="$EXP/python/model_contract.py"
 TRACE="$(python3 "$MODEL_CONTRACT" --field trace)"
 POLICY="$(python3 "$MODEL_CONTRACT" --field policy)"
@@ -41,11 +42,11 @@ MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
 BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
 
 [[ "$MODEL_TAGS_CSV" == "$DEFAULT_MODEL_TAGS" ]] || {
-  echo "[error] active v22 replay requires the exact five configured MODEL_TAGS" >&2
+  echo "[error] active v23 replay requires the exact five configured MODEL_TAGS" >&2
   exit 2
 }
 [[ "$BASE_TAG" == "$DEFAULT_BASE_TAG" ]] || {
-  echo "[error] active v22 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
+  echo "[error] active v23 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
   exit 2
 }
 
@@ -87,7 +88,7 @@ require_repo_file() {
 }
 for required_file in \
   "$PATCH_LOGGER" "$BUILD_REPLAYER" "$NORMALIZE" "$VALIDATE_INPUTS" \
-  "$ANALYZE" "$TRAINER" "$MODEL_CONTRACT" "$INSTALL_COLAB_OUTPUT" \
+  "$ANALYZE" "$TRAINER" "$REDECODER" "$MODEL_CONTRACT" "$INSTALL_COLAB_OUTPUT" \
   "$SPLIT_COLAB_ARCHIVE" "$VALIDATE_MODEL_METADATA"; do
   require_repo_file "$required_file"
 done
@@ -274,9 +275,9 @@ validate_preserved_inputs() {
 
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-# Active v22 validation is local to Stride and imports only torch-free modules,
+# Active v23 validation is local to Stride and imports only torch-free modules,
 # so the replay host does not need torch or numpy.
-assert_model_metadata_v22() {
+assert_model_metadata_v23() {
   python3 "$VALIDATE_MODEL_METADATA" \
     --metadata "$1" --input-dir "$STREAM_DIR"
 }
@@ -313,7 +314,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_hurdle_count_stride_lstm_*)
+    offline_prior_corrected_hurdle_count_stride_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -339,13 +340,14 @@ require_colab_outputs() {
     --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
   for tag in "${MODEL_TAGS[@]}"; do
     for name in run_metadata.json offline_stride.replay.csv \
-      offline_nn.replay.csv model.pt training_history.csv; do
+      offline_nn.replay.csv parent_raw_reproduction.replay.csv \
+      model.pt training_history.csv; do
       [[ -s "$(colab_dir "$tag")/$name" ]] || {
         echo "[error] missing Colab output $(colab_dir "$tag")/$name" >&2
         exit 2
       }
     done
-    assert_model_metadata_v22 "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v23 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 

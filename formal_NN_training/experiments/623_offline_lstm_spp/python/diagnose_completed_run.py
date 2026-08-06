@@ -40,8 +40,8 @@ REVISION_PROFILES = {
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
     ACTIVE_MODEL_REVISION: (
-        "offline_hurdle_count_vocab_spp_lstm_",
-        "hurdle_count_vocab_spp_lstm_h{}",
+        "offline_finite_joint_rank_spp_lstm_",
+        "finite_joint_rank_spp_lstm_h{}",
     ),
 }
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
@@ -92,6 +92,7 @@ def input_contract_mismatches(metadata):
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
         "normal_policy_outputs_used_as_training_targets": True,
+        "normal_policy_request_rate_used_as_budget": False,
         "future_label_window_used": False,
         "teacher_actions_are_model_inputs": False,
         "model_does_not_use_pc": True,
@@ -101,37 +102,44 @@ def input_contract_mismatches(metadata):
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "terminal_stop_supervised": False,
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "all_available_tail_stop_supervised": True,
+        "maximum_length_sequences_terminate_by_finite_support": True,
+        "separate_gate_head_used": False,
+        "request_count_head_used": False,
+        "request_count_regression_used": False,
+        "separate_delta_head_used": False,
+        "separate_fill_head_used": False,
+        "fill_argmax_used": False,
         "stop_emit_head_used": False,
-        "hurdle_training_objective": ACTIVE_POINT_CONTRACT[
-            "hurdle_training_objective"
+        "joint_action_training_objective": ACTIVE_POINT_CONTRACT[
+            "joint_action_training_objective"
         ],
-        "hurdle_class_weighting_used": False,
-        "positive_count_training_objective": ACTIVE_POINT_CONTRACT[
-            "positive_count_training_objective"
+        "other_delta_training_objective": ACTIVE_POINT_CONTRACT[
+            "other_delta_training_objective"
         ],
-        "positive_count_decoding_rule": ACTIVE_POINT_CONTRACT[
-            "positive_count_decoding_rule"
+        "joint_action_prior_correction_at_decode_used": True,
+        "joint_action_prior_correction_rule": ACTIVE_POINT_CONTRACT[
+            "joint_action_prior_correction_rule"
         ],
-        "separate_gate_head_used": True,
-        "request_count_head_used": True,
-        "request_count_regression_used": True,
+        "finite_output_horizon_source": ACTIVE_POINT_CONTRACT[
+            "finite_output_horizon_source"
+        ],
+        "finite_output_horizon_is_dataset_derived": True,
+        "finite_output_horizon_is_normal_request_budget": False,
+        "finite_output_horizon_is_tuned_degree": False,
+        "neural_degree_cap": None,
+        "probability_threshold_used": False,
+        "inference_policy_hardcodes_used": False,
         "stochastic_decoding": False,
-        "fill_argmax_used": True,
-        "fill_prior_correction_at_decode_used": True,
-        "fill_prior_correction_rule": ACTIVE_POINT_CONTRACT[
-            "fill_prior_correction_rule"
-        ],
-        "fill_decoding_rule": ACTIVE_POINT_CONTRACT["fill_decoding_rule"],
         "guard_selection_rule": ACTIVE_POINT_CONTRACT["guard_selection_rule"],
         "guard_selection_composite_or_mean_used": False,
         "delta_other_escape": ACTIVE_POINT_CONTRACT["delta_other_escape"],
-        "delta_other_decode_precision": ACTIVE_POINT_CONTRACT[
-            "delta_other_decode_precision"
-        ],
         "full_signed_line_delta_range_reachable": False,
         "every_signed_line_delta_exactly_representable": False,
         "exact_delta_representability_scope": "train_vocabulary_only",
+        "non_neural_control_uses_model": False,
+        "non_neural_control_excluded_from_neural_claims": True,
         "cublas_workspace_config": ":4096:8",
         "torch_deterministic_algorithms_enabled": True,
         "cudnn_deterministic": True,
@@ -154,6 +162,20 @@ def input_contract_mismatches(metadata):
             "actual": metadata.get("training_config"),
             "expected": ACTIVE_POINT_CONTRACT["training_config"],
         })
+    horizon = metadata.get("train_action_horizon")
+    if (
+        not isinstance(horizon, int)
+        or isinstance(horizon, bool)
+        or horizon < 1
+        or metadata.get("joint_decision_rank_count") != horizon
+        or (metadata.get("teacher_max_actions_per_callback") or {}).get("train")
+        != horizon
+    ):
+        mismatches.append({
+            "field": "train_action_horizon",
+            "actual": horizon,
+            "expected": "positive TRAIN maximum used as exact finite support",
+        })
     if "A100" not in str(metadata.get("cuda_device_name", "")):
         mismatches.append({
             "field": "cuda_device_name",
@@ -171,7 +193,8 @@ def input_contract_mismatches(metadata):
         observed = hashlib.sha256(path.read_bytes()).hexdigest()
         if metadata.get(key) != observed:
             mismatches.append({
-                "field": key, "actual": metadata.get(key),
+                "field": key,
+                "actual": metadata.get(key),
                 "expected": observed,
             })
     encoder_hashes = {
@@ -199,6 +222,7 @@ def analyzer_evidence_mismatches(matched, tag, metadata):
     accounting = matched.get("replay_accounting") or {}
     nn_info = accounting.get(method) or {}
     normal_info = accounting.get("offline_spp") or {}
+    control_info = accounting.get("offline_modal_llc_control") or {}
     checks = (
         ("runtime_encoder_sha256", metadata.get("runtime_encoder_sha256"),
          (matched.get("runtime_encoder_sha256_by_model_tag") or {}).get(tag)),
@@ -219,6 +243,12 @@ def analyzer_evidence_mismatches(matched, tag, metadata):
         ("offline_nn_fill_level_counts",
          metadata.get("offline_nn_fill_level_counts"),
          nn_info.get("fill_counts")),
+        ("non_neural_control_list_sha256",
+         metadata.get("non_neural_control_list_sha256"),
+         control_info.get("sha256")),
+        ("non_neural_control_entries",
+         metadata.get("non_neural_control_entries"),
+         control_info.get("entries")),
         ("source_contract_sha256", metadata.get("source_contract_sha256"),
          (matched.get("input_provenance") or {}).get(
              "spp_source_contract_sha256"
@@ -292,6 +322,12 @@ def model_record(row, metadata, normal, no_pref, matched):
             "coverage_vs_no_pref_l2_miss"
         ),
         "timeliness": row.get("timeliness"),
+        "l2_quality_metric_status": row.get("l2_quality_metric_status"),
+        "l2_selected_accuracy_semantic": row.get(
+            "l2_selected_accuracy_semantic"
+        ),
+        "l2_coverage_semantic": row.get("l2_coverage_semantic"),
+        "l2_timeliness_semantic": row.get("l2_timeliness_semantic"),
         "runtime_unreached_list_entries": row.get(
             "runtime_unreached_list_entries"
         ),
@@ -312,6 +348,20 @@ def model_record(row, metadata, normal, no_pref, matched):
         "decoder_previous_teacher_action_used_as_input",
         "decoder_previous_predicted_action_used_as_input",
         "decoder_previous_sampled_action_used_as_input",
+        "joint_action_training_objective",
+        "other_delta_training_objective",
+        "joint_action_token_definition",
+        "joint_action_token_count",
+        "joint_action_train_token_counts",
+        "joint_action_train_group_counts",
+        "joint_action_train_group_weights",
+        "joint_action_prior_correction_at_decode_used",
+        "joint_action_prior_correction_rule",
+        "train_action_horizon",
+        "joint_decision_rank_count",
+        "finite_output_horizon_source",
+        "all_available_tail_stop_supervised",
+        "maximum_length_sequences_terminate_by_finite_support",
         "hurdle_training_objective",
         "hurdle_train_class_counts",
         "hurdle_train_class_priors",
@@ -323,7 +373,7 @@ def model_record(row, metadata, normal, no_pref, matched):
         "positive_log_count_train_mean",
         "positive_log_count_train_std",
         "positive_count_decoding_rule",
-        "terminal_stop_supervised",
+        "terminal_stop_supervised_for_every_teacher_sequence",
         "separate_gate_head_used",
         "request_count_head_used",
         "request_count_regression_used",
@@ -369,6 +419,10 @@ def model_record(row, metadata, normal, no_pref, matched):
         "decoder_revision",
         "weights_retrained",
         "checkpoint_reused",
+        "non_neural_control_name",
+        "non_neural_control_modal_delta",
+        "non_neural_control_modal_delta_train_frequency",
+        "non_neural_control_list_sha256",
     )
     for key in diagnostic_keys:
         if key in metadata:
@@ -507,6 +561,13 @@ def main():
         "cross_capacity_runtime_encoder_identical": True,
         "runtime_encoder_sha256": next(iter(encoder_hashes)),
         "same_external_input": SOURCE_INPUTS,
+        "capacity_action_list_audit": matched.get(
+            "capacity_action_list_audit"
+        ),
+        "metric_applicability": matched.get("metric_applicability"),
+        "diagnostic_control": (
+            rows.get("offline_modal_llc_control")
+        ),
         "teacher_role": (
             "captured SPP actions and fill choices are supervision and "
             "comparator replay only; they are not neural inference inputs"
@@ -541,6 +602,9 @@ def main():
             "better cache behavior.",
             "Replay-list fill totals and runtime issued-event fill counts are "
             "different accounting domains.",
+            "L2-oriented quality ratios are N/A, not zero, when a method emits "
+            "no FILL_L2 actions.",
+            "The modal-LLC control is non-neural and excluded from neural claims.",
             "This schema does not directly measure harmful victim eviction.",
             "One trace and one seed identify a best observed point, not an optimum.",
         ],
@@ -566,6 +630,8 @@ def main():
         "offline_normal_actions_per_reached_trigger",
         "pf_filled", "pf_useful", "pf_useless", "pf_late",
         "selected_accuracy", "coverage_vs_no_pref_l2_miss", "timeliness",
+        "l2_quality_metric_status", "l2_selected_accuracy_semantic",
+        "l2_coverage_semantic", "l2_timeliness_semantic",
         "prefetch_fill_l2_events", "prefetch_fill_llc_events",
         "event_l2_fill_fraction", "input_contract_verified",
     ]

@@ -12,7 +12,8 @@ from pathlib import Path
 
 from model_contract import (
     EXPERIMENT_REVISION, EXTERNAL_INPUT_FIELDS, MODEL_REVISION as ACTIVE_MODEL_REVISION,
-    POLICY, TRACE, describe_model_points, expected_parameter_count,
+    PARENT_INPUT_RUN_ID, POLICY, TRACE, describe_model_points,
+    expected_parameter_count, joint_token_count, token_group,
 )
 
 POLICIES = (POLICY,)
@@ -51,6 +52,7 @@ MODEL_TAG_PREFIXES = (
     "routed_grammar_spp_lstm_",
     "stop_emit_vocab_spp_lstm_",
     "hurdle_count_vocab_spp_lstm_",
+    "finite_joint_rank_spp_lstm_",
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -384,7 +386,7 @@ def parse_events(path):
 
 
 def policy_for_method(method):
-    if method == "offline_" + POLICY or method.startswith(
+    if method in ("offline_" + POLICY, "offline_modal_llc_control") or method.startswith(
         "offline_joint_delta_fill_spp_"
     ) or method.startswith("offline_guard_joint_map_spp_") or method.startswith(
         "offline_factorized_delta_fill_spp_"
@@ -396,6 +398,8 @@ def policy_for_method(method):
         "offline_stop_emit_vocab_spp_"
     ) or method.startswith(
         "offline_hurdle_count_vocab_spp_"
+    ) or method.startswith(
+        "offline_finite_joint_rank_spp_"
     ):
         return POLICY
     return ""
@@ -414,6 +418,8 @@ def model_tag_for_method(method):
         "offline_stop_emit_vocab_spp_"
     ) or method.startswith(
         "offline_hurdle_count_vocab_spp_"
+    ) or method.startswith(
+        "offline_finite_joint_rank_spp_"
     ):
         return method[len("offline_"):]
     return ""
@@ -492,9 +498,10 @@ def add_comparison_metrics(rows, failures):
 
 
 def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failures):
-    """Fail closed on the deterministic v22 hurdle/log-count contract."""
+    """Fail closed on the finite joint-action SPP v23 contract."""
     expected = {
         "run_id": ACTIVE_POINT_CONTRACT["run_id"],
+        "parent_input_run_id": PARENT_INPUT_RUN_ID,
         "trace": TRACE,
         "model_tag": tag,
         "matched_normal_prefetcher": POLICY,
@@ -506,12 +513,19 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "decoder_revision": ACTIVE_POINT_CONTRACT["decoder_revision"],
         "neural_role": "standalone_direct_action_prefetcher",
         "runtime_feature_count": ACTIVE_POINT_CONTRACT["runtime_feature_count"],
+        "runtime_encoding": ACTIVE_POINT_CONTRACT["runtime_encoding"],
         "source_decision_effective_external_input": SOURCE_INPUTS,
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
+        "model_does_not_use_pc": True,
+        "pc_is_replay_transport_only": True,
+        "model_input_is_causal_external_event_sequence_only": True,
+        "cache_fill_feedback_used_as_raw_external_input": True,
+        "cache_fill_private_state_used_as_model_input": False,
         "teacher_actions_are_model_inputs": False,
+        "teacher_actions_are_model_inputs_scope": "labels_and_comparator_only",
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
@@ -519,67 +533,58 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
         "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
         "inference_policy_hardcodes_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
         "normal_policy_templates_used_by_neural_inference": False,
-        "decoder_training_mode": ACTIVE_POINT_CONTRACT[
-            "decoder_training_mode"
-        ],
+        "decoder_training_mode": ACTIVE_POINT_CONTRACT["decoder_training_mode"],
         "decoding_rule": ACTIVE_POINT_CONTRACT["decoding_rule"],
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "teacher_action_values_used_as_decoder_feedback": False,
         "sampled_outputs_used_as_decoder_feedback": False,
-        "terminal_stop_supervised": False,
+        "joint_action_training_objective": ACTIVE_POINT_CONTRACT[
+            "joint_action_training_objective"
+        ],
+        "other_delta_training_objective": ACTIVE_POINT_CONTRACT[
+            "other_delta_training_objective"
+        ],
+        "joint_action_token_definition": ACTIVE_POINT_CONTRACT[
+            "joint_action_token_definition"
+        ],
+        "joint_action_group_order": ["STOP", "EMIT_L2", "EMIT_LLC"],
+        "joint_action_group_weight_formula": "N/(3*N_group)",
+        "joint_action_bias_initialization": ACTIVE_POINT_CONTRACT[
+            "joint_action_bias_initialization"
+        ],
+        "joint_action_prior_correction_at_decode_used": True,
+        "joint_action_prior_correction_rule": ACTIVE_POINT_CONTRACT[
+            "joint_action_prior_correction_rule"
+        ],
+        "separate_gate_head_used": False,
+        "request_count_head_used": False,
+        "request_count_regression_used": False,
+        "separate_delta_head_used": False,
+        "separate_fill_head_used": False,
+        "fill_argmax_used": False,
         "stop_emit_head_used": False,
-        "hurdle_training_objective": ACTIVE_POINT_CONTRACT[
-            "hurdle_training_objective"
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "all_available_tail_stop_supervised": True,
+        "maximum_length_sequences_terminate_by_finite_support": True,
+        "finite_output_horizon_source": ACTIVE_POINT_CONTRACT[
+            "finite_output_horizon_source"
         ],
-        "hurdle_class_weighting_used": False,
-        "hurdle_train_class_order": ["ZERO", "POSITIVE"],
-        "hurdle_prior_initialization": ACTIVE_POINT_CONTRACT[
-            "hurdle_prior_initialization"
-        ],
-        "hurdle_head_weights_zero_initialized": True,
-        "positive_count_training_objective": ACTIVE_POINT_CONTRACT[
-            "positive_count_training_objective"
-        ],
-        "positive_count_prior_initialization": ACTIVE_POINT_CONTRACT[
-            "positive_count_prior_initialization"
-        ],
-        "positive_count_head_weights_zero_initialized": True,
-        "positive_count_decoding_rule": ACTIVE_POINT_CONTRACT[
-            "positive_count_decoding_rule"
-        ],
-        "positive_count_support": ACTIVE_POINT_CONTRACT[
-            "positive_count_support"
-        ],
-        "maximum_positive_count_domain": ACTIVE_POINT_CONTRACT[
-            "maximum_positive_count_domain"
-        ],
-        "positive_count_output_cap": None,
-        "separate_gate_head_used": True,
-        "request_count_head_used": True,
-        "request_count_regression_used": True,
-        "learned_request_count": True,
-        "action_or_byte_grammar_used": False,
+        "finite_output_horizon_is_dataset_derived": True,
+        "finite_output_horizon_is_normal_request_budget": False,
+        "finite_output_horizon_is_tuned_degree": False,
+        "all_train_teacher_sequences_have_terminal_stop_label": False,
         "delta_other_escape": ACTIVE_POINT_CONTRACT["delta_other_escape"],
-        "delta_other_decode_precision": ACTIVE_POINT_CONTRACT[
-            "delta_other_decode_precision"
-        ],
         "full_signed_line_delta_range_reachable": False,
         "every_signed_line_delta_exactly_representable": False,
         "exact_delta_representability_scope": "train_vocabulary_only",
-        "fill_conditioned_on_actual_emitted_target": True,
-        "fill_argmax_used": True,
-        "fill_prior_correction_at_decode_used": True,
-        "fill_prior_correction_rule": ACTIVE_POINT_CONTRACT[
-            "fill_prior_correction_rule"
-        ],
-        "fill_decoding_rule": ACTIVE_POINT_CONTRACT["fill_decoding_rule"],
         "stochastic_decoding": False,
         "keyed_sampling_used": False,
         "decoder_sampling_roles": [],
@@ -594,24 +599,9 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "routed_demand_fill_recurrent_paths": False,
         "page_local_causal_state": False,
         "handcrafted_semantic_features_used": False,
-        "output_materialization_watchdog_is_neural_degree_cap": False,
-        "decode_per_callback_resource_watchdog": ACTIVE_POINT_CONTRACT[
-            "decode_per_callback_resource_watchdog"
-        ],
-        "decode_per_role_resource_watchdog": ACTIVE_POINT_CONTRACT[
-            "decode_per_role_resource_watchdog"
-        ],
-        "decode_resource_watchdog_behavior": ACTIVE_POINT_CONTRACT[
-            "decode_resource_watchdog_behavior"
-        ],
-        "hurdle_log_count_self_test": "PASS",
-        "gate_count_prior_initialization_self_test": "PASS",
-        "positive_count_domain_self_test": "PASS",
-        "rank_no_action_feedback_self_test": "PASS",
-        "fail_closed_watchdog_self_test": "PASS",
-        "maximum_action_count_is_learned_not_fixed": True,
         "weights_retrained": True,
         "checkpoint_reused": False,
+        "decoder_only_change": False,
         "same_source_input_offline_claim_allowed": True,
         "closed_loop_live_claim_allowed": False,
         "cublas_workspace_config": ":4096:8",
@@ -630,6 +620,27 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
             "historical_input_package_provenance_only"
         ),
         "collection_manifest_decoder_fields_are_current_contract": False,
+        "input_reuse": "v22 input package reused byte-for-byte",
+        "data_derived_joint_group_weights_used": True,
+        "finite_support_is_train_derived_not_hardcoded": True,
+        "causal_no_future_self_test": "PASS",
+        "joint_token_bijection_self_test": "PASS",
+        "all_tail_stop_supervision_self_test": "PASS",
+        "finite_rank_termination_self_test": "PASS",
+        "joint_group_prior_correction_self_test": "PASS",
+        "rank_no_action_feedback_self_test": "PASS",
+        "signed_log_other_codec_self_test": "PASS",
+        "integer_csv_exactness_self_test": "PASS",
+        "non_neural_control_name": (
+            "every_callback_TRAIN_modal_delta_FILL_LLC"
+        ),
+        "non_neural_control_uses_model": False,
+        "non_neural_control_excluded_from_neural_claims": True,
+        "non_neural_control_actions_per_callback": 1,
+        "non_neural_control_fill_level": "FILL_LLC",
+        "non_neural_control_delta_source": (
+            "TRAIN_teacher_action_frequency_only"
+        ),
     }
     for key, value in expected.items():
         if metadata.get(key) != value:
@@ -696,21 +707,18 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         failures.append(
             "{} invalid dynamic TRAIN delta vocabulary/point".format(tag)
         )
+        token_count = None
     else:
+        token_count = joint_token_count(vocabulary_size)
         expected_realized = expected_parameter_count(
             point_key[0], vocabulary_size
         )
         expected_maximum = expected_parameter_count(point_key[0], 255)
         if any(
             metadata.get(key) != expected_realized
-            for key in (
-                "parameter_count",
-                "realized_parameter_count",
-            )
+            for key in ("parameter_count", "realized_parameter_count")
         ):
-            failures.append(
-                "{} invalid realized parameter count".format(tag)
-            )
+            failures.append("{} invalid realized parameter count".format(tag))
         if any(
             metadata.get(key) != expected_maximum
             for key in (
@@ -718,15 +726,94 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
                 "maximum_parameter_count_at_255_exact_deltas",
             )
         ):
-            failures.append(
-                "{} invalid maximum parameter count".format(tag)
-            )
+            failures.append("{} invalid maximum parameter count".format(tag))
+        if metadata.get("joint_action_token_count") != token_count:
+            failures.append("{} invalid realized joint token count".format(tag))
     if metadata.get("parameter_count_is_dataset_dependent") is not True:
         failures.append("{} hides dataset-dependent parameter size".format(tag))
     if metadata.get("model_point_contract") != ACTIVE_POINT_CONTRACT:
         failures.append(
             "{} model-point contract differs from trainer source".format(tag)
         )
+
+    horizon = metadata.get("train_action_horizon")
+    teacher_maxima = metadata.get("teacher_max_actions_per_callback")
+    if (
+        not isinstance(horizon, int)
+        or isinstance(horizon, bool)
+        or horizon < 1
+        or not isinstance(teacher_maxima, dict)
+        or teacher_maxima.get("train") != horizon
+        or metadata.get("joint_decision_rank_count") != horizon
+        or metadata.get("maximum_possible_actions_from_finite_support")
+        != horizon
+    ):
+        failures.append("{} invalid TRAIN-derived finite horizon".format(tag))
+
+    token_counts = metadata.get("joint_action_train_token_counts")
+    token_priors = metadata.get("joint_action_train_token_priors_add_one")
+    effective_priors = metadata.get(
+        "joint_action_initial_effective_weighted_token_priors"
+    )
+    group_counts = metadata.get("joint_action_train_group_counts")
+    group_weights = metadata.get("joint_action_train_group_weights")
+    if (
+        token_count is None
+        or not isinstance(token_counts, list)
+        or not isinstance(token_priors, list)
+        or not isinstance(effective_priors, list)
+        or len(token_counts) != token_count
+        or len(token_priors) != token_count
+        or len(effective_priors) != token_count
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value < 0
+            for value in token_counts
+        )
+        or not isinstance(group_counts, list)
+        or not isinstance(group_weights, list)
+        or len(group_counts) != 3
+        or len(group_weights) != 3
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            for value in group_counts
+        )
+    ):
+        failures.append("{} invalid TRAIN joint-token statistics".format(tag))
+    else:
+        derived_groups = [0, 0, 0]
+        for token, count in enumerate(token_counts):
+            derived_groups[token_group(token, vocabulary_size)] += count
+        total = float(sum(group_counts))
+        expected_weights = [total / (3.0 * count) for count in group_counts]
+        denominator = float(sum(token_counts) + token_count)
+        expected_priors = [(count + 1.0) / denominator for count in token_counts]
+        unnormalized_effective = [
+            prior * group_weights[token_group(token, vocabulary_size)]
+            for token, prior in enumerate(expected_priors)
+        ]
+        effective_denominator = sum(unnormalized_effective)
+        expected_effective = [
+            value / effective_denominator for value in unnormalized_effective
+        ]
+        if (
+            derived_groups != group_counts
+            or sum(token_counts) != sum(group_counts)
+            or any(
+                not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=1e-9)
+                for actual, expected in zip(group_weights, expected_weights)
+            )
+            or any(
+                not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=1e-9)
+                for actual, expected in zip(token_priors, expected_priors)
+            )
+            or any(
+                not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=1e-9)
+                for actual, expected in zip(effective_priors, expected_effective)
+            )
+        ):
+            failures.append(
+                "{} TRAIN joint group weights/priors mismatch".format(tag)
+            )
 
     encoder_hashes = {
         metadata.get("runtime_encoder_sha256"),
@@ -747,90 +834,12 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "eval_decision_router_sha256",
         "model_checkpoint_sha256",
         "training_history_sha256",
+        "non_neural_control_list_sha256",
     ):
         if re.fullmatch(r"[0-9a-f]{64}", str(metadata.get(key, ""))) is None:
             failures.append("{} invalid {}".format(tag, key))
     if metadata.get("source_contract_sha256") != source_contract_hash:
-        failures.append(
-            "{} SPP source-contract SHA256 mismatch".format(tag)
-        )
-
-    hurdle_counts = metadata.get("hurdle_train_class_counts")
-    hurdle_priors = metadata.get("hurdle_train_class_priors")
-    if (
-        not isinstance(hurdle_counts, list)
-        or not isinstance(hurdle_priors, list)
-        or len(hurdle_counts) != 2
-        or len(hurdle_priors) != 2
-        or any(
-            not isinstance(value, int) or isinstance(value, bool) or value <= 0
-            for value in hurdle_counts
-        )
-    ):
-        failures.append("{} invalid ZERO/POSITIVE TRAIN prior".format(tag))
-    else:
-        total = float(sum(hurdle_counts))
-        if any(
-            not math.isclose(
-                actual, count / total, rel_tol=1e-7, abs_tol=1e-9
-            )
-            for actual, count in zip(hurdle_priors, hurdle_counts)
-        ):
-            failures.append("{} ZERO/POSITIVE prior mismatch".format(tag))
-
-    positive_samples = metadata.get("positive_count_train_samples")
-    positive_min = metadata.get("positive_count_train_min")
-    positive_max = metadata.get("positive_count_train_max")
-    positive_mean = metadata.get("positive_log_count_train_mean")
-    positive_std = metadata.get("positive_log_count_train_std")
-    if (
-        not isinstance(positive_samples, int) or isinstance(positive_samples, bool)
-        or positive_samples <= 0
-        or not isinstance(positive_min, int) or positive_min < 1
-        or not isinstance(positive_max, int) or positive_max < positive_min
-        or not isinstance(positive_mean, (int, float))
-        or not math.isfinite(float(positive_mean))
-        or not isinstance(positive_std, (int, float))
-        or not math.isfinite(float(positive_std)) or positive_std < 0
-        or (
-            isinstance(hurdle_counts, list) and len(hurdle_counts) == 2
-            and positive_samples != hurdle_counts[1]
-        )
-    ):
-        failures.append("{} invalid positive log-count TRAIN statistics".format(tag))
-
-    fill_counts = metadata.get("fill_train_class_counts")
-    fill_priors = metadata.get("fill_train_priors")
-    fill_weights = metadata.get("fill_train_inverse_frequency_weights")
-    if (
-        not isinstance(fill_counts, list)
-        or not isinstance(fill_priors, list)
-        or not isinstance(fill_weights, list)
-        or len(fill_counts) != 2
-        or len(fill_priors) != 2
-        or len(fill_weights) != 2
-        or any(
-            not isinstance(value, int) or isinstance(value, bool) or value <= 0
-            for value in fill_counts
-        )
-    ):
-        failures.append("{} invalid fill TRAIN statistics".format(tag))
-    else:
-        total = float(sum(fill_counts))
-        expected_priors = [value / total for value in fill_counts]
-        expected_weights = [0.5 / value for value in expected_priors]
-        if any(
-            not math.isclose(
-                actual, expected, rel_tol=1e-7, abs_tol=1e-9
-            )
-            for actual, expected in zip(fill_priors, expected_priors)
-        ) or any(
-            not math.isclose(
-                actual, expected, rel_tol=1e-7, abs_tol=1e-9
-            )
-            for actual, expected in zip(fill_weights, expected_weights)
-        ):
-            failures.append("{} fill prior/weight mismatch".format(tag))
+        failures.append("{} SPP source-contract SHA256 mismatch".format(tag))
 
     selection_key = metadata.get("guard_selection_key")
     selection_fields = metadata.get("guard_selection_key_fields")
@@ -863,18 +872,34 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         if not isinstance(value, (int, float)) or not 0 <= value <= 1:
             failures.append("{} invalid behavior metric {}".format(tag, key))
 
-    diagnostics = metadata.get("action_output_diagnostics")
+    output = metadata.get("action_output_diagnostics")
+    decoder = metadata.get("decoder_eval_diagnostics")
     if (
-        not isinstance(diagnostics, dict)
-        or diagnostics.get(
-            "duplicate_outputs_are_preserved_for_replay"
-        ) is not True
+        not isinstance(output, dict)
+        or output.get("duplicate_outputs_are_preserved_for_replay") is not True
         or metadata.get("offline_nn_entries")
         != metadata.get("materialized_action_count")
         or metadata.get("raw_predicted_action_count")
         != metadata.get("materialized_action_count")
+        or not isinstance(decoder, dict)
+        or decoder.get("train_action_horizon") != horizon
+        or decoder.get("joint_decision_rank_count") != horizon
+        or decoder.get("action_feedback_used") is not False
+        or decoder.get("probability_threshold_used") is not False
     ):
-        failures.append("{} invalid v22 action output accounting".format(tag))
+        failures.append("{} invalid v23 joint action accounting".format(tag))
+
+    control_entries = metadata.get("non_neural_control_entries")
+    control_fills = metadata.get("non_neural_control_fill_counts")
+    if (
+        not isinstance(control_entries, int)
+        or control_entries <= 0
+        or metadata.get("non_neural_control_triggers") != control_entries
+        or control_fills != {"FILL_L2": 0, "FILL_LLC": control_entries}
+        or not isinstance(metadata.get("non_neural_control_modal_delta"), int)
+        or metadata.get("non_neural_control_modal_delta_train_frequency", 0) <= 0
+    ):
+        failures.append("{} invalid modal-LLC non-neural control".format(tag))
 
     for role in ("train", "guard", "eval"):
         for kind in ("stream", "teacher_actions"):
@@ -885,10 +910,10 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
             )
             if metadata.get(key) != expected_hash:
                 failures.append(
-                    "{} {} {} content SHA256 mismatch".format(
-                        tag, role, kind
-                    )
+                    "{} {} {} content SHA256 mismatch".format(tag, role, kind)
                 )
+
+
 def validate_v19_metadata(metadata, tag, inputs, source_contract_hash, failures):
     expected = {
         "run_id": V19_POINT_CONTRACT["run_id"],
@@ -1603,7 +1628,8 @@ def main():
         ):
             raise SystemExit("invalid model tag {}".format(tag))
     revisions = {
-        "active" if tag.startswith("hurdle_count_vocab_spp_lstm_") else
+        "active" if tag.startswith("finite_joint_rank_spp_lstm_") else
+        "v22" if tag.startswith("hurdle_count_vocab_spp_lstm_") else
         "v21" if tag.startswith("stop_emit_vocab_spp_lstm_") else
         "v19" if tag.startswith("routed_grammar_spp_lstm_") else
         "v18" if tag.startswith("hard_distinct_delta_fill_spp_lstm_") else
@@ -1622,6 +1648,7 @@ def main():
             "active {} run requires the exact configured model-tag set: {}"
             .format(ACTIVE_MODEL_REVISION, ",".join(ACTIVE_MODEL_TAGS))
         )
+    active_run = revisions == {"active"}
     if not args.run_dir.is_dir():
         raise SystemExit(
             "--run-dir is not an existing directory: {}".format(args.run_dir)
@@ -1632,6 +1659,8 @@ def main():
         "live_spp_reference",
         "offline_spp",
     ]
+    if revisions == {"active"}:
+        methods.append("offline_modal_llc_control")
     methods.extend("offline_" + tag for tag in model_tags)
     logs = args.run_dir / "logs"
     events = args.run_dir / "events"
@@ -1661,7 +1690,9 @@ def main():
             "offline_stop_emit_vocab_spp_"
         ) or method.startswith(
             "offline_hurdle_count_vocab_spp_"
-        ):
+        ) or method.startswith(
+            "offline_finite_joint_rank_spp_"
+        ) or method == "offline_modal_llc_control":
             replay_text = log_path.read_text(errors="ignore")
             if "list_replayer_action_metadata captured_fill_level" not in replay_text:
                 failures.append(
@@ -1673,7 +1704,9 @@ def main():
             "method": method,
             "model_tag": model_tag_for_method(method),
             "comparison_policy": policy,
-            "matched_primary_comparison": int(bool(policy)),
+            "matched_primary_comparison": int(
+                bool(policy) and method != "offline_modal_llc_control"
+            ),
             "log": str(log_path),
             "event_log": str(event_path),
         }
@@ -1684,6 +1717,18 @@ def main():
                 "_runtime_trigger_keys"
             )
             row.update(event_metrics)
+            l2_applicable = row["prefetch_fill_l2_events"] > 0
+            row["l2_quality_metrics_applicable"] = int(l2_applicable)
+            row["l2_quality_metric_status"] = (
+                "APPLICABLE" if l2_applicable else "N/A_no_L2_prefetch_fills"
+            )
+            row["l2_selected_accuracy_semantic"] = (
+                row["selected_accuracy"] if l2_applicable else ""
+            )
+            row["l2_coverage_semantic"] = ""
+            row["l2_timeliness_semantic"] = (
+                row["timeliness"] if l2_applicable else ""
+            )
         except Exception as exc:
             failures.append("{} event parse failed: {}".format(method, exc))
         if row["ipc"] <= 0 or row["instructions"] <= 0:
@@ -1821,6 +1866,7 @@ def main():
 
     metadata_by_tag = {}
     normal_hashes = {policy: {} for policy in POLICIES}
+    control_hashes = {}
     replay_lists = {}
     pairs = defaultdict(list)
     for tag in model_tags:
@@ -1832,6 +1878,8 @@ def main():
             "run_metadata.json",
             "training_history.csv",
         )
+        if active_run:
+            required += ("offline_modal_llc_control.replay.csv",)
         for name in required:
             path = colab_root / tag / name
             if not path.is_file():
@@ -1941,6 +1989,40 @@ def main():
                     failures.append("{} NN-list fill counts mismatch".format(tag))
             except (OSError, RuntimeError, ValueError) as exc:
                 failures.append("{} invalid NN replay list: {}".format(tag, exc))
+        if active_run:
+            control_path = (
+                colab_root / tag / "offline_modal_llc_control.replay.csv"
+            )
+            if control_path.is_file():
+                try:
+                    control_info = replay_list_info(control_path)
+                    replay_lists.setdefault(
+                        "offline_modal_llc_control", control_info
+                    )
+                    control_hashes[tag] = control_info["sha256"]
+                    if metadata.get(
+                        "non_neural_control_list_sha256"
+                    ) != control_info["sha256"]:
+                        failures.append(
+                            "{} control-list SHA256 mismatch".format(tag)
+                        )
+                    if metadata.get(
+                        "non_neural_control_entries"
+                    ) != control_info["entries"]:
+                        failures.append(
+                            "{} control-list entry count mismatch".format(tag)
+                        )
+                    if control_info["fill_counts"] != {
+                        "FILL_L2": 0,
+                        "FILL_LLC": control_info["entries"],
+                    }:
+                        failures.append(
+                            "{} control is not all FILL_LLC".format(tag)
+                        )
+                except (OSError, RuntimeError, ValueError) as exc:
+                    failures.append(
+                        "{} invalid modal-LLC control list: {}".format(tag, exc)
+                    )
 
     for policy, hashes in normal_hashes.items():
         if hashes and len(set(hashes.values())) != 1:
@@ -1949,6 +2031,13 @@ def main():
                     policy
                 )
             )
+    if active_run and (
+        set(control_hashes) != set(model_tags)
+        or len(set(control_hashes.values())) != 1
+    ):
+        failures.append(
+            "modal-LLC control list must be byte-identical across capacities"
+        )
     for (policy, pair_id), members in pairs.items():
         families = {member.get("model_family") for member in members}
         if len(members) != 1 or families != {TRACK_MODEL_FAMILY}:
@@ -1959,9 +2048,11 @@ def main():
             )
 
     rows_by_method = {row["method"]: row for row in rows}
-    for method in ["offline_" + POLICY] + [
-        "offline_" + tag for tag in model_tags
-    ]:
+    replay_methods = ["offline_" + POLICY]
+    if active_run:
+        replay_methods.append("offline_modal_llc_control")
+    replay_methods.extend("offline_" + tag for tag in model_tags)
+    for method in replay_methods:
         row = rows_by_method.get(method)
         info = replay_lists.get(method)
         if row is None or info is None:
@@ -2032,6 +2123,11 @@ def main():
                 )
 
     add_comparison_metrics(rows, failures)
+    for row in rows:
+        row["l2_coverage_semantic"] = (
+            row.get("coverage_vs_no_pref_l2_miss", "")
+            if row.get("l2_quality_metrics_applicable") else ""
+        )
     by_method = {row["method"]: row for row in rows}
     behavior_fields = sorted({
         key
@@ -2066,6 +2162,9 @@ def main():
         "prefetch_request_events", "prefetch_accepted_events",
         "prefetch_duplicate_events", "prefetch_fill_l2_events",
         "prefetch_fill_llc_events", "cache_fill_feedback_events",
+        "l2_quality_metrics_applicable", "l2_quality_metric_status",
+        "l2_selected_accuracy_semantic", "l2_coverage_semantic",
+        "l2_timeliness_semantic",
         "event_selected_accuracy_proxy",
         "event_coverage_vs_no_pref_l2_miss", "event_timeliness_proxy",
         "replay_list_entries", "replay_list_triggers",
@@ -2089,6 +2188,8 @@ def main():
         "selected_accuracy", "selected_accuracy_delta_vs_offline_normal",
         "coverage_vs_no_pref_l2_miss",
         "coverage_delta_vs_offline_normal", "timeliness",
+        "l2_quality_metric_status", "l2_selected_accuracy_semantic",
+        "l2_coverage_semantic", "l2_timeliness_semantic",
         "timeliness_delta_vs_offline_normal", "one_minus_selected_accuracy",
         "one_minus_selected_accuracy_delta_vs_offline_normal", "pf_requested",
         "prefetch_request_reduction_vs_offline_normal",
@@ -2139,6 +2240,37 @@ def main():
         for method, info in sorted(replay_lists.items())
     }
 
+    neural_action_hashes = {
+        tag: replay_lists.get("offline_" + tag, {}).get("sha256")
+        for tag in model_tags
+    }
+    unique_neural_action_hashes = {
+        value for value in neural_action_hashes.values() if value
+    }
+    capacity_action_list_audit = {
+        "sha256_by_model_tag": neural_action_hashes,
+        "unique_sha256_count": len(unique_neural_action_hashes),
+        "all_capacities_byte_identical": (
+            len(unique_neural_action_hashes) == 1
+            and all(neural_action_hashes.values())
+        ),
+        "prior_corrected_entropy_by_model_tag": {
+            tag: (
+                metadata_by_tag.get(tag, {})
+                .get("decoder_eval_diagnostics", {})
+                .get("mean_prior_corrected_joint_token_entropy")
+            )
+            for tag in model_tags
+        },
+    }
+    if active_run and capacity_action_list_audit[
+        "all_capacities_byte_identical"
+    ]:
+        warnings.append(
+            "all five neural capacity action lists are byte-identical; treat "
+            "this as a hard-policy collapse audit, not capacity evidence"
+        )
+
     status = "FAIL" if failures else "PASS"
     payload = {
         "status": status,
@@ -2169,7 +2301,7 @@ def main():
             "spp_track": [
                 "offline_spp",
                 (
-                    "offline_hurdle_count_vocab_spp_{}_<capacity>"
+                    "offline_finite_joint_rank_spp_{}_<capacity>"
                     if "active" in revisions else
                     "offline_routed_grammar_spp_{}_<capacity>"
                     if "v19" in revisions else
@@ -2186,13 +2318,26 @@ def main():
         "context_reference_only": [
             "no_pref", "live_spp_reference"
         ],
+        "diagnostic_controls": (
+            ["offline_modal_llc_control"] if active_run else []
+        ),
         "transport_fidelity": transport_fidelity,
         "replay_accounting": replay_accounting,
+        "capacity_action_list_audit": capacity_action_list_audit,
+        "metric_applicability": {
+            row["method"]: {
+                "l2_quality_metrics_applicable": bool(
+                    row.get("l2_quality_metrics_applicable")
+                ),
+                "status": row.get("l2_quality_metric_status"),
+            }
+            for row in rows
+        },
         "warnings": warnings,
         "track_guardrail": (
-            "Every neural point learns independent rank-conditioned direct signed "
-            "cache-line deltas and target-conditioned fill from the same chronological DEMAND(addr) and "
-            "CACHE_FILL(evicted_addr) external callback stream. "
+            "Every neural point makes one finite joint STOP or "
+            "EMIT(delta,fill) rank decision from the same chronological "
+            "DEMAND(addr) and CACHE_FILL(evicted_addr) external callback stream. "
             "No page rule, normal-policy template, or captured SPP action is an inference input."
         ),
         "transport": (
@@ -2205,7 +2350,7 @@ def main():
         ),
         "direct_action_contract": {
             "count_distribution": (
-                "natural ZERO/POSITIVE hurdle MAP plus finite positive log-count mode"
+                "finite TRAIN-derived joint STOP/EMIT(delta,fill) rank slots"
                 if "active" in revisions else
                 "rank-wise learned STOP/EMIT categorical grammar"
                 if "v19" in revisions else
@@ -2215,8 +2360,8 @@ def main():
                 "with non-negative unbounded support"
             ),
             "target_and_fill_distribution": (
-                "TRAIN-derived exact signed-delta vocabulary with rounded "
-                "bounded approximate signed-log OTHER; deterministic TRAIN-prior-corrected target-conditioned fill"
+                "one joint token over TRAIN-derived exact signed delta or "
+                "signed-log OTHER crossed with FILL_L2/FILL_LLC"
                 if "active" in revisions else
                 "exact signed ZigZag/canonical-LEB128 increment followed by "
                 "fill conditioned on the actual emitted target"
@@ -2230,8 +2375,8 @@ def main():
             "fill_classes": ["FILL_L2", "FILL_LLC"],
             "decision": (
                 (
-                    "deterministic hurdle/log-count, independent-rank delta MAP, and "
-                    "prior-corrected fill argmax without prior-action feedback"
+                    "deterministic TRAIN-group-prior-corrected joint token "
+                    "argmax without prior-action feedback"
                     if "active" in revisions else
                     "stateless event/rank-keyed learned STOP/EMIT, exact "
                     "LEB128 increment, and target-conditioned fill"
@@ -2300,7 +2445,7 @@ def main():
                 "history": "complete train then guard then evaluation chronology",
                 "training": "chronological TBPTT with state carried and detached",
                 "causal_derived_features": [],
-                "decoder": "ZERO/POSITIVE hurdle plus positive log-count, independent-rank TRAIN delta vocabulary plus OTHER, deterministic prior-corrected target-conditioned fill",
+                "decoder": "finite TRAIN-derived joint STOP or EMIT(delta,fill) tokens with all-tail STOP supervision and group prior correction",
                 "normal_policy_template": False,
             }
             if "active" in revisions else
@@ -2354,6 +2499,11 @@ def main():
             "one_minus_selected_accuracy": (
                 "Arithmetic complement of selected_accuracy for audit only; "
                 "it is not a cache-pollution measurement"
+            ),
+            "l2_quality_metric_status": (
+                "selected accuracy, coverage, and timeliness are reported as "
+                "N/A when the replay emits zero FILL_L2 actions; raw simulator "
+                "counters remain available for audit"
             ),
         },
         "aggregate_score_used": False,

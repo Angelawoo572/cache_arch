@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
-"""Torch-free source of truth for the 623 SPP v22 model points.
+"""Torch-free source of truth for the matched-input 623 SPP v23 model.
 
-The exact delta vocabulary is learned from TRAIN labels, so its realized size
-and the corresponding parameter count are run metadata rather than constants.
+The recurrent input is unchanged from v22: one raw DEMAND/FILL bit and the
+lossless 58-bit callback line number in global chronological order.  Captured
+SPP actions are labels and comparator rows only.  Each TRAIN-derived rank is a
+single joint categorical decision: STOP or EMIT(exact-delta-or-OTHER, fill).
+The finite rank horizon is the maximum teacher action count observed in TRAIN;
+it is data support, not a copied SPP degree, request budget, or tuned constant.
 """
 import argparse
 import json
@@ -12,13 +16,20 @@ import re
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
-RUN_ID = "623_offline_lstm_spp_hurdle_log_count_vocab_v22_seed7"
-EXPERIMENT_REVISION = "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-MODEL_REVISION = "global_chronological_lstm_hurdle_log_count_v22"
-DECODER_REVISION = "deterministic_hurdle_log_count_rank_delta_fill_map_v22"
-OPERATION = "train-v22"
-MODEL_TAG_PREFIX = "hurdle_count_vocab_spp_lstm_h"
-MODEL_POINTS = {"lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}}
+RUN_ID = "623_offline_lstm_spp_finite_joint_rank_v23_seed7"
+PARENT_INPUT_RUN_ID = "623_offline_lstm_spp_hurdle_log_count_vocab_v22_seed7"
+EXPERIMENT_REVISION = (
+    "spp_source_input_variable_delta_fill_feedback_free_running_v11"
+)
+MODEL_REVISION = "global_chronological_lstm_finite_joint_rank_v23"
+DECODER_REVISION = (
+    "train_derived_horizon_joint_action_prior_corrected_map_v23"
+)
+OPERATION = "train-v23"
+MODEL_TAG_PREFIX = "finite_joint_rank_spp_lstm_h"
+MODEL_POINTS = {
+    "lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}
+}
 
 SEED = 7
 EPOCHS = 10
@@ -35,86 +46,31 @@ RUNTIME_FEATURE_COUNT = LINE_ADDRESS_BITS + 1
 FILL_LEVELS = (2, 4)
 MAX_EXACT_DELTAS = 255
 RANK_CODE_SIZE = 4
-ZERO_TOKEN = 0
-POSITIVE_TOKEN = 1
-HURDLE_CLASSES = 2
-MAX_POSITIVE_COUNT_DOMAIN = (1 << 63) - 1
-DECODE_PER_CALLBACK_RESOURCE_WATCHDOG = 4096
-DECODE_PER_ROLE_RESOURCE_WATCHDOG = 10000000
+STOP_TOKEN = 0
+ACTION_GROUPS = ("STOP", "EMIT_L2", "EMIT_LLC")
+OTHER_NAME = "OTHER"
 EXTERNAL_INPUT_FIELDS = (
     "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
 )
 
 DECODER_TRAINING_MODE = (
-    "fully_supervised_zero_positive_hurdle_and_positive_log_count_"
-    "with_independent_rank_actions_and_no_action_feedback"
+    "TRAIN_derived_finite_rank_joint_STOP_or_EMIT_delta_fill_without_action_"
+    "feedback_with_all_tail_STOP_supervision"
 )
-HURDLE_OBJECTIVE = (
-    "natural_frequency_unweighted_zero_positive_categorical_cross_entropy"
+JOINT_ACTION_OBJECTIVE = (
+    "TRAIN_group_inverse_frequency_weighted_joint_action_token_cross_entropy"
 )
-POSITIVE_COUNT_OBJECTIVE = (
-    "unweighted_conditional_smooth_l1_on_log_positive_action_count"
-)
-DELTA_OBJECTIVE = (
-    "train_vocabulary_cross_entropy_plus_all_emit_signed_log_regression"
-)
-FILL_OBJECTIVE = (
-    "teacher_delta_class_value_and_rank_conditioned_"
-    "inverse_frequency_cross_entropy"
+OTHER_DELTA_OBJECTIVE = (
+    "OTHER_token_only_signed_log_delta_auxiliary_smooth_l1"
 )
 DECODING_RULE = (
-    "zero_positive_categorical_MAP_then_finite_round_exp_positive_log_count_"
-    "and_independent_rank_delta_class_MAP_OTHER_signed_log_and_TRAIN_prior_"
-    "corrected_fill_MAP"
+    "deterministic_group_prior_corrected_joint_token_argmax_at_each_TRAIN_"
+    "derived_rank_until_first_STOP_or_finite_horizon"
 )
-
-
-def delta_embed_size(hidden_size):
-    return max(4, int(hidden_size) // 4)
-
-
-def expected_parameter_count(hidden_size, exact_vocabulary_size):
-    """Exact count for GlobalSPPLSTM(H,V); OTHER makes C=V+1 classes."""
-    hidden = int(hidden_size)
-    vocab = int(exact_vocabulary_size)
-    if hidden not in MODEL_POINTS["lstm"] or not 0 < vocab <= MAX_EXACT_DELTAS:
-        raise ValueError("unsupported SPP v22 dimensions")
-    classes = vocab + 1
-    embed = delta_embed_size(hidden)
-    # input projection + LSTM + rank fusion + ZERO/POSITIVE hurdle + positive
-    # log-count + delta heads + class embedding + target/rank fill head.
-    return (
-        9 * hidden * hidden + 79 * hidden + 16
-        + classes * (hidden + 1 + embed) + 2 * embed
-    )
-
-
-def model_tag(family, size):
-    size = int(size)
-    if family != "lstm" or size not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported SPP v22 model point")
-    return MODEL_TAG_PREFIX + str(size)
-
-
-def positive_count_mode(log_count):
-    """Map a finite real log-count to an unbounded positive integer mode.
-
-    The int64 boundary is a representation-domain check, not a learned-policy
-    cap.  Materialization resource guards are checked separately and abort the
-    entire decode rather than clipping this value.
-    """
-    scalar = float(log_count)
-    if not math.isfinite(scalar):
-        raise ValueError("positive log-count must be finite")
-    if scalar > math.log(MAX_POSITIVE_COUNT_DOMAIN):
-        raise ValueError("positive log-count exceeds the int64 output domain")
-    magnitude = math.exp(scalar)
-    if not math.isfinite(magnitude) or magnitude > MAX_POSITIVE_COUNT_DOMAIN:
-        raise ValueError("decoded positive count exceeds the int64 output domain")
-    result = max(1, int(math.floor(magnitude + 0.5)))
-    if result > MAX_POSITIVE_COUNT_DOMAIN:
-        raise ValueError("decoded positive count exceeds the int64 output domain")
-    return result
+CHECKPOINT_SELECTION = (
+    "guard_lexicographic_joint_action_f1_target_f1_l2_joint_f1_trigger_f1_"
+    "count_exact_fill_accuracy_then_TRAIN_loss_then_earlier_epoch"
+)
 
 
 def exact_int(value):
@@ -127,41 +83,88 @@ def exact_int(value):
         raise ValueError("non-integral integer field {!r}".format(text))
 
 
-def self_test_exact_int():
-    large = (1 << 60) + 3
-    if exact_int(str(large)) != large or exact_int("0008") != 8:
-        raise RuntimeError("exact integer parser lost an integer field")
-    for invalid in ("1.0", "1e3", "nan", "inf"):
-        try:
-            exact_int(invalid)
-        except ValueError:
-            continue
-        raise RuntimeError("exact integer parser accepted {!r}".format(invalid))
+def joint_token_count(exact_vocabulary_size):
+    vocabulary = int(exact_vocabulary_size)
+    if not 0 < vocabulary <= MAX_EXACT_DELTAS:
+        raise ValueError("exact delta vocabulary must be in [1, 255]")
+    return 1 + 2 * (vocabulary + 1)
 
 
-def self_test_positive_count_mode():
-    cases = ((math.log(1.0), 1), (math.log(2.0), 2), (math.log(17.0), 17))
-    for encoded, expected in cases:
-        if positive_count_mode(encoded) != expected:
-            raise RuntimeError("positive log-count mode round trip failed")
-    for invalid in (float("nan"), float("inf"), -float("inf")):
-        try:
-            positive_count_mode(invalid)
-        except ValueError:
-            continue
-        raise RuntimeError("positive count mode accepted non-finite input")
-    try:
-        positive_count_mode(math.log(MAX_POSITIVE_COUNT_DOMAIN) + 1.0)
-    except ValueError:
-        pass
-    else:
-        raise RuntimeError("positive count mode accepted an out-of-domain value")
+def encode_emit_token(delta_class, fill_index, exact_vocabulary_size):
+    vocabulary = int(exact_vocabulary_size)
+    delta_class = int(delta_class)
+    fill_index = int(fill_index)
+    if not 0 <= delta_class <= vocabulary or fill_index not in (0, 1):
+        raise ValueError("invalid joint EMIT token coordinates")
+    return 1 + 2 * delta_class + fill_index
+
+
+def decode_joint_token(token, exact_vocabulary_size):
+    token = int(token)
+    count = joint_token_count(exact_vocabulary_size)
+    if not 0 <= token < count:
+        raise ValueError("joint token is outside the realized alphabet")
+    if token == STOP_TOKEN:
+        return "STOP", None, None
+    payload = token - 1
+    return "EMIT", payload // 2, payload % 2
+
+
+def token_group(token, exact_vocabulary_size):
+    kind, _, fill_index = decode_joint_token(token, exact_vocabulary_size)
+    return 0 if kind == "STOP" else 1 + int(fill_index)
+
+
+def prior_correct_joint_scores(scores, group_weights, exact_vocabulary_size):
+    """Undo TRAIN group weighting without a threshold or hand-tuned prior."""
+    weights = [float(value) for value in group_weights]
+    values = [float(value) for value in scores]
+    if len(weights) != len(ACTION_GROUPS) or any(
+        not math.isfinite(value) or value <= 0 for value in weights
+    ):
+        raise ValueError("joint group weights must be three finite positives")
+    if len(values) != joint_token_count(exact_vocabulary_size) or any(
+        not math.isfinite(value) for value in values
+    ):
+        raise ValueError("joint score vector has the wrong realized width")
+    return [
+        value - math.log(weights[token_group(index, exact_vocabulary_size)])
+        for index, value in enumerate(values)
+    ]
+
+
+def expected_parameter_count(hidden_size, exact_vocabulary_size):
+    """Exact GlobalSPPJointLSTM count for hidden H and TRAIN vocabulary V."""
+    hidden = int(hidden_size)
+    if hidden not in MODEL_POINTS["lstm"]:
+        raise ValueError("unsupported SPP v23 hidden size")
+    tokens = joint_token_count(exact_vocabulary_size)
+    return 9 * hidden * hidden + (74 + tokens) * hidden + tokens + 1
+
+
+def model_tag(family, size):
+    size = int(size)
+    if family != "lstm" or size not in MODEL_POINTS["lstm"]:
+        raise ValueError("unsupported SPP v23 model point")
+    return MODEL_TAG_PREFIX + str(size)
 
 
 def describe_model_points():
+    points = []
+    for size, pair_id in sorted(MODEL_POINTS["lstm"].items()):
+        points.append({
+            "family": "lstm",
+            "size": size,
+            "pair_id": pair_id,
+            "tag": model_tag("lstm", size),
+            "maximum_parameter_count": expected_parameter_count(
+                size, MAX_EXACT_DELTAS
+            ),
+        })
     return {
         "operation": OPERATION,
         "run_id": RUN_ID,
+        "parent_input_run_id": PARENT_INPUT_RUN_ID,
         "trace": TRACE,
         "policy": POLICY,
         "experiment_revision": EXPERIMENT_REVISION,
@@ -190,29 +193,24 @@ def describe_model_points():
             "fail_closed": True,
         },
         "decoder_training_mode": DECODER_TRAINING_MODE,
-        "hurdle_training_objective": HURDLE_OBJECTIVE,
-        "positive_count_training_objective": POSITIVE_COUNT_OBJECTIVE,
-        "positive_count_decoding_rule": (
-            "ZERO_POSITIVE_categorical_MAP_then_max_1_round_exp_predicted_"
-            "log_count_with_finite_int64_domain_check"
-        ),
-        "positive_count_support": "all_positive_integers_subject_only_to_representation_domain",
-        "maximum_positive_count_domain": MAX_POSITIVE_COUNT_DOMAIN,
-        "decode_per_callback_resource_watchdog": DECODE_PER_CALLBACK_RESOURCE_WATCHDOG,
-        "decode_per_role_resource_watchdog": DECODE_PER_ROLE_RESOURCE_WATCHDOG,
-        "decode_resource_watchdog_behavior": "fail_closed_without_truncation_or_forced_count",
-        "delta_training_objective": DELTA_OBJECTIVE,
-        "fill_training_objective": FILL_OBJECTIVE,
-        "fill_prior_correction_at_decode_used": True,
-        "fill_prior_correction_rule": "balanced_logits_plus_log_TRAIN_natural_prior",
-        "fill_decoding_rule": "deterministic_prior_corrected_argmax",
+        "joint_action_training_objective": JOINT_ACTION_OBJECTIVE,
+        "other_delta_training_objective": OTHER_DELTA_OBJECTIVE,
         "decoding_rule": DECODING_RULE,
+        "checkpoint_selection": CHECKPOINT_SELECTION,
         "neural_role": "standalone_direct_action_prefetcher",
         "teacher_actions_are_model_inputs": False,
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
         "normal_policy_request_rate_used_as_budget": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "runtime_feature_count": RUNTIME_FEATURE_COUNT,
+        "runtime_encoding": (
+            "lossless_58_bit_cache_line_plus_one_DEMAND_FILL_kind_bit"
+        ),
+        "external_input_fields": list(EXTERNAL_INPUT_FIELDS),
+        "model_does_not_use_pc": True,
+        "global_chronological_lstm": True,
         "delta_vocabulary_source": "train_labels_only",
         "delta_vocabulary_max_exact": MAX_EXACT_DELTAS,
         "delta_other_escape": "signed_log_continuous_bounded_approximation",
@@ -222,50 +220,102 @@ def describe_model_points():
         "full_signed_line_delta_range_reachable": False,
         "every_signed_line_delta_exactly_representable": False,
         "exact_delta_representability_scope": "train_vocabulary_only",
+        "joint_action_token_definition": (
+            "STOP_or_EMIT_exact_delta_or_OTHER_cross_FILL_L2_or_FILL_LLC"
+        ),
+        "joint_action_group_order": list(ACTION_GROUPS),
+        "joint_action_group_weight_source": "TRAIN_rank_slot_labels_only",
+        "joint_action_group_weight_formula": "N/(3*N_group)",
+        "joint_action_bias_initialization": (
+            "log_normalized_TRAIN_token_prior_times_group_weight"
+        ),
+        "joint_action_prior_correction_at_decode_used": True,
+        "joint_action_prior_correction_rule": (
+            "weighted_joint_logits_minus_log_TRAIN_group_weight"
+        ),
+        "separate_gate_head_used": False,
+        "request_count_head_used": False,
+        "separate_delta_head_used": False,
+        "separate_fill_head_used": False,
+        "stop_emit_head_used": False,
+        "terminal_stop_supervised_for_every_teacher_sequence": False,
+        "all_available_tail_stop_supervised": True,
+        "maximum_length_sequences_terminate_by_finite_support": True,
+        "finite_output_horizon_source": (
+            "maximum_teacher_action_count_observed_in_TRAIN"
+        ),
+        "finite_output_horizon_is_dataset_derived": True,
+        "finite_output_horizon_is_normal_request_budget": False,
+        "finite_output_horizon_is_tuned_degree": False,
+        "neural_degree_cap": None,
+        "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
+        "inference_policy_hardcodes_used": False,
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
         "normal_policy_templates_used_by_neural_inference": False,
-        "probability_threshold_used": False,
-        "inference_policy_hardcodes_used": False,
-        "neural_degree_cap": None,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "teacher_target_fill_conditioning_scope": "conditional_loss_factor_only",
-        "teacher_target_used_for_loss_local_fill_conditioning": True,
-        "hurdle_class_order": ["ZERO", "POSITIVE"],
-        "hurdle_class_weighting_used": False,
-        "hurdle_prior_initialization": "zero_weights_plus_TRAIN_natural_class_log_prior_bias",
-        "positive_count_prior_initialization": "zero_weights_plus_TRAIN_mean_log_positive_count_bias",
-        "terminal_stop_supervised": False,
-        "stop_emit_head_used": False,
-        "stochastic_decoding": False,
-        "runtime_feature_count": RUNTIME_FEATURE_COUNT,
-        "max_exact_train_delta_vocabulary": MAX_EXACT_DELTAS,
         "rank_code_size": RANK_CODE_SIZE,
         "fill_levels": list(FILL_LEVELS),
-        "external_input_fields": list(EXTERNAL_INPUT_FIELDS),
-        "guard_selection_rule": (
-            "lexicographic_joint_target_fill_f1_target_f1_l2_joint_f1_"
-            "trigger_f1_count_exact_fill_accuracy_negative_train_loss_earlier_epoch"
-        ),
+        "stochastic_decoding": False,
+        "guard_selection_rule": CHECKPOINT_SELECTION,
+        "guard_selection_composite_or_mean_used": False,
         "parameter_formula": (
-            "9*H^2 + 79*H + 16 + (V+1)*(H+1+E) + 2*E; "
-            "E=max(4,H//4), 1<=V<=255"
+            "9*H^2 + (74+T)*H + T+1; T=1+2*(V+1), 1<=V<=255"
         ),
         "parameter_count_is_dataset_dependent": True,
-        "points": [
-            {
-                "family": "lstm", "size": size, "pair_id": pair_id,
-                "tag": model_tag("lstm", size),
-                "delta_embed_size": delta_embed_size(size),
-                "maximum_parameter_count": expected_parameter_count(
-                    size, MAX_EXACT_DELTAS
-                ),
-            }
-            for size, pair_id in sorted(MODEL_POINTS["lstm"].items())
-        ],
+        "non_neural_control": {
+            "name": "every_callback_TRAIN_modal_delta_FILL_LLC",
+            "delta_source": "TRAIN_teacher_action_frequency_only",
+            "fill_level": "FILL_LLC",
+            "actions_per_callback": 1,
+            "uses_neural_model": False,
+            "excluded_from_neural_claims": True,
+        },
+        "points": points,
     }
+
+
+def self_test_contract():
+    large = (1 << 60) + 3
+    if exact_int(str(large)) != large or exact_int("0008") != 8:
+        raise RuntimeError("exact integer parser lost an integer field")
+    for invalid in ("1.0", "1e3", "nan", "inf"):
+        try:
+            exact_int(invalid)
+        except ValueError:
+            continue
+        raise RuntimeError("exact integer parser accepted {!r}".format(invalid))
+    for vocabulary in (1, 7, MAX_EXACT_DELTAS):
+        count = joint_token_count(vocabulary)
+        if count != 1 + 2 * (vocabulary + 1):
+            raise RuntimeError("joint token width changed")
+        for delta_class in range(vocabulary + 1):
+            for fill_index in (0, 1):
+                token = encode_emit_token(delta_class, fill_index, vocabulary)
+                if decode_joint_token(token, vocabulary) != (
+                    "EMIT", delta_class, fill_index
+                ):
+                    raise RuntimeError("joint token bijection failed")
+        if decode_joint_token(STOP_TOKEN, vocabulary) != ("STOP", None, None):
+            raise RuntimeError("STOP token changed")
+    corrected = prior_correct_joint_scores(
+        [0.0] * joint_token_count(1), [0.5, 2.0, 4.0], 1
+    )
+    if corrected[STOP_TOKEN] <= corrected[encode_emit_token(0, 0, 1)]:
+        raise RuntimeError("group prior correction direction is wrong")
+    contract = describe_model_points()
+    if any("v23" not in value for value in (
+        RUN_ID, MODEL_REVISION, DECODER_REVISION, OPERATION,
+    )):
+        raise RuntimeError("active SPP identifiers are not consistently v23")
+    if contract["neural_degree_cap"] is not None:
+        raise RuntimeError("TRAIN-derived horizon was mislabeled as a degree cap")
+    for size in MODEL_POINTS["lstm"]:
+        if expected_parameter_count(size, MAX_EXACT_DELTAS) <= 0:
+            raise RuntimeError("invalid maximum parameter count")
 
 
 def main():
@@ -285,15 +335,7 @@ def main():
         parser.error("select exactly one output mode")
     contract = describe_model_points()
     if args.self_test:
-        self_test_exact_int()
-        self_test_positive_count_mode()
-        if not all("v22" in value for value in (
-            RUN_ID, MODEL_REVISION, DECODER_REVISION, OPERATION,
-        )):
-            raise RuntimeError("active SPP identifiers are not consistently v22")
-        for size in MODEL_POINTS["lstm"]:
-            if expected_parameter_count(size, MAX_EXACT_DELTAS) <= 0:
-                raise RuntimeError("invalid maximum parameter count")
+        self_test_contract()
         print("PASS")
     elif args.json or args.describe_model_points:
         print(json.dumps(contract, indent=2, sort_keys=True))

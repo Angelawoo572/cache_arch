@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Torch-free, fail-closed validator for one active Stride v22 output."""
+"""Torch-free, fail-closed validator for one active Stride v23 output."""
 import argparse
 import json
 import re
