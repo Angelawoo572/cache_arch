@@ -10,8 +10,8 @@ from pathlib import Path
 
 from model_contract import (
     CACHE_LINE_BYTES, DECODER_TRAINING_MODE, EXPERIMENT_REVISION,
-    EXTERNAL_INPUT_FIELDS, MAX_EXACT_DELTAS, PARENT_INPUT_RUN_ID, POLICY,
-    TRACE, exact_int as as_int,
+    EXTERNAL_INPUT_FIELDS, LINE_ADDRESS_BITS, MAX_EXACT_DELTAS,
+    PARENT_INPUT_RUN_ID, POLICY, TRACE, exact_int as as_int,
 )
 
 ROLES = ("train", "guard", "eval")
