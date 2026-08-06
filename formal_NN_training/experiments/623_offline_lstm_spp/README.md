@@ -1,104 +1,88 @@
-# 623 SPP v23 — finite joint rank actions
+# 623 SPP v24 — natural callback cardinality
 
 This is the active matched-input, open-loop SPP experiment for
 `623.xalancbmk_s-700B`.
 
-- Run: `623_offline_lstm_spp_finite_joint_rank_v23_seed7`
-- Model: `global_chronological_lstm_finite_joint_rank_v23`
-- Decoder: `train_derived_horizon_joint_action_prior_corrected_map_v23`
+- Run: `623_offline_lstm_spp_natural_cardinality_v24_seed7`
+- Model: GUARD-selected global or event-routed chronological LSTM
+- Decoder: categorical count followed by conditional joint actions
 
-The v22 hard policy collapsed to the same action list at h8 through h128:
-every demand emitted one request and every request used `FILL_LLC`. That
-collapse happened before analysis; the analyzer only exposed it. v23 removes
-the factorized gate/count/delta/fill decision path.
+v23 padded every callback to ten rank labels. That changed a callback-level
+problem in which 58.05% of EVAL callbacks had actions into a token stream that
+was 93.40% STOP. The resulting models emitted between 0 and 5,096 requests,
+recovered at most 0.63% of teacher actions, and all matched no-prefetch IPC.
+v24 removes the artificial STOP target rather than tuning its weight.
 
-## Input remains unchanged
+## Unchanged matched input
 
-The NN consumes only the chronological 59-bit source-visible callback stream:
+The NN still receives only the chronological 59-bit source-visible stream:
 
 - one `DEMAND/FILL` kind bit;
 - the lossless 58-bit demand line or evicted line.
 
-PC is replay transport only. Teacher targets, fill choices, SPP candidates,
-thresholds, signatures, confidence, page state, queue state, and request rates
-are not inputs. Captured actions are output labels and the offline-normal
-comparator. The v22 input directory and archive are reused byte-for-byte.
+PC is replay transport only. Teacher targets and fills, SPP candidates,
+signature/GHR/confidence state, queue state, hit state, thresholds, and request
+rates are not inputs. The v23 input directory and archive are reused
+byte-for-byte. Because `CACHE_FILL(evicted_addr)` was recorded under source
+SPP, the claim remains matched-input open-loop replay, not closed-loop live NN.
 
-Because `CACHE_FILL(evicted_addr)` was recorded under source SPP, the valid
-claim remains matched-input open-loop replay, not closed-loop live NN.
+## Natural action-list likelihood
 
-## Direct joint labels
-
-At each rank the teacher label is one categorical token:
+For callback context `h` and teacher list of length `K`, the model learns
 
 ```text
-STOP
-EMIT(exact TRAIN delta or OTHER, FILL_L2)
-EMIT(exact TRAIN delta or OTHER, FILL_LLC)
+P(list | h) = P(K | h) * product over r<K of P(action_r | h, r)
 ```
 
-For a realized exact vocabulary of size `V`, there are
-`T = 1 + 2*(V+1)` tokens. `OTHER` uses an auxiliary signed-log coordinate only
-when its joint token is the label or prediction. There are no separate gate,
-count, delta, or fill argmaxes and no previous teacher/predicted action input.
+`K` is an unweighted categorical class from zero through the maximum TRAIN
+teacher count. `K=0` is the implicit no-request decision. The action vocabulary
+contains only joint `(signed delta, fill)` pairs observed in TRAIN, capped by
+the declared architecture budget, plus `OTHER_L2` and `OTHER_LLC`. OTHER uses
+an auxiliary signed-log coordinate.
 
-The action horizon is computed from TRAIN:
+There is no STOP token or tail padding, hurdle head, count regression, class
+weight, decode prior correction, threshold, degree cap, page rule, normal
+request budget, or previous-action feedback. At inference, count argmax chooses
+`K`, then exactly `K` independent rank-conditioned action argmaxes are emitted.
+
+Checkpoint selection minimizes natural action-list NLL on GUARD, with earlier
+epoch as the only tie-break. EVAL is not read during checkpoint or core
+selection.
+
+## Recurrent-core ablation
+
+At h32 only, the notebook trains:
+
+- `global`: one ordinary chronological LSTM;
+- `event_routed`: one chronological hidden/cell state, with distinct learned
+  DEMAND and FILL LSTM transitions selected only by the existing kind bit.
+
+The lower GUARD natural action-list NLL wins; global wins an exact tie. The
+selected core is then trained at h8, h16, h32, h64, and h128. The two ablation
+checkpoints are architecture-selection evidence only and are never replayed.
+
+For hidden size `H`, count classes `K`, and joint-action classes `A`, parameter
+counts are:
 
 ```text
-H = maximum teacher action count observed in TRAIN
-decision ranks = H
+global:       9*H^2  + (74+K+A)*H + K+A+1
+event_routed: 17*H^2 + (82+K+A)*H + K+A+1
 ```
 
-For a teacher list of length `k < H`, ranks below `k` receive exact joint EMIT
-labels and every available rank from `k` through `H-1` receives STOP. A
-maximum-length sequence occupies all `H` ranks and terminates at the end of the
-finite support. Inference checks only these data-derived ranks and ends at the
-first STOP or finite support. This is not a copied SPP degree, tuned budget, or
-hard-coded action count.
+## Diagnostics and claims
 
-## Loss/decode agreement
+Each final model records count confusion, count/action entropy, request ratio,
+target/fill metrics, and two diagnosis-only decompositions:
 
-One joint cross-entropy directly trains replay actions. TRAIN rank-slot labels
-define three groups: `STOP`, `EMIT_L2`, and `EMIT_LLC`. Their training weights
-are computed as `N/(3*N_group)`. Deterministic decode removes this weighting:
+- oracle count + NN action;
+- NN count + oracle action upper bound.
 
-```text
-natural_joint_logit[token]
-  = weighted_joint_logit[token] - log(TRAIN_group_weight[token])
-```
+Neither oracle path is replayed. The all-callback TRAIN-modal-delta/LLC policy
+remains a separate non-neural control and cannot support a neural win claim.
+The analyzer reports a denominator-zero metric as N/A while preserving a real
+zero numerator when its denominator is positive. No composite score is used.
 
-Then one joint-token argmax is taken. No probability threshold, fill cutoff,
-page rule, normal request rate, or policy template is used.
-
-Checkpoint selection is guard-only and lexicographic: joint-action F1, target
-F1, L2 joint F1, trigger F1, exact count, matched-target fill accuracy, lower
-TRAIN loss, then earlier epoch. Evaluation is decoded once after selection.
-The full `h8, h16, h32, h64, h128` sweep remains mandatory.
-
-With hidden size `H`, the realized parameter formula is:
-
-```text
-9*H^2 + (74+T)*H + T + 1
-```
-
-## Diagnostic control and analyzer semantics
-
-Every capacity also exports the same explicitly non-neural control:
-
-```text
-every evaluation callback -> one TRAIN-modal delta, FILL_LLC
-```
-
-Only the delta is TRAIN-derived; the one-action/all-LLC behavior is deliberately
-fixed to test whether the v22 IPC change came from a trivial aggressive policy.
-It is excluded from neural claims.
-
-The analyzer reports action-list SHA-256 and prior-corrected joint-token entropy
-per capacity. If all five hard lists match, it emits a collapse warning. When a
-method emits zero `FILL_L2` actions, L2-oriented selected accuracy, coverage,
-and timeliness are marked `N/A`; raw counters remain available.
-
-## Validation
+## Run entrypoints
 
 ```bash
 python3 formal_NN_training/experiments/623_offline_lstm_spp/python/model_contract.py --self-test
@@ -106,7 +90,7 @@ python3 formal_NN_training/experiments/623_offline_lstm_spp/python/train_and_off
 python3 formal_NN_training/experiments/validate_direct_action_contracts.py
 ```
 
-Use `colab/623_offline_lstm_spp_A100.ipynb` for training and
-`linux/launch_server.sh replay` for ChampSim. A root `PASS` establishes fair
-input, deterministic contract compliance, and replay accounting—not an IPC
-win.
+Use `linux/run_server.sh` with `STAGE=reuse-input` to reuse v23 input,
+`colab/623_offline_lstm_spp_A100.ipynb` to train, and
+`linux/launch_server.sh replay` for ChampSim. A root PASS proves the input and
+accounting contract, not an IPC win.
