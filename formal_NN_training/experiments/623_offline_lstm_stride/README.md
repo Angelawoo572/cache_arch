@@ -1,63 +1,78 @@
-# 623 Stride v23 — decoder-only hurdle-prior correction
+# 623 Stride v24 — natural-cardinality conditional-action LSTM
 
-This is a strict matched-input ablation for `623.xalancbmk_s-700B`.
+This is the active matched-input, open-loop Stride experiment for
+`623.xalancbmk_s-700B`.
 
-- Run: `623_offline_lstm_stride_prior_corrected_hurdle_v23_seed7`
-- Parent: `623_offline_lstm_stride_raw_hurdle_count_v22_seed7`
-- Model: `pc_keyed_raw_hurdle_count_rank_delta_v22_reused_v23`
-- Decoder: `train_weight_prior_corrected_hurdle_decode_v23`
+- Run: `623_offline_lstm_stride_natural_cardinality_v24_seed7`
+- Model: `pc_keyed_raw_natural_cardinality_rank_delta_v24`
+- Decoder: `categorical_count_then_conditional_rank_delta_map_v24`
 
-The v22 evidence showed useful target learning but roughly 60% excess request
-traffic. v22 trained its `ZERO/POSITIVE` hurdle with TRAIN-derived inverse-
-frequency weights, then decoded the weighted logits directly. That changes the
-natural class prior. v23 changes only the inference score:
+v23 showed that correcting the weighted hurdle prior was not enough: all five
+capacities still emitted about 1.33–1.38 times the offline-Stride requests and
+had essentially identical IPC. v24 therefore changes the supervised object
+rather than adding another threshold or prior patch.
+
+## Input and fairness boundary
+
+The runtime encoder remains exactly:
 
 ```text
-natural_logit[class] = weighted_logit[class] - log(TRAIN_class_weight[class])
+current PC (64 lossless bits) + current cache-line number (58 lossless bits)
 ```
 
-This exactly removes the training reweighting. It is not a probability
-threshold, request budget, tuned constant, or normal-Stride rule.
+One shared LSTM is routed through state keyed by exact PC. Captured Stride
+actions are labels and the offline-normal comparator only. The NN never sees
+the Stride tracker, last stride, confidence, candidate list, normal request
+rate, queue state, future rows, or action outcomes.
 
-## Fair-input and identity contract
+The v23 input archive is reused byte-for-byte. No recollection is required.
 
-The runtime tensor is still only lossless `PC64 + aligned line58`. The LSTM is
-routed by exact PC. Captured Stride actions remain labels and comparator rows;
-they are never runtime features, candidates, feedback, degree hints, or private
-state. The TRAIN-derived exact-delta vocabulary, positive log-count head,
-rank-conditioned direct-delta heads, five capacities, splits, and chronology
-are unchanged.
+## Natural action-list likelihood
 
-The A100 notebook requires both the reused v22 input archive and v22 output
-archive. For each capacity it:
+For callback `t` with teacher list
+`A_t = (a_t,0, ..., a_t,K_t-1)`, v24 learns:
 
-1. loads the v22 checkpoint and training history;
-2. performs the original raw-logit decode;
-3. requires that replay list to match the v22 NN list byte-for-byte;
-4. performs the prior-corrected decode;
-5. copies `model.pt` and `training_history.csv` byte-for-byte;
-6. records every parent and output SHA-256 in `run_metadata.json`.
-
-Any mismatch aborts before packaging. No v23 training or checkpoint selection
-occurs. The active five tags are:
-
-- `prior_corrected_hurdle_count_stride_lstm_h8`
-- `prior_corrected_hurdle_count_stride_lstm_h16`
-- `prior_corrected_hurdle_count_stride_lstm_h32`
-- `prior_corrected_hurdle_count_stride_lstm_h64`
-- `prior_corrected_hurdle_count_stride_lstm_h128`
-
-## Validation
-
-Torch-free checks:
-
-```bash
-python3 formal_NN_training/experiments/623_offline_lstm_stride/python/model_contract.py --self-test
-python3 formal_NN_training/experiments/623_offline_lstm_stride/python/train_and_offline_infer.py --self-test
-python3 formal_NN_training/experiments/validate_direct_action_contracts.py
+```text
+P(A_t | h_t) = P(K_t | h_t) * product over r<K_t of P(a_t,r | h_t, r)
 ```
 
-Use `colab/623_offline_lstm_stride_A100.ipynb` for the two A100 decodes and
-`linux/launch_server.sh replay` for ChampSim. A root `PASS` proves identity,
-fair input, deterministic decode, and replay accounting; it does not claim an
-IPC improvement.
+- `K_t` is one unweighted categorical label. `K=0` is the implicit
+  no-request case.
+- Count support is `0..max(TRAIN teacher count)`; it is dataset support, not
+  a copied Stride degree or request budget.
+- Delta loss exists only for real teacher ranks `r<K_t`.
+- Exact delta symbols come from FIT-TRAIN, followed by one `OTHER` signed-log
+  escape.
+- Stride actions are always `FILL_L2`, so there is no meaningless fill head.
+- Inference uses count argmax and emits exactly `K` independent rank-delta
+  argmax actions.
+
+There is no hurdle, log-count regression, STOP padding, class reweighting,
+prior correction, probability threshold, page rule, degree cap, or
+teacher/predicted-action feedback.
+
+## Checkpoint selection
+
+The last block of original TRAIN, with length equal to the original GUARD
+callback count, is held out chronologically. Checkpoints minimize natural
+action-list NLL on this blocked validation suffix; earlier epoch breaks exact
+ties. Original GUARD is retained only as a phase-shift audit. EVAL is decoded
+once after checkpoint selection.
+
+Every capacity also records two diagnosis-only decompositions:
+
+- oracle count + NN action;
+- NN count + oracle-action upper bound.
+
+Neither diagnostic is replayed or allowed to support a neural win.
+
+## Sweep and evidence
+
+The complete `h8, h16, h32, h64, h128` sweep remains mandatory. Report IPC,
+miss rate, request pressure, count confusion/MAE, target and trigger metrics,
+coverage, timeliness, entropy, usefulness, lateness, and raw action-list
+hashes separately. Undefined rates use JSON `null` / blank CSV; a numeric
+zero means the denominator existed.
+
+A root `PASS` proves input, metadata, deterministic decoding, replay, and
+accounting consistency. It does not prove that the NN beats Stride.
