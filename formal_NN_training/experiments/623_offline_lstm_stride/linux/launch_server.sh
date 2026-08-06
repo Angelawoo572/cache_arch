@@ -21,8 +21,8 @@ LOG="$RUN_DIR/$STAGE.nohup.log"
 PID_FILE="$RUN_DIR/$STAGE.pid"
 
 case "$STAGE" in
-  build|collect|replay|analyze) ;;
-  *) echo "[error] stage must be build, collect, replay, or analyze" >&2; exit 2 ;;
+  reuse-input|build|collect|replay|analyze) ;;
+  *) echo "[error] stage must be reuse-input, build, collect, replay, or analyze" >&2; exit 2 ;;
 esac
 
 mkdir -p "$RUN_DIR"
