@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Train and decode the matched-input finite joint-action 623 SPP v23 model.
+"""Train and decode the matched-input 623 SPP v24 model.
 
-The NN sees only the source-visible global chronology: DEMAND(addr) and
-CACHE_FILL(evicted_addr).  PC remains replay transport.  Teacher SPP actions
-are labels and comparator rows only.  A rank decision is one joint token:
-STOP or EMIT(delta, fill).  The model has no separate hurdle, count, delta, or
-fill argmax and no teacher/predicted action feedback.
+The model sees only the unchanged source chronology: a DEMAND/FILL kind bit
+and a lossless 58-bit line number.  It predicts a natural categorical action
+count K, then exactly K rank-conditioned joint (delta, fill) actions.  Action
+loss is present only for real teacher ranks: there is no STOP padding, hurdle,
+class weighting, prior correction, request budget, or action feedback.
 """
 import argparse
 import copy
@@ -22,40 +22,41 @@ import sys
 from collections import Counter, defaultdict
 from pathlib import Path
 
-# CUDA deterministic GEMM configuration must precede torch import.
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
-
-REPO_ROOT = Path(__file__).resolve().parents[4]
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
+import model_contract as model_contract_module
 from model_contract import (
-    ACCUMULATE_CHUNKS, ACTION_GROUPS, ADDRESS_BITS, CACHE_LINE_BYTES,
-    CACHE_LINE_SHIFT, CHECKPOINT_SELECTION, CHUNK_LEN, DECODER_REVISION,
-    DECODER_TRAINING_MODE, EPOCHS, EXPERIMENT_REVISION,
-    EXTERNAL_INPUT_FIELDS, FILL_LEVELS, JOINT_ACTION_OBJECTIVE,
-    LEARNING_RATE, LINE_ADDRESS_BITS, LINE_ADDRESS_MODULUS,
-    MAX_EXACT_DELTAS, MODEL_POINTS, MODEL_REVISION, OPERATION,
-    OTHER_DELTA_OBJECTIVE, PARENT_INPUT_RUN_ID, POLICY, RANK_CODE_SIZE,
-    RUNTIME_FEATURE_COUNT, RUN_ID, SEED, STOP_TOKEN, TRACE,
-    decode_joint_token, describe_model_points, encode_emit_token,
-    exact_int as as_int, expected_parameter_count, joint_token_count,
-    model_tag, self_test_contract, token_group,
+    ACCUMULATE_CHUNKS, ACTION_OBJECTIVE, ADDRESS_BITS,
+    CACHE_LINE_BYTES, CACHE_LINE_SHIFT, CHECKPOINT_SELECTION, CHUNK_LEN,
+    CORE_ABLATION_ROLE, CORE_SELECTION_HIDDEN_SIZE, CORE_SELECTION_METRIC,
+    CORE_SELECTION_TIE_BREAK, CORE_TYPES, COUNT_OBJECTIVE, DECODER_REVISION,
+    DECODER_TRAINING_MODE, DECODING_RULE, EPOCHS, EXPERIMENT_REVISION,
+    EXTERNAL_INPUT_FIELDS, FILL_LEVELS, LEARNING_RATE, LINE_ADDRESS_BITS,
+    LINE_ADDRESS_MODULUS, MAX_EXACT_ACTION_PAIRS, MODEL_POINTS,
+    MODEL_REVISION, OPERATION, OTHER_ACTION_OBJECTIVE, PARENT_INPUT_RUN_ID,
+    POLICY, RANK_CODE_SIZE, RUNTIME_FEATURE_COUNT, RUN_ID, SEED, TRACE,
+    action_token_count, count_statistics, decode_action_token,
+    describe_model_points, exact_int as as_int, expected_parameter_count,
+    model_tag, other_action_token,
 )
 
-# Contract inspection must work on the CPU-only replay host.
+# Contract inspection must work on the CPU-only replay host without torch.
 if __name__ == "__main__" and sys.argv[1:] == ["--describe-model-points"]:
     print(json.dumps(describe_model_points(), indent=2, sort_keys=True))
     raise SystemExit(0)
 if __name__ == "__main__" and sys.argv[1:] == ["--self-test"]:
-    self_test_contract()
+    model_contract_module.self_test_contract()
     print("PASS")
     raise SystemExit(0)
 
+# CUDA deterministic GEMM configuration must precede torch import.
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+
+REPO_ROOT = Path(__file__).resolve().parents[4]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 from formal_NN_training.common.threshold_free_policy import behavior_metrics
 
 
@@ -67,7 +68,7 @@ LINE_ADDRESS_HALF_RANGE = 1 << (LINE_ADDRESS_BITS - 1)
 RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1
 
 if RUNTIME_FEATURES != RUNTIME_FEATURE_COUNT:
-    raise RuntimeError("SPP v23 raw runtime feature contract changed")
+    raise RuntimeError("SPP v24 raw runtime feature contract changed")
 
 
 def sha256(path):
@@ -195,16 +196,13 @@ def load_teacher_actions(path, rows):
                 )
             pf_event = as_int(row["pf_event_id"])
             trigger = as_int(row["trigger_event_id"])
+            pf_line = as_int(row["pf_line"])
+            fill = as_int(row["fill_level"])
             if (
                 pf_event <= last_pf_event
                 or trigger >= pf_event
                 or as_int(row["event_distance"]) != pf_event - trigger
-            ):
-                raise RuntimeError("invalid action attachment at {}".format(index))
-            pf_line = as_int(row["pf_line"])
-            fill = as_int(row["fill_level"])
-            if (
-                pf_line < 0 or pf_line >= LINE_ADDRESS_MODULUS
+                or pf_line < 0 or pf_line >= LINE_ADDRESS_MODULUS
                 or fill not in FILL_LEVELS
                 or as_int(row["accepted"]) != 1
                 or as_int(row["duplicate"]) not in (0, 1)
@@ -226,7 +224,7 @@ def load_teacher_actions(path, rows):
 def _unsigned_bits(values, width):
     integers = [int(value) for value in values]
     if width < 1 or any(value < 0 or value >= 1 << width for value in integers):
-        raise RuntimeError("runtime line number is outside the encoded domain")
+        raise RuntimeError("runtime line number is outside encoded domain")
     array = np.asarray(integers, dtype=np.uint64)
     shifts = np.arange(width, dtype=np.uint64)
     return ((array[:, None] >> shifts[None, :]) & 1).astype(np.float32)
@@ -235,14 +233,18 @@ def _unsigned_bits(values, width):
 def runtime_bundle(stream):
     context = stream["context"]
     lines = np.asarray([line for _, _, line, _ in context], dtype=np.int64)
-    kinds = np.asarray(
+    demand_kind = np.asarray(
         [kind == "DEMAND" for kind, _, _, _ in context], dtype=np.bool_
     )
     features = np.concatenate([
         _unsigned_bits(lines, LINE_ADDRESS_BITS),
-        kinds.astype(np.float32)[:, None],
+        demand_kind.astype(np.float32)[:, None],
     ], axis=1)
-    return {"features": features, "lines": lines, "demand_kind": kinds}
+    return {
+        "features": features,
+        "lines": lines,
+        "demand_kind": demand_kind,
+    }
 
 
 def runtime_encoder_sha256():
@@ -263,9 +265,7 @@ def runtime_encoder_sha256():
 def decision_router_sha256(stream):
     payload = {
         "context_rows": len(stream["context"]),
-        "demand_positions": [
-            int(value) for value in stream["demand_positions"]
-        ],
+        "demand_positions": [int(value) for value in stream["demand_positions"]],
         "decision_indices": [
             int(stream["context"][int(position)][3])
             for position in stream["demand_positions"]
@@ -277,9 +277,7 @@ def decision_router_sha256(stream):
 
 
 def decision_router_source_sha256():
-    return hashlib.sha256(
-        inspect.getsource(decision_router_sha256).encode()
-    ).hexdigest()
+    return hashlib.sha256(inspect.getsource(decision_router_sha256).encode()).hexdigest()
 
 
 def canonical_signed_delta(base, target):
@@ -296,134 +294,100 @@ def signed_log(delta):
 
 def inverse_signed_log(value):
     scalar = float(value)
+    if not math.isfinite(scalar):
+        raise RuntimeError("OTHER action coordinate is not finite")
     maximum = math.log1p(LINE_ADDRESS_HALF_RANGE)
     scalar = max(-maximum, min(maximum, scalar))
     magnitude = int(round(math.expm1(abs(scalar))))
     delta = -magnitude if scalar < 0 else magnitude
-    return max(
-        -LINE_ADDRESS_HALF_RANGE,
-        min(LINE_ADDRESS_HALF_RANGE - 1, delta),
-    )
+    return max(-LINE_ADDRESS_HALF_RANGE, min(LINE_ADDRESS_HALF_RANGE - 1, delta))
 
 
-def build_delta_vocabulary(train_stream, train_actions):
-    require_equal_lengths(
-        "TRAIN vocabulary", train_stream["demands"], train_actions
-    )
-    frequencies = Counter()
-    for demand, items in zip(train_stream["demands"], train_actions):
-        base = demand[2]
-        frequencies.update(
-            canonical_signed_delta(base, target) for target, _ in items
-        )
-    ordered = sorted(frequencies, key=lambda value: (-frequencies[value], value))
-    exact = ordered[:MAX_EXACT_DELTAS]
-    if not exact:
-        raise RuntimeError("TRAIN delta vocabulary is empty")
-    return exact, frequencies
-
-
-def vocabulary_statistics(stream, actions, exact_vocabulary):
-    exact = set(exact_vocabulary)
-    frequencies = Counter()
+def teacher_action_pairs(stream, actions):
+    require_equal_lengths("teacher action pairs", stream["demands"], actions)
+    values = []
     for demand, items in zip(stream["demands"], actions):
-        frequencies.update(
-            canonical_signed_delta(demand[2], target) for target, _ in items
+        values.extend(
+            (canonical_signed_delta(demand[2], target), int(fill))
+            for target, fill in items
         )
-    total = sum(frequencies.values())
-    in_vocabulary = sum(
-        count for value, count in frequencies.items() if value in exact
+    return values
+
+
+def build_action_vocabulary(train_stream, train_actions):
+    frequencies = Counter(teacher_action_pairs(train_stream, train_actions))
+    if not frequencies:
+        raise RuntimeError("TRAIN joint-action vocabulary is empty")
+    ordered = sorted(
+        frequencies,
+        key=lambda pair: (-frequencies[pair], pair[0], pair[1]),
     )
+    exact_pairs = ordered[:MAX_EXACT_ACTION_PAIRS]
+    return exact_pairs, frequencies
+
+
+def action_class_prior(exact_pairs, frequencies):
+    pair_to_class = {pair: index for index, pair in enumerate(exact_pairs)}
+    counts = [0] * action_token_count(len(exact_pairs))
+    for pair, frequency in frequencies.items():
+        token = pair_to_class.get(
+            pair, other_action_token(pair[1], len(exact_pairs))
+        )
+        counts[token] += int(frequency)
+    denominator = float(sum(counts) + len(counts))
+    return counts, [(value + 1.0) / denominator for value in counts]
+
+
+def action_coordinate_initial_bias(pairs):
+    values = [signed_log(delta) for delta, _ in pairs]
+    return sum(values) / float(len(values)) if values else 0.0
+
+
+def vocabulary_statistics(stream, actions, exact_pairs):
+    exact = set(exact_pairs)
+    pairs = teacher_action_pairs(stream, actions)
+    in_vocabulary = sum(pair in exact for pair in pairs)
     return {
-        "action_count": total,
-        "unique_signed_deltas": len(frequencies),
-        "in_vocabulary_actions": in_vocabulary,
-        "other_actions": total - in_vocabulary,
-        "in_vocabulary_fraction": (
-            in_vocabulary / float(total) if total else 0.0
-        ),
-        "other_fraction": (
-            (total - in_vocabulary) / float(total) if total else 0.0
+        "teacher_actions": len(pairs),
+        "unique_teacher_joint_pairs": len(set(pairs)),
+        "exact_vocabulary_actions": int(in_vocabulary),
+        "other_escape_actions": int(len(pairs) - in_vocabulary),
+        "exact_vocabulary_coverage": (
+            float(in_vocabulary) / len(pairs) if pairs else 0.0
         ),
     }
 
 
-def train_action_horizon(actions):
-    if not actions:
-        raise RuntimeError("TRAIN teacher callback set is empty")
-    horizon = max(map(len, actions))
-    if horizon < 1:
-        raise RuntimeError("TRAIN teacher has no actions")
-    return int(horizon)
-
-
-def build_context_targets(stream, actions, vocabulary, action_horizon):
-    """Build EMIT labels plus every available tail STOP through rank H-1."""
+def build_context_targets(stream, actions, exact_pairs, count_classes):
     require_equal_lengths(
-        "teacher decision targets",
-        stream["demand_positions"], stream["demands"], actions,
+        "target decisions", stream["demands"], stream["demand_positions"], actions
     )
-    if action_horizon < 1:
-        raise RuntimeError("TRAIN-derived action horizon must be positive")
-    slots = action_horizon
-    tokens = np.full((len(stream["context"]), slots), -1, dtype=np.int64)
-    other_signed_logs = np.zeros(tokens.shape, dtype=np.float32)
-    class_by_delta = {value: index for index, value in enumerate(vocabulary)}
-    other_class = len(vocabulary)
-    fill_to_index = {value: index for index, value in enumerate(FILL_LEVELS)}
+    maximum_count = count_classes - 1
+    counts = np.full(len(stream["context"]), -1, dtype=np.int64)
+    tokens = np.full(
+        (len(stream["context"]), maximum_count), -1, dtype=np.int64
+    )
+    coordinates = np.zeros(tokens.shape, dtype=np.float32)
+    pair_to_class = {pair: index for index, pair in enumerate(exact_pairs)}
     for decision, position in enumerate(stream["demand_positions"]):
         items = actions[decision]
-        if len(items) > action_horizon:
-            raise RuntimeError("teacher action list exceeds TRAIN-derived horizon")
-        tokens[position, :] = STOP_TOKEN
+        if len(items) > maximum_count:
+            raise RuntimeError("teacher count exceeds TRAIN-derived support")
+        counts[position] = len(items)
         base = stream["demands"][decision][2]
         for rank, (target, fill) in enumerate(items):
             delta = canonical_signed_delta(base, target)
-            delta_class = class_by_delta.get(delta, other_class)
-            tokens[position, rank] = encode_emit_token(
-                delta_class, fill_to_index[fill], len(vocabulary)
+            pair = (delta, int(fill))
+            tokens[position, rank] = pair_to_class.get(
+                pair, other_action_token(fill, len(exact_pairs))
             )
-            other_signed_logs[position, rank] = signed_log(delta)
-    return tokens, other_signed_logs
-
-
-def joint_training_statistics(targets, exact_vocabulary_size):
-    tokens, _ = targets
-    observed = tokens[tokens >= 0]
-    token_count = joint_token_count(exact_vocabulary_size)
-    token_counts = np.bincount(observed, minlength=token_count).astype(np.int64)
-    groups = np.asarray([
-        token_group(token, exact_vocabulary_size) for token in observed
-    ], dtype=np.int64)
-    group_counts = np.bincount(groups, minlength=len(ACTION_GROUPS)).astype(
-        np.int64
-    )
-    if not bool((group_counts > 0).all()):
-        raise RuntimeError(
-            "TRAIN must contain STOP, EMIT_L2, and EMIT_LLC rank labels"
-        )
-    total = float(group_counts.sum())
-    group_weights = total / (len(ACTION_GROUPS) * group_counts.astype(np.float64))
-    class_weights = np.asarray([
-        group_weights[token_group(token, exact_vocabulary_size)]
-        for token in range(token_count)
-    ], dtype=np.float64)
-    token_priors = (token_counts.astype(np.float64) + 1.0) / (
-        float(token_counts.sum()) + token_count
-    )
-    effective_priors = token_priors * class_weights
-    effective_priors = effective_priors / effective_priors.sum()
-    return {
-        "token_counts": token_counts,
-        "token_priors": token_priors,
-        "effective_weighted_token_priors": effective_priors,
-        "group_counts": group_counts,
-        "group_weights": group_weights,
-        "class_weights": class_weights,
-    }
+            coordinates[position, rank] = signed_log(delta)
+    return counts, tokens, coordinates
 
 
 def write_table(path, rows):
+    if not rows:
+        raise RuntimeError("cannot write an empty table")
     with Path(path).open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(rows[0].keys()))
         writer.writeheader()
@@ -462,13 +426,14 @@ def write_prediction_replay(path, rows, predicted_lines, predicted_fills):
         ):
             require_equal_lengths("prediction callback", targets, fills)
             triggers += int(bool(targets))
-            for pf_line, fill_index in zip(targets, fills):
-                fill = FILL_LEVELS[int(fill_index)]
+            for pf_line, fill in zip(targets, fills):
+                if int(fill) not in FILL_LEVELS:
+                    raise RuntimeError("prediction has an invalid fill level")
                 writer.writerow([
-                    pc, line, occurrence,
-                    hex(int(pf_line) << CACHE_LINE_SHIFT), fill,
+                    pc, line, occurrence, hex(int(pf_line) << CACHE_LINE_SHIFT),
+                    int(fill),
                 ])
-                fill_counts["FILL_L2" if fill == 2 else "FILL_LLC"] += 1
+                fill_counts["FILL_L2" if int(fill) == 2 else "FILL_LLC"] += 1
                 entries += 1
     return entries, triggers, fill_counts
 
@@ -476,7 +441,7 @@ def write_prediction_replay(path, rows, predicted_lines, predicted_fills):
 def build_modal_llc_control(base_lines, modal_delta):
     lines = [[(int(base) + int(modal_delta)) % LINE_ADDRESS_MODULUS]
              for base in base_lines]
-    fills = [[1] for _ in base_lines]
+    fills = [[4] for _ in base_lines]
     return lines, fills
 
 
@@ -486,66 +451,89 @@ def _iter_chunks(length, width):
 
 
 def rank_code(ranks, dtype):
-    ranks = ranks.to(dtype)
+    ranks = ranks.to(dtype) + 1.0
     frequencies = ranks.new_tensor([1.0, 0.01])
     phase = ranks.unsqueeze(1) * frequencies.unsqueeze(0)
     return torch.cat([torch.sin(phase), torch.cos(phase)], dim=1)
 
 
-class GlobalSPPJointLSTM(nn.Module):
-    def __init__(self, hidden_size, exact_vocabulary_size):
+class NaturalCardinalitySPPLSTM(nn.Module):
+    def __init__(
+        self, core_type, hidden_size, count_prior, action_prior,
+        coordinate_bias,
+    ):
         super().__init__()
-        if (
-            hidden_size not in MODEL_POINTS["lstm"]
-            or not 0 < exact_vocabulary_size <= MAX_EXACT_DELTAS
-        ):
-            raise ValueError("unsupported joint SPP dimensions")
+        self.core_type = str(core_type)
         self.hidden_size = int(hidden_size)
-        self.exact_vocabulary_size = int(exact_vocabulary_size)
-        self.token_count = joint_token_count(exact_vocabulary_size)
+        self.count_output_classes = len(count_prior)
+        self.action_output_classes = len(action_prior)
+        if (
+            self.core_type not in CORE_TYPES
+            or self.hidden_size not in MODEL_POINTS["lstm"]
+            or self.count_output_classes < 1
+            or not 3 <= self.action_output_classes <= MAX_EXACT_ACTION_PAIRS + 2
+        ):
+            raise ValueError("unsupported realized SPP v24 dimensions")
         self.input_projection = nn.Linear(RUNTIME_FEATURES, hidden_size)
-        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
-        self.rank_fusion = nn.Linear(
-            hidden_size + RANK_CODE_SIZE, hidden_size
-        )
-        self.joint_action = nn.Linear(hidden_size, self.token_count)
-        self.other_signed_log = nn.Linear(hidden_size, 1)
+        if self.core_type == "global":
+            self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
+        else:
+            self.demand_cell = nn.LSTMCell(hidden_size, hidden_size)
+            self.fill_cell = nn.LSTMCell(hidden_size, hidden_size)
+        self.rank_fusion = nn.Linear(hidden_size + RANK_CODE_SIZE, hidden_size)
+        self.count_head = nn.Linear(hidden_size, self.count_output_classes)
+        self.action_head = nn.Linear(hidden_size, self.action_output_classes)
+        self.other_coordinate_head = nn.Linear(hidden_size, 1)
 
-    def initialize_train_token_prior(self, token_priors, class_weights):
-        priors = torch.as_tensor(
-            token_priors, dtype=self.joint_action.bias.dtype
-        )
-        weights = torch.as_tensor(
-            class_weights, dtype=self.joint_action.bias.dtype
+        count_tensor = torch.as_tensor(count_prior, dtype=self.count_head.bias.dtype)
+        action_tensor = torch.as_tensor(
+            action_prior, dtype=self.action_head.bias.dtype
         )
         if (
-            priors.shape != (self.token_count,)
-            or weights.shape != (self.token_count,)
-            or bool((priors <= 0).any())
-            or bool((weights <= 0).any())
-            or not bool(torch.isfinite(priors).all())
-            or not bool(torch.isfinite(weights).all())
+            bool((count_tensor <= 0).any())
+            or bool((action_tensor <= 0).any())
+            or not bool(torch.isfinite(count_tensor).all())
+            or not bool(torch.isfinite(action_tensor).all())
+            or not math.isfinite(float(coordinate_bias))
         ):
-            raise RuntimeError("invalid TRAIN joint-token prior")
-        effective = priors * weights
-        effective = effective / effective.sum()
+            raise ValueError("TRAIN-derived initialization is invalid")
         with torch.no_grad():
-            self.joint_action.weight.zero_()
-            self.joint_action.bias.copy_(torch.log(effective))
+            self.count_head.weight.zero_()
+            self.count_head.bias.copy_(torch.log(count_tensor))
+            self.action_head.weight.zero_()
+            self.action_head.bias.copy_(torch.log(action_tensor))
+            self.other_coordinate_head.bias.fill_(float(coordinate_bias))
 
-    def encode(self, features, state=None):
+    def encode(self, features, demand_kind, state=None):
         embedded = torch.tanh(self.input_projection(features))
-        output, state = self.lstm(embedded.unsqueeze(0), state)
-        return output.squeeze(0), state
+        if self.core_type == "global":
+            output, state = self.lstm(embedded.unsqueeze(0), state)
+            return output.squeeze(0), state
+        if state is None:
+            hidden = embedded.new_zeros((1, self.hidden_size))
+            cell = embedded.new_zeros((1, self.hidden_size))
+        else:
+            hidden, cell = state
+        outputs = []
+        for position in range(len(embedded)):
+            value = embedded[position:position + 1]
+            demand_state = self.demand_cell(value, (hidden, cell))
+            fill_state = self.fill_cell(value, (hidden, cell))
+            mask = demand_kind[position].reshape(1, 1)
+            hidden = torch.where(mask, demand_state[0], fill_state[0])
+            cell = torch.where(mask, demand_state[1], fill_state[1])
+            outputs.append(hidden)
+        return torch.cat(outputs, dim=0), (hidden, cell)
 
     def ranked_heads(self, contexts, ranks):
-        code = rank_code(ranks, contexts.dtype)
         ranked = torch.tanh(
-            self.rank_fusion(torch.cat([contexts, code], dim=1))
+            self.rank_fusion(torch.cat([
+                contexts, rank_code(ranks, contexts.dtype)
+            ], dim=1))
         )
         return (
-            self.joint_action(ranked),
-            self.other_signed_log(ranked).squeeze(1),
+            self.action_head(ranked),
+            self.other_coordinate_head(ranked).squeeze(1),
         )
 
 
@@ -555,56 +543,73 @@ def detach_state(state):
     return tuple(value.detach() for value in state)
 
 
-def chunk_loss(model, contexts, targets, class_weights, device):
-    tokens_np, signed_logs_np = targets
-    decision_rows = np.flatnonzero(tokens_np[:, 0] >= 0)
+def chunk_loss_parts(model, contexts, targets):
+    counts_np, tokens_np, coordinates_np = targets
+    decision_rows = np.flatnonzero(counts_np >= 0).astype(np.int64)
     if not len(decision_rows):
-        return None, None
-    slots = tokens_np.shape[1]
-    row_tensor = torch.as_tensor(
-        np.repeat(decision_rows, slots), dtype=torch.long, device=device
+        return None
+    rows = torch.from_numpy(decision_rows).to(
+        device=contexts.device, dtype=torch.long
     )
-    ranks = torch.as_tensor(
-        np.tile(np.arange(slots, dtype=np.int64), len(decision_rows)),
-        dtype=torch.long, device=device,
+    decisions = contexts.index_select(0, rows)
+    count_truth = torch.from_numpy(counts_np[decision_rows]).to(
+        device=contexts.device, dtype=torch.long
     )
-    truth = torch.as_tensor(
-        tokens_np[decision_rows].reshape(-1), dtype=torch.long, device=device
+    if int(count_truth.max()) >= model.count_output_classes:
+        raise RuntimeError("count label exceeds TRAIN-derived support")
+    count_sum = F.cross_entropy(
+        model.count_head(decisions), count_truth, reduction="sum"
     )
-    ranked_contexts = contexts.index_select(0, row_tensor)
-    logits, other_predictions = model.ranked_heads(ranked_contexts, ranks)
-    weights = torch.as_tensor(
-        class_weights, dtype=logits.dtype, device=device
+    action_sum = contexts.sum() * 0.0
+    coordinate_sum = contexts.sum() * 0.0
+    action_atoms = other_atoms = 0
+    exact_pair_count = model.action_output_classes - 2
+    other_tokens = (
+        other_action_token(2, exact_pair_count),
+        other_action_token(4, exact_pair_count),
     )
-    joint_sum = F.cross_entropy(
-        logits, truth, weight=weights, reduction="sum"
-    )
-    other_class = model.exact_vocabulary_size
-    other_tokens = torch.as_tensor([
-        encode_emit_token(other_class, fill_index, other_class)
-        for fill_index in (0, 1)
-    ], dtype=torch.long, device=device)
-    other_mask = (truth == other_tokens[0]) | (truth == other_tokens[1])
-    if bool(other_mask.any()):
-        signed_truth = torch.as_tensor(
-            signed_logs_np[decision_rows].reshape(-1),
-            dtype=other_predictions.dtype, device=device,
+    maximum_rank = int(count_truth.max().item()) if len(count_truth) else 0
+    for rank in range(maximum_rank):
+        active_np = np.flatnonzero(counts_np[decision_rows] > rank).astype(np.int64)
+        if not len(active_np):
+            continue
+        active = torch.from_numpy(active_np).to(
+            device=contexts.device, dtype=torch.long
         )
-        other_sum = F.smooth_l1_loss(
-            other_predictions[other_mask], signed_truth[other_mask],
-            reduction="sum",
+        ranked_contexts = decisions.index_select(0, active)
+        ranks = torch.full(
+            (len(active_np),), rank, device=contexts.device, dtype=torch.long
         )
-        other_atoms = int(other_mask.sum().item())
-    else:
-        other_sum = logits.new_zeros(())
-        other_atoms = 0
-    total = joint_sum + other_sum
-    return total, {
-        "joint_sum": float(joint_sum.detach()),
-        "joint_atoms": int(truth.numel()),
-        "other_sum": float(other_sum.detach()),
+        logits, coordinates = model.ranked_heads(ranked_contexts, ranks)
+        truth_np = tokens_np[decision_rows[active_np], rank]
+        if bool((truth_np < 0).any()):
+            raise RuntimeError("real teacher rank is missing an action token")
+        truth = torch.from_numpy(truth_np).to(
+            device=contexts.device, dtype=torch.long
+        )
+        action_sum = action_sum + F.cross_entropy(
+            logits, truth, reduction="sum"
+        )
+        action_atoms += len(active_np)
+        other_np = np.logical_or(
+            truth_np == other_tokens[0], truth_np == other_tokens[1]
+        )
+        if bool(other_np.any()):
+            other = torch.from_numpy(other_np).to(contexts.device)
+            coordinate_truth = torch.from_numpy(
+                coordinates_np[decision_rows[active_np], rank]
+            ).to(device=contexts.device, dtype=contexts.dtype)
+            coordinate_sum = coordinate_sum + F.smooth_l1_loss(
+                coordinates[other], coordinate_truth[other], reduction="sum"
+            )
+            other_atoms += int(other_np.sum())
+    return {
+        "count_sum": count_sum,
+        "action_sum": action_sum,
+        "coordinate_sum": coordinate_sum,
+        "decision_atoms": len(decision_rows),
+        "action_atoms": action_atoms,
         "other_atoms": other_atoms,
-        "total_atoms": int(truth.numel()) + other_atoms,
     }
 
 
@@ -614,174 +619,192 @@ def score_context(model, bundle, device, initial_state=None, chunk_len=8192):
     with torch.no_grad():
         for start, stop in _iter_chunks(len(bundle["features"]), chunk_len):
             features = torch.from_numpy(bundle["features"][start:stop]).to(device)
-            context, state = model.encode(features, state)
+            kinds = torch.from_numpy(bundle["demand_kind"][start:stop]).to(device)
+            context, state = model.encode(features, kinds, state)
             state = detach_state(state)
             parts.append(context.cpu().numpy())
     return np.concatenate(parts, axis=0), state
 
 
-def score_role_history(model, bundles, roles, device):
+def score_role_history(model, bundles, roles, device, chunk_len=8192):
     contexts, state = {}, None
     for role in roles:
         contexts[role], state = score_context(
-            model, bundles[role], device, state
+            model, bundles[role], device, state, chunk_len
         )
     return contexts
 
 
-def corrected_joint_logits(logits, class_weights):
-    weights = torch.as_tensor(
-        class_weights, dtype=torch.float64, device=logits.device
-    )
-    if (
-        weights.ndim != 1
-        or weights.shape[0] != logits.shape[1]
-        or bool((weights <= 0).any())
-        or not bool(torch.isfinite(weights).all())
-    ):
-        raise RuntimeError("invalid TRAIN-derived joint class weights")
-    corrected = logits.detach().to(torch.float64) - torch.log(weights).unsqueeze(0)
-    if not bool(torch.isfinite(corrected).all()):
-        raise RuntimeError("prior-corrected joint logits are non-finite")
-    return corrected
+def natural_list_nll(model, contexts, targets, device, chunk_len=4096):
+    totals = Counter()
+    model.eval()
+    with torch.no_grad():
+        for start, stop in _iter_chunks(len(contexts), chunk_len):
+            context = torch.from_numpy(contexts[start:stop]).to(device)
+            parts = chunk_loss_parts(
+                model, context, tuple(value[start:stop] for value in targets)
+            )
+            if parts is None:
+                continue
+            for key in ("count_sum", "action_sum", "coordinate_sum"):
+                totals[key] += float(parts[key].detach())
+            for key in ("decision_atoms", "action_atoms", "other_atoms"):
+                totals[key] += int(parts[key])
+    categorical = (
+        totals["count_sum"] + totals["action_sum"]
+    ) / max(1, totals["decision_atoms"])
+    return {
+        "natural_action_list_nll_per_callback": float(categorical),
+        "count_nll_per_callback": (
+            totals["count_sum"] / max(1, totals["decision_atoms"])
+        ),
+        "joint_action_nll_per_callback": (
+            totals["action_sum"] / max(1, totals["decision_atoms"])
+        ),
+        "joint_action_nll_per_action": (
+            totals["action_sum"] / max(1, totals["action_atoms"])
+        ),
+        "other_auxiliary_per_other_action": (
+            totals["coordinate_sum"] / max(1, totals["other_atoms"])
+        ),
+        "decision_atoms": int(totals["decision_atoms"]),
+        "action_atoms": int(totals["action_atoms"]),
+        "other_atoms": int(totals["other_atoms"]),
+    }
 
 
 def decode_actions(
-    model, contexts, base_lines, vocabulary, class_weights,
-    train_action_horizon_value, device, chunk_len=8192,
+    model, contexts, base_lines, exact_pairs, device,
+    count_override=None, role="eval", chunk_len=4096,
 ):
-    """Decode finite joint rank slots with no action feedback or threshold."""
     require_equal_lengths("decode", contexts, base_lines)
-    if (
-        len(vocabulary) < 1
-        or len(vocabulary) > MAX_EXACT_DELTAS
-        or len(set(map(int, vocabulary))) != len(vocabulary)
-        or any(
-            int(value) < -LINE_ADDRESS_HALF_RANGE
-            or int(value) >= LINE_ADDRESS_HALF_RANGE
-            for value in vocabulary
-        )
-    ):
-        raise RuntimeError("decode received an invalid TRAIN delta vocabulary")
-    if train_action_horizon_value < 1:
-        raise RuntimeError("decode received an invalid TRAIN action horizon")
-    base_array = np.asarray(base_lines)
-    if (
-        base_array.ndim != 1
-        or not np.issubdtype(base_array.dtype, np.integer)
-        or bool((base_array < 0).any())
-        or bool((base_array >= LINE_ADDRESS_MODULUS).any())
-    ):
-        raise RuntimeError("decode base lines are outside the 58-bit domain")
-
-    count = len(contexts)
-    decision_slots = int(train_action_horizon_value)
-    predicted_lines = [[] for _ in range(count)]
-    predicted_fills = [[] for _ in range(count)]
-    predicted_tokens = [[] for _ in range(count)]
-    stopped = np.zeros(count, dtype=np.bool_)
-    token_histogram = Counter()
-    group_histogram = Counter()
-    entropy_sum = 0.0
-    entropy_atoms = 0
-    final_rank_emits = 0
+    count_logits_parts = []
     model.eval()
     with torch.no_grad():
-        for start, stop in _iter_chunks(count, chunk_len):
-            callback_contexts = torch.from_numpy(contexts[start:stop]).to(device)
-            local_stopped = torch.zeros(
-                stop - start, dtype=torch.bool, device=device
-            )
-            for rank in range(decision_slots):
-                active = torch.nonzero(~local_stopped, as_tuple=False).squeeze(1)
-                if int(active.numel()) == 0:
-                    break
-                ranks = torch.full(
-                    (len(active),), rank, dtype=torch.long, device=device
+        for start, stop in _iter_chunks(len(contexts), chunk_len):
+            values = torch.from_numpy(contexts[start:stop]).to(device)
+            logits = model.count_head(values)
+            if not bool(torch.isfinite(logits).all()):
+                raise RuntimeError("categorical count logits are non-finite")
+            count_logits_parts.append(logits.cpu())
+    count_logits = torch.cat(count_logits_parts, dim=0)
+    probabilities = torch.softmax(count_logits.to(torch.float64), dim=1)
+    count_entropy = -(
+        probabilities * torch.log(probabilities.clamp_min(1e-300))
+    ).sum(dim=1)
+    natural_counts = count_logits.argmax(dim=1).numpy().astype(np.int64)
+    if count_override is None:
+        counts = natural_counts
+    else:
+        counts = np.asarray(count_override, dtype=np.int64)
+        if (
+            len(counts) != len(base_lines)
+            or bool((counts < 0).any())
+            or bool((counts >= model.count_output_classes).any())
+        ):
+            raise RuntimeError("oracle count override is outside TRAIN support")
+
+    predicted_lines = [[] for _ in base_lines]
+    predicted_fills = [[] for _ in base_lines]
+    predicted_tokens = [[] for _ in base_lines]
+    action_entropy_sum = 0.0
+    action_atoms = 0
+    with torch.no_grad():
+        for start, stop in _iter_chunks(len(contexts), chunk_len):
+            values = torch.from_numpy(contexts[start:stop]).to(device)
+            local_counts = counts[start:stop]
+            maximum = int(local_counts.max()) if len(local_counts) else 0
+            for rank in range(maximum):
+                active_np = np.flatnonzero(local_counts > rank).astype(np.int64)
+                if not len(active_np):
+                    continue
+                active = torch.from_numpy(active_np).to(
+                    device=device, dtype=torch.long
                 )
-                logits, other_values = model.ranked_heads(
-                    callback_contexts.index_select(0, active), ranks
+                ranks = torch.full(
+                    (len(active_np),), rank, device=device, dtype=torch.long
+                )
+                logits, coordinates = model.ranked_heads(
+                    values.index_select(0, active), ranks
                 )
                 if (
                     not bool(torch.isfinite(logits).all())
-                    or not bool(torch.isfinite(other_values).all())
+                    or not bool(torch.isfinite(coordinates).all())
                 ):
-                    raise RuntimeError("joint decoder produced non-finite output")
-                corrected = corrected_joint_logits(logits, class_weights)
-                probabilities = torch.softmax(corrected, dim=1)
-                entropy = -(
-                    probabilities * torch.log(probabilities.clamp_min(1e-300))
-                ).sum(dim=1)
-                entropy_sum += float(entropy.sum().item())
-                entropy_atoms += len(active)
-                chosen = corrected.argmax(dim=1)
-                for offset, token, other_value in zip(
-                    active.cpu().tolist(), chosen.cpu().tolist(),
-                    other_values.cpu().tolist(),
-                ):
-                    global_row = start + int(offset)
-                    token = int(token)
-                    predicted_tokens[global_row].append(token)
-                    token_histogram[token] += 1
-                    kind, delta_class, fill_index = decode_joint_token(
-                        token, len(vocabulary)
+                    raise RuntimeError("joint action decoder is non-finite")
+                action_probabilities = torch.softmax(logits.to(torch.float64), dim=1)
+                action_entropy_sum += float((-(
+                    action_probabilities * torch.log(
+                        action_probabilities.clamp_min(1e-300)
                     )
-                    if kind == "STOP":
-                        group_histogram["STOP"] += 1
-                        local_stopped[offset] = True
-                        stopped[global_row] = True
-                        continue
-                    group_histogram[
-                        "EMIT_L2" if fill_index == 0 else "EMIT_LLC"
-                    ] += 1
+                ).sum(dim=1)).sum().item())
+                action_atoms += len(active_np)
+                tokens = logits.argmax(dim=1).cpu().tolist()
+                coordinate_values = coordinates.cpu().tolist()
+                for local, token, coordinate in zip(
+                    active_np, tokens, coordinate_values
+                ):
+                    kind, exact_delta, fill = decode_action_token(
+                        token, exact_pairs
+                    )
                     delta = (
-                        int(vocabulary[delta_class])
-                        if delta_class < len(vocabulary)
-                        else inverse_signed_log(other_value)
+                        int(exact_delta) if kind == "EXACT"
+                        else inverse_signed_log(coordinate)
                     )
-                    target = (
-                        int(base_lines[global_row]) + delta
-                    ) % LINE_ADDRESS_MODULUS
-                    predicted_lines[global_row].append(target)
-                    predicted_fills[global_row].append(int(fill_index))
-                    if rank == decision_slots - 1:
-                        final_rank_emits += 1
-    counts = np.asarray([len(items) for items in predicted_lines], dtype=np.int64)
-    if any(len(lines) != len(fills) for lines, fills in zip(
-        predicted_lines, predicted_fills
-    )):
-        raise RuntimeError("joint output target/fill cardinalities differ")
-    token_width = joint_token_count(len(vocabulary))
-    mean_entropy = entropy_sum / entropy_atoms if entropy_atoms else 0.0
+                    row = start + int(local)
+                    predicted_lines[row].append(
+                        (int(base_lines[row]) + delta) % LINE_ADDRESS_MODULUS
+                    )
+                    predicted_fills[row].append(int(fill))
+                    predicted_tokens[row].append(int(token))
+    if any(
+        len(items) != int(count)
+        for items, count in zip(predicted_lines, counts)
+    ):
+        raise RuntimeError("rank decoder did not realize selected count")
+    action_width = model.action_output_classes
+    count_width = model.count_output_classes
     diagnostics = {
-        "train_action_horizon": int(train_action_horizon_value),
-        "joint_decision_rank_count": decision_slots,
-        "maximum_possible_actions_from_finite_support": decision_slots,
-        "joint_token_evaluations": entropy_atoms,
-        "explicit_stop_callbacks": int(stopped.sum()),
-        "finite_slot_exhaustion_callbacks": int((~stopped).sum()),
-        "decoded_zero_callbacks": int((counts == 0).sum()),
+        "role": role,
+        "count_override_used": count_override is not None,
+        "count_output_classes": count_width,
+        "count_support": list(range(count_width)),
+        "decoded_count_distribution": {
+            str(key): int(value)
+            for key, value in sorted(Counter(counts.tolist()).items())
+        },
         "decoded_positive_callbacks": int((counts > 0).sum()),
-        "materialized_rank_actions": int(counts.sum()),
-        "maximum_decoded_count": int(counts.max()) if len(counts) else 0,
-        "final_supervised_rank_emit_predictions": final_rank_emits,
-        "joint_token_histogram": {
-            str(key): token_histogram[key] for key in sorted(token_histogram)
+        "decoded_total_actions": int(counts.sum()),
+        "decoded_max_actions_per_callback": int(counts.max()) if len(counts) else 0,
+        "joint_action_token_histogram": {
+            str(key): int(value) for key, value in sorted(Counter(
+                token for items in predicted_tokens for token in items
+            ).items())
         },
-        "joint_group_histogram": {
-            key: int(group_histogram[key]) for key in ACTION_GROUPS
+        "decoded_fill_histogram": {
+            str(key): int(value) for key, value in sorted(Counter(
+                fill for items in predicted_fills for fill in items
+            ).items())
         },
-        "mean_prior_corrected_joint_token_entropy": mean_entropy,
-        "mean_prior_corrected_joint_token_entropy_normalized": (
-            mean_entropy / math.log(token_width) if token_width > 1 else 0.0
+        "mean_count_entropy": float(count_entropy.mean().item()),
+        "mean_count_entropy_normalized": (
+            float(count_entropy.mean().item()) / math.log(count_width)
+            if count_width > 1 else 0.0
         ),
-        "deterministic_argmax": True,
+        "mean_joint_action_entropy": (
+            action_entropy_sum / action_atoms if action_atoms else None
+        ),
+        "mean_joint_action_entropy_normalized": (
+            action_entropy_sum / action_atoms / math.log(action_width)
+            if action_atoms and action_width > 1 else None
+        ),
         "probability_threshold_used": False,
+        "class_reweighting_used": False,
+        "decode_prior_correction_used": False,
         "action_feedback_used": False,
+        "normal_request_budget_used": False,
     }
-    return (
-        counts, predicted_lines, predicted_fills, predicted_tokens, diagnostics,
-    )
+    return counts, predicted_lines, predicted_fills, predicted_tokens, diagnostics
 
 
 def ratio(numerator, denominator):
@@ -809,17 +832,15 @@ def joint_action_metrics(predicted_lines, predicted_fills, teacher_actions):
         predicted_lines, predicted_fills, teacher_actions
     ):
         predicted = Counter(zip(map(int, lines), map(int, fills)))
-        teacher = Counter(
-            (int(line), FILL_LEVELS.index(fill)) for line, fill in items
-        )
+        teacher = Counter((int(line), int(fill)) for line, fill in items)
         predicted_total += sum(predicted.values())
         teacher_total += sum(teacher.values())
         true_positive += sum((predicted & teacher).values())
         predicted_l2 = Counter({
-            line: count for (line, fill), count in predicted.items() if fill == 0
+            line: count for (line, fill), count in predicted.items() if fill == 2
         })
         teacher_l2_rows = Counter({
-            line: count for (line, fill), count in teacher.items() if fill == 0
+            line: count for (line, fill), count in teacher.items() if fill == 2
         })
         l2_predicted += sum(predicted_l2.values())
         l2_teacher += sum(teacher_l2_rows.values())
@@ -847,52 +868,69 @@ def joint_action_metrics(predicted_lines, predicted_fills, teacher_actions):
 
 
 def complete_behavior_metrics(counts, lines, fills, teacher):
+    fill_indices = [
+        [FILL_LEVELS.index(int(fill)) for fill in callback]
+        for callback in fills
+    ]
     result = behavior_metrics(
-        counts, lines, fills, teacher, fill_levels=FILL_LEVELS
+        counts, lines, fill_indices, teacher, fill_levels=FILL_LEVELS
     )
     result.update(trigger_behavior_metrics(counts, teacher))
     result.update(joint_action_metrics(lines, fills, teacher))
+    teacher_counts = np.asarray([len(items) for items in teacher], dtype=np.int64)
+    confusion = Counter(
+        (int(truth), int(prediction))
+        for truth, prediction in zip(teacher_counts, counts)
+    )
+    result["count_confusion"] = {
+        "{}->{}".format(truth, prediction): int(value)
+        for (truth, prediction), value in sorted(confusion.items())
+    }
+    result["count_mae"] = (
+        float(np.abs(np.asarray(counts) - teacher_counts).mean())
+        if len(teacher_counts) else 0.0
+    )
+    result["request_ratio_vs_teacher"] = ratio(
+        int(np.asarray(counts).sum()), int(teacher_counts.sum())
+    )
     return result
 
 
-def guard_selection_key(metrics, normalized_train_loss, epoch):
-    fill_accuracy = metrics.get("fill_accuracy_on_matched_targets")
-    fill_accuracy = 0.0 if fill_accuracy is None else float(fill_accuracy)
-    return (
-        metrics["joint_action_f1"],
-        metrics["target_f1"],
-        metrics["l2_joint_f1"],
-        metrics["trigger_f1"],
-        metrics["count_exact_match_rate"],
-        fill_accuracy,
-        -float(normalized_train_loss),
-        -int(epoch),
-    )
+def count_oracle_upper_bound(predicted_counts, teacher_actions):
+    predicted = np.asarray(predicted_counts, dtype=np.int64)
+    teacher = np.asarray([len(items) for items in teacher_actions], dtype=np.int64)
+    true_positive = int(np.minimum(predicted, teacher).sum())
+    predicted_total = int(predicted.sum())
+    teacher_total = int(teacher.sum())
+    precision = ratio(true_positive, predicted_total)
+    recall = ratio(true_positive, teacher_total)
+    return {
+        "diagnostic_only": True,
+        "replayed": False,
+        "true_positive_actions_with_oracle_targets": true_positive,
+        "target_precision_upper_bound": precision,
+        "target_recall_upper_bound": recall,
+        "target_f1_upper_bound": ratio(2 * precision * recall, precision + recall),
+    }
 
 
-def output_diagnostics(
-    base_lines, counts, predicted_lines, predicted_tokens, vocabulary_size,
-):
+def output_diagnostics(base_lines, counts, predicted_lines, predicted_tokens, exact_pairs):
     duplicate_targets = self_targets = other_actions = 0
-    for base, lines, tokens in zip(
-        base_lines, predicted_lines, predicted_tokens
-    ):
+    for base, lines, tokens in zip(base_lines, predicted_lines, predicted_tokens):
         duplicate_targets += len(lines) - len(set(lines))
         self_targets += sum(int(int(line) == int(base)) for line in lines)
-        for token in tokens:
-            kind, delta_class, _ = decode_joint_token(token, vocabulary_size)
-            if kind == "EMIT" and delta_class == vocabulary_size:
-                other_actions += 1
+        other_actions += sum(
+            decode_action_token(token, exact_pairs)[0] == "OTHER"
+            for token in tokens
+        )
     total = sum(map(len, predicted_lines))
     if int(np.asarray(counts).sum()) != total:
-        raise RuntimeError("joint output accounting differs from emitted actions")
+        raise RuntimeError("output accounting differs from emitted actions")
     return {
         "raw_predicted_action_count": total,
         "materialized_action_count": total,
         "raw_positive_callback_count": int((np.asarray(counts) > 0).sum()),
-        "materialized_positive_callback_count": sum(
-            bool(items) for items in predicted_lines
-        ),
+        "materialized_positive_callback_count": sum(bool(x) for x in predicted_lines),
         "self_target_actions": self_targets,
         "duplicate_target_actions": duplicate_targets,
         "other_escape_actions": other_actions,
@@ -901,13 +939,9 @@ def output_diagnostics(
     }
 
 
-def train_model(
-    model, bundles, targets, streams, teachers, vocabulary, priors,
-    action_horizon, device, args,
-):
+def train_model(model, bundles, targets, device, args):
     optimizer = torch.optim.Adam(model.parameters(), lr=args.learning_rate)
-    features = torch.from_numpy(bundles["train"]["features"])
-    chunks = list(_iter_chunks(len(features), args.chunk_len))
+    chunks = list(_iter_chunks(len(bundles["train"]["features"]), args.chunk_len))
     history, best = [], None
     for epoch in range(1, args.epochs + 1):
         model.train()
@@ -916,386 +950,408 @@ def train_model(
         optimizer_steps = 0
         for group_start in range(0, len(chunks), args.accumulate_chunks):
             optimizer.zero_grad(set_to_none=True)
-            group_losses, group_atoms = [], 0
+            group = {
+                "count": None, "action": None, "coordinate": None,
+                "decisions": 0, "actions": 0, "others": 0,
+            }
             for start, stop in chunks[
                 group_start:group_start + args.accumulate_chunks
             ]:
-                features_chunk = features[start:stop].to(device)
-                context, recurrent = model.encode(features_chunk, recurrent)
+                features = torch.from_numpy(
+                    bundles["train"]["features"][start:stop]
+                ).to(device)
+                kinds = torch.from_numpy(
+                    bundles["train"]["demand_kind"][start:stop]
+                ).to(device)
+                context, recurrent = model.encode(features, kinds, recurrent)
                 recurrent = detach_state(recurrent)
-                sliced = tuple(value[start:stop] for value in targets["train"])
-                loss, components = chunk_loss(
-                    model, context, sliced, priors["class_weights"], device
+                parts = chunk_loss_parts(
+                    model, context,
+                    tuple(value[start:stop] for value in targets["train"]),
                 )
-                if loss is None:
+                if parts is None:
                     continue
-                if not torch.isfinite(loss):
-                    raise RuntimeError("non-finite SPP v23 training loss")
-                group_losses.append(loss)
-                group_atoms += components["total_atoms"]
-                totals.update(components)
-            if not group_losses:
+                for source, target in (
+                    ("count_sum", "count"),
+                    ("action_sum", "action"),
+                    ("coordinate_sum", "coordinate"),
+                ):
+                    group[target] = (
+                        parts[source] if group[target] is None
+                        else group[target] + parts[source]
+                    )
+                    totals[source] += float(parts[source].detach())
+                group["decisions"] += parts["decision_atoms"]
+                group["actions"] += parts["action_atoms"]
+                group["others"] += parts["other_atoms"]
+                totals["decision_atoms"] += parts["decision_atoms"]
+                totals["action_atoms"] += parts["action_atoms"]
+                totals["other_atoms"] += parts["other_atoms"]
+            if group["decisions"] == 0:
                 continue
-            (torch.stack(group_losses).sum() / group_atoms).backward()
+            objective = (
+                group["count"] + group["action"]
+            ) / float(group["decisions"])
+            if group["others"]:
+                objective = objective + group["coordinate"] / float(group["others"])
+            if not torch.isfinite(objective):
+                raise RuntimeError("non-finite SPP v24 training objective")
+            objective.backward()
             optimizer.step()
             optimizer_steps += 1
-        normalized = (
-            totals["joint_sum"] + totals["other_sum"]
-        ) / max(1, totals["total_atoms"])
-        guard_contexts = score_role_history(
-            model, bundles, ("train", "guard"), device
+
+        guard_context = score_role_history(
+            model, bundles, ("train", "guard"), device, args.chunk_len
         )["guard"]
-        guard_positions = streams["guard"]["demand_positions"]
-        guard_bases = np.asarray(
-            [row[2] for row in streams["guard"]["demands"]], dtype=np.int64
+        guard_nll = natural_list_nll(
+            model, guard_context, targets["guard"], device
         )
-        decoded = decode_actions(
-            model, guard_contexts[guard_positions], guard_bases, vocabulary,
-            priors["class_weights"], action_horizon, device,
+        selection = (
+            -guard_nll["natural_action_list_nll_per_callback"], -epoch
         )
-        metrics = complete_behavior_metrics(
-            decoded[0], decoded[1], decoded[2], teachers["guard"]
-        )
-        selection = guard_selection_key(metrics, normalized, epoch)
+        train_list_nll = (
+            totals["count_sum"] + totals["action_sum"]
+        ) / max(1, totals["decision_atoms"])
         row = {
             "epoch": epoch,
-            "normalized_train_loss": normalized,
-            "weighted_joint_token_nll": (
-                totals["joint_sum"] / max(1, totals["joint_atoms"])
+            "train_natural_action_list_nll_per_callback": train_list_nll,
+            "train_count_nll_per_callback": (
+                totals["count_sum"] / max(1, totals["decision_atoms"])
             ),
-            "other_signed_log_loss": (
-                totals["other_sum"] / max(1, totals["other_atoms"])
+            "train_joint_action_nll_per_callback": (
+                totals["action_sum"] / max(1, totals["decision_atoms"])
             ),
-            "optimizer_steps": optimizer_steps,
-            "guard_joint_action_f1": metrics["joint_action_f1"],
-            "guard_target_f1": metrics["target_f1"],
-            "guard_l2_joint_f1": metrics["l2_joint_f1"],
-            "guard_trigger_f1": metrics["trigger_f1"],
-            "guard_count_exact_match_rate": metrics["count_exact_match_rate"],
-            "guard_fill_accuracy_on_matched_targets": (
-                0.0 if metrics.get("fill_accuracy_on_matched_targets") is None
-                else metrics["fill_accuracy_on_matched_targets"]
+            "train_other_auxiliary_per_other_action": (
+                totals["coordinate_sum"] / max(1, totals["other_atoms"])
             ),
-            "guard_joint_token_entropy": decoded[4][
-                "mean_prior_corrected_joint_token_entropy"
+            "guard_natural_action_list_nll_per_callback": guard_nll[
+                "natural_action_list_nll_per_callback"
             ],
-            "guard_selection_key": json.dumps(selection),
+            "guard_count_nll_per_callback": guard_nll["count_nll_per_callback"],
+            "guard_joint_action_nll_per_callback": guard_nll[
+                "joint_action_nll_per_callback"
+            ],
+            "guard_other_auxiliary_per_other_action": guard_nll[
+                "other_auxiliary_per_other_action"
+            ],
+            "optimizer_steps": optimizer_steps,
+            "selection_key": json.dumps(selection),
         }
         history.append(row)
         if best is None or selection > best["selection_key"]:
             best = {
                 "epoch": epoch,
                 "selection_key": selection,
-                "guard_metrics": metrics,
-                "guard_decoder_diagnostics": decoded[4],
+                "guard_nll": guard_nll,
                 "state_dict": copy.deepcopy({
                     key: value.detach().cpu()
                     for key, value in model.state_dict().items()
                 }),
             }
         print(
-            "[train:spp-v23] epoch={} loss={:.8f} joint_f1={:.8f} "
-            "target_f1={:.8f}".format(
-                epoch, normalized, metrics["joint_action_f1"],
-                metrics["target_f1"],
+            "[train:spp-v24:{}] epoch={} train_list_nll={:.8f} "
+            "guard_list_nll={:.8f}".format(
+                model.core_type, epoch, train_list_nll,
+                guard_nll["natural_action_list_nll_per_callback"],
             )
         )
     if best is None:
-        raise RuntimeError("SPP v23 produced no checkpoint")
+        raise RuntimeError("SPP v24 produced no checkpoint")
     model.load_state_dict(best["state_dict"])
     return history, best
 
 
 def self_test_model(hidden_size):
-    for size in MODEL_POINTS["lstm"]:
-        model = GlobalSPPJointLSTM(size, 7)
-        observed = sum(parameter.numel() for parameter in model.parameters())
-        expected = expected_parameter_count(size, 7)
-        if observed != expected:
-            raise RuntimeError(
-                "SPP v23 parameter formula mismatch: {} != {}".format(
-                    observed, expected
-                )
+    for core_type in CORE_TYPES:
+        for size in MODEL_POINTS["lstm"]:
+            model = NaturalCardinalitySPPLSTM(
+                core_type, size, [0.5, 0.5], [0.5, 0.25, 0.25], 0.0
             )
+            observed = sum(parameter.numel() for parameter in model.parameters())
+            expected = expected_parameter_count(core_type, size, 2, 3)
+            if observed != expected:
+                raise RuntimeError(
+                    "SPP v24 parameter formula mismatch: {} != {}".format(
+                        observed, expected
+                    )
+                )
     if (
         inverse_signed_log(signed_log(-12345)) != -12345
         or inverse_signed_log(signed_log(6789)) != 6789
     ):
         raise RuntimeError("signed-log OTHER codec round trip failed")
-    sample = GlobalSPPJointLSTM(hidden_size, 7)
-    sample.eval()
-    features = torch.zeros((5, RUNTIME_FEATURES))
-    changed = features.clone()
-    changed[-1, 0] = 1.0
+    for core_type in CORE_TYPES:
+        model = NaturalCardinalitySPPLSTM(
+            core_type, hidden_size, [0.5, 0.5], [0.5, 0.25, 0.25], 0.0
+        )
+        features = torch.zeros((5, RUNTIME_FEATURES))
+        kinds = torch.tensor([True, False, True, False, True])
+        changed = features.clone()
+        changed[-1, 0] = 1.0
+        model.eval()
+        with torch.no_grad():
+            first, _ = model.encode(features, kinds)
+            second, _ = model.encode(changed, kinds)
+        if not torch.equal(first[:-1], second[:-1]):
+            raise RuntimeError("future callback changed a prior recurrent state")
+    sample = NaturalCardinalitySPPLSTM(
+        "global", hidden_size, [0.5, 0.25, 0.25], [0.5, 0.25, 0.25], 0.0
+    )
     with torch.no_grad():
-        first, _ = sample.encode(features)
-        second, _ = sample.encode(changed)
-    if not torch.equal(first[:-1], second[:-1]):
-        raise RuntimeError("future callback changed a prior global LSTM state")
-    forbidden = ("gate", "count", "fill_head", "delta_head", "action_cell")
-    if any(
-        any(token in name for token in forbidden)
-        for name, _ in sample.named_parameters()
+        sample.count_head.weight.zero_()
+        sample.count_head.bias[:] = torch.tensor([-5.0, -5.0, 5.0])
+        sample.action_head.weight.zero_()
+        sample.action_head.bias[:] = torch.tensor([5.0, -5.0, -5.0])
+    decoded = decode_actions(
+        sample, np.zeros((2, hidden_size), dtype=np.float32), [10, 20],
+        [(1, 2)], torch.device("cpu"), role="self-test",
+    )
+    if decoded[0].tolist() != [2, 2] or any(
+        len(items) != 2 for items in decoded[1]
     ):
-        raise RuntimeError("factorized head or action feedback leaked into v23")
-    sample.initialize_train_token_prior(
-        np.ones(joint_token_count(7), dtype=np.float64)
-        / joint_token_count(7),
-        np.ones(joint_token_count(7), dtype=np.float64),
+        raise RuntimeError("categorical count did not schedule exactly K actions")
+    fill_metric = complete_behavior_metrics(
+        np.asarray([1]), [[11]], [[2]], [[(11, 2)]]
     )
-    with torch.no_grad():
-        sample.joint_action.weight.zero_()
-        sample.joint_action.bias.fill_(-10.0)
-        sample.joint_action.bias[STOP_TOKEN] = 10.0
-    stopped = decode_actions(
-        sample, np.zeros((2, hidden_size), dtype=np.float32),
-        np.asarray([0, 1], dtype=np.int64), list(range(7)),
-        np.ones(joint_token_count(7), dtype=np.float64), 2,
-        torch.device("cpu"),
-    )
-    if stopped[0].tolist() != [0, 0] or stopped[4][
-        "finite_slot_exhaustion_callbacks"
-    ] != 0:
-        raise RuntimeError("joint STOP decoder self-test failed")
-    emit = encode_emit_token(0, 1, 7)
-    with torch.no_grad():
-        sample.joint_action.bias.fill_(-10.0)
-        sample.joint_action.bias[emit] = 10.0
-    finite = decode_actions(
-        sample, np.zeros((1, hidden_size), dtype=np.float32),
-        np.asarray([0], dtype=np.int64), list(range(7)),
-        np.ones(joint_token_count(7), dtype=np.float64), 2,
-        torch.device("cpu"),
-    )
-    if finite[0].tolist() != [2] or finite[4][
-        "finite_slot_exhaustion_callbacks"
-    ] != 1:
-        raise RuntimeError("finite joint-rank support self-test failed")
+    if fill_metric["fill_accuracy_on_matched_targets"] != 1.0:
+        raise RuntimeError("explicit fill-level metric codec changed")
     toy_stream = {
         "context": [("DEMAND", 0, 0, 0), ("DEMAND", 64, 1, 1)],
         "demands": [(1, 0, 0, 0), (2, 64, 1, 0)],
         "demand_positions": np.asarray([0, 1], dtype=np.int64),
     }
-    toy_actions = [[(1, 2)], []]
-    toy_targets = build_context_targets(toy_stream, toy_actions, [1], 1)[0]
-    if toy_targets.tolist() != [
-        [encode_emit_token(0, 0, 1)],
-        [STOP_TOKEN],
-    ]:
-        raise RuntimeError("all-tail STOP supervision self-test failed")
+    targets = build_context_targets(
+        toy_stream, [[(1, 2)], []], [(1, 2)], 2
+    )
+    if targets[0].tolist() != [1, 0] or targets[1].tolist() != [[0], [-1]]:
+        raise RuntimeError("natural no-STOP target construction changed")
 
 
-def main():
+def validate_core_selection(path, requested_core):
+    payload = json.loads(Path(path).read_text())
+    expected = {
+        "status": "PASS",
+        "selection_hidden_size": CORE_SELECTION_HIDDEN_SIZE,
+        "selection_metric": CORE_SELECTION_METRIC,
+        "tie_break": CORE_SELECTION_TIE_BREAK,
+    }
+    for key, value in expected.items():
+        if payload.get(key) != value:
+            raise RuntimeError("core selection {} mismatch".format(key))
+    candidates = payload.get("candidates")
+    if (
+        payload.get("selected_core") != requested_core
+        or not isinstance(candidates, dict)
+        or sorted(candidates) != sorted(CORE_TYPES)
+        or any(not math.isfinite(float(candidates[key])) for key in CORE_TYPES)
+    ):
+        raise RuntimeError("invalid or mismatched core selection")
+    expected_core = min(
+        CORE_TYPES,
+        key=lambda key: (float(candidates[key]), key != CORE_SELECTION_TIE_BREAK),
+    )
+    if requested_core != expected_core:
+        raise RuntimeError("selected core does not minimize guard natural NLL")
+    return payload
+
+
+def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", required=True, choices=[POLICY])
-    for role in ("train", "guard", "eval"):
-        parser.add_argument(
-            "--{}-stream".format(role), required=True, type=Path
-        )
+    for role in ("train", "guard"):
+        parser.add_argument("--{}-stream".format(role), required=True, type=Path)
         parser.add_argument(
             "--{}-teacher-actions".format(role), required=True, type=Path
         )
+    parser.add_argument("--eval-stream", type=Path)
+    parser.add_argument("--eval-teacher-actions", type=Path)
     parser.add_argument("--source-contract", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--model-family", choices=["lstm"], required=True)
     parser.add_argument("--model-size", type=int, required=True)
     parser.add_argument("--pair-id", required=True)
+    parser.add_argument("--run-mode", choices=["core-ablation", "final"], required=True)
+    parser.add_argument("--core-type", choices=CORE_TYPES, required=True)
+    parser.add_argument("--core-selection-file", type=Path)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--chunk-len", type=int, default=CHUNK_LEN)
-    parser.add_argument(
-        "--accumulate-chunks", type=int, default=ACCUMULATE_CHUNKS
-    )
+    parser.add_argument("--accumulate-chunks", type=int, default=ACCUMULATE_CHUNKS)
     parser.add_argument("--learning-rate", type=float, default=LEARNING_RATE)
-    parser.add_argument("--device", default="cuda")
-    args = parser.parse_args()
+    parser.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    return parser
 
-    pinned_training_config = describe_model_points()["training_config"]
-    actual_training_config = {
+
+def main():
+    args = build_parser().parse_args()
+    if MODEL_POINTS["lstm"].get(args.model_size) != args.pair_id:
+        raise RuntimeError("model size/pair is not a configured v24 point")
+    if args.run_mode == "core-ablation":
+        if args.model_size != CORE_SELECTION_HIDDEN_SIZE:
+            raise RuntimeError("core ablation is pinned to h32")
+        if args.eval_stream is not None or args.eval_teacher_actions is not None:
+            raise RuntimeError("EVAL must not be supplied during core selection")
+        if args.core_selection_file is not None:
+            raise RuntimeError("core selection input is invalid during ablation")
+        selected_core = None
+    else:
+        if args.eval_stream is None or args.eval_teacher_actions is None:
+            raise RuntimeError("final mode requires EVAL inputs")
+        if args.core_selection_file is None:
+            raise RuntimeError("final mode requires the GUARD-only core selection")
+        selected_core = validate_core_selection(
+            args.core_selection_file, args.core_type
+        )
+
+    pinned = describe_model_points()["training_config"]
+    actual = {
         "seed": args.seed,
         "epochs": args.epochs,
         "chunk_len": args.chunk_len,
         "accumulate_chunks": args.accumulate_chunks,
         "learning_rate": args.learning_rate,
     }
-    if actual_training_config != pinned_training_config:
+    if actual != pinned:
         raise RuntimeError(
-            "CLI training config {} differs from pinned run contract {}".format(
-                actual_training_config, pinned_training_config
+            "RUN_ID pins training config: observed={} expected={}".format(
+                actual, pinned
             )
         )
     source_contract = json.loads(args.source_contract.read_text())
     if source_contract.get("decision_effective_external_input") != SOURCE_INPUTS:
         raise RuntimeError("unexpected SPP source input contract")
-    if MODEL_POINTS["lstm"].get(args.model_size) != args.pair_id:
-        raise RuntimeError("model size/pair is not a configured v23 point")
-    if min(
-        args.epochs, args.chunk_len, args.accumulate_chunks
-    ) < 1:
-        raise RuntimeError("model/training dimensions must be positive")
-    device = torch.device(args.device)
-    if device.type == "cuda" and not torch.cuda.is_available():
-        raise RuntimeError("CUDA requested but unavailable")
-    cuda_device_name = (
-        torch.cuda.get_device_name(device) if device.type == "cuda" else None
-    )
-    if device.type != "cuda" or "A100" not in str(cuda_device_name):
-        raise RuntimeError(
-            "pinned v23 run requires an NVIDIA A100; observed {!r}".format(
-                cuda_device_name
-            )
-        )
-    if not hasattr(torch, "use_deterministic_algorithms"):
-        raise RuntimeError(
-            "this torch build cannot enforce deterministic algorithms"
-        )
-    if not hasattr(torch, "set_float32_matmul_precision") or not hasattr(
-        torch, "get_float32_matmul_precision"
-    ):
-        raise RuntimeError("this torch build cannot pin matmul precision")
-    torch.set_float32_matmul_precision("highest")
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-    torch.use_deterministic_algorithms(True)
-    self_test_model(args.model_size)
+
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    torch.cuda.manual_seed_all(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(args.seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    if not hasattr(torch, "set_float32_matmul_precision"):
+        raise RuntimeError("v24 requires torch matmul precision control")
+    torch.set_float32_matmul_precision("highest")
+    torch.use_deterministic_algorithms(True)
+    device = torch.device(
+        "cuda" if args.device == "auto" and torch.cuda.is_available()
+        else "cpu" if args.device == "auto" else args.device
+    )
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("CUDA requested but unavailable")
+    device_name = (
+        torch.cuda.get_device_name(device) if device.type == "cuda" else "cpu"
+    )
+    if device.type != "cuda" or "A100" not in device_name:
+        raise RuntimeError(
+            "the pinned v24 run requires an A100; observed {}".format(device_name)
+        )
+    model_contract_module.self_test_contract()
+    self_test_model(args.model_size)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    roles = ("train", "guard", "eval")
-    stream_paths = {
-        role: getattr(args, role + "_stream") for role in roles
-    }
+    # EVAL is deliberately absent until both checkpoint and core selection
+    # have completed.  Final mode loads it only after the selected GUARD
+    # checkpoint has reproduced byte-for-byte behavior metrics.
+    roles = ["train", "guard"]
+    stream_paths = {role: getattr(args, role + "_stream") for role in roles}
     action_paths = {
         role: getattr(args, role + "_teacher_actions") for role in roles
     }
     streams = {role: load_stream(stream_paths[role]) for role in roles}
     teachers = {
-        role: load_teacher_actions(
-            action_paths[role], streams[role]["demands"]
-        ) for role in roles
+        role: load_teacher_actions(action_paths[role], streams[role]["demands"])
+        for role in roles
     }
     bundles = {role: runtime_bundle(streams[role]) for role in roles}
     for role in roles:
-        if not np.array_equal(
-            bundles[role]["features"], runtime_bundle(streams[role])["features"]
-        ):
-            raise RuntimeError(
-                "{} runtime encoder is not reproducible".format(role)
+        reproduced = runtime_bundle(streams[role])
+        if (
+            not np.array_equal(bundles[role]["features"], reproduced["features"])
+            or not np.array_equal(
+                bundles[role]["demand_kind"], reproduced["demand_kind"]
             )
+        ):
+            raise RuntimeError("{} runtime encoder is not reproducible".format(role))
 
-    vocabulary, train_delta_frequencies = build_delta_vocabulary(
+    count_stats = count_statistics([len(items) for items in teachers["train"]])
+    count_classes = count_stats["count_output_classes"]
+    count_prior = count_stats["add_one_smoothed_natural_priors"]
+    exact_pairs, train_pair_frequencies = build_action_vocabulary(
         streams["train"], teachers["train"]
     )
-    action_horizon = train_action_horizon(teachers["train"])
+    action_counts, action_prior = action_class_prior(
+        exact_pairs, train_pair_frequencies
+    )
+    coordinate_bias = action_coordinate_initial_bias(
+        teacher_action_pairs(streams["train"], teachers["train"])
+    )
     targets = {
-        "train": build_context_targets(
-            streams["train"], teachers["train"], vocabulary, action_horizon
-        )
-    }
-    priors = joint_training_statistics(targets["train"], len(vocabulary))
-    vocabulary_stats = {
-        role: vocabulary_statistics(
-            streams[role], teachers[role], vocabulary
+        role: build_context_targets(
+            streams[role], teachers[role], exact_pairs, count_classes
         ) for role in roles
     }
+    model = NaturalCardinalitySPPLSTM(
+        args.core_type, args.model_size, count_prior, action_prior,
+        coordinate_bias,
+    ).to(device)
+    parameter_count = sum(parameter.numel() for parameter in model.parameters())
+    expected_parameters = expected_parameter_count(
+        args.core_type, args.model_size, count_classes,
+        action_token_count(len(exact_pairs)),
+    )
+    if parameter_count != expected_parameters:
+        raise RuntimeError("realized SPP v24 parameter count changed")
 
-    model = GlobalSPPJointLSTM(args.model_size, len(vocabulary)).to(device)
-    model.initialize_train_token_prior(
-        priors["token_priors"], priors["class_weights"]
+    history, best = train_model(model, bundles, targets, device, args)
+    guard_context = score_role_history(
+        model, bundles, ("train", "guard"), device, args.chunk_len
+    )["guard"]
+    reproduced_guard_nll = natural_list_nll(
+        model, guard_context, targets["guard"], device
     )
-    parameter_count = sum(
-        parameter.numel() for parameter in model.parameters()
-    )
-    if parameter_count != expected_parameter_count(
-        args.model_size, len(vocabulary)
-    ):
-        raise RuntimeError("measured SPP v23 parameter count changed")
-    history, best = train_model(
-        model, bundles, targets, streams, teachers, vocabulary, priors,
-        action_horizon, device, args,
-    )
+    if reproduced_guard_nll != best["guard_nll"]:
+        raise RuntimeError("selected GUARD checkpoint did not reproduce")
 
-    # Reproduce selected GUARD evidence, then touch EVAL exactly once.
-    selected_contexts = score_role_history(
-        model, bundles, ("train", "guard"), device
-    )
-    guard_bases = np.asarray(
-        [row[2] for row in streams["guard"]["demands"]], dtype=np.int64
-    )
-    guard_decode = decode_actions(
-        model,
-        selected_contexts["guard"][streams["guard"]["demand_positions"]],
-        guard_bases, vocabulary, priors["class_weights"], action_horizon,
-        device,
-    )
-    selected_guard_metrics = complete_behavior_metrics(
-        guard_decode[0], guard_decode[1], guard_decode[2], teachers["guard"]
-    )
-    if selected_guard_metrics != best["guard_metrics"]:
-        raise RuntimeError("selected guard checkpoint did not reproduce")
-
-    eval_context = score_role_history(model, bundles, roles, device)["eval"]
-    eval_bases = np.asarray(
-        [row[2] for row in streams["eval"]["demands"]], dtype=np.int64
-    )
-    eval_decode = decode_actions(
-        model, eval_context[streams["eval"]["demand_positions"]], eval_bases,
-        vocabulary, priors["class_weights"], action_horizon, device,
-    )
-    behavior = complete_behavior_metrics(
-        eval_decode[0], eval_decode[1], eval_decode[2], teachers["eval"]
-    )
-    diagnostics = output_diagnostics(
-        eval_bases, eval_decode[0], eval_decode[1], eval_decode[3],
-        len(vocabulary),
-    )
-    modal_delta = min(
-        train_delta_frequencies,
-        key=lambda value: (-train_delta_frequencies[value], value),
-    )
-    control_lines, control_fills = build_modal_llc_control(
-        eval_bases, modal_delta
-    )
-
-    args.out_dir.mkdir(parents=True, exist_ok=True)
-    normal_path = args.out_dir / "offline_spp.replay.csv"
-    nn_path = args.out_dir / "offline_nn.replay.csv"
-    control_path = args.out_dir / "offline_modal_llc_control.replay.csv"
-    normal_entries, normal_triggers, normal_fill_counts = write_teacher_replay(
-        normal_path, streams["eval"]["demands"], teachers["eval"]
-    )
-    nn_entries, nn_triggers, nn_fill_counts = write_prediction_replay(
-        nn_path, streams["eval"]["demands"], eval_decode[1], eval_decode[2]
-    )
-    control_entries, control_triggers, control_fill_counts = (
-        write_prediction_replay(
-            control_path, streams["eval"]["demands"],
-            control_lines, control_fills,
+    if args.run_mode == "final":
+        roles.append("eval")
+        stream_paths["eval"] = args.eval_stream
+        action_paths["eval"] = args.eval_teacher_actions
+        streams["eval"] = load_stream(stream_paths["eval"])
+        teachers["eval"] = load_teacher_actions(
+            action_paths["eval"], streams["eval"]["demands"]
         )
-    )
+        bundles["eval"] = runtime_bundle(streams["eval"])
+        reproduced_eval = runtime_bundle(streams["eval"])
+        if (
+            not np.array_equal(
+                bundles["eval"]["features"], reproduced_eval["features"]
+            )
+            or not np.array_equal(
+                bundles["eval"]["demand_kind"],
+                reproduced_eval["demand_kind"],
+            )
+        ):
+            raise RuntimeError("eval runtime encoder is not reproducible")
+        targets["eval"] = build_context_targets(
+            streams["eval"], teachers["eval"], exact_pairs, count_classes
+        )
+
     history_path = args.out_dir / "training_history.csv"
     model_path = args.out_dir / "model.pt"
     write_table(history_path, history)
     torch.save({
         "state_dict": model.state_dict(),
-        "model_family": "lstm",
+        "run_id": RUN_ID,
+        "operation": OPERATION,
+        "run_mode": args.run_mode,
+        "core_type": args.core_type,
         "model_size": args.model_size,
-        "runtime_features": RUNTIME_FEATURES,
-        "exact_delta_vocabulary": vocabulary,
-        "other_class": len(vocabulary),
-        "joint_token_count": joint_token_count(len(vocabulary)),
-        "joint_group_order": ACTION_GROUPS,
-        "joint_group_weights": priors["group_weights"].tolist(),
-        "joint_class_weights": priors["class_weights"].tolist(),
-        "joint_effective_weighted_token_priors": (
-            priors["effective_weighted_token_priors"].tolist()
-        ),
-        "train_action_horizon": action_horizon,
-        "joint_decision_rank_count": action_horizon,
+        "count_support": list(range(count_classes)),
+        "count_prior": count_prior,
+        "exact_joint_action_pairs": [list(pair) for pair in exact_pairs],
+        "action_prior": action_prior,
         "selected_epoch": best["epoch"],
-        "stochastic_decoding": False,
+        "selected_guard_nll": best["guard_nll"],
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
         "decoder_revision": DECODER_REVISION,
@@ -1303,11 +1359,16 @@ def main():
 
     contract = describe_model_points()
     tag = model_tag("lstm", args.model_size)
-    state_bytes = 2 * args.model_size * 4
-    token_count = joint_token_count(len(vocabulary))
+    encoder_hash = runtime_encoder_sha256()
     metadata = {
         "run_id": RUN_ID,
+        "operation": OPERATION,
+        "experiment_revision": EXPERIMENT_REVISION,
+        "model_revision": MODEL_REVISION,
+        "decoder_revision": DECODER_REVISION,
+        "run_mode": args.run_mode,
         "parent_input_run_id": PARENT_INPUT_RUN_ID,
+        "input_reuse": "v23 input package reused byte-for-byte",
         "trace": TRACE,
         "model_tag": tag,
         "matched_normal_prefetcher": POLICY,
@@ -1316,47 +1377,40 @@ def main():
         "track_model_family": "lstm",
         "model_size": args.model_size,
         "architecture_pair_id": args.pair_id,
+        "core_type": args.core_type,
+        "selected_core_type": args.core_type if args.run_mode == "final" else None,
+        "core_ablation_role": CORE_ABLATION_ROLE,
+        "core_selection_hidden_size": CORE_SELECTION_HIDDEN_SIZE,
+        "core_selection_metric": CORE_SELECTION_METRIC,
+        "core_selection_tie_break": CORE_SELECTION_TIE_BREAK,
+        "core_selection_uses_evaluation": False,
+        "core_selection_payload": selected_core,
+        "core_selection_file_sha256": (
+            sha256(args.core_selection_file)
+            if args.core_selection_file is not None else None
+        ),
         "parameter_count": parameter_count,
         "realized_parameter_count": parameter_count,
-        "maximum_parameter_count": expected_parameter_count(
-            args.model_size, MAX_EXACT_DELTAS
-        ),
-        "maximum_parameter_count_at_255_exact_deltas": (
-            expected_parameter_count(args.model_size, MAX_EXACT_DELTAS)
-        ),
-        "parameter_count_is_dataset_dependent": True,
+        "expected_parameter_count": expected_parameters,
+        "parameter_count_is_dataset_and_core_dependent": True,
         "parameter_formula": contract["parameter_formula"],
+        "model_point_contract": contract,
         "parameter_storage_bytes_float32": parameter_count * 4,
-        "peak_persistent_recurrent_state_bytes": state_bytes,
+        "peak_persistent_recurrent_state_bytes": 2 * args.model_size * 4,
         "persistent_recurrent_state": (
-            "one bounded global chronological LSTM hidden/cell pair"
+            "one chronological hidden/cell pair; event kind selects transition"
+            if args.core_type == "event_routed"
+            else "one global chronological LSTM hidden/cell pair"
         ),
         "dynamic_page_state_pages": 0,
-        "recurrent_state_dtype": "float32",
-        "model_point_contract": contract,
         "seed": args.seed,
-        "operation": OPERATION,
-        "experiment_revision": EXPERIMENT_REVISION,
-        "model_revision": MODEL_REVISION,
-        "decoder_revision": DECODER_REVISION,
-        "weights_retrained": True,
-        "checkpoint_reused": False,
-        "decoder_only_change": False,
-        "guard_selected_checkpoint": True,
-        "guard_selected_decoder": False,
-        "selected_epoch": best["epoch"],
-        "guard_selection_key": list(best["selection_key"]),
-        "guard_selection_metrics": selected_guard_metrics,
-        "guard_selection_rule": contract["guard_selection_rule"],
-        "guard_selection_key_fields": [
-            "joint_action_f1", "target_f1", "l2_joint_f1", "trigger_f1",
-            "count_exact_match_rate", "fill_accuracy_on_matched_targets",
-            "negative_normalized_train_loss", "negative_epoch",
-        ],
-        "guard_selection_composite_or_mean_used": False,
-        "evaluation_decode_count": 1,
-        "evaluation_used_for_selection": False,
+        "epochs": args.epochs,
+        "chunk_len": args.chunk_len,
+        "accumulate_chunks": args.accumulate_chunks,
+        "learning_rate": args.learning_rate,
         "training_config": contract["training_config"],
+        "training_device": str(device),
+        "training_device_name": device_name,
         "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG"),
         "torch_deterministic_algorithms_enabled": bool(
             torch.are_deterministic_algorithms_enabled()
@@ -1365,22 +1419,20 @@ def main():
         "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
         "float32_matmul_precision": torch.get_float32_matmul_precision(),
         "determinism_fail_closed": True,
-        "cuda_device_name": cuda_device_name,
-        "epochs": args.epochs,
-        "chunk_len": args.chunk_len,
-        "accumulate_chunks": args.accumulate_chunks,
-        "learning_rate": args.learning_rate,
-        "runtime_feature_count": RUNTIME_FEATURES,
-        "runtime_encoding": contract["runtime_encoding"],
+        "stochastic_decoding": False,
+        "weights_retrained": True,
+        "checkpoint_reused": False,
+        "decoder_only_change": False,
         "source_decision_effective_external_input": SOURCE_INPUTS,
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
-        "runtime_encoder_entrypoint": "train_and_offline_infer.runtime_bundle",
-        "runtime_encoder_sha256": runtime_encoder_sha256(),
-        "training_runtime_encoder_sha256": runtime_encoder_sha256(),
-        "inference_runtime_encoder_sha256": runtime_encoder_sha256(),
+        "runtime_feature_count": RUNTIME_FEATURES,
+        "runtime_encoding": contract["runtime_encoding"],
+        "runtime_encoder_sha256": encoder_hash,
+        "training_runtime_encoder_sha256": encoder_hash,
+        "inference_runtime_encoder_sha256": encoder_hash,
         "model_does_not_use_pc": True,
         "pc_is_replay_transport_only": True,
         "model_input_is_causal_external_event_sequence_only": True,
@@ -1388,7 +1440,7 @@ def main():
         "cache_fill_private_state_used_as_model_input": False,
         "cache_hit_and_type_are_audit_only": True,
         "teacher_actions_are_model_inputs": False,
-        "teacher_actions_are_model_inputs_scope": "labels_and_comparator_only",
+        "teacher_actions_are_model_inputs_scope": "labels_comparator_and_diagnosis_only",
         "normal_policy_outputs_used_as_model_inputs": False,
         "normal_policy_candidates_used_as_model_inputs": False,
         "normal_policy_private_state_used_as_model_inputs": False,
@@ -1404,138 +1456,87 @@ def main():
         "normal_policy_templates_used_by_neural_inference": False,
         "future_label_window_used": False,
         "fill_lead_cutoff_used": False,
-        "normal_candidate_bank_is_fixed": False,
-        "nn_generates_own_target_addresses_and_fill_levels": True,
         "decoder_training_mode": DECODER_TRAINING_MODE,
-        "decoding_rule": contract["decoding_rule"],
+        "decoding_rule": DECODING_RULE,
+        "decision_rule": DECODING_RULE,
+        "count_training_objective": COUNT_OBJECTIVE,
+        "joint_action_training_objective": ACTION_OBJECTIVE,
+        "other_action_training_objective": OTHER_ACTION_OBJECTIVE,
+        "categorical_count_head_used": True,
+        "count_head_used": True,
+        "count_regression_used": False,
+        "hurdle_head_used": False,
+        "stop_token_used": False,
+        "stop_padding_used": False,
+        "loss_class_reweighting_used": False,
+        "decode_prior_correction_used": False,
+        "manual_loss_weights_used": False,
+        "count_zero_is_implicit_hurdle": True,
+        "count_support": list(range(count_classes)),
+        "count_support_source": "zero_through_maximum_TRAIN_teacher_count",
+        "count_support_is_dataset_derived": True,
+        "count_support_is_normal_request_budget": False,
+        "count_support_is_tuned_degree": False,
+        "count_train_statistics": count_stats,
+        "count_class_weights": None,
+        "action_loss_scope": "teacher_action_ranks_only",
+        "joint_action_vocabulary_source": (
+            "TRAIN_observed_delta_fill_pairs_only_plus_OTHER_L2_OTHER_LLC"
+        ),
+        "joint_action_vocabulary_cartesian_product_used": False,
+        "joint_action_vocabulary_max_exact_pairs": MAX_EXACT_ACTION_PAIRS,
+        "exact_joint_action_pairs": [list(pair) for pair in exact_pairs],
+        "exact_joint_action_pair_count": len(exact_pairs),
+        "joint_action_output_classes": action_token_count(len(exact_pairs)),
+        "joint_action_train_class_counts": action_counts,
+        "joint_action_add_one_natural_priors": action_prior,
+        "joint_action_class_weights": None,
+        "other_action_tokens": {
+            "OTHER_L2": other_action_token(2, len(exact_pairs)),
+            "OTHER_LLC": other_action_token(4, len(exact_pairs)),
+        },
+        "other_action_coordinate_initial_bias": coordinate_bias,
+        "delta_other_escape": contract["delta_other_escape"],
+        "delta_coordinate_auxiliary_scope": "OTHER_teacher_actions_only",
+        "all_actions_relative_to_current_demand": True,
+        "delta_legality_constraints": [],
+        "delta_legality_fallback": None,
+        "duplicate_target_handling": "preserve_all_learned_outputs_for_replay",
+        "joint_action_vocabulary_statistics": {
+            role: vocabulary_statistics(
+                streams[role], teachers[role], exact_pairs
+            ) for role in roles
+        },
+        "separate_delta_head_used": False,
+        "separate_fill_head_used": False,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "teacher_action_values_used_as_decoder_feedback": False,
-        "teacher_target_used_as_recurrent_feedback": False,
-        "sampled_outputs_used_as_decoder_feedback": False,
         "rank_conditioning": "generic_four_component_sinusoidal_position_code",
-        "joint_action_training_objective": JOINT_ACTION_OBJECTIVE,
-        "other_delta_training_objective": OTHER_DELTA_OBJECTIVE,
-        "joint_action_token_definition": contract[
-            "joint_action_token_definition"
-        ],
-        "joint_action_token_order": (
-            "STOP_then_for_each_delta_class_EMIT_L2_then_EMIT_LLC"
+        "checkpoint_selection": CHECKPOINT_SELECTION,
+        "guard_selected_checkpoint": True,
+        "selected_epoch": best["epoch"],
+        "selected_guard_natural_action_list_nll": best["guard_nll"],
+        "guard_selection_composite_or_mean_used": False,
+        "evaluation_used_for_selection": False,
+        "evaluation_loaded_after_checkpoint_selection": (
+            args.run_mode == "final"
         ),
-        "joint_action_token_count": token_count,
-        "joint_action_group_order": list(ACTION_GROUPS),
-        "joint_action_train_token_counts": priors["token_counts"].tolist(),
-        "joint_action_train_token_priors_add_one": (
-            priors["token_priors"].tolist()
-        ),
-        "joint_action_initial_effective_weighted_token_priors": (
-            priors["effective_weighted_token_priors"].tolist()
-        ),
-        "joint_action_bias_initialization": contract[
-            "joint_action_bias_initialization"
-        ],
-        "joint_action_train_group_counts": priors["group_counts"].tolist(),
-        "joint_action_train_group_weights": priors["group_weights"].tolist(),
-        "joint_action_group_weight_formula": "N/(3*N_group)",
-        "joint_action_prior_correction_at_decode_used": True,
-        "joint_action_prior_correction_rule": contract[
-            "joint_action_prior_correction_rule"
-        ],
-        "joint_action_decoding_rule": contract["decoding_rule"],
-        "separate_gate_head_used": False,
-        "request_count_head_used": False,
-        "request_count_regression_used": False,
-        "separate_delta_head_used": False,
-        "separate_fill_head_used": False,
-        "fill_argmax_used": False,
-        "stop_emit_head_used": False,
-        "terminal_stop_supervised_for_every_teacher_sequence": False,
-        "all_available_tail_stop_supervised": True,
-        "maximum_length_sequences_terminate_by_finite_support": True,
-        "train_action_horizon": action_horizon,
-        "joint_decision_rank_count": action_horizon,
-        "finite_output_horizon_source": contract[
-            "finite_output_horizon_source"
-        ],
-        "finite_output_horizon_is_dataset_derived": True,
-        "finite_output_horizon_is_normal_request_budget": False,
-        "finite_output_horizon_is_tuned_degree": False,
-        "maximum_possible_actions_from_finite_support": action_horizon,
-        "all_train_teacher_sequences_have_terminal_stop_label": False,
-        "delta_training_objective": (
-            "joint_action_token_cross_entropy_plus_OTHER_only_signed_log"
-        ),
-        "delta_decoding_rule": (
-            "joint_token_exact_TRAIN_delta_or_signed_log_OTHER_relative_to_"
-            "callback_line"
-        ),
-        "delta_vocabulary_source": (
-            "TRAIN_labels_only_top_frequency_then_signed_value_tie_break"
-        ),
-        "delta_vocabulary_architecture_budget": MAX_EXACT_DELTAS,
-        "delta_vocabulary_max_exact": MAX_EXACT_DELTAS,
-        "exact_delta_vocabulary": vocabulary,
-        "exact_delta_vocabulary_size": len(vocabulary),
-        "realized_exact_delta_vocabulary_size": len(vocabulary),
-        "other_delta_class": len(vocabulary),
-        "delta_vocabulary_statistics": vocabulary_stats,
-        "delta_other_escape": (
-            "signed_log_continuous_bounded_approximation"
-        ),
-        "delta_other_decode_precision": (
-            "rounded_float32_approximate_except_exact_vocabulary"
-        ),
-        "full_signed_line_delta_range_reachable": False,
-        "every_signed_line_delta_exactly_representable": False,
-        "exact_delta_representability_scope": "train_vocabulary_only",
-        "train_delta_frequency_histogram": {
-            str(key): value
-            for key, value in sorted(train_delta_frequencies.items())
-        },
-        "delta_zero_allowed": True,
-        "self_target_actions_allowed": True,
-        "delta_legality_constraints": [],
-        "delta_legality_fallback": None,
-        "duplicate_target_handling": (
-            "preserve_all_learned_outputs_for_replay"
-        ),
-        "fill_training_objective": (
-            "inside_single_joint_action_token_cross_entropy"
-        ),
-        "fill_probability_threshold": None,
-        "stochastic_decoding": False,
-        "keyed_sampling_used": False,
-        "decoder_sampling_roles": [],
-        "decoder_guard_diagnostics": guard_decode[4],
-        "decoder_eval_diagnostics": eval_decode[4],
         "training_chunks_shuffled": False,
         "training_state_mode": "chronological_stateful_tbptt",
         "training_state_carried_across_chunks": True,
         "training_state_detached_between_chunks": True,
-        "inference_history_mode": (
-            "fresh_state_then_complete_train_guard_eval_chronology"
-        ),
-        "global_chronological_lstm": True,
-        "routed_demand_fill_recurrent_paths": False,
+        "global_chronological_state_count": 1,
+        "routed_demand_fill_recurrent_paths": args.core_type == "event_routed",
+        "event_routed_core_adds_runtime_input": False,
         "page_local_causal_state": False,
         "handcrafted_semantic_features_used": False,
         "causal_derived_features": [],
-        "manual_head_loss_weights_used": False,
-        "data_derived_joint_group_weights_used": True,
-        "teacher_max_actions_per_callback": {
-            role: max(map(len, teachers[role])) for role in roles
-        },
-        "maximum_action_count_is_learned_not_fixed": False,
-        "finite_support_is_train_derived_not_hardcoded": True,
         "causal_no_future_self_test": "PASS",
-        "joint_token_bijection_self_test": "PASS",
-        "all_tail_stop_supervision_self_test": "PASS",
-        "finite_rank_termination_self_test": "PASS",
-        "joint_group_prior_correction_self_test": "PASS",
+        "natural_no_stop_target_self_test": "PASS",
+        "categorical_count_exact_K_self_test": "PASS",
         "rank_no_action_feedback_self_test": "PASS",
         "signed_log_other_codec_self_test": "PASS",
-        "integer_csv_exactness_self_test": "PASS",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
@@ -1545,67 +1546,23 @@ def main():
         "offline_input_feedback_origin": (
             "recorded cache-fill callbacks produced by the source SPP run"
         ),
-        "comparison_claim_boundary": (
-            "matched-input open-loop offline comparison only"
-        ),
-        "collection_manifest_role": (
-            "historical_input_package_provenance_only"
-        ),
-        "collection_manifest_decoder_fields_are_current_contract": False,
-        "input_reuse": "v22 input package reused byte-for-byte",
-        "non_neural_control_name": (
-            "every_callback_TRAIN_modal_delta_FILL_LLC"
-        ),
-        "non_neural_control_uses_model": False,
-        "non_neural_control_excluded_from_neural_claims": True,
-        "non_neural_control_actions_per_callback": 1,
-        "non_neural_control_fill_level": "FILL_LLC",
-        "non_neural_control_delta_source": (
-            "TRAIN_teacher_action_frequency_only"
-        ),
-        "non_neural_control_modal_delta": int(modal_delta),
-        "non_neural_control_modal_delta_train_frequency": int(
-            train_delta_frequencies[modal_delta]
-        ),
-        "non_neural_control_entries": control_entries,
-        "non_neural_control_triggers": control_triggers,
-        "non_neural_control_fill_counts": control_fill_counts,
-        "non_neural_control_list_sha256": sha256(control_path),
+        "comparison_claim_boundary": "matched-input open-loop offline comparison only",
+        "input_archive_reused_byte_for_byte": True,
+        "train_history": history,
+        "model_checkpoint_sha256": sha256(model_path),
+        "training_history_sha256": sha256(history_path),
         "source_contract_sha256": sha256(args.source_contract),
         "trainer_source_sha256": sha256(Path(__file__)),
         "model_contract_source_sha256": sha256(
             Path(__file__).with_name("model_contract.py")
         ),
         "threshold_free_policy_source_sha256": sha256(
-            REPO_ROOT / "formal_NN_training" / "common"
-            / "threshold_free_policy.py"
+            REPO_ROOT / "formal_NN_training" / "common" / "threshold_free_policy.py"
         ),
-        "offline_normal_entries": normal_entries,
-        "offline_normal_triggers": normal_triggers,
-        "offline_normal_fill_counts": normal_fill_counts,
-        "offline_normal_fill_level_counts": normal_fill_counts,
-        "offline_nn_entries": nn_entries,
-        "offline_nn_triggers": nn_triggers,
-        "offline_nn_fill_counts": nn_fill_counts,
-        "offline_nn_fill_level_counts": nn_fill_counts,
-        "action_output_diagnostics": diagnostics,
-        "raw_predicted_action_count": diagnostics[
-            "raw_predicted_action_count"
-        ],
-        "materialized_action_count": diagnostics[
-            "materialized_action_count"
-        ],
-        "normal_list_sha256": sha256(normal_path),
-        "nn_list_sha256": sha256(nn_path),
-        "heldout_behavior_metrics": behavior,
-        "train_history": history,
-        "source_contract": source_contract,
-        "model_checkpoint_sha256": sha256(model_path),
-        "training_history_sha256": sha256(history_path),
+        "decision_router_source_sha256": decision_router_source_sha256(),
         "python": platform.python_version(),
         "torch": torch.__version__,
         "numpy": np.__version__,
-        "decision_router_source_sha256": decision_router_source_sha256(),
     }
     for role in roles:
         metadata[role + "_decision_router_sha256"] = decision_router_sha256(
@@ -1618,25 +1575,129 @@ def main():
         metadata[role + "_teacher_actions_gzip_sha256"] = sha256(
             action_paths[role]
         )
-        metadata[role + "_teacher_actions_content_sha256"] = (
-            gzip_content_sha256(action_paths[role])
+        metadata[role + "_teacher_actions_content_sha256"] = gzip_content_sha256(
+            action_paths[role]
         )
-    metadata_path = args.out_dir / "run_metadata.json"
-    metadata_path.write_text(
+
+    if args.run_mode == "final":
+        eval_context = score_role_history(
+            model, bundles, ("train", "guard", "eval"), device, args.chunk_len
+        )["eval"]
+        eval_positions = streams["eval"]["demand_positions"]
+        eval_decisions = eval_context[eval_positions]
+        eval_bases = np.asarray(
+            [row[2] for row in streams["eval"]["demands"]], dtype=np.int64
+        )
+        eval_decode = decode_actions(
+            model, eval_decisions, eval_bases, exact_pairs, device, role="eval"
+        )
+        heldout = complete_behavior_metrics(
+            eval_decode[0], eval_decode[1], eval_decode[2], teachers["eval"]
+        )
+        teacher_counts = np.asarray(
+            [len(items) for items in teachers["eval"]], dtype=np.int64
+        )
+        oracle_decode = decode_actions(
+            model, eval_decisions, eval_bases, exact_pairs, device,
+            count_override=teacher_counts, role="diagnostic-oracle-count",
+        )
+        oracle_metrics = complete_behavior_metrics(
+            oracle_decode[0], oracle_decode[1], oracle_decode[2], teachers["eval"]
+        )
+        oracle_diagnostics = {
+            "diagnosis_only": True,
+            "excluded_from_fair_replay_claims": True,
+            "oracle_count_plus_nn_action": {
+                "replayed": False,
+                "behavior_metrics": oracle_metrics,
+                "decoder_diagnostics": oracle_decode[4],
+            },
+            "nn_count_plus_oracle_action": count_oracle_upper_bound(
+                eval_decode[0], teachers["eval"]
+            ),
+        }
+        modal_delta_counts = Counter()
+        for (delta, _), frequency in train_pair_frequencies.items():
+            modal_delta_counts[int(delta)] += int(frequency)
+        modal_delta = min(
+            modal_delta_counts,
+            key=lambda value: (-modal_delta_counts[value], value),
+        )
+        control_lines, control_fills = build_modal_llc_control(
+            eval_bases, modal_delta
+        )
+        normal_path = args.out_dir / "offline_spp.replay.csv"
+        nn_path = args.out_dir / "offline_nn.replay.csv"
+        control_path = args.out_dir / "offline_modal_llc_control.replay.csv"
+        normal = write_teacher_replay(
+            normal_path, streams["eval"]["demands"], teachers["eval"]
+        )
+        neural = write_prediction_replay(
+            nn_path, streams["eval"]["demands"], eval_decode[1], eval_decode[2]
+        )
+        control = write_prediction_replay(
+            control_path, streams["eval"]["demands"], control_lines, control_fills
+        )
+        diagnostics = output_diagnostics(
+            eval_bases, eval_decode[0], eval_decode[1], eval_decode[3], exact_pairs
+        )
+        metadata.update({
+            "evaluation_policy_decode_count": 1,
+            "diagnostic_eval_decode_count": 1,
+            "oracle_diagnostics": oracle_diagnostics,
+            "oracle_diagnostics_replayed": False,
+            "oracle_diagnostics_excluded_from_fair_claims": True,
+            "heldout_behavior_metrics": heldout,
+            "decoder_eval_diagnostics": eval_decode[4],
+            "action_output_diagnostics": diagnostics,
+            "raw_predicted_action_count": diagnostics["raw_predicted_action_count"],
+            "materialized_action_count": diagnostics["materialized_action_count"],
+            "offline_normal_entries": normal[0],
+            "offline_normal_triggers": normal[1],
+            "offline_normal_fill_counts": normal[2],
+            "offline_normal_fill_level_counts": normal[2],
+            "offline_nn_entries": neural[0],
+            "offline_nn_triggers": neural[1],
+            "offline_nn_fill_counts": neural[2],
+            "offline_nn_fill_level_counts": neural[2],
+            "normal_list_sha256": sha256(normal_path),
+            "nn_list_sha256": sha256(nn_path),
+            "non_neural_control_name": "every_callback_TRAIN_modal_delta_FILL_LLC",
+            "non_neural_control_uses_model": False,
+            "non_neural_control_excluded_from_neural_claims": True,
+            "non_neural_control_actions_per_callback": 1,
+            "non_neural_control_fill_level": "FILL_LLC",
+            "non_neural_control_delta_source": "TRAIN_teacher_action_frequency_only",
+            "non_neural_control_modal_delta": int(modal_delta),
+            "non_neural_control_modal_delta_train_frequency": int(
+                modal_delta_counts[modal_delta]
+            ),
+            "non_neural_control_entries": control[0],
+            "non_neural_control_triggers": control[1],
+            "non_neural_control_fill_counts": control[2],
+            "non_neural_control_list_sha256": sha256(control_path),
+        })
+    else:
+        metadata.update({
+            "evaluation_files_loaded": False,
+            "evaluation_used_for_selection": False,
+            "core_ablation_replayed": False,
+        })
+
+    (args.out_dir / "run_metadata.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )
     print(json.dumps({
         "status": "PASS",
+        "run_mode": args.run_mode,
         "model_tag": tag,
+        "core_type": args.core_type,
         "parameters": parameter_count,
         "selected_epoch": best["epoch"],
-        "exact_delta_vocabulary_size": len(vocabulary),
-        "train_action_horizon": action_horizon,
-        "joint_token_count": token_count,
-        "offline_normal_entries": normal_entries,
-        "offline_nn_entries": nn_entries,
-        "offline_nn_fill_level_counts": nn_fill_counts,
-        "non_neural_control_entries": control_entries,
+        "guard_natural_action_list_nll_per_callback": best["guard_nll"][
+            "natural_action_list_nll_per_callback"
+        ],
+        "offline_nn_entries": metadata.get("offline_nn_entries"),
     }, indent=2))
 
 
