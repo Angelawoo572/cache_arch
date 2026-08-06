@@ -12,9 +12,8 @@ from pathlib import Path
 
 from model_contract import (
     EXPERIMENT_REVISION, MODEL_REVISION as ACTIVE_MODEL_REVISION,
-    MODEL_TAG_PREFIX, PARENT_DECODER_REVISION, PARENT_MODEL_REVISION,
-    PARENT_RUN_ID, POLICY, RUN_ID, TRACE, expected_parameter_count,
-    model_points_description,
+    MODEL_TAG_PREFIX, PARENT_INPUT_RUN_ID, POLICY, RUN_ID, TRACE,
+    expected_parameter_count, model_points_description,
 )
 
 POLICIES = (POLICY,)
@@ -49,10 +48,6 @@ EXPECTED_PARAMETERS_BY_REVISION = {
     V18_MODEL_REVISION: {
         8: 1860, 16: 5124, 32: 15876, 64: 54276, 128: 198660,
     },
-    ACTIVE_MODEL_REVISION: {
-        point["model_size"]: point["maximum_parameter_count"]
-        for point in ACTIVE_CONTRACT["points"]
-    },
 }
 EVENT_LOGGER_SCHEMA = "623_causal_trigger_v5"
 CANDIDATE_ATTACHMENT_MODE = "explicit_trigger_event_id"
@@ -77,6 +72,16 @@ REPLAYER_REJECTED = re.compile(
 
 def div(numerator, denominator):
     return float(numerator) / float(denominator) if denominator else 0.0
+
+
+def optional_div(numerator, denominator):
+    """Return None when a rate has no defined denominator.
+
+    Counts and coverage may correctly be zero; precision/timeliness-style
+    rates with no selected/requested actions are N/A rather than numeric zero.
+    CSV renders None as an empty cell and JSON renders it as null.
+    """
+    return float(numerator) / float(denominator) if denominator else None
 
 
 def sha256(path):
@@ -222,15 +227,15 @@ def parse_log(path):
         "pf_useless": useless,
         "pf_late": late,
         "pq_merged_duplicate_proxy": merged,
-        "accuracy": div(useful, issued),
-        "selected_accuracy": div(useful, nodup_issued),
-        "timeliness": div(useful, useful + late),
-        "late_per_issued": div(late, issued),
-        "drop_rate": div(dropped, requested),
-        "useless_per_issued": div(useless, issued),
+        "accuracy": optional_div(useful, issued),
+        "selected_accuracy": optional_div(useful, nodup_issued),
+        "timeliness": optional_div(useful, useful + late),
+        "late_per_issued": optional_div(late, issued),
+        "drop_rate": optional_div(dropped, requested),
+        "useless_per_issued": optional_div(useless, issued),
         "one_minus_selected_accuracy": (
-            max(0.0, 1.0 - div(useful, nodup_issued))
-            if nodup_issued else 0.0
+            max(0.0, 1.0 - float(useful) / nodup_issued)
+            if nodup_issued else None
         ),
     }
 
@@ -327,11 +332,11 @@ def parse_events(path):
                 result["prefetch_useful_demand_hits"] += 1
             if int(row["late"]):
                 result["prefetch_late_demand_misses"] += 1
-    result["event_selected_accuracy_proxy"] = div(
+    result["event_selected_accuracy_proxy"] = optional_div(
         result["prefetch_useful_demand_hits"],
         result["prefetch_request_events"],
     )
-    result["event_timeliness_proxy"] = div(
+    result["event_timeliness_proxy"] = optional_div(
         result["prefetch_useful_demand_hits"],
         result["prefetch_useful_demand_hits"]
         + result["prefetch_late_demand_misses"],
@@ -413,8 +418,9 @@ def add_comparison_metrics(rows, failures):
                 - baseline["l2_load_miss_rate"]
             )
             row["selected_accuracy_delta_vs_offline_normal"] = (
-                row["selected_accuracy"]
-                - baseline["selected_accuracy"]
+                row["selected_accuracy"] - baseline["selected_accuracy"]
+                if row["selected_accuracy"] is not None
+                and baseline["selected_accuracy"] is not None else ""
             )
             row["coverage_delta_vs_offline_normal"] = (
                 row["coverage_vs_no_pref_l2_miss"]
@@ -422,6 +428,8 @@ def add_comparison_metrics(rows, failures):
             )
             row["timeliness_delta_vs_offline_normal"] = (
                 row["timeliness"] - baseline["timeliness"]
+                if row["timeliness"] is not None
+                and baseline["timeliness"] is not None else ""
             )
             request_ratio = div(
                 row["pf_requested"], baseline["pf_requested"]
@@ -433,10 +441,12 @@ def add_comparison_metrics(rows, failures):
             row["one_minus_selected_accuracy_delta_vs_offline_normal"] = (
                 row["one_minus_selected_accuracy"]
                 - baseline["one_minus_selected_accuracy"]
+                if row["one_minus_selected_accuracy"] is not None
+                and baseline["one_minus_selected_accuracy"] is not None else ""
             )
 
 
-def validate_active_metadata(metadata, tag, inputs, failures):
+def validate_active_metadata_v23_legacy(metadata, tag, inputs, failures):
     """Fail closed on the decoder-only v23 Stride ablation contract."""
     experiment = Path(__file__).resolve().parents[1]
     repository = Path(__file__).resolve().parents[4]
@@ -908,6 +918,223 @@ def validate_active_metadata(metadata, tag, inputs, failures):
                         tag, role, kind
                     )
                 )
+def validate_active_metadata(metadata, tag, inputs, failures):
+    """Fail closed on the natural-cardinality v24 Stride contract."""
+    experiment = Path(__file__).resolve().parents[1]
+    repository = Path(__file__).resolve().parents[4]
+    expected = {
+        "run_id": RUN_ID,
+        "parent_input_run_id": PARENT_INPUT_RUN_ID,
+        "operation": ACTIVE_CONTRACT["operation"],
+        "trace": TRACE,
+        "model_tag": tag,
+        "matched_normal_prefetcher": POLICY,
+        "neural_role": "standalone_direct_action_prefetcher",
+        "model_family": "lstm",
+        "track_model_family": TRACK_MODEL_FAMILY,
+        "experiment_revision": EXPERIMENT_REVISION,
+        "model_revision": ACTIVE_MODEL_REVISION,
+        "decoder_revision": ACTIVE_CONTRACT["decoder_revision"],
+        "source_decision_effective_external_input": ["pc", "addr"],
+        "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "training_runtime_fields": ["pc", "addr"],
+        "inference_runtime_fields": ["pc", "addr"],
+        "runtime_feature_count": 122,
+        "raw_runtime_feature_count": 122,
+        "causal_runtime_feature_count": 0,
+        "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
+        "engineered_runtime_features": [],
+        "teacher_actions_are_model_inputs": False,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "normal_policy_request_rate_used_as_budget": False,
+        "normal_policy_templates_used_by_neural_inference": False,
+        "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
+        "inference_policy_hardcodes_used": False,
+        "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
+        "future_label_window_used": False,
+        "decoder_training_mode": ACTIVE_CONTRACT["decoder_training_mode"],
+        "decoding_rule": ACTIVE_CONTRACT["decoding_rule"],
+        "decision_rule": ACTIVE_CONTRACT["decoding_rule"],
+        "count_training_objective": ACTIVE_CONTRACT[
+            "count_training_objective"
+        ],
+        "categorical_count_head_used": True,
+        "count_head_used": True,
+        "count_regression_used": False,
+        "log_count_used": False,
+        "hurdle_head_used": False,
+        "stop_token_used": False,
+        "separate_global_gate_used": False,
+        "separate_count_head_used": False,
+        "stop_padding_used": False,
+        "loss_class_reweighting_used": False,
+        "decode_prior_correction_used": False,
+        "manual_loss_weights_used": False,
+        "count_zero_is_implicit_hurdle": True,
+        "count_support_is_dataset_derived": True,
+        "count_support_is_normal_request_budget": False,
+        "count_support_is_tuned_degree": False,
+        "delta_training_objective": ACTIVE_CONTRACT[
+            "delta_training_objective"
+        ],
+        "all_deltas_relative_to_current_demand": True,
+        "stride_fill_level": "FILL_L2_only_no_learned_fill_head",
+        "fill_level": "FILL_L2_only_no_fill_head",
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
+        "action_loss_scope": "teacher_action_ranks_only",
+        "blocked_validation_length_source": ACTIVE_CONTRACT[
+            "blocked_validation_length_source"
+        ],
+        "original_guard_role": ACTIVE_CONTRACT["original_guard_role"],
+        "blocked_validation_selected_checkpoint": True,
+        "original_guard_used_for_checkpoint_selection": False,
+        "original_guard_used_for_selection": False,
+        "evaluation_used_for_checkpoint_selection": False,
+        "evaluation_used_for_selection": False,
+        "evaluation_policy_decode_count": 1,
+        "diagnostic_eval_decode_count": 1,
+        "oracle_diagnostics_replayed": False,
+        "oracle_diagnostics_excluded_from_fair_claims": True,
+        "weights_retrained": True,
+        "checkpoint_reused": False,
+        "decoder_only_change": False,
+        "training_chunks_shuffled": False,
+        "training_state_mode": "exact_pc_keyed_stateful_tbptt",
+        "training_state_carried_across_chunks": True,
+        "training_state_detached_between_chunks": True,
+        "training_state_routing": "one_lstm_state_per_exact_observed_PC",
+        "inference_state_routing": "one_lstm_state_per_exact_observed_PC",
+        "training_config": ACTIVE_CONTRACT["training_config"],
+        "cublas_workspace_config": ACTIVE_CONTRACT[
+            "determinism_contract"
+        ]["cublas_workspace_config"],
+        "torch_deterministic_algorithms_enabled": True,
+        "cudnn_deterministic": True,
+        "cudnn_benchmark": False,
+        "float32_matmul_precision": "highest",
+        "determinism_fail_closed": True,
+        "stochastic_decoding": False,
+        "input_archive_reused_byte_for_byte": True,
+    }
+    source_hashes = {
+        "trainer_source_sha256": sha256(
+            experiment / "python" / "train_and_offline_infer.py"
+        ),
+        "model_contract_source_sha256": sha256(
+            experiment / "python" / "model_contract.py"
+        ),
+        "threshold_free_policy_source_sha256": sha256(
+            repository / "formal_NN_training/common/threshold_free_policy.py"
+        ),
+    }
+    expected.update(source_hashes)
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            failures.append(
+                "{} metadata {}={!r}; expected {!r}".format(
+                    tag, key, metadata.get(key), value
+                )
+            )
+
+    point_by_tag = {
+        point["model_tag"]: point for point in ACTIVE_CONTRACT["points"]
+    }
+    point = point_by_tag.get(tag)
+    count_support = metadata.get("count_support")
+    vocabulary = metadata.get("exact_delta_vocabulary")
+    if (
+        point is None
+        or metadata.get("model_size") != point["model_size"]
+        or metadata.get("architecture_pair_id")
+        != point["architecture_pair_id"]
+        or not isinstance(count_support, list)
+        or not count_support
+        or count_support != list(range(len(count_support)))
+        or not isinstance(vocabulary, list)
+        or not 0 < len(vocabulary)
+        <= ACTIVE_CONTRACT["delta_vocabulary_max_exact"]
+        or len(set(vocabulary)) != len(vocabulary)
+        or metadata.get("other_delta_class") != len(vocabulary)
+    ):
+        failures.append("{} invalid v24 realized support".format(tag))
+    else:
+        realized = expected_parameter_count(
+            point["model_size"], len(count_support), len(vocabulary) + 1
+        )
+        for key in (
+            "parameter_count", "realized_parameter_count",
+            "expected_parameter_count",
+        ):
+            if metadata.get(key) != realized:
+                failures.append(
+                    "{} {} does not match realized v24 formula".format(
+                        tag, key
+                    )
+                )
+
+    if metadata.get("model_point_contract") != ACTIVE_CONTRACT:
+        failures.append("{} embedded model contract differs".format(tag))
+    selected_epoch = metadata.get("selected_epoch")
+    selected_validation = metadata.get("selected_blocked_validation")
+    if (
+        not isinstance(selected_epoch, int)
+        or isinstance(selected_epoch, bool)
+        or not 1 <= selected_epoch <= metadata.get("epochs", 0)
+        or not isinstance(selected_validation, dict)
+        or not math.isfinite(float(selected_validation.get(
+            "natural_action_list_nll_per_callback", float("nan")
+        )))
+    ):
+        failures.append("{} invalid blocked-validation selection".format(tag))
+    oracle = metadata.get("oracle_diagnostics")
+    if (
+        not isinstance(oracle, dict)
+        or oracle.get("diagnosis_only") is not True
+        or oracle.get("excluded_from_fair_replay_claims") is not True
+        or (oracle.get("oracle_count_plus_nn_action") or {}).get("replayed")
+        is not False
+        or (oracle.get("nn_count_plus_oracle_action") or {}).get("replayed")
+        is not False
+    ):
+        failures.append("{} oracle diagnosis leaked into replay".format(tag))
+
+    encoder_hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    if (
+        len(encoder_hashes) != 1
+        or re.fullmatch(
+            r"[0-9a-f]{64}", str(next(iter(encoder_hashes), ""))
+        ) is None
+        or metadata.get("training_state_router_sha256")
+        != metadata.get("inference_state_router_sha256")
+    ):
+        failures.append("{} encoder/state-router identity mismatch".format(tag))
+
+    for role in ("train", "guard", "eval"):
+        for kind in ("stream", "candidate"):
+            key = role + "_" + kind + "_content_sha256"
+            expected_hash = (
+                inputs.get(POLICY, {}).get(role, {}).get(kind, {})
+                .get("content_sha256")
+            )
+            if metadata.get(key) != expected_hash:
+                failures.append(
+                    "{} {} input content hash mismatch".format(tag, key)
+                )
+
+
 def validate_metadata(metadata, tag, inputs, failures):
     if metadata.get("model_revision") == ACTIVE_MODEL_REVISION:
         validate_active_metadata(metadata, tag, inputs, failures)
@@ -1798,6 +2025,41 @@ def main():
         )
 
     warnings = []
+    capacity_action_list_audit = {}
+    for tag, metadata in sorted(metadata_by_tag.items()):
+        decoder = metadata.get("decoder_eval_diagnostics") or {}
+        behavior = metadata.get("heldout_behavior_metrics") or {}
+        capacity_action_list_audit[tag] = {
+            "model_size": metadata.get("model_size"),
+            "nn_list_sha256": metadata.get("nn_list_sha256"),
+            "raw_predicted_action_count": metadata.get(
+                "offline_nn_entries"
+            ),
+            "decoded_count_distribution": decoder.get(
+                "decoded_count_distribution"
+            ),
+            "count_confusion": behavior.get("count_confusion"),
+            "count_mae": behavior.get("count_mae"),
+            "mean_count_entropy": decoder.get("mean_count_entropy"),
+            "mean_count_entropy_normalized": decoder.get(
+                "mean_count_entropy_normalized"
+            ),
+            "mean_delta_entropy": decoder.get("mean_delta_entropy"),
+            "mean_delta_entropy_normalized": decoder.get(
+                "mean_delta_entropy_normalized"
+            ),
+            "oracle_diagnostics": metadata.get("oracle_diagnostics"),
+        }
+    action_hashes = {
+        value.get("nn_list_sha256")
+        for value in capacity_action_list_audit.values()
+        if value.get("nn_list_sha256")
+    }
+    if len(capacity_action_list_audit) == 5 and len(action_hashes) == 1:
+        warnings.append(
+            "all five v24 Stride capacities exported the same hard action "
+            "list; inspect count confusion and entropy before interpreting IPC"
+        )
     transport_fidelity = {}
     for policy in POLICIES:
         live = by_method.get("live_{}_reference".format(policy))
@@ -1871,15 +2133,14 @@ def main():
         ACTIVE_MODEL_REVISION: (
             "The neural model uses one exact-PC keyed LSTM over lossless raw "
             "PC64/line58 bits with no engineered stride or reuse feature. "
-            "A TRAIN-balanced learned hurdle predicts zero versus positive, "
-            "a positive-only log-count predicts finite deterministic "
-            "cardinality, and every scheduled rank selects a dynamic "
-            "TRAIN-frequency exact delta or the signed-log OTHER escape, "
-            "always relative to the current demand. Decode is deterministic "
-            "and has no prior-action feedback; "
-            "guard uses a lexicographic checkpoint key and evaluation is "
-            "decoded once. There is no selected threshold, source template, "
-            "page rule, request budget, or neural degree cap."
+            "One unweighted categorical head predicts natural callback "
+            "cardinality, with zero as the implicit no-request case; only "
+            "real teacher ranks supervise the TRAIN delta vocabulary/OTHER "
+            "action head. A chronological suffix of TRAIN selects checkpoints "
+            "by action-list NLL while the original GUARD is phase-shift audit "
+            "only. There is no hurdle, count regression, STOP padding, class "
+            "reweighting, prior correction, threshold, source template, page "
+            "rule, request budget, neural degree cap, or action feedback."
         ),
     }
     payload = {
@@ -1911,6 +2172,11 @@ def main():
         "transport_fidelity": transport_fidelity,
         "replay_accounting": replay_accounting,
         "warnings": warnings,
+        "undefined_rate_semantics": (
+            "JSON null / blank CSV means denominator zero; numeric 0 means "
+            "the denominator existed and the numerator was zero"
+        ),
+        "capacity_action_list_audit": capacity_action_list_audit,
         "track_guardrail": (
             "Every neural point sees only the same PC/address stream as Stride. "
             "Captured Stride actions are supervised targets and comparator replay "
@@ -1957,7 +2223,7 @@ def main():
                 "history": "one hidden/cell pair per exact observed PC",
                 "training": "chronological keyed TBPTT with state carried and detached",
                 "runtime_features": "raw PC64 plus aligned line58 only",
-                "action_decoder": "deterministic learned hurdle plus positive log-count and independent rank-conditioned TRAIN delta vocabulary/OTHER",
+                "action_decoder": "natural categorical count followed by exactly K independent rank-conditioned TRAIN delta vocabulary/OTHER actions",
             }
         ),
         "metric_definitions": {
