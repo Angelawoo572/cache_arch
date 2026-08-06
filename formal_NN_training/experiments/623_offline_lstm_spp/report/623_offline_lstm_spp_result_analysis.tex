@@ -1,315 +1,89 @@
-
 \documentclass[10pt]{article}
-\usepackage[margin=0.62in]{geometry}
+\usepackage[margin=0.7in]{geometry}
 \usepackage[T1]{fontenc}
-\usepackage{lmodern,microtype}
-\usepackage{booktabs,tabularx,array,graphicx}
-\usepackage{xcolor,amsmath,amssymb}
-\usepackage{tikz}
-\usetikzlibrary{arrows.meta,positioning,fit}
-\usepackage{pgfplots}
-\usepgfplotslibrary{groupplots}
-\pgfplotsset{compat=1.18}
-\usepackage[most]{tcolorbox}
-\usepackage{enumitem}
+\usepackage{lmodern,microtype,booktabs,tabularx,amsmath,xcolor}
 \usepackage[hidelinks]{hyperref}
-
 \definecolor{navy}{HTML}{17365D}
-\definecolor{blue}{HTML}{2F75B5}
-\definecolor{teal}{HTML}{1B998B}
-\definecolor{orange}{HTML}{E67E22}
-\definecolor{red}{HTML}{B03A2E}
-\definecolor{green}{HTML}{2E7D32}
-\definecolor{pale}{HTML}{F3F6FA}
-\definecolor{rulegray}{HTML}{D5DBE3}
 \setlength{\parindent}{0pt}
-\setlength{\parskip}{3pt}
-\setlist[itemize]{leftmargin=5mm,itemsep=2pt,topsep=2pt}
-\renewcommand{\arraystretch}{1.10}
-\newcommand{\NA}{\textemdash}
-\newtcolorbox{infobox}[1][]{enhanced,boxrule=0.6pt,colback=pale,colframe=rulegray,
-  arc=1.5mm,left=2mm,right=2mm,top=1.2mm,bottom=1.2mm,#1}
-\newcommand{\metric}[1]{\textcolor{navy}{\bfseries #1}}
+\setlength{\parskip}{5pt}
 
 \begin{document}
-\begin{infobox}[colback=orange!8,colframe=orange]
-\textbf{Historical-results boundary.}  All numerical results in this document
-are from the completed historical artifact shown below.  The current implementation is
-\texttt{global\_chronological\_lstm\_finite\_joint\_rank\_v23} with default run
-\texttt{623\_offline\_lstm\_spp\_finite\_joint\_rank\_v23\_seed7}; its replay
-results are pending and must not be inferred from these tables.  Because the
-recorded fill-callback stream comes from source SPP, v23 supports a matched-input
-offline claim, not a closed-loop live-NN claim.
-\end{infobox}
 \begin{center}
-{\LARGE\bfseries\color{navy} 623 Direct-Action LSTM vs. Offline SPP}\\[2pt]
-{\small 623.xalancbmk\_s-700B \quad $\vert$ \quad seed 7 \quad $\vert$ \quad 25M measured instructions}\\[4pt]
-\fcolorbox{green}{green!7}{\strut\bfseries PASS: fair-input and replay contracts}
-\quad
-\fcolorbox{red}{red!6}{\strut\bfseries No composite score; dimensions remain separate}
+{\LARGE\bfseries\color{navy} 623 SPP v24: Natural-Cardinality LSTM}\\[3pt]
+{\small \texttt{623.xalancbmk\_s-700B} \quad seed 7 \quad matched-input open-loop replay}
 \end{center}
 
-\begin{infobox}
-\begin{tabularx}{\textwidth}{@{}>{\bfseries}lX@{}}
-Primary comparison & Offline SPP actions versus independently generated LSTM actions, replayed through the same transport and measured against the same no-prefetch baseline.\\
-Shared external input & chronological DEMAND(address) and CACHE\_FILL(evicted-address) callbacks.\\
-Neural history & stateful LSTM over complete train--guard--evaluation chronology; chronological TBPTT carries and detaches state.\\
-Current output model & one finite joint softmax directly predicts STOP or EMIT(delta, fill).  The exact finite support is the maximum TRAIN teacher-action count; shorter sequences receive STOP on every available tail rank, while maximum-length sequences end at finite support.  There are no separate gate, count, delta, or fill argmaxes and no prior-action feedback.\\
-Excluded at inference & Normal-prefetcher candidates, outputs, private tables/state, request budget/degree, future rows, and probability thresholds.  Teacher actions are labels only.\\
-Historical run artifact & prior completed runs provide diagnosis only.  ``PASS'' on those artifacts does not certify v23 or useful neural behavior.\\
+\fbox{\parbox{0.96\linewidth}{\textbf{Results pending.} This document defines
+the v24 experiment and the evidence that must be produced.  No IPC win over
+normal SPP may be claimed until all five replay points complete and the root
+matched comparison is PASS.}}
+
+\section*{Why v24 replaces the v23 decoder}
+The v23 rank-padded target stream was 93.40\% STOP even though 58.05\% of EVAL
+callbacks had one or more teacher actions.  Its five models emitted between 0
+and 5,096 requests and recovered at most 0.63\% of teacher actions.  The defect
+is therefore the supervised object, not merely hidden-state capacity.
+
+For callback context $h_t$, teacher count $K_t$, and action list $A_t$,
+v24 minimizes the natural list negative log likelihood
+\[
+ -\log P(K_t\mid h_t)
+ -\sum_{r=0}^{K_t-1}\log P(a_{t,r}\mid h_t,r).
+\]
+There are no repeated STOP labels.  $K=0$ is the implicit no-request case.
+Count and action cross entropies are unweighted, and deterministic inference
+uses count argmax followed by exactly $K$ rank-conditioned action argmaxes.
+
+\section*{Fair-input contract}
+\begin{tabularx}{\linewidth}{@{}lX@{}}
+\toprule
+Item & Contract \\
+\midrule
+Runtime input & One DEMAND/FILL bit and the lossless 58-bit demand or evicted line, in source chronology. \\
+Teacher actions & Labels, comparator, and diagnosis only; never recurrent or decoder input. \\
+Excluded & PC, SPP candidates/private tables/GHR/confidence, hit state, queue state, thresholds, normal request budget, page rule, and action feedback. \\
+Action vocabulary & TRAIN-observed $(\Delta,\mathrm{fill})$ pairs plus fill-specific OTHER escapes; no Cartesian product. \\
+Input reuse & The v23 directory and archive are reused byte-for-byte. \\
+Claim boundary & Matched-input open-loop offline comparison because fill callbacks were recorded under source SPP. \\
+\bottomrule
 \end{tabularx}
-\end{infobox}
 
-\begin{infobox}[colback=blue!5,colframe=blue]
-\textbf{v23 protocol (results pending).}  Hidden sizes 8, 16, 32, 64, and 128
-are trained because 602 and 623 showed non-monotone capacity behavior.  One
-joint token cross-entropy is grouped by STOP, EMIT-L2, and EMIT-LLC using only
-TRAIN rank-slot counts.  Decode subtracts the log TRAIN group weight and takes
-one deterministic joint argmax.  Guard selection remains lexicographic; no
-heterogeneous average, probability threshold, page rule, or normal request
-budget is used.  A TRAIN-modal-delta/all-LLC policy is replayed separately as
-an explicitly non-neural diagnostic control.
-\end{infobox}
-
-\section*{1. What is measured}
-\begin{center}
-\begin{tikzpicture}[
-  node distance=5.5mm and 4mm,
-  every node/.style={font=\small},
-  counter/.style={draw=navy,rounded corners=1.5mm,fill=blue!6,minimum width=24mm,minimum height=10mm,align=center},
-  outcome/.style={draw=teal,rounded corners=1.5mm,fill=teal!7,minimum width=24mm,minimum height=10mm,align=center},
-  bad/.style={draw=red,rounded corners=1.5mm,fill=red!6,minimum width=24mm,minimum height=10mm,align=center},
-  arrow/.style={-{Latex[length=2mm]},thick,draw=navy}
-]
-\node[counter] (req) {requested\\$P$};
-\node[counter,right=of req] (iss) {issued\\$I$};
-\node[counter,right=of iss] (uniq) {non-merged\\$I-Q$};
-\node[counter,right=of uniq] (fill) {filled\\$F$};
-\node[outcome,right=of fill] (use) {useful\\$U$};
-\node[bad,below=of fill] (waste) {evicted unused\\$W$};
-\node[bad,above=of fill] (late) {late demand merge\\$L_t$};
-\draw[arrow] (req)--node[above,font=\scriptsize]{drop $D$} (iss);
-\draw[arrow] (iss)--node[above,font=\scriptsize]{PQ merge $Q$} (uniq);
-\draw[arrow] (uniq)--(fill);
-\draw[arrow] (fill)--(use);
-\draw[arrow] (fill)--(waste);
-\draw[arrow] (late)--(use);
-\end{tikzpicture}
-\end{center}
-
-\begin{minipage}[t]{0.49\textwidth}
-\begin{infobox}[title={\bfseries Outcome and reach}]
-\[
- m=\frac{M}{N_L},\quad
- S=\frac{\mathrm{IPC}}{\mathrm{IPC}_0},\quad
- R_m=\frac{M_0-M}{M_0},\quad
- C=\frac{U}{M_0}.
-\]
-$N_L$ and $M$ are measured L2 loads and misses; subscript 0 denotes no prefetch.  $C$ is useful-prefetch coverage against no-prefetch misses, while $R_m$ is the observed miss reduction.  They are related but not interchangeable.
-\end{infobox}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.49\textwidth}
-\begin{infobox}[title={\bfseries Accuracy, timeliness, and pressure}]
-\[
- A=\frac{U}{I},\quad
- A_{\rm sel}=\frac{U}{I-Q},\quad
- T=\frac{U}{U+L_t},\quad
- \rho=\frac{P}{N_L}.
-\]
-$A$ counts every issued attempt.  The project-defined $A_{\rm sel}$ removes PQ-merged duplicates from the denominator.  It is not a pollution metric. $T$ asks whether useful requests arrived before demand; $\rho$ exposes request pressure.
-\end{infobox}
-\end{minipage}
-
-\begin{infobox}[title={\bfseries Exact interpretation boundaries}]
-The formulas above are taken from the experiment analyzers and recomputed from
-the simulator counters, not inferred from CSV names.  A source audit of
-\texttt{src/cache.cc} confirms the lifecycle: $U$ increments on the first read
-hit to a prefetched line and clears its prefetch bit; $W$ increments when a
-still-prefetched, unused line is replaced; $F$ increments when a prefetch is
-filled; $L_t$ increments when demand merges into an in-flight prefetch; and
-$Q$ increments for a duplicate in the prefetch queue.  When a denominator is
-zero, the ratio is reported as \NA; a safe-divide value of zero in JSON is not
-treated as a valid 0\% accuracy/timeliness result.  We also report
-$U/M$, $Q/I$, $D/P$, $F/(I-Q)$, $L_t/I$, $W/I$, and resolved-fill
-utility $U/(U+W)$.  These labels state the numerator and denominator
-explicitly: $U/M$ can exceed one and is not coverage, while $F/(I-Q)$ is an
-issue-to-fill reach ratio rather than usefulness.
-Hennessy and Patterson motivate these separate dimensions: bad prefetches can
-displace useful blocks and consume bandwidth, while useful prefetches must
-arrive in time and avoid excessive outstanding work.\footnote{J. L. Hennessy
-and D. A. Patterson, \emph{Computer Architecture: A Quantitative Approach},
-7th ed., Sec.~2.3, pp.~127--129; Exercise~2.3, p.~160.}
-No direct harmful-victim/re-reference counter exists here.  $W$ and request
-pressure indicate risk, but neither proves cache pollution; consequently
-$1-A_{\rm sel}$ is not reported as pollution and no aggregate score is used.
-\end{infobox}
-
-\section*{2. Cache outcomes}
-\begin{center}\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrr@{}}
-\toprule
-Method & params & cycles & IPC & speedup & L2 loads & L2 misses & miss rate & miss reduction \\
-\midrule
-No prefetch & -- & 70.780M & 0.35321 & 1.0000 & 1,218,494 & 450,350 & 36.96\% & 0.00\% \\
-Offline SPP & -- & 70.642M & 0.35390 & 1.0020 & 1,218,484 & 439,645 & 36.08\% & 2.38\% \\
-Live SPP (context) & -- & 70.640M & 0.35391 & 1.0020 & 1,218,483 & 439,632 & 36.08\% & 2.38\% \\
-LSTM h12 & 4,755 & 70.780M & 0.35321 & 1.0000 & 1,218,494 & 450,350 & 36.96\% & 0.00\% \\
-LSTM h16 & 6,847 & 70.780M & 0.35321 & 1.0000 & 1,218,494 & 450,350 & 36.96\% & 0.00\% \\
-LSTM h32 & 17,775 & 70.780M & 0.35321 & 1.0000 & 1,218,494 & 450,350 & 36.96\% & 0.00\% \\
-\bottomrule
-\end{tabular}}
-\end{center}
-
-\begin{center}
-\begin{tikzpicture}
-\begin{groupplot}[
-  group style={group size=2 by 2,horizontal sep=1.35cm,vertical sep=1.45cm},
-  width=0.47\textwidth,height=0.245\textwidth,
-  grid=major,grid style={rulegray!70},
-  tick label style={font=\scriptsize},label style={font=\small},title style={font=\small\bfseries},
-  xtick={0,1,2,3,4},xticklabels={{NoPF},{SPP},{h12},{h16},{h32}},
-  x tick label style={rotate=30,anchor=east},
-  every axis plot/.append style={very thick,mark size=2.1pt}
-]
-\nextgroupplot[title={IPC},ylabel={IPC},scaled y ticks=false,
-  yticklabel style={/pgf/number format/fixed,/pgf/number format/precision=5}]
-\addplot+[color=blue,mark=*] coordinates {(0,0.35321000) (1,0.35390000) (2,0.35321000) (3,0.35321000) (4,0.35321000)};
-\nextgroupplot[title={L2 load miss rate},ylabel={percent},scaled y ticks=false]
-\addplot+[color=red,mark=square*] coordinates {(0,36.95955827) (1,36.08131087) (2,36.95955827) (3,36.95955827) (4,36.95955827)};
-\nextgroupplot[title={Accuracy: raw versus deduplicated},ylabel={percent},scaled y ticks=false]
-\addplot+[color=orange,mark=triangle*] coordinates {(0,0) (1,0.17013106) (2,0) (3,0) (4,0)};
-\addplot+[color=blue,mark=diamond*] coordinates {(0,0) (1,0.17948657) (2,0) (3,0) (4,0)};
-\nextgroupplot[title={Coverage and timeliness},ylabel={percent},scaled y ticks=false]
-\addplot+[color=teal,mark=*] coordinates {(0,0.00000000) (1,0.30376374) (2,0.00000000) (3,0.00000000) (4,0.00000000)};
-\addplot+[color=green,mark=square*] coordinates {(0,0) (1,42.44492709) (2,0) (3,0) (4,0)};
-\end{groupplot}
-\end{tikzpicture}
-
-\vspace{1mm}
-{\footnotesize
-\textcolor{orange}{Orange triangles}: raw accuracy $A=U/I$;\quad
-\textcolor{blue}{blue diamonds}: selected accuracy $A_{\rm sel}=U/(I-Q)$;\quad
-\textcolor{teal}{teal circles}: coverage $C$;\quad
-\textcolor{green}{green squares}: timeliness $T$.\\
-Series labels are outside every plot and title.  No-action points are drawn at
-zero for visibility; their zero-denominator accuracy/timeliness entries remain
-\NA\ in the tables.}
-\end{center}
-
-\section*{3. Quality and traffic---kept separate}
-\begin{center}\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrr@{}}
-\toprule
-Method & raw accuracy $U/I$ & selected accuracy $U/(I-Q)$ & coverage $U/M_0$ & useful/self-miss $U/M$ & timeliness $U/(U+L_t)$ \\
-\midrule
-Offline SPP & 0.17\% & 0.18\% & 0.30\% & 0.003 & 42.44\% \\
-LSTM h12 & -- & -- & 0.00\% & 0.000 & -- \\
-LSTM h16 & -- & -- & 0.00\% & 0.000 & -- \\
-LSTM h32 & -- & -- & 0.00\% & 0.000 & -- \\
-\bottomrule
-\end{tabular}}
-\end{center}
-
-\begin{center}\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrr@{}}
-\toprule
-Method & request/L2 load $P/N_L$ & merge/issued $Q/I$ & drop/request $D/P$ & fill/non-merged $F/(I-Q)$ & late/issued $L_t/I$ & useless/issued $W/I$ & resolved-fill utility $U/(U+W)$ \\
-\midrule
-Offline SPP & 0.660 & 5.212\% & 0.000\% & 0.326\% & 0.231\% & 0.135\% & 55.68\% \\
-LSTM h12 & 0.000 & -- & -- & -- & -- & -- & -- \\
-LSTM h16 & 0.000 & -- & -- & -- & -- & -- & -- \\
-LSTM h32 & 0.000 & -- & -- & -- & -- & -- & -- \\
-\bottomrule
-\end{tabular}}
-\end{center}
-
-\begin{center}\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrr@{}}
-\toprule
-Method & requested $P$ & dropped $D$ & issued $I$ & PQ merged $Q$ & $I-Q$ & filled $F$ & useful $U$ & useless $W$ & late $L_t$ \\
-\midrule
-Offline SPP & 804,086 & 0 & 804,086 & 41,912 & 762,174 & 2,481 & 1,368 & 1,089 & 1,855 \\
-LSTM h12 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-LSTM h16 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-LSTM h32 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 & 0 \\
-\bottomrule
-\end{tabular}}
-\end{center}
-
-\begin{infobox}[title={\bfseries Why raw and selected accuracy can disagree}]
-PQ-merged requests remain in $I$ but are removed from $I-Q$.  Therefore
-$A_{\rm sel}$ can rise sharply when duplicate merging is high even if $U$ does
-not rise.  The lifecycle table is the denominator audit: selected accuracy is
-never interpreted without raw accuracy, merge count, coverage, miss rate, and
-IPC.
-\end{infobox}
-
-\section*{4. Data-supported insights}
-\begin{infobox}[fontupper=\small]
-\begin{itemize}[itemsep=1pt,topsep=1pt]
-\item Offline SPP is itself a weak but positive comparator on 623: IPC 0.35390 versus 0.35321, with 2.38\% miss reduction and only 0.304\% coverage.
-\item Every LSTM model predicts zero actions.  IPC, miss rate, and cache counters therefore equal no prefetch; accuracy and timeliness are undefined rather than evidence of precise behavior.
-\item Because all three displayed historical LSTM capacities collapse identically and target F1 is zero, the immediate evidence points to action-count/label imbalance or decoder learning; the table does not establish a recurrent-versus-convolutional architecture result.
+\section*{Recurrent-core selection}
+At hidden size 32, two candidates are trained without loading EVAL:
+\begin{itemize}
+\item a global chronological LSTM;
+\item one chronological hidden/cell state with distinct DEMAND and FILL LSTM transitions selected only by the existing callback-kind bit.
 \end{itemize}
-\end{infobox}
+The smaller GUARD natural list NLL wins; global wins an exact tie.  Only that
+core is then trained at hidden sizes 8, 16, 32, 64, and 128.  Core-ablation
+checkpoints are not replayed.
 
-\section*{5. Event-log audit and 602/623 schema difference}
-\begin{center}\scriptsize
-\resizebox{\textwidth}{!}{%
-\begin{tabular}{@{}lrrrrrrrrrr@{}}
-\toprule
-Method & demand & demand miss & PF event & accepted & duplicate & action L2 & action LLC & fill feedback & useful-demand hit & late-demand miss \\
-\midrule
-Offline SPP & 1,218,484 & 439,645 & 804,086 & 804,086 & 41,912 & 16,044 & 788,042 & 499,221 & 1,138 & 1,850 \\
-LSTM h12 & 1,218,494 & 450,350 & 0 & 0 & 0 & 0 & 0 & 507,723 & 0 & 0 \\
-LSTM h16 & 1,218,494 & 450,350 & 0 & 0 & 0 & 0 & 0 & 507,723 & 0 & 0 \\
-LSTM h32 & 1,218,494 & 450,350 & 0 & 0 & 0 & 0 & 0 & 507,723 & 0 & 0 \\
-\bottomrule
-\end{tabular}}
-\end{center}
+For count classes $K$, joint-action classes $A$, and hidden size $H$, parameter
+counts are
+\[
+N_{\rm global}=9H^2+(74+K+A)H+K+A+1,
+\]
+\[
+N_{\rm routed}=17H^2+(82+K+A)H+K+A+1.
+\]
 
-\begin{tabularx}{\textwidth}{@{}>{\bfseries}lXX@{}}
-\toprule
-Evidence & 602 logger/results & 623 logger/results \\
-\midrule
-Simulator final counters & IPC, loads/misses, requested/dropped/issued/merged/filled/useful/useless/late are present in the raw logs. & Same counters are copied into the JSON/CSV summary.\\
-Demand-event attribution & demand, miss, PF request, useful-demand hit, and late-demand miss. & Same core fields plus accepted, duplicate, fill-level, and (SPP) fill-feedback counts.\\
-Teacher imitation & not part of the cache-effect summary. & SPP only: precision/recall/F1 and count/fill diagnostics; these are model diagnostics, not cache metrics.\\
-Direct pollution & Not measured: the schema does not identify a useful victim displaced by a prefetch and later re-referenced. & Not measured; the same limitation applies.\\
-\bottomrule
-\end{tabularx}
+\section*{Required evidence}
+Each point reports IPC, L2 miss rate, raw and selected accuracy, coverage,
+timeliness, requested/issued/fill counts and fill levels, count confusion and
+MAE, target/fill precision and recall, request ratio, count/action entropy, and
+action-list identity.  Denominator-zero ratios are N/A rather than numeric
+zero.  No composite score is used.
 
-\begin{infobox}[title={\bfseries Replay decision}]
-For 602, the apparently missing 623 metrics are a \emph{summary-schema}
-difference: the required simulator counters already exist in the archived raw
-logs and are used above.  No 602 replay is needed for miss rate, raw/selected
-accuracy, coverage, timeliness, request pressure, merges, fills, useful,
-useless, or late counts.  A new instrumented replay is needed only if the
-presentation requires direct harmful-eviction pollution or the newer
-accepted/fill-level event audit.
-\end{infobox}
+Oracle-count plus NN-action and NN-count plus oracle-action are diagnosis-only
+decompositions and are never replayed.  The all-callback TRAIN-modal-delta,
+FILL\_LLC policy is a separate non-neural control and is excluded from neural
+claims.
 
-{\footnotesize The main formulas use the simulator-final counters exactly as
-the analyzers do.  The event-log counts above are an independent attribution
-audit and are never substituted into $A$, $A_{\rm sel}$, $C$, or $T$.}
-
-
-\subsection*{SPP teacher-action audit (model diagnostic, not a cache metric)}
-\begin{center}\small
-\begin{tabular}{@{}lrrrrrr@{}}
-\toprule
-Model & callbacks & teacher actions & predicted & TP & FN & target F1 \\
-\midrule
-LSTM h12 & 1,218,483 & 804,094 & 0 & 0 & 804,094 & 0.00\% \\
-LSTM h16 & 1,218,483 & 804,094 & 0 & 0 & 804,094 & 0.00\% \\
-LSTM h32 & 1,218,483 & 804,094 & 0 & 0 & 804,094 & 0.00\% \\
-\bottomrule
-\end{tabular}
-\end{center}
-
+\section*{Completion rule}
+A completed experiment requires all five neural replay rows, the offline normal
+SPP comparator, no-prefetch and live transport references, the non-neural
+control, a root PASS with no failures, and the diagnosis files.  PASS proves
+contract and accounting integrity; performance conclusions must be made from
+the separate measured dimensions above.
 
 \end{document}
