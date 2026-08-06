@@ -9,9 +9,11 @@ from collections import defaultdict
 from pathlib import Path
 
 from model_contract import (
-    CACHE_LINE_BYTES, DECODER_TRAINING_MODE, EXPERIMENT_REVISION,
-    EXTERNAL_INPUT_FIELDS, LINE_ADDRESS_BITS, MAX_EXACT_DELTAS,
-    PARENT_INPUT_RUN_ID, POLICY, TRACE, exact_int as as_int,
+    ACTION_OBJECTIVE, CACHE_LINE_BYTES, COUNT_OBJECTIVE,
+    DECODER_TRAINING_MODE, DECODING_RULE, EXPERIMENT_REVISION,
+    EXTERNAL_INPUT_FIELDS, LINE_ADDRESS_BITS, MAX_EXACT_ACTION_PAIRS,
+    OTHER_ACTION_OBJECTIVE, PARENT_INPUT_RUN_ID, POLICY, RUN_ID, TRACE,
+    exact_int as as_int,
 )
 
 ROLES = ("train", "guard", "eval")
@@ -146,6 +148,7 @@ def read_teacher_actions(path, demand_rows):
     raw_total = 0
     self_target_total = 0
     signed_delta_histogram = defaultdict(int)
+    joint_action_histogram = defaultdict(int)
     with gzip.open(path, "rt", newline="") as handle:
         reader = csv.DictReader(handle)
         required = {
@@ -231,6 +234,7 @@ def read_teacher_actions(path, demand_rows):
                 if difference >= LINE_ADDRESS_HALF_RANGE else difference
             )
             signed_delta_histogram[delta] += 1
+            joint_action_histogram[(delta, fill)] += 1
             fill_counts["FILL_L2" if fill == 2 else "FILL_LLC"] += 1
             total += 1
             raw_total += raw_action_count
@@ -255,6 +259,10 @@ def read_teacher_actions(path, demand_rows):
             str(key): value
             for key, value in sorted(signed_delta_histogram.items())
         },
+        "teacher_joint_action_histogram": {
+            "{}|{}".format(delta, fill): value
+            for (delta, fill), value in sorted(joint_action_histogram.items())
+        },
         "teacher_fill_level_counts": fill_counts,
     }
 
@@ -268,6 +276,7 @@ def main():
 
     manifest = {
         "status": "PASS",
+        "run_id": RUN_ID,
         "trace": TRACE,
         "policy": POLICY,
         "experiment_revision": EXPERIMENT_REVISION,
@@ -286,9 +295,18 @@ def main():
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "terminal_stop_supervised_for_every_teacher_sequence": False,
-        "all_available_tail_stop_supervised": True,
-        "maximum_length_sequences_terminate_by_finite_support": True,
+        "count_training_objective": COUNT_OBJECTIVE,
+        "joint_action_training_objective": ACTION_OBJECTIVE,
+        "other_action_training_objective": OTHER_ACTION_OBJECTIVE,
+        "decoding_rule": DECODING_RULE,
+        "categorical_count_head_used": True,
+        "count_zero_is_implicit_hurdle": True,
+        "hurdle_head_used": False,
+        "stop_token_used": False,
+        "stop_padding_used": False,
+        "loss_class_reweighting_used": False,
+        "decode_prior_correction_used": False,
+        "action_loss_scope": "teacher_action_ranks_only",
         "training_runtime_fields": SOURCE_INPUTS,
         "inference_runtime_fields": SOURCE_INPUTS,
         "normal_policy_outputs_used_as_model_inputs": False,
@@ -312,22 +330,23 @@ def main():
         "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
         "neural_action_decoder": (
-            "finite TRAIN-derived joint rank tokens: STOP or "
-            "EMIT(delta,FILL_L2/FILL_LLC), with group prior correction"
+            "natural categorical count then exactly K rank-conditioned "
+            "TRAIN-observed joint delta/fill tokens plus fill-specific OTHER"
         ),
         "separate_gate_head_used": False,
-        "request_count_head_used": False,
+        "request_count_head_used": True,
         "request_count_regression_used": False,
         "separate_delta_head_used": False,
         "separate_fill_head_used": False,
         "stop_emit_head_used": False,
         "stochastic_decoding": False,
-        "joint_action_prior_correction_rule": (
-            "weighted_joint_logits_minus_log_TRAIN_group_weight"
-        ),
+        "joint_action_prior_correction_rule": None,
         "complete_neural_action_space": False,
-        "delta_vocabulary_source": "train_labels_only",
-        "delta_vocabulary_max_exact": MAX_EXACT_DELTAS,
+        "joint_action_vocabulary_source": (
+            "TRAIN_observed_delta_fill_pairs_only_plus_OTHER_L2_OTHER_LLC"
+        ),
+        "joint_action_vocabulary_cartesian_product_used": False,
+        "joint_action_vocabulary_max_exact_pairs": MAX_EXACT_ACTION_PAIRS,
         "delta_other_escape": "signed_log_continuous_bounded_approximation",
         "delta_other_decode_precision": (
             "rounded_float32_approximate_except_exact_vocabulary"
@@ -336,12 +355,12 @@ def main():
         "every_signed_line_delta_exactly_representable": False,
         "exact_delta_representability_scope": "train_vocabulary_only",
         "normal_policy_templates_used_by_neural_inference": False,
-        "finite_output_horizon_source": (
-            "maximum_teacher_action_count_observed_in_TRAIN"
+        "count_support_source": (
+            "zero_through_maximum_teacher_action_count_observed_in_TRAIN"
         ),
-        "finite_output_horizon_is_dataset_derived": True,
-        "finite_output_horizon_is_normal_request_budget": False,
-        "finite_output_horizon_is_tuned_degree": False,
+        "count_support_is_dataset_derived": True,
+        "count_support_is_normal_request_budget": False,
+        "count_support_is_tuned_degree": False,
         "self_target_actions_allowed": True,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
         "tracks": {POLICY: {}},
@@ -376,14 +395,23 @@ def main():
             "teacher_actions_content_sha256": gzip_content_sha256(action_path),
         }
 
-    train_horizon = manifest["tracks"][POLICY]["train"][
+    train_maximum_count = manifest["tracks"][POLICY]["train"][
         "max_actions_per_callback"
     ]
-    if not isinstance(train_horizon, int) or train_horizon < 1:
-        raise RuntimeError("TRAIN-derived finite action horizon is invalid")
-    manifest["train_action_horizon"] = train_horizon
-    manifest["joint_decision_rank_count"] = train_horizon
+    if not isinstance(train_maximum_count, int) or train_maximum_count < 1:
+        raise RuntimeError("TRAIN-derived count support is invalid")
+    for role in ROLES:
+        if manifest["tracks"][POLICY][role][
+            "max_actions_per_callback"
+        ] > train_maximum_count:
+            raise RuntimeError(
+                "{} teacher count exceeds TRAIN-derived support".format(role)
+            )
+    manifest["maximum_train_action_count"] = train_maximum_count
+    manifest["count_support"] = list(range(train_maximum_count + 1))
+    manifest["count_output_classes"] = train_maximum_count + 1
     manifest["all_train_teacher_sequences_have_terminal_stop_label"] = False
+    manifest["tail_stop_labels_created"] = False
 
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
     args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n")
