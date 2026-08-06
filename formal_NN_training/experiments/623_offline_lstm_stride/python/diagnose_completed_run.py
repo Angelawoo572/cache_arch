@@ -17,7 +17,7 @@ from model_contract import POLICY, RUN_ID, TRACE, model_points_description
 
 DEFAULT_RUN_ID = RUN_ID
 SOURCE_INPUTS = ["pc", "addr"]
-NEURAL_METHOD_PREFIX = "offline_prior_corrected_hurdle_count_stride_lstm_"
+NEURAL_METHOD_PREFIX = "offline_natural_cardinality_stride_lstm_"
 EXPECTED_TAGS = {
     point["model_tag"] for point in model_points_description()["points"]
 }
@@ -59,7 +59,7 @@ def flatten(prefix, value, output):
         output[prefix] = value
 
 
-def input_contract_mismatches(metadata):
+def input_contract_mismatches_v23_legacy(metadata):
     contract = model_points_description()
     source_hashes = {
         "trainer_source_sha256": hashlib.sha256(
@@ -199,6 +199,138 @@ def input_contract_mismatches(metadata):
             "field": "runtime_encoder_sha256",
             "actual": sorted(str(value) for value in encoder_hashes),
             "expected": "one identical 64-hex hash",
+        })
+    return mismatches
+
+
+def input_contract_mismatches(metadata):
+    contract = model_points_description()
+    source_hashes = {
+        "trainer_source_sha256": hashlib.sha256(
+            (EXPERIMENT / "python" / "train_and_offline_infer.py").read_bytes()
+        ).hexdigest(),
+        "model_contract_source_sha256": hashlib.sha256(
+            (EXPERIMENT / "python" / "model_contract.py").read_bytes()
+        ).hexdigest(),
+        "threshold_free_policy_source_sha256": hashlib.sha256(
+            (
+                REPOSITORY / "formal_NN_training" / "common"
+                / "threshold_free_policy.py"
+            ).read_bytes()
+        ).hexdigest(),
+    }
+    expected = {
+        "same_external_input_contract": True,
+        "training_inference_input_encoder_identical": True,
+        "training_runtime_fields": SOURCE_INPUTS,
+        "inference_runtime_fields": SOURCE_INPUTS,
+        "normal_policy_outputs_used_as_model_inputs": False,
+        "normal_policy_candidates_used_as_model_inputs": False,
+        "normal_policy_private_state_used_as_model_inputs": False,
+        "normal_policy_outputs_used_as_training_targets": True,
+        "teacher_actions_are_model_inputs": False,
+        "future_label_window_used": False,
+        "decoder_previous_teacher_action_used_as_input": False,
+        "decoder_previous_predicted_action_used_as_input": False,
+        "decoder_previous_sampled_action_used_as_input": False,
+        "decoder_training_mode": contract["decoder_training_mode"],
+        "count_training_objective": contract["count_training_objective"],
+        "categorical_count_head_used": True,
+        "count_regression_used": False,
+        "log_count_used": False,
+        "hurdle_head_used": False,
+        "separate_global_gate_used": False,
+        "separate_count_head_used": False,
+        "stop_padding_used": False,
+        "loss_class_reweighting_used": False,
+        "decode_prior_correction_used": False,
+        "count_zero_is_implicit_hurdle": True,
+        "count_support_is_dataset_derived": True,
+        "count_support_is_normal_request_budget": False,
+        "count_support_is_tuned_degree": False,
+        "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
+        "engineered_runtime_features": [],
+        "causal_runtime_feature_count": 0,
+        "normal_policy_templates_used_by_neural_inference": False,
+        "probability_threshold_used": False,
+        "inference_policy_hardcodes_used": False,
+        "neural_degree_cap": None,
+        "fixed_page_offset_classes": None,
+        "same_page_rule_used_by_neural_inference": False,
+        "delta_training_objective": contract[
+            "delta_training_objective"
+        ],
+        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_coordinate_auxiliary_scope": "OTHER_teacher_actions_only",
+        "all_deltas_relative_to_current_demand": True,
+        "stride_fill_level": "FILL_L2_only_no_learned_fill_head",
+        "action_loss_scope": "teacher_action_ranks_only",
+        "checkpoint_selection": contract["checkpoint_selection"],
+        "blocked_validation_length_source": contract[
+            "blocked_validation_length_source"
+        ],
+        "original_guard_role": contract["original_guard_role"],
+        "blocked_validation_selected_checkpoint": True,
+        "original_guard_used_for_checkpoint_selection": False,
+        "evaluation_used_for_checkpoint_selection": False,
+        "evaluation_policy_decode_count": 1,
+        "diagnostic_eval_decode_count": 1,
+        "oracle_diagnostics_replayed": False,
+        "oracle_diagnostics_excluded_from_fair_claims": True,
+        "weights_retrained": True,
+        "checkpoint_reused": False,
+        "decoder_only_change": False,
+        "training_config": contract["training_config"],
+        "cublas_workspace_config": contract["determinism_contract"][
+            "cublas_workspace_config"
+        ],
+        "torch_deterministic_algorithms_enabled": True,
+        "cudnn_deterministic": True,
+        "cudnn_benchmark": False,
+        "float32_matmul_precision": "highest",
+    }
+    expected.update(source_hashes)
+    mismatches = []
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            mismatches.append({
+                "field": key,
+                "actual": metadata.get(key),
+                "expected": value,
+            })
+    accelerator = contract["determinism_contract"][
+        "required_accelerator_name_contains"
+    ]
+    if accelerator not in str(metadata.get("training_device_name")):
+        mismatches.append({
+            "field": "training_device_name",
+            "actual": metadata.get("training_device_name"),
+            "expected": "contains {}".format(accelerator),
+        })
+    encoder_hashes = {
+        metadata.get("runtime_encoder_sha256"),
+        metadata.get("training_runtime_encoder_sha256"),
+        metadata.get("inference_runtime_encoder_sha256"),
+    }
+    if (
+        len(encoder_hashes) != 1
+        or not isinstance(next(iter(encoder_hashes)), str)
+        or len(next(iter(encoder_hashes))) != 64
+    ):
+        mismatches.append({
+            "field": "runtime_encoder_sha256",
+            "actual": sorted(str(value) for value in encoder_hashes),
+            "expected": "one identical 64-hex hash",
+        })
+    oracle = metadata.get("oracle_diagnostics") or {}
+    if (
+        oracle.get("diagnosis_only") is not True
+        or oracle.get("excluded_from_fair_replay_claims") is not True
+    ):
+        mismatches.append({
+            "field": "oracle_diagnostics",
+            "actual": oracle,
+            "expected": "diagnosis-only and excluded from replay claims",
         })
     return mismatches
 
@@ -360,6 +492,33 @@ def model_record(row, metadata, normal, no_pref, matched):
         ),
     }
     diagnostic_keys = (
+        "categorical_count_head_used",
+        "count_training_objective",
+        "count_support",
+        "count_train_statistics",
+        "count_fit_train_class_frequencies",
+        "count_fit_train_add_one_natural_priors",
+        "count_zero_is_implicit_hurdle",
+        "count_regression_used",
+        "log_count_used",
+        "hurdle_head_used",
+        "stop_padding_used",
+        "loss_class_reweighting_used",
+        "decode_prior_correction_used",
+        "blocked_validation_source",
+        "blocked_validation_length_source",
+        "fit_train_callbacks",
+        "blocked_validation_callbacks",
+        "selected_epoch",
+        "selected_blocked_validation",
+        "original_guard_role",
+        "original_guard_phase_shift_metrics",
+        "blocked_validation_behavior_metrics",
+        "oracle_diagnostics",
+        "oracle_diagnostics_replayed",
+        "decoder_blocked_validation_diagnostics",
+        "decoder_original_guard_diagnostics",
+        "decoder_eval_diagnostics",
         "deterministic_decoding",
         "deterministic_decoding_reproducible",
         "stochastic_decoding",
