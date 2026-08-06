@@ -8,6 +8,7 @@ MODEL_POINTS_SCRIPT="$EXP/python/model_contract.py"
 TRACE="$(python3 "$MODEL_POINTS_SCRIPT" --field trace)"
 POLICY="$(python3 "$MODEL_POINTS_SCRIPT" --field policy)"
 DEFAULT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field run_id)"
+PARENT_INPUT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field parent_input_run_id)"
 DEFAULT_MODEL_TAGS="$(python3 "$MODEL_POINTS_SCRIPT" --tags-csv)"
 DEFAULT_BASE_TAG="$(python3 "$MODEL_POINTS_SCRIPT" --base-tag)"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
@@ -19,11 +20,11 @@ MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
 BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
 
 [[ "$MODEL_TAGS_CSV" == "$DEFAULT_MODEL_TAGS" ]] || {
-  echo "[error] active v23 replay requires the exact five configured MODEL_TAGS" >&2
+  echo "[error] active v24 replay requires the exact five configured MODEL_TAGS" >&2
   exit 2
 }
 [[ "$BASE_TAG" == "$DEFAULT_BASE_TAG" ]] || {
-  echo "[error] active v23 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
+  echo "[error] active v24 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
   exit 2
 }
 CHAMP_DIR="${CHAMP_DIR:-$ROOT/external/ChampSim}"
@@ -80,6 +81,31 @@ done
   exit 2
 }
 mkdir -p "$LOG_DIR" "$EVENT_DIR" "$STREAM_DIR" "$COLAB_ROOT"
+
+reuse_input() {
+  local parent_dir="$EXP/runs/$PARENT_INPUT_RUN_ID"
+  local parent_stream="$parent_dir/colab_input"
+  local parent_archive="$parent_dir/$PARENT_INPUT_RUN_ID.colab_input.tar.gz"
+  local archive="$RUN_DIR/$RUN_ID.colab_input.tar.gz"
+  [[ -d "$parent_stream" && -s "$parent_archive" ]] || {
+    echo "[error] missing v23 parent input under $parent_dir" >&2
+    exit 2
+  }
+  if find "$STREAM_DIR" -mindepth 1 -print -quit | grep -q .; then
+    diff -qr "$parent_stream" "$STREAM_DIR"
+  else
+    cp -a "$parent_stream/." "$STREAM_DIR/"
+  fi
+  if [[ -e "$archive" ]]; then
+    cmp "$parent_archive" "$archive"
+  else
+    cp -p "$parent_archive" "$archive"
+  fi
+  gzip -t "$archive"
+  validate_preserved_inputs
+  echo "[PASS] reused v23 input byte-for-byte for $RUN_ID"
+  echo "[ready for Colab] $archive"
+}
 
 require_repo_file() {
   [[ -f "$1" ]] || {
@@ -372,8 +398,8 @@ validate_preserved_inputs() {
 
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-# Active v23 validation imports only torch-free modules on the replay host.
-assert_model_metadata_v23() {
+# Active v24 validation imports only torch-free modules on the replay host.
+assert_model_metadata_v24() {
   python3 "$VALIDATE_MODEL_METADATA" \
     --metadata "$1" --input-dir "$STREAM_DIR"
 }
@@ -418,7 +444,7 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_finite_joint_rank_spp_lstm_*)
+    offline_natural_cardinality_spp_lstm_*)
       local tag="${method#offline_}"
       local list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
@@ -451,7 +477,7 @@ require_colab_outputs() {
         exit 2
       }
     done
-    assert_model_metadata_v23 "$(colab_dir "$tag")/run_metadata.json"
+    assert_model_metadata_v24 "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 
@@ -478,9 +504,10 @@ replay() {
 }
 
 case "$STAGE" in
+  reuse-input) reuse_input ;;
   collect) collect ;;
   replay) replay ;;
   analyze) analyze ;;
   build) build ;;
-  *) echo "[error] STAGE must be build, collect, replay, or analyze" >&2; exit 2 ;;
+  *) echo "[error] STAGE must be reuse-input, build, collect, replay, or analyze" >&2; exit 2 ;;
 esac
