@@ -9,8 +9,9 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from model_contract import (
-    COUNT_OBJECTIVE, DECODER_TRAINING_MODE, EXPERIMENT_REVISION,
-    HURDLE_OBJECTIVE, POLICY, TRACE, parse_exact_integer,
+    BLOCKED_VALIDATION_LENGTH_SOURCE, COUNT_OBJECTIVE,
+    DECODER_TRAINING_MODE, DELTA_OBJECTIVE, EXPERIMENT_REVISION,
+    ORIGINAL_GUARD_ROLE, POLICY, TRACE, parse_exact_integer,
 )
 
 ROLES = ("train", "guard", "eval")
@@ -203,20 +204,27 @@ def main():
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "terminal_stop_supervised_for_every_teacher_sequence": False,
-        "separate_global_gate_used": True,
-        "separate_count_head_used": True,
-        "log_count_used": True,
-        "hurdle_training_objective": HURDLE_OBJECTIVE,
-        "hurdle_prior_correction_at_decode_used": True,
-        "hurdle_prior_correction_rule": (
-            "weighted_logits_minus_log_TRAIN_inverse_frequency_class_weight"
+        "stop_padding_used": False,
+        "separate_global_gate_used": False,
+        "separate_count_head_used": False,
+        "categorical_count_head_used": True,
+        "count_regression_used": False,
+        "log_count_used": False,
+        "hurdle_head_used": False,
+        "count_training_objective": COUNT_OBJECTIVE,
+        "delta_training_objective": DELTA_OBJECTIVE,
+        "loss_class_reweighting_used": False,
+        "decode_prior_correction_used": False,
+        "count_zero_is_implicit_hurdle": True,
+        "count_support_source": (
+            "zero_through_maximum_complete_original_TRAIN_teacher_count"
         ),
-        "hurdle_decoding_rule": (
-            "deterministic_prior_corrected_two_class_argmax"
-        ),
-        "positive_count_training_objective": COUNT_OBJECTIVE,
-        "hurdle_class_weight_source": "TRAIN_callback_zero_positive_counts",
-        "positive_count_support": "mathematically_unbounded_positive_integers",
+        "count_support_is_dataset_derived": True,
+        "count_support_is_normal_request_budget": False,
+        "count_support_is_tuned_degree": False,
+        "action_loss_scope": "teacher_action_ranks_only",
+        "blocked_validation_length_source": BLOCKED_VALIDATION_LENGTH_SOURCE,
+        "original_guard_role": ORIGINAL_GUARD_ROLE,
         "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
         "engineered_runtime_features": [],
         "training_runtime_fields": ["pc", "addr"],
@@ -246,10 +254,10 @@ def main():
         "inference_policy_hardcodes_used": False,
         "threshold_related_hardcodes_used": False,
         "nn_generates_own_target_addresses": True,
-        "weights_retrained": False,
-        "checkpoint_reused": True,
-        "training_history_reused": True,
-        "decoder_only_change": True,
+        "weights_retrained": True,
+        "checkpoint_reused": False,
+        "training_history_reused": False,
+        "decoder_only_change": False,
         "captured_candidate_files_role": (
             "normal replay, supervised labels, and audit only; never model input or budget"
         ),
