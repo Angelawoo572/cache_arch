@@ -9,9 +9,12 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from model_contract import (
-    BLOCKED_VALIDATION_LENGTH_SOURCE, COUNT_OBJECTIVE,
-    DECODER_TRAINING_MODE, DELTA_OBJECTIVE, EXPERIMENT_REVISION,
-    ORIGINAL_GUARD_ROLE, POLICY, TRACE, parse_exact_integer,
+    BLOCKED_VALIDATION_LENGTH_SOURCE, CHECKPOINT_SELECTION,
+    DECODER_TRAINING_MODE,
+    DELTA_OBJECTIVE, EXPERIMENT_REVISION, FULL_OBJECTIVE,
+    FIT_DENOMINATOR, FIT_NUMERATOR, HURDLE_OBJECTIVE,
+    ORIGINAL_GUARD_ROLE, POLICY,
+    POSITIVE_COUNT_OBJECTIVE, TRACE, parse_exact_integer,
 )
 
 ROLES = ("train", "guard", "eval")
@@ -205,25 +208,44 @@ def main():
         "decoder_previous_sampled_action_used_as_input": False,
         "terminal_stop_supervised_for_every_teacher_sequence": False,
         "stop_padding_used": False,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
+        "dual_context_core_used": True,
+        "global_chronological_lstm_used": True,
+        "exact_pc_local_lstm_used": True,
+        "learned_global_local_fusion_used": True,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
         "categorical_count_head_used": True,
+        "positive_only_categorical_count_head_used": True,
         "count_regression_used": False,
         "log_count_used": False,
-        "hurdle_head_used": False,
-        "count_training_objective": COUNT_OBJECTIVE,
+        "hurdle_head_used": True,
+        "hurdle_training_objective": HURDLE_OBJECTIVE,
+        "positive_count_training_objective": POSITIVE_COUNT_OBJECTIVE,
+        "complete_training_objective": FULL_OBJECTIVE,
         "delta_training_objective": DELTA_OBJECTIVE,
         "loss_class_reweighting_used": False,
         "decode_prior_correction_used": False,
         "count_zero_is_implicit_hurdle": True,
-        "count_support_source": (
-            "zero_through_maximum_complete_original_TRAIN_teacher_count"
-        ),
+        "positive_count_support_source_selection": "FIT_labels_only",
+        "positive_count_support_source_final": "complete_TRAIN_labels_only",
         "count_support_is_dataset_derived": True,
         "count_support_is_normal_request_budget": False,
         "count_support_is_tuned_degree": False,
-        "action_loss_scope": "teacher_action_ranks_only",
+        "action_loss_scope": "all_58_bits_of_every_real_teacher_rank",
         "blocked_validation_length_source": BLOCKED_VALIDATION_LENGTH_SOURCE,
+        "checkpoint_selection": CHECKPOINT_SELECTION,
+        "fit_fraction": FIT_NUMERATOR / float(FIT_DENOMINATOR),
+        "selection_protocol": {
+            "fit": "first_80_percent_of_TRAIN",
+            "validation": "last_20_percent_of_TRAIN",
+            "selection_support": "FIT_only",
+            "metric": "complete_validation_NLL_per_callback",
+            "tie_break": "earlier_epoch",
+        },
+        "final_training_protocol": (
+            "reset_seed_reinitialize_and_retrain_from_scratch_on_complete_"
+            "TRAIN_for_selected_epoch_count"
+        ),
         "original_guard_role": ORIGINAL_GUARD_ROLE,
         "runtime_encoding": "lossless_raw_pc64_plus_line58_only",
         "engineered_runtime_features": [],
@@ -238,13 +260,24 @@ def main():
         "normal_policy_outputs_used_as_training_targets": True,
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_constants_used_by_neural_inference": False,
-        "delta_vocabulary_source": "train_labels_only",
-        "delta_vocabulary_max_exact": 255,
-        "delta_other_escape": "signed_log_continuous_bounded_approximation",
-        "delta_other_decode_precision": "rounded_float32_approximate_except_exact_vocabulary",
-        "full_signed_line_delta_range_reachable": False,
-        "every_signed_line_delta_exactly_representable": False,
-        "exact_delta_representability_scope": "train_vocabulary_only",
+        "delta_token_head_used": False,
+        "delta_vocabulary_used": False,
+        "delta_escape_head_used": False,
+        "rank_delta_payload_head": "one_direct_58bit_modular_Bernoulli_head",
+        "rank_delta_payload_bits": 58,
+        "delta_decode_precision": "exact_all_58_modular_bits",
+        "delta_bit_loss_scope": "all_58_bits_of_every_real_teacher_rank",
+        "delta_bit_initialization": (
+            "zero_weight_add_one_smoothed_partition_bit_marginal_logit_bias"
+        ),
+        "delta_bit_prior_source_selection": "all_real_FIT_teacher_actions",
+        "delta_bit_prior_source_final": (
+            "all_real_complete_TRAIN_teacher_actions"
+        ),
+        "full_modular_line_delta_range_reachable": True,
+        "deterministic_target_uniqueness_constraint_used": True,
+        "target_uniqueness_constraint_is_neural_action_feedback": False,
+        "decoded_target_projection_or_mutation_used": False,
         "probability_threshold_used": False,
         "neural_degree_cap": None,
         "fixed_page_offset_classes": None,
@@ -291,6 +324,11 @@ def main():
             "candidate_gzip_sha256": sha256(candidate_path),
             "candidate_content_sha256": gzip_content_sha256(candidate_path),
         }
+
+    manifest["maximum_complete_TRAIN_teacher_count"] = manifest["tracks"][
+        POLICY
+    ]["train"]["max_candidates_per_demand"]
+    manifest["maximum_count_exposed_as_normal_request_budget"] = False
 
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
     args.manifest_out.write_text(json.dumps(manifest, indent=2) + "\n")
