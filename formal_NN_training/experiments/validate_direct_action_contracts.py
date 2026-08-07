@@ -36,7 +36,7 @@ FORBIDDEN_RUNTIME_FIELD_PARTS = (
     "teacher", "target", "label", "candidate", "normal_action",
     "private_state", "future",
 )
-ACTIVE_MODEL_SEMANTICS = {
+LEGACY_V23_MODEL_SEMANTICS = {
     "delta_vocabulary_source": "train_labels_only",
     "delta_other_escape": "signed_log_continuous_bounded_approximation",
     "delta_other_decode_precision": (
@@ -275,7 +275,7 @@ def validate_active_model_contract_v23_legacy(track, stream, model):
         if key in stream and stream[key] != value:
             fail("{} stream/model {} mismatch".format(name, key))
 
-    for key, expected in ACTIVE_MODEL_SEMANTICS.items():
+    for key, expected in LEGACY_V23_MODEL_SEMANTICS.items():
         if key not in model:
             fail("{} stable model contract lacks {}".format(name, key))
         if same_value(name, stream, model, key, required=True) != expected:
@@ -351,6 +351,10 @@ def validate_active_model_contract_v23_legacy(track, stream, model):
         fail("{} feeds a previous decoded action back into inference".format(name))
 
     if name.endswith("_stride"):
+        if not str(model.get("parameter_formula", "")).startswith(
+            "5*H^2 + (201+K)*H + K+60"
+        ):
+            fail("{} direct-bit parameter formula changed".format(name))
         hurdle_objective = aliased_value(
             name, stream, model,
             (
@@ -418,6 +422,10 @@ def validate_active_model_contract_v23_legacy(track, stream, model):
         if model.get("decoder_only_change") is not True:
             fail("{} v23 is not marked decoder-only".format(name))
     elif name.endswith("_spp"):
+        if model.get("parameter_formula") != (
+            "9*H^2 + (191+K)*H + K+118"
+        ):
+            fail("{} direct-bit parameter formula changed".format(name))
         objective = same_value(
             name, stream, model,
             "joint_action_training_objective", required=True,
@@ -579,7 +587,7 @@ def validate_active_model_contract_v23_legacy(track, stream, model):
 
 
 def validate_active_model_contract(track, stream, model):
-    """Audit the v24 natural-cardinality contracts without copying code."""
+    """Audit the active v25 contracts without copying implementation code."""
     name = track.name
     training_fields, inference_fields = contract_fields(stream)
     model_fields = model.get(
@@ -611,7 +619,6 @@ def validate_active_model_contract(track, stream, model):
         "decoder_previous_predicted_action_used_as_input",
         "decoder_previous_sampled_action_used_as_input",
         "count_regression_used",
-        "hurdle_head_used",
         "stop_token_used",
         "stop_padding_used",
         "loss_class_reweighting_used",
@@ -624,23 +631,22 @@ def validate_active_model_contract(track, stream, model):
         fail("{} inherits a fixed neural degree".format(name))
     if model.get("neural_role") != "standalone_direct_action_prefetcher":
         fail("{} is not an independent direct-action learner".format(name))
-    if model.get("count_head_used") is not True:
-        fail("{} lacks a natural categorical count head".format(name))
-    if model.get("count_zero_is_implicit_hurdle") is not True:
-        fail("{} does not use K=0 as the implicit hurdle".format(name))
+    if model.get("normal_policy_outputs_used_as_training_targets") is not True:
+        fail("{} does not use source actions strictly as labels".format(name))
     if model.get("count_support_is_dataset_derived") is not True:
         fail("{} count support is not TRAIN-derived".format(name))
     if model.get("count_support_is_normal_request_budget") is not False:
         fail("{} count support copies the normal request rate".format(name))
     if model.get("count_support_is_tuned_degree") is not False:
         fail("{} count support is a tuned degree".format(name))
-    if "unweighted" not in str(model.get("count_training_objective", "")):
-        fail("{} count objective is not natural unweighted CE".format(name))
-    if model.get("action_loss_scope") != "teacher_action_ranks_only":
+    if model.get("action_loss_scope") not in (
+        "teacher_action_ranks_only", "real_teacher_action_ranks_only",
+        "all_58_bits_of_every_real_teacher_rank",
+    ):
         fail("{} creates loss outside real teacher ranks".format(name))
     mode = str(model.get("decoder_training_mode", "")).lower()
-    if "cardinality" not in mode or "without" not in mode or "feedback" not in mode:
-        fail("{} decoder mode is not feedback-free natural cardinality".format(name))
+    if "without" not in mode or "feedback" not in mode:
+        fail("{} decoder mode is not action-feedback-free".format(name))
 
     points = model.get("points")
     if not isinstance(points, list) or [
@@ -655,50 +661,152 @@ def validate_active_model_contract(track, stream, model):
         fail("{} lacks a realized parameter formula".format(name))
     if model.get("input_archive_reused_byte_for_byte") is not True:
         fail("{} does not require byte-identical input reuse".format(name))
+    if model.get("operation") != "train-v25" or "v25" not in model.get(
+        "run_id", ""
+    ):
+        fail("{} is not the active v25 training contract".format(name))
 
     if name.endswith("_stride"):
+        if training_fields != ["pc", "addr"]:
+            fail("{} changed the normal-Stride external input".format(name))
         if model.get("engineered_runtime_features") != []:
             fail("{} retains engineered Stride inputs".format(name))
         if model.get("causal_runtime_feature_count") != 0:
             fail("{} primary encoder is not raw PC/address only".format(name))
-        if model.get("training_state_routing") != "exact_observed_PC_keyed_hidden_cell":
-            fail("{} does not preserve exact-PC recurrence".format(name))
+        for key in (
+            "dual_context_core_used", "global_chronological_lstm_used",
+            "exact_pc_local_lstm_used", "learned_global_local_fusion_used",
+            "hurdle_head_used", "positive_only_categorical_count_head_used",
+            "deterministic_target_uniqueness_constraint_used",
+            "full_modular_line_delta_range_reachable",
+        ):
+            if model.get(key) is not True:
+                fail("{} must set {}=true".format(name, key))
+        if model.get("hurdle_classes") != ["ZERO", "POSITIVE"]:
+            fail("{} lacks the natural ZERO/POSITIVE hurdle".format(name))
+        if model.get("count_zero_is_implicit_hurdle") is not True:
+            fail("{} must represent K=0 only through the hurdle".format(name))
+        if model.get("hurdle_loss_class_weights") is not None:
+            fail("{} reweights its sparse hurdle".format(name))
+        if "unweighted" not in str(model.get(
+            "hurdle_training_objective", ""
+        )) or "unweighted" not in str(model.get(
+            "positive_count_training_objective", ""
+        )):
+            fail("{} hurdle/count objectives are not natural unweighted CE".format(
+                name
+            ))
+        if (
+            model.get("delta_token_head_used") is not False
+            or model.get("delta_vocabulary_used") is not False
+            or model.get("delta_escape_head_used") is not False
+            or model.get("rank_delta_payload_head")
+            != "one_direct_58bit_modular_Bernoulli_head"
+            or model.get("delta_decode_precision")
+            != "exact_all_58_modular_bits"
+            or model.get("action_loss_scope")
+            != "all_58_bits_of_every_real_teacher_rank"
+        ):
+            fail("{} does not use direct all-rank 58-bit delta supervision".format(
+                name
+            ))
+        routing = str(model.get("training_state_routing", "")).lower()
+        if "global" not in routing or "local" not in routing or "exact_pc" not in routing:
+            fail("{} lacks global plus exact-PC-local chronology".format(name))
         if model.get("fill_level") != "FILL_L2_only_no_fill_head":
             fail("{} introduces an unnecessary Stride fill head".format(name))
         if model.get("weights_retrained") is not True:
-            fail("{} v24 must train from scratch".format(name))
+            fail("{} v25 must train from scratch".format(name))
         if model.get("checkpoint_reused") is not False:
-            fail("{} v24 must not reuse a parent checkpoint".format(name))
+            fail("{} v25 must not reuse a parent checkpoint".format(name))
         if model.get("original_guard_used_for_selection") is not False:
             fail("{} uses phase-shift GUARD for selection".format(name))
         if model.get("evaluation_used_for_selection") is not False:
             fail("{} leaks EVAL into selection".format(name))
-        if "TRAIN_suffix" not in str(model.get("checkpoint_selection", "")):
-            fail("{} lacks blocked TRAIN validation".format(name))
-        if "FIT_TRAIN" not in str(model.get("delta_vocabulary_source", "")):
-            fail("{} delta vocabulary is not FIT-TRAIN-derived".format(name))
+        selection = model.get("selection_protocol")
+        if selection != {
+            "fit": "first_80_percent_of_TRAIN",
+            "validation": "last_20_percent_of_TRAIN",
+            "selection_support": "FIT_only",
+            "metric": "complete_validation_NLL_per_callback",
+            "tie_break": "earlier_epoch",
+        }:
+            fail("{} lacks the fixed chronological 80/20 selection".format(name))
+        final_training = str(model.get("final_training_protocol", "")).lower()
+        if not all(token in final_training for token in (
+            "reset_seed", "reinitialize", "retrain_from_scratch",
+            "complete_train", "selected_epoch",
+        )):
+            fail("{} does not refit complete TRAIN from scratch".format(name))
+        if (
+            model.get("positive_count_support_source_selection")
+            != "FIT_labels_only"
+            or model.get("positive_count_support_source_final")
+            != "complete_TRAIN_labels_only"
+            or model.get("delta_bit_prior_source_selection")
+            != "all_real_FIT_teacher_actions"
+            or model.get("delta_bit_prior_source_final")
+            != "all_real_complete_TRAIN_teacher_actions"
+        ):
+            fail("{} selection/final count or bit priors use the wrong partition".format(
+                name
+            ))
+        if model.get("decoded_target_projection_or_mutation_used") is not False:
+            fail("{} mutates a decoded target to force uniqueness".format(name))
     elif name.endswith("_spp"):
+        if training_fields != [
+            "callback_kind", "invoke_prefetcher.addr",
+            "cache_fill.evicted_addr",
+        ]:
+            fail("{} changed the source-SPP external input".format(name))
         if model.get("model_does_not_use_pc") is not True:
             fail("{} unexpectedly consumes PC".format(name))
-        if model.get("joint_action_vocabulary_cartesian_product_used") is not False:
-            fail("{} builds a Cartesian delta/fill vocabulary".format(name))
-        if "TRAIN_observed" not in str(model.get("joint_action_vocabulary_source", "")):
-            fail("{} action vocabulary is not TRAIN-observed".format(name))
-        if model.get("separate_delta_head_used") is not False or model.get(
-            "separate_fill_head_used"
-        ) is not False:
-            fail("{} splits the joint replay action".format(name))
-        if tuple(model.get("core_types", ())) != ("global", "event_routed"):
-            fail("{} core ablation is incomplete".format(name))
-        if model.get("core_selection_hidden_size") != 32:
-            fail("{} core selection is not pinned to h32".format(name))
-        if model.get("core_selection_uses_evaluation") is not False:
-            fail("{} leaks EVAL into core selection".format(name))
-        if model.get("event_routed_core_adds_runtime_input") is not False:
-            fail("{} event-routed core changes the input".format(name))
-        objective = str(model.get("joint_action_training_objective", ""))
-        if "unweighted" not in objective or "joint_delta_fill" not in objective:
-            fail("{} action objective is not natural joint CE".format(name))
+        if model.get("count_head_used") is not True:
+            fail("{} lacks a natural categorical K head".format(name))
+        if model.get("count_zero_is_implicit_hurdle") is not True:
+            fail("{} does not use K=0 as the no-request class".format(name))
+        if "unweighted" not in str(model.get("count_training_objective", "")):
+            fail("{} count objective is not natural unweighted CE".format(name))
+        for key in (
+            "joint_action_token_head_used", "action_vocabulary_used",
+            "other_token_used",
+        ):
+            if model.get(key) is not False:
+                fail("{} must set {}=false".format(name, key))
+        if (
+            model.get("core_type") != "global"
+            or model.get("core_selection_used") is not False
+            or model.get("event_routed_core_used") is not False
+            or "one_global_chronological" not in str(model.get("global_core", ""))
+        ):
+            fail("{} is not one fixed global chronological LSTM".format(name))
+        if (
+            model.get("fill_head_used") is not True
+            or model.get("fill_specific_delta_bit_heads_used") is not True
+            or model.get("both_fill_bit_heads_require_train_supervision")
+            is not True
+            or "unweighted" not in str(model.get("fill_training_objective", ""))
+            or "58_bit" not in str(model.get("delta_bit_training_objective", ""))
+            or model.get("delta_payload_encoding")
+            != "exact_58_bit_modular_line_delta"
+            or model.get("delta_payload_float_or_clip_used") is not False
+        ):
+            fail("{} lacks direct fill plus teacher-fill-specific bit supervision".format(
+                name
+            ))
+        if (
+            model.get("target_uniqueness_feasibility_mask_used") is not True
+            or model.get("target_uniqueness_ignores_fill_level") is not True
+            or model.get("infeasible_unique_decode_behavior") != "fail_closed"
+            or model.get(
+                "rank_logits_conditionally_independent_of_previous_actions"
+            ) is not True
+            or model.get("kbest_payload_enumeration_exact") is not True
+            or model.get("fill_and_payload_log_probability_combined") is not True
+        ):
+            fail("{} does not enforce deterministic unique targets".format(name))
+        if model.get("training_and_guard_objective_identical") is not True:
+            fail("{} selects on a different objective than it trains".format(name))
     else:
         fail("unexpected active track {}".format(name))
 
@@ -770,8 +878,8 @@ def validate_track(track):
                 "core-ablation", "--core-selection-file",
                 "core_selection_uses_evaluation", "evaluation_files_loaded",
             ):
-                if token not in notebook:
-                    fail("{} notebook lacks core-selection token {}".format(
+                if token in notebook:
+                    fail("{} notebook retains stale core-selection token {}".format(
                         name, token
                     ))
         for relative in ("linux/run_server.sh", "linux/launch_server.sh"):
@@ -782,9 +890,9 @@ def validate_track(track):
                 ))
         run_server = (track / "linux" / "run_server.sh").read_text()
         for token in (
-            "requires the exact five configured MODEL_TAGS",
+            '[[ "$MODEL_TAGS_CSV" == "$DEFAULT_MODEL_TAGS" ]]',
             "require_safe_path_token RUN_ID",
-            "assert_model_metadata",
+            "assert_active_model_metadata",
             "analyze() {\n  require_colab_outputs",
         ):
             if token not in run_server:
@@ -891,8 +999,8 @@ def main():
     print("[PASS] eight matched-input direct-action tracks satisfy the static contract")
     print("[PASS] active 623 contracts are loaded from stable model_contract.py files")
     print("[PASS] active 623 uses no threshold, normal template, page rule, or degree cap")
-    print("[PASS] Stride uses natural count plus real-rank delta supervision")
-    print("[PASS] SPP uses GUARD-selected recurrence and natural joint actions")
+    print("[PASS] Stride v25 uses dual-context natural hurdle/count and direct 58-bit rank payloads")
+    print("[PASS] SPP v25 uses one global LSTM, natural K/fill heads, and direct 58-bit rank payloads")
     print("[PASS] active Colab notebooks use one validated input/output archive")
 
 
