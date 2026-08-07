@@ -13,11 +13,13 @@ import json
 import re
 from pathlib import Path
 
-from model_contract import POLICY, RUN_ID, TRACE, model_points_description
+from model_contract import (
+    MODEL_TAG_PREFIX, POLICY, RUN_ID, TRACE, model_points_description,
+)
 
 DEFAULT_RUN_ID = RUN_ID
 SOURCE_INPUTS = ["pc", "addr"]
-NEURAL_METHOD_PREFIX = "offline_natural_cardinality_stride_lstm_"
+NEURAL_METHOD_PREFIX = "offline_" + MODEL_TAG_PREFIX
 EXPECTED_TAGS = {
     point["model_tag"] for point in model_points_description()["points"]
 }
@@ -200,6 +202,36 @@ def input_contract_mismatches_v23_legacy(metadata):
             "actual": sorted(str(value) for value in encoder_hashes),
             "expected": "one identical 64-hex hash",
         })
+    for key in (
+        "delta_bit_FIT_add_one_priors",
+        "delta_bit_complete_TRAIN_add_one_priors",
+    ):
+        priors = metadata.get(key)
+        if (
+            not isinstance(priors, list) or len(priors) != 58
+            or any(
+                not isinstance(value, (int, float))
+                or isinstance(value, bool) or not 0 < value < 1
+                for value in priors
+            )
+        ):
+            mismatches.append({
+                "field": key,
+                "actual": priors,
+                "expected": "58 natural add-one Bernoulli priors in (0,1)",
+            })
+    for forbidden in (
+        "exact_delta_vocabulary", "selection_exact_delta_vocabulary",
+        "delta_vocabulary_exact", "delta_vocabulary_exact_size",
+        "delta_vocabulary_statistics", "other_delta_class",
+        "delta_class_empirical_prior", "delta_other_escape",
+    ):
+        if forbidden in metadata:
+            mismatches.append({
+                "field": forbidden,
+                "actual": metadata.get(forbidden),
+                "expected": "absent from active direct-bit metadata",
+            })
     return mismatches
 
 
@@ -234,13 +266,24 @@ def input_contract_mismatches(metadata):
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "decoder_training_mode": contract["decoder_training_mode"],
-        "count_training_objective": contract["count_training_objective"],
+        "complete_training_objective": contract[
+            "complete_training_objective"
+        ],
+        "hurdle_training_objective": contract[
+            "hurdle_training_objective"
+        ],
+        "positive_count_training_objective": contract[
+            "positive_count_training_objective"
+        ],
         "categorical_count_head_used": True,
         "count_regression_used": False,
         "log_count_used": False,
-        "hurdle_head_used": False,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
+        "hurdle_head_used": True,
+        "hurdle_classes": ["ZERO", "POSITIVE"],
+        "hurdle_loss_class_weights": None,
+        "positive_only_categorical_count_head_used": True,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
         "stop_padding_used": False,
         "loss_class_reweighting_used": False,
         "decode_prior_correction_used": False,
@@ -260,11 +303,27 @@ def input_contract_mismatches(metadata):
         "delta_training_objective": contract[
             "delta_training_objective"
         ],
-        "delta_other_escape": "signed_log_continuous_bounded_approximation",
-        "delta_coordinate_auxiliary_scope": "OTHER_teacher_actions_only",
+        "delta_token_head_used": False,
+        "delta_vocabulary_used": False,
+        "delta_escape_head_used": False,
+        "rank_delta_payload_head": "one_direct_58bit_modular_Bernoulli_head",
+        "rank_delta_payload_bits": 58,
+        "delta_decode_precision": "exact_all_58_modular_bits",
+        "full_modular_line_delta_range_reachable": True,
+        "delta_bit_loss_scope": "all_58_bits_of_every_real_teacher_rank",
+        "delta_bit_initialization": (
+            "zero_weight_add_one_smoothed_partition_bit_marginal_logit_bias"
+        ),
+        "delta_bit_prior_source_selection": "all_real_FIT_teacher_actions",
+        "delta_bit_prior_source_final": (
+            "all_real_complete_TRAIN_teacher_actions"
+        ),
         "all_deltas_relative_to_current_demand": True,
         "stride_fill_level": "FILL_L2_only_no_learned_fill_head",
-        "action_loss_scope": "teacher_action_ranks_only",
+        "action_loss_scope": "all_58_bits_of_every_real_teacher_rank",
+        "deterministic_target_uniqueness_constraint_used": True,
+        "target_uniqueness_constraint_is_neural_action_feedback": False,
+        "decoded_target_projection_or_mutation_used": False,
         "checkpoint_selection": contract["checkpoint_selection"],
         "blocked_validation_length_source": contract[
             "blocked_validation_length_source"
@@ -272,7 +331,15 @@ def input_contract_mismatches(metadata):
         "original_guard_role": contract["original_guard_role"],
         "blocked_validation_selected_checkpoint": True,
         "original_guard_used_for_checkpoint_selection": False,
+        "original_guard_used_for_selection": False,
+        "selection_support_derived_from_FIT_only": True,
+        "final_support_derived_from_complete_TRAIN_only": True,
+        "selected_FIT_checkpoint_reused_for_final_model": False,
+        "final_retrained_from_scratch": True,
+        "final_retrain_seed_reset": True,
+        "final_retrain_training_partition": "complete_original_TRAIN",
         "evaluation_used_for_checkpoint_selection": False,
+        "evaluation_used_for_selection": False,
         "evaluation_policy_decode_count": 1,
         "diagnostic_eval_decode_count": 1,
         "oracle_diagnostics_replayed": False,
@@ -280,6 +347,10 @@ def input_contract_mismatches(metadata):
         "weights_retrained": True,
         "checkpoint_reused": False,
         "decoder_only_change": False,
+        "dual_context_core_used": True,
+        "global_chronological_lstm_used": True,
+        "exact_pc_local_lstm_used": True,
+        "learned_global_local_fusion_used": True,
         "training_config": contract["training_config"],
         "cublas_workspace_config": contract["determinism_contract"][
             "cublas_workspace_config"
@@ -321,6 +392,53 @@ def input_contract_mismatches(metadata):
             "field": "runtime_encoder_sha256",
             "actual": sorted(str(value) for value in encoder_hashes),
             "expected": "one identical 64-hex hash",
+        })
+    selected_epoch = metadata.get("selected_epoch")
+    selected_validation = metadata.get("selected_blocked_validation") or {}
+    if (
+        not isinstance(selected_epoch, int) or isinstance(selected_epoch, bool)
+        or not 1 <= selected_epoch <= metadata.get("epochs", 0)
+        or metadata.get("final_retrain_epochs") != selected_epoch
+        or not isinstance(
+            selected_validation.get("complete_nll_per_callback"), (int, float)
+        )
+    ):
+        mismatches.append({
+            "field": "selected_epoch/final_retrain_epochs",
+            "actual": {
+                "selected_epoch": selected_epoch,
+                "final_retrain_epochs": metadata.get("final_retrain_epochs"),
+                "selected_blocked_validation": selected_validation,
+            },
+            "expected": "complete 80/20 NLL selection then equal-epoch full TRAIN refit",
+        })
+    fit_callbacks = metadata.get("fit_train_callbacks")
+    blocked_callbacks = metadata.get("blocked_validation_callbacks")
+    if (
+        not isinstance(fit_callbacks, int)
+        or not isinstance(blocked_callbacks, int)
+        or fit_callbacks <= 0 or blocked_callbacks <= 0
+        or fit_callbacks != (fit_callbacks + blocked_callbacks) * 4 // 5
+    ):
+        mismatches.append({
+            "field": "fit_train_callbacks/blocked_validation_callbacks",
+            "actual": [fit_callbacks, blocked_callbacks],
+            "expected": "chronological first 80% / last 20% of TRAIN",
+        })
+    decoder = metadata.get("decoder_eval_diagnostics") or {}
+    if (
+        decoder.get("all_emitted_target_lines_unique_within_callback") is not True
+        or decoder.get(
+            "deterministic_target_uniqueness_feasibility_mask_used"
+        ) is not True
+        or decoder.get("decoded_target_projection_or_mutation_used") is not False
+        or decoder.get("uniqueness_constraint_used_as_neural_input") is not False
+        or decoder.get("action_feedback_used") is not False
+    ):
+        mismatches.append({
+            "field": "decoder_eval_diagnostics",
+            "actual": decoder,
+            "expected": "ordered unique targets without mutation or action feedback",
         })
     oracle = metadata.get("oracle_diagnostics") or {}
     if (
@@ -492,12 +610,19 @@ def model_record(row, metadata, normal, no_pref, matched):
         ),
     }
     diagnostic_keys = (
+        "dual_context_core_used",
+        "global_chronological_lstm_used",
+        "exact_pc_local_lstm_used",
+        "learned_global_local_fusion_used",
+        "total_recurrent_width",
+        "global_recurrent_width",
+        "exact_pc_local_recurrent_width",
+        "complete_training_objective",
         "categorical_count_head_used",
-        "count_training_objective",
-        "count_support",
+        "positive_count_support",
+        "selection_positive_count_support",
         "count_train_statistics",
-        "count_fit_train_class_frequencies",
-        "count_fit_train_add_one_natural_priors",
+        "count_fit_train_statistics",
         "count_zero_is_implicit_hurdle",
         "count_regression_used",
         "log_count_used",
@@ -511,6 +636,10 @@ def model_record(row, metadata, normal, no_pref, matched):
         "blocked_validation_callbacks",
         "selected_epoch",
         "selected_blocked_validation",
+        "final_retrained_from_scratch",
+        "final_retrain_seed_reset",
+        "final_retrain_epochs",
+        "selected_FIT_checkpoint_reused_for_final_model",
         "original_guard_role",
         "original_guard_phase_shift_metrics",
         "blocked_validation_behavior_metrics",
@@ -544,10 +673,18 @@ def model_record(row, metadata, normal, no_pref, matched):
         "teacher_sequence_training_label_statistics",
         "delta_training_objective",
         "delta_decoding_rule",
-        "delta_vocabulary_exact_size",
-        "delta_vocabulary_statistics",
-        "delta_other_escape",
-        "delta_other_decode_precision",
+        "delta_token_head_used",
+        "delta_vocabulary_used",
+        "delta_escape_head_used",
+        "rank_delta_payload_head",
+        "rank_delta_payload_bits",
+        "delta_bit_loss_scope",
+        "delta_bit_initialization",
+        "delta_bit_prior_source_selection",
+        "delta_bit_prior_source_final",
+        "delta_bit_FIT_add_one_priors",
+        "delta_bit_complete_TRAIN_add_one_priors",
+        "delta_label_statistics",
         "decode_per_callback_resource_watchdog",
         "decode_per_role_resource_watchdog",
         "decode_resource_watchdog_behavior",
