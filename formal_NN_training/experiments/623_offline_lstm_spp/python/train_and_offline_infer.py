@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Train and decode the matched-input 623 SPP v24 model.
+"""Train and decode the matched-input 623 SPP v25 model.
 
 The model sees only the unchanged source chronology: a DEMAND/FILL kind bit
 and a lossless 58-bit line number.  It predicts a natural categorical action
-count K, then exactly K rank-conditioned joint (delta, fill) actions.  Action
-loss is present only for real teacher ranks: there is no STOP padding, hurdle,
-class weighting, prior correction, request budget, or action feedback.
+count K, then exactly K rank-conditioned fill choices and exact modular 58-bit
+delta payloads.  Every capacity uses the same global chronological one-layer
+LSTM.  Fill and payload losses are present only for real teacher ranks.  Decode
+uses exact k-best Bernoulli subset enumeration to select the most probable
+feasible unique target without using an earlier action as a neural input.
 """
 import argparse
 import copy
@@ -24,18 +26,17 @@ from pathlib import Path
 
 import model_contract as model_contract_module
 from model_contract import (
-    ACCUMULATE_CHUNKS, ACTION_OBJECTIVE, ADDRESS_BITS,
+    ACCUMULATE_CHUNKS, ADDRESS_BITS,
     CACHE_LINE_BYTES, CACHE_LINE_SHIFT, CHECKPOINT_SELECTION, CHUNK_LEN,
-    CORE_ABLATION_ROLE, CORE_SELECTION_HIDDEN_SIZE, CORE_SELECTION_METRIC,
-    CORE_SELECTION_TIE_BREAK, CORE_TYPES, COUNT_OBJECTIVE, DECODER_REVISION,
+    CORE_TYPE, COUNT_OBJECTIVE, DECODER_REVISION,
     DECODER_TRAINING_MODE, DECODING_RULE, EPOCHS, EXPERIMENT_REVISION,
-    EXTERNAL_INPUT_FIELDS, FILL_LEVELS, LEARNING_RATE, LINE_ADDRESS_BITS,
-    LINE_ADDRESS_MODULUS, MAX_EXACT_ACTION_PAIRS, MODEL_POINTS,
-    MODEL_REVISION, OPERATION, OTHER_ACTION_OBJECTIVE, PARENT_INPUT_RUN_ID,
+    EXTERNAL_INPUT_FIELDS, FILL_LEVELS, FILL_OBJECTIVE, LEARNING_RATE,
+    LINE_ADDRESS_BITS, LINE_ADDRESS_MODULUS, MODEL_POINTS,
+    MODEL_REVISION, OPERATION, DELTA_BIT_OBJECTIVE, PARENT_INPUT_RUN_ID,
     POLICY, RANK_CODE_SIZE, RUNTIME_FEATURE_COUNT, RUN_ID, SEED, TRACE,
-    action_token_count, count_statistics, decode_action_token,
-    describe_model_points, exact_int as as_int, expected_parameter_count,
-    model_tag, other_action_token,
+    bits_to_modular_delta, count_statistics, describe_model_points,
+    exact_int as as_int, expected_parameter_count, k_best_flip_subsets,
+    modal_bernoulli_payload, model_tag, modular_delta, modular_delta_bits,
 )
 
 # Contract inspection must work on the CPU-only replay host without torch.
@@ -68,7 +69,7 @@ LINE_ADDRESS_HALF_RANGE = 1 << (LINE_ADDRESS_BITS - 1)
 RUNTIME_FEATURES = LINE_ADDRESS_BITS + 1
 
 if RUNTIME_FEATURES != RUNTIME_FEATURE_COUNT:
-    raise RuntimeError("SPP v24 raw runtime feature contract changed")
+    raise RuntimeError("SPP v25 raw runtime feature contract changed")
 
 
 def sha256(path):
@@ -287,22 +288,6 @@ def canonical_signed_delta(base, target):
     return difference
 
 
-def signed_log(delta):
-    value = int(delta)
-    return math.copysign(math.log1p(abs(value)), value) if value else 0.0
-
-
-def inverse_signed_log(value):
-    scalar = float(value)
-    if not math.isfinite(scalar):
-        raise RuntimeError("OTHER action coordinate is not finite")
-    maximum = math.log1p(LINE_ADDRESS_HALF_RANGE)
-    scalar = max(-maximum, min(maximum, scalar))
-    magnitude = int(round(math.expm1(abs(scalar))))
-    delta = -magnitude if scalar < 0 else magnitude
-    return max(-LINE_ADDRESS_HALF_RANGE, min(LINE_ADDRESS_HALF_RANGE - 1, delta))
-
-
 def teacher_action_pairs(stream, actions):
     require_equal_lengths("teacher action pairs", stream["demands"], actions)
     values = []
@@ -314,61 +299,59 @@ def teacher_action_pairs(stream, actions):
     return values
 
 
-def build_action_vocabulary(train_stream, train_actions):
-    frequencies = Counter(teacher_action_pairs(train_stream, train_actions))
-    if not frequencies:
-        raise RuntimeError("TRAIN joint-action vocabulary is empty")
-    ordered = sorted(
-        frequencies,
-        key=lambda pair: (-frequencies[pair], pair[0], pair[1]),
+def fill_and_bit_statistics(train_stream, train_actions):
+    require_equal_lengths(
+        "TRAIN fill/bit statistics", train_stream["demands"], train_actions
     )
-    exact_pairs = ordered[:MAX_EXACT_ACTION_PAIRS]
-    return exact_pairs, frequencies
-
-
-def action_class_prior(exact_pairs, frequencies):
-    pair_to_class = {pair: index for index, pair in enumerate(exact_pairs)}
-    counts = [0] * action_token_count(len(exact_pairs))
-    for pair, frequency in frequencies.items():
-        token = pair_to_class.get(
-            pair, other_action_token(pair[1], len(exact_pairs))
+    counts = [0, 0]
+    one_counts = [[0] * LINE_ADDRESS_BITS for _ in FILL_LEVELS]
+    for demand, items in zip(train_stream["demands"], train_actions):
+        base = demand[2]
+        for target, fill in items:
+            fill_index = FILL_LEVELS.index(int(fill))
+            counts[fill_index] += 1
+            for bit, value in enumerate(modular_delta_bits(modular_delta(base, target))):
+                one_counts[fill_index][bit] += int(value)
+    if any(value <= 0 for value in counts):
+        raise RuntimeError(
+            "both fill-specific delta-bit heads require actual TRAIN labels; "
+            "observed L2/LLC counts {}".format(counts)
         )
-        counts[token] += int(frequency)
     denominator = float(sum(counts) + len(counts))
-    return counts, [(value + 1.0) / denominator for value in counts]
+    fill_prior = [(value + 1.0) / denominator for value in counts]
+    bit_priors = [
+        [(ones + 1.0) / float(counts[fill_index] + 2)
+         for ones in one_counts[fill_index]]
+        for fill_index in range(len(FILL_LEVELS))
+    ]
+    return counts, fill_prior, one_counts, bit_priors
 
 
-def action_coordinate_initial_bias(pairs):
-    values = [signed_log(delta) for delta, _ in pairs]
-    return sum(values) / float(len(values)) if values else 0.0
-
-
-def vocabulary_statistics(stream, actions, exact_pairs):
-    exact = set(exact_pairs)
+def payload_statistics(stream, actions):
     pairs = teacher_action_pairs(stream, actions)
-    in_vocabulary = sum(pair in exact for pair in pairs)
     return {
         "teacher_actions": len(pairs),
         "unique_teacher_joint_pairs": len(set(pairs)),
-        "exact_vocabulary_actions": int(in_vocabulary),
-        "other_escape_actions": int(len(pairs) - in_vocabulary),
-        "exact_vocabulary_coverage": (
-            float(in_vocabulary) / len(pairs) if pairs else 0.0
-        ),
+        "fill_level_counts": {
+            "FILL_L2": sum(fill == 2 for _, fill in pairs),
+            "FILL_LLC": sum(fill == 4 for _, fill in pairs),
+        },
+        "every_action_has_exact_58_bit_payload": True,
     }
 
 
-def build_context_targets(stream, actions, exact_pairs, count_classes):
+def build_context_targets(stream, actions, count_classes):
     require_equal_lengths(
         "target decisions", stream["demands"], stream["demand_positions"], actions
     )
     maximum_count = count_classes - 1
     counts = np.full(len(stream["context"]), -1, dtype=np.int64)
-    tokens = np.full(
+    fills = np.full(
         (len(stream["context"]), maximum_count), -1, dtype=np.int64
     )
-    coordinates = np.zeros(tokens.shape, dtype=np.float32)
-    pair_to_class = {pair: index for index, pair in enumerate(exact_pairs)}
+    delta_bits = np.zeros(
+        fills.shape + (LINE_ADDRESS_BITS,), dtype=np.float32
+    )
     for decision, position in enumerate(stream["demand_positions"]):
         items = actions[decision]
         if len(items) > maximum_count:
@@ -376,13 +359,12 @@ def build_context_targets(stream, actions, exact_pairs, count_classes):
         counts[position] = len(items)
         base = stream["demands"][decision][2]
         for rank, (target, fill) in enumerate(items):
-            delta = canonical_signed_delta(base, target)
-            pair = (delta, int(fill))
-            tokens[position, rank] = pair_to_class.get(
-                pair, other_action_token(fill, len(exact_pairs))
+            fills[position, rank] = FILL_LEVELS.index(int(fill))
+            delta_bits[position, rank] = np.asarray(
+                modular_delta_bits(modular_delta(base, target)),
+                dtype=np.float32,
             )
-            coordinates[position, rank] = signed_log(delta)
-    return counts, tokens, coordinates
+    return counts, fills, delta_bits
 
 
 def write_table(path, rows):
@@ -459,71 +441,60 @@ def rank_code(ranks, dtype):
 
 class NaturalCardinalitySPPLSTM(nn.Module):
     def __init__(
-        self, core_type, hidden_size, count_prior, action_prior,
-        coordinate_bias,
+        self, hidden_size, count_prior, fill_prior, delta_bit_priors,
     ):
         super().__init__()
-        self.core_type = str(core_type)
+        self.core_type = CORE_TYPE
         self.hidden_size = int(hidden_size)
         self.count_output_classes = len(count_prior)
-        self.action_output_classes = len(action_prior)
+        self.fill_output_classes = len(fill_prior)
         if (
-            self.core_type not in CORE_TYPES
-            or self.hidden_size not in MODEL_POINTS["lstm"]
+            self.hidden_size not in MODEL_POINTS["lstm"]
             or self.count_output_classes < 1
-            or not 3 <= self.action_output_classes <= MAX_EXACT_ACTION_PAIRS + 2
+            or self.fill_output_classes != len(FILL_LEVELS)
         ):
-            raise ValueError("unsupported realized SPP v24 dimensions")
+            raise ValueError("unsupported realized SPP v25 dimensions")
         self.input_projection = nn.Linear(RUNTIME_FEATURES, hidden_size)
-        if self.core_type == "global":
-            self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
-        else:
-            self.demand_cell = nn.LSTMCell(hidden_size, hidden_size)
-            self.fill_cell = nn.LSTMCell(hidden_size, hidden_size)
+        self.lstm = nn.LSTM(hidden_size, hidden_size, batch_first=True)
         self.rank_fusion = nn.Linear(hidden_size + RANK_CODE_SIZE, hidden_size)
         self.count_head = nn.Linear(hidden_size, self.count_output_classes)
-        self.action_head = nn.Linear(hidden_size, self.action_output_classes)
-        self.other_coordinate_head = nn.Linear(hidden_size, 1)
+        self.fill_head = nn.Linear(hidden_size, self.fill_output_classes)
+        self.l2_delta_bit_head = nn.Linear(hidden_size, LINE_ADDRESS_BITS)
+        self.llc_delta_bit_head = nn.Linear(hidden_size, LINE_ADDRESS_BITS)
 
         count_tensor = torch.as_tensor(count_prior, dtype=self.count_head.bias.dtype)
-        action_tensor = torch.as_tensor(
-            action_prior, dtype=self.action_head.bias.dtype
+        fill_tensor = torch.as_tensor(
+            fill_prior, dtype=self.fill_head.bias.dtype
+        )
+        bit_tensor = torch.as_tensor(
+            delta_bit_priors, dtype=self.l2_delta_bit_head.bias.dtype
         )
         if (
             bool((count_tensor <= 0).any())
-            or bool((action_tensor <= 0).any())
+            or bool((fill_tensor <= 0).any())
             or not bool(torch.isfinite(count_tensor).all())
-            or not bool(torch.isfinite(action_tensor).all())
-            or not math.isfinite(float(coordinate_bias))
+            or not bool(torch.isfinite(fill_tensor).all())
+            or bit_tensor.shape != (len(FILL_LEVELS), LINE_ADDRESS_BITS)
+            or bool((bit_tensor <= 0).any())
+            or bool((bit_tensor >= 1).any())
+            or not bool(torch.isfinite(bit_tensor).all())
         ):
             raise ValueError("TRAIN-derived initialization is invalid")
         with torch.no_grad():
             self.count_head.weight.zero_()
             self.count_head.bias.copy_(torch.log(count_tensor))
-            self.action_head.weight.zero_()
-            self.action_head.bias.copy_(torch.log(action_tensor))
-            self.other_coordinate_head.bias.fill_(float(coordinate_bias))
+            self.fill_head.weight.zero_()
+            self.fill_head.bias.copy_(torch.log(fill_tensor))
+            self.l2_delta_bit_head.weight.zero_()
+            self.llc_delta_bit_head.weight.zero_()
+            bit_logits = torch.log(bit_tensor) - torch.log1p(-bit_tensor)
+            self.l2_delta_bit_head.bias.copy_(bit_logits[0])
+            self.llc_delta_bit_head.bias.copy_(bit_logits[1])
 
     def encode(self, features, demand_kind, state=None):
         embedded = torch.tanh(self.input_projection(features))
-        if self.core_type == "global":
-            output, state = self.lstm(embedded.unsqueeze(0), state)
-            return output.squeeze(0), state
-        if state is None:
-            hidden = embedded.new_zeros((1, self.hidden_size))
-            cell = embedded.new_zeros((1, self.hidden_size))
-        else:
-            hidden, cell = state
-        outputs = []
-        for position in range(len(embedded)):
-            value = embedded[position:position + 1]
-            demand_state = self.demand_cell(value, (hidden, cell))
-            fill_state = self.fill_cell(value, (hidden, cell))
-            mask = demand_kind[position].reshape(1, 1)
-            hidden = torch.where(mask, demand_state[0], fill_state[0])
-            cell = torch.where(mask, demand_state[1], fill_state[1])
-            outputs.append(hidden)
-        return torch.cat(outputs, dim=0), (hidden, cell)
+        output, state = self.lstm(embedded.unsqueeze(0), state)
+        return output.squeeze(0), state
 
     def ranked_heads(self, contexts, ranks):
         ranked = torch.tanh(
@@ -531,10 +502,11 @@ class NaturalCardinalitySPPLSTM(nn.Module):
                 contexts, rank_code(ranks, contexts.dtype)
             ], dim=1))
         )
-        return (
-            self.action_head(ranked),
-            self.other_coordinate_head(ranked).squeeze(1),
-        )
+        return {
+            "fill_logits": self.fill_head(ranked),
+            "l2_delta_bit_logits": self.l2_delta_bit_head(ranked),
+            "llc_delta_bit_logits": self.llc_delta_bit_head(ranked),
+        }
 
 
 def detach_state(state):
@@ -544,7 +516,7 @@ def detach_state(state):
 
 
 def chunk_loss_parts(model, contexts, targets):
-    counts_np, tokens_np, coordinates_np = targets
+    counts_np, fills_np, delta_bits_np = targets
     decision_rows = np.flatnonzero(counts_np >= 0).astype(np.int64)
     if not len(decision_rows):
         return None
@@ -560,14 +532,10 @@ def chunk_loss_parts(model, contexts, targets):
     count_sum = F.cross_entropy(
         model.count_head(decisions), count_truth, reduction="sum"
     )
-    action_sum = contexts.sum() * 0.0
-    coordinate_sum = contexts.sum() * 0.0
-    action_atoms = other_atoms = 0
-    exact_pair_count = model.action_output_classes - 2
-    other_tokens = (
-        other_action_token(2, exact_pair_count),
-        other_action_token(4, exact_pair_count),
-    )
+    fill_sum = contexts.sum() * 0.0
+    delta_bit_sum = contexts.sum() * 0.0
+    action_atoms = delta_bit_atoms = 0
+    fill_action_atoms = [0, 0]
     maximum_rank = int(count_truth.max().item()) if len(count_truth) else 0
     for rank in range(maximum_rank):
         active_np = np.flatnonzero(counts_np[decision_rows] > rank).astype(np.int64)
@@ -580,36 +548,43 @@ def chunk_loss_parts(model, contexts, targets):
         ranks = torch.full(
             (len(active_np),), rank, device=contexts.device, dtype=torch.long
         )
-        logits, coordinates = model.ranked_heads(ranked_contexts, ranks)
-        truth_np = tokens_np[decision_rows[active_np], rank]
+        heads = model.ranked_heads(ranked_contexts, ranks)
+        logits = heads["fill_logits"]
+        truth_np = fills_np[decision_rows[active_np], rank]
         if bool((truth_np < 0).any()):
-            raise RuntimeError("real teacher rank is missing an action token")
+            raise RuntimeError("real teacher rank is missing a fill label")
         truth = torch.from_numpy(truth_np).to(
             device=contexts.device, dtype=torch.long
         )
-        action_sum = action_sum + F.cross_entropy(
+        fill_sum = fill_sum + F.cross_entropy(
             logits, truth, reduction="sum"
         )
         action_atoms += len(active_np)
-        other_np = np.logical_or(
-            truth_np == other_tokens[0], truth_np == other_tokens[1]
-        )
-        if bool(other_np.any()):
-            other = torch.from_numpy(other_np).to(contexts.device)
-            coordinate_truth = torch.from_numpy(
-                coordinates_np[decision_rows[active_np], rank]
-            ).to(device=contexts.device, dtype=contexts.dtype)
-            coordinate_sum = coordinate_sum + F.smooth_l1_loss(
-                coordinates[other], coordinate_truth[other], reduction="sum"
+        bit_truth = torch.from_numpy(
+            delta_bits_np[decision_rows[active_np], rank]
+        ).to(device=contexts.device, dtype=contexts.dtype)
+        for fill_index, head_name in enumerate((
+            "l2_delta_bit_logits", "llc_delta_bit_logits",
+        )):
+            selected_np = truth_np == fill_index
+            if not bool(selected_np.any()):
+                continue
+            selected = torch.from_numpy(selected_np).to(contexts.device)
+            delta_bit_sum = delta_bit_sum + F.binary_cross_entropy_with_logits(
+                heads[head_name][selected], bit_truth[selected], reduction="sum"
             )
-            other_atoms += int(other_np.sum())
+            selected_count = int(selected_np.sum())
+            fill_action_atoms[fill_index] += selected_count
+            delta_bit_atoms += selected_count * LINE_ADDRESS_BITS
     return {
         "count_sum": count_sum,
-        "action_sum": action_sum,
-        "coordinate_sum": coordinate_sum,
+        "fill_sum": fill_sum,
+        "delta_bit_sum": delta_bit_sum,
         "decision_atoms": len(decision_rows),
         "action_atoms": action_atoms,
-        "other_atoms": other_atoms,
+        "delta_bit_atoms": delta_bit_atoms,
+        "l2_action_atoms": fill_action_atoms[0],
+        "llc_action_atoms": fill_action_atoms[1],
     }
 
 
@@ -646,35 +621,49 @@ def natural_list_nll(model, contexts, targets, device, chunk_len=4096):
             )
             if parts is None:
                 continue
-            for key in ("count_sum", "action_sum", "coordinate_sum"):
+            for key in ("count_sum", "fill_sum", "delta_bit_sum"):
                 totals[key] += float(parts[key].detach())
-            for key in ("decision_atoms", "action_atoms", "other_atoms"):
+            for key in (
+                "decision_atoms", "action_atoms", "delta_bit_atoms",
+                "l2_action_atoms", "llc_action_atoms",
+            ):
                 totals[key] += int(parts[key])
-    categorical = (
-        totals["count_sum"] + totals["action_sum"]
+    complete = (
+        totals["count_sum"] + totals["fill_sum"] + totals["delta_bit_sum"]
     ) / max(1, totals["decision_atoms"])
     return {
-        "natural_action_list_nll_per_callback": float(categorical),
+        "natural_action_list_nll_per_callback": float(complete),
         "count_nll_per_callback": (
             totals["count_sum"] / max(1, totals["decision_atoms"])
         ),
-        "joint_action_nll_per_callback": (
-            totals["action_sum"] / max(1, totals["decision_atoms"])
+        "fill_nll_per_callback": (
+            totals["fill_sum"] / max(1, totals["decision_atoms"])
         ),
-        "joint_action_nll_per_action": (
-            totals["action_sum"] / max(1, totals["action_atoms"])
+        "fill_nll_per_action": (
+            totals["fill_sum"] / max(1, totals["action_atoms"])
         ),
-        "other_auxiliary_per_other_action": (
-            totals["coordinate_sum"] / max(1, totals["other_atoms"])
+        "delta_bit_nll_per_callback": (
+            totals["delta_bit_sum"] / max(1, totals["decision_atoms"])
+        ),
+        "delta_bit_nll_per_action": (
+            totals["delta_bit_sum"] / max(1, totals["action_atoms"])
+        ),
+        "delta_bit_nll_per_bit": (
+            totals["delta_bit_sum"] / max(1, totals["delta_bit_atoms"])
         ),
         "decision_atoms": int(totals["decision_atoms"]),
         "action_atoms": int(totals["action_atoms"]),
-        "other_atoms": int(totals["other_atoms"]),
+        "delta_bit_atoms": int(totals["delta_bit_atoms"]),
+        "l2_action_atoms": int(totals["l2_action_atoms"]),
+        "llc_action_atoms": int(totals["llc_action_atoms"]),
+        "training_guard_objective_terms": [
+            "count_sum", "fill_sum", "delta_bit_sum",
+        ],
     }
 
 
 def decode_actions(
-    model, contexts, base_lines, exact_pairs, device,
+    model, contexts, base_lines, device,
     count_override=None, role="eval", chunk_len=4096,
 ):
     require_equal_lengths("decode", contexts, base_lines)
@@ -706,9 +695,36 @@ def decode_actions(
 
     predicted_lines = [[] for _ in base_lines]
     predicted_fills = [[] for _ in base_lines]
-    predicted_tokens = [[] for _ in base_lines]
-    action_entropy_sum = 0.0
+    fill_entropy_sum = 0.0
     action_atoms = 0
+    enumerated_payloads = 0
+    masked_payloads = 0
+    selected_joint_log_probability_sum = 0.0
+    callbacks_requiring_mask = set()
+
+    def best_feasible_payload(bit_logits, base, used_targets):
+        modal_bits, modal_log_probability, flip_costs = (
+            modal_bernoulli_payload(bit_logits)
+        )
+        # At most len(used_targets) payloads can be forbidden, so the first
+        # len(used_targets)+1 distinct k-best payloads contain a feasible one.
+        attempts = 0
+        for flip_cost, flipped_bits in k_best_flip_subsets(
+            flip_costs, len(used_targets) + 1
+        ):
+            attempts += 1
+            bits = list(modal_bits)
+            for bit in flipped_bits:
+                bits[bit] ^= 1
+            delta = bits_to_modular_delta(bits)
+            target = (int(base) + delta) % LINE_ADDRESS_MODULUS
+            if target not in used_targets:
+                return target, modal_log_probability - flip_cost, attempts
+        raise RuntimeError(
+            "exact k-best payload enumeration exhausted the mathematical "
+            "used-target bound"
+        )
+
     with torch.no_grad():
         for start, stop in _iter_chunks(len(contexts), chunk_len):
             values = torch.from_numpy(contexts[start:stop]).to(device)
@@ -724,45 +740,81 @@ def decode_actions(
                 ranks = torch.full(
                     (len(active_np),), rank, device=device, dtype=torch.long
                 )
-                logits, coordinates = model.ranked_heads(
+                heads = model.ranked_heads(
                     values.index_select(0, active), ranks
                 )
+                fill_logits = heads["fill_logits"]
                 if (
-                    not bool(torch.isfinite(logits).all())
-                    or not bool(torch.isfinite(coordinates).all())
+                    not bool(torch.isfinite(fill_logits).all())
+                    or not bool(torch.isfinite(
+                        heads["l2_delta_bit_logits"]
+                    ).all())
+                    or not bool(torch.isfinite(
+                        heads["llc_delta_bit_logits"]
+                    ).all())
                 ):
-                    raise RuntimeError("joint action decoder is non-finite")
-                action_probabilities = torch.softmax(logits.to(torch.float64), dim=1)
-                action_entropy_sum += float((-(
-                    action_probabilities * torch.log(
-                        action_probabilities.clamp_min(1e-300)
+                    raise RuntimeError("fill/delta-bit decoder is non-finite")
+                fill_probabilities = torch.softmax(
+                    fill_logits.to(torch.float64), dim=1
+                )
+                fill_entropy_sum += float((- (
+                    fill_probabilities * torch.log(
+                        fill_probabilities.clamp_min(1e-300)
                     )
                 ).sum(dim=1)).sum().item())
                 action_atoms += len(active_np)
-                tokens = logits.argmax(dim=1).cpu().tolist()
-                coordinate_values = coordinates.cpu().tolist()
-                for local, token, coordinate in zip(
-                    active_np, tokens, coordinate_values
-                ):
-                    kind, exact_delta, fill = decode_action_token(
-                        token, exact_pairs
-                    )
-                    delta = (
-                        int(exact_delta) if kind == "EXACT"
-                        else inverse_signed_log(coordinate)
-                    )
+                fill_log_probability_rows = torch.log_softmax(
+                    fill_logits.to(torch.float64), dim=1
+                ).cpu().tolist()
+                bit_rows = (
+                    heads["l2_delta_bit_logits"].cpu().tolist(),
+                    heads["llc_delta_bit_logits"].cpu().tolist(),
+                )
+                for head_row, local in enumerate(active_np):
                     row = start + int(local)
-                    predicted_lines[row].append(
-                        (int(base_lines[row]) + delta) % LINE_ADDRESS_MODULUS
+                    used_targets = set(predicted_lines[row])
+                    candidates = []
+                    callback_attempts = 0
+                    for fill_index, fill in enumerate(FILL_LEVELS):
+                        target, payload_log_probability, attempts = (
+                            best_feasible_payload(
+                                bit_rows[fill_index][head_row],
+                                base_lines[row], used_targets,
+                            )
+                        )
+                        callback_attempts += attempts
+                        candidates.append((
+                            fill_log_probability_rows[head_row][fill_index]
+                            + payload_log_probability,
+                            fill_index, int(target), int(fill), attempts,
+                        ))
+                    if not candidates:
+                        raise RuntimeError(
+                            "unique-target decode infeasible for role={} callback={} "
+                            "rank={} selected_K={}; no count reduction or target "
+                            "mutation is permitted".format(
+                                role, row, rank, int(counts[row])
+                            )
+                        )
+                    # Highest combined fill+payload log-probability wins.  An
+                    # exact score tie chooses L2 before LLC, then lower target.
+                    selected = min(
+                        candidates,
+                        key=lambda item: (-item[0], item[1], item[2]),
                     )
+                    joint_log_probability, _, target, fill, _ = selected
+                    predicted_lines[row].append(int(target))
                     predicted_fills[row].append(int(fill))
-                    predicted_tokens[row].append(int(token))
+                    selected_joint_log_probability_sum += joint_log_probability
+                    enumerated_payloads += callback_attempts
+                    masked_payloads += callback_attempts - len(FILL_LEVELS)
+                    if callback_attempts > len(FILL_LEVELS):
+                        callbacks_requiring_mask.add(row)
     if any(
         len(items) != int(count)
         for items, count in zip(predicted_lines, counts)
     ):
         raise RuntimeError("rank decoder did not realize selected count")
-    action_width = model.action_output_classes
     count_width = model.count_output_classes
     diagnostics = {
         "role": role,
@@ -776,11 +828,6 @@ def decode_actions(
         "decoded_positive_callbacks": int((counts > 0).sum()),
         "decoded_total_actions": int(counts.sum()),
         "decoded_max_actions_per_callback": int(counts.max()) if len(counts) else 0,
-        "joint_action_token_histogram": {
-            str(key): int(value) for key, value in sorted(Counter(
-                token for items in predicted_tokens for token in items
-            ).items())
-        },
         "decoded_fill_histogram": {
             str(key): int(value) for key, value in sorted(Counter(
                 fill for items in predicted_fills for fill in items
@@ -791,20 +838,43 @@ def decode_actions(
             float(count_entropy.mean().item()) / math.log(count_width)
             if count_width > 1 else 0.0
         ),
-        "mean_joint_action_entropy": (
-            action_entropy_sum / action_atoms if action_atoms else None
+        "mean_fill_entropy": (
+            fill_entropy_sum / action_atoms if action_atoms else None
         ),
-        "mean_joint_action_entropy_normalized": (
-            action_entropy_sum / action_atoms / math.log(action_width)
-            if action_atoms and action_width > 1 else None
+        "mean_fill_entropy_normalized": (
+            fill_entropy_sum / action_atoms / math.log(len(FILL_LEVELS))
+            if action_atoms else None
+        ),
+        "mean_selected_fill_plus_payload_log_probability": (
+            selected_joint_log_probability_sum / action_atoms
+            if action_atoms else None
         ),
         "probability_threshold_used": False,
         "class_reweighting_used": False,
         "decode_prior_correction_used": False,
         "action_feedback_used": False,
         "normal_request_budget_used": False,
+        "rank_action_logits_use_previous_action": False,
+        "rank_logits_conditionally_independent_of_previous_actions": True,
+        "target_uniqueness_feasibility_mask_used": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
+        "infeasible_unique_decode_behavior": "fail_closed",
+        "kbest_payload_enumeration_exact": True,
+        "fill_and_payload_log_probability_combined": True,
+        "enumerated_payload_count": int(enumerated_payloads),
+        "uniqueness_masked_payload_count": int(masked_payloads),
+        "callbacks_requiring_feasibility_mask": len(
+            callbacks_requiring_mask
+        ),
+        "duplicate_decoded_targets": sum(
+            len(items) - len(set(items)) for items in predicted_lines
+        ),
     }
-    return counts, predicted_lines, predicted_fills, predicted_tokens, diagnostics
+    if diagnostics["duplicate_decoded_targets"] != 0:
+        raise RuntimeError("unique-target feasibility mask emitted a duplicate target")
+    return counts, predicted_lines, predicted_fills, diagnostics
 
 
 def ratio(numerator, denominator):
@@ -914,15 +984,11 @@ def count_oracle_upper_bound(predicted_counts, teacher_actions):
     }
 
 
-def output_diagnostics(base_lines, counts, predicted_lines, predicted_tokens, exact_pairs):
-    duplicate_targets = self_targets = other_actions = 0
-    for base, lines, tokens in zip(base_lines, predicted_lines, predicted_tokens):
+def output_diagnostics(base_lines, counts, predicted_lines):
+    duplicate_targets = self_targets = 0
+    for base, lines in zip(base_lines, predicted_lines):
         duplicate_targets += len(lines) - len(set(lines))
         self_targets += sum(int(int(line) == int(base)) for line in lines)
-        other_actions += sum(
-            decode_action_token(token, exact_pairs)[0] == "OTHER"
-            for token in tokens
-        )
     total = sum(map(len, predicted_lines))
     if int(np.asarray(counts).sum()) != total:
         raise RuntimeError("output accounting differs from emitted actions")
@@ -933,8 +999,14 @@ def output_diagnostics(base_lines, counts, predicted_lines, predicted_tokens, ex
         "materialized_positive_callback_count": sum(bool(x) for x in predicted_lines),
         "self_target_actions": self_targets,
         "duplicate_target_actions": duplicate_targets,
-        "other_escape_actions": other_actions,
-        "duplicate_outputs_are_preserved_for_replay": True,
+        "direct_exact_delta_bit_actions": total,
+        "action_vocabulary_used": False,
+        "other_token_used": False,
+        "duplicate_outputs_are_preserved_for_replay": False,
+        "unique_targets_per_callback_enforced": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
         "delta_legality_fallback": None,
     }
 
@@ -951,8 +1023,8 @@ def train_model(model, bundles, targets, device, args):
         for group_start in range(0, len(chunks), args.accumulate_chunks):
             optimizer.zero_grad(set_to_none=True)
             group = {
-                "count": None, "action": None, "coordinate": None,
-                "decisions": 0, "actions": 0, "others": 0,
+                "count": None, "fill": None, "delta_bit": None,
+                "decisions": 0, "actions": 0, "delta_bits": 0,
             }
             for start, stop in chunks[
                 group_start:group_start + args.accumulate_chunks
@@ -973,8 +1045,8 @@ def train_model(model, bundles, targets, device, args):
                     continue
                 for source, target in (
                     ("count_sum", "count"),
-                    ("action_sum", "action"),
-                    ("coordinate_sum", "coordinate"),
+                    ("fill_sum", "fill"),
+                    ("delta_bit_sum", "delta_bit"),
                 ):
                     group[target] = (
                         parts[source] if group[target] is None
@@ -983,19 +1055,19 @@ def train_model(model, bundles, targets, device, args):
                     totals[source] += float(parts[source].detach())
                 group["decisions"] += parts["decision_atoms"]
                 group["actions"] += parts["action_atoms"]
-                group["others"] += parts["other_atoms"]
+                group["delta_bits"] += parts["delta_bit_atoms"]
                 totals["decision_atoms"] += parts["decision_atoms"]
                 totals["action_atoms"] += parts["action_atoms"]
-                totals["other_atoms"] += parts["other_atoms"]
+                totals["delta_bit_atoms"] += parts["delta_bit_atoms"]
+                totals["l2_action_atoms"] += parts["l2_action_atoms"]
+                totals["llc_action_atoms"] += parts["llc_action_atoms"]
             if group["decisions"] == 0:
                 continue
             objective = (
-                group["count"] + group["action"]
+                group["count"] + group["fill"] + group["delta_bit"]
             ) / float(group["decisions"])
-            if group["others"]:
-                objective = objective + group["coordinate"] / float(group["others"])
             if not torch.isfinite(objective):
-                raise RuntimeError("non-finite SPP v24 training objective")
+                raise RuntimeError("non-finite SPP v25 training objective")
             objective.backward()
             optimizer.step()
             optimizer_steps += 1
@@ -1010,7 +1082,8 @@ def train_model(model, bundles, targets, device, args):
             -guard_nll["natural_action_list_nll_per_callback"], -epoch
         )
         train_list_nll = (
-            totals["count_sum"] + totals["action_sum"]
+            totals["count_sum"] + totals["fill_sum"]
+            + totals["delta_bit_sum"]
         ) / max(1, totals["decision_atoms"])
         row = {
             "epoch": epoch,
@@ -1018,21 +1091,33 @@ def train_model(model, bundles, targets, device, args):
             "train_count_nll_per_callback": (
                 totals["count_sum"] / max(1, totals["decision_atoms"])
             ),
-            "train_joint_action_nll_per_callback": (
-                totals["action_sum"] / max(1, totals["decision_atoms"])
+            "train_fill_nll_per_callback": (
+                totals["fill_sum"] / max(1, totals["decision_atoms"])
             ),
-            "train_other_auxiliary_per_other_action": (
-                totals["coordinate_sum"] / max(1, totals["other_atoms"])
+            "train_delta_bit_nll_per_callback": (
+                totals["delta_bit_sum"] / max(1, totals["decision_atoms"])
+            ),
+            "train_delta_bit_nll_per_action": (
+                totals["delta_bit_sum"] / max(1, totals["action_atoms"])
+            ),
+            "train_delta_bit_nll_per_bit": (
+                totals["delta_bit_sum"] / max(1, totals["delta_bit_atoms"])
             ),
             "guard_natural_action_list_nll_per_callback": guard_nll[
                 "natural_action_list_nll_per_callback"
             ],
             "guard_count_nll_per_callback": guard_nll["count_nll_per_callback"],
-            "guard_joint_action_nll_per_callback": guard_nll[
-                "joint_action_nll_per_callback"
+            "guard_fill_nll_per_callback": guard_nll[
+                "fill_nll_per_callback"
             ],
-            "guard_other_auxiliary_per_other_action": guard_nll[
-                "other_auxiliary_per_other_action"
+            "guard_delta_bit_nll_per_callback": guard_nll[
+                "delta_bit_nll_per_callback"
+            ],
+            "guard_delta_bit_nll_per_action": guard_nll[
+                "delta_bit_nll_per_action"
+            ],
+            "guard_delta_bit_nll_per_bit": guard_nll[
+                "delta_bit_nll_per_bit"
             ],
             "optimizer_steps": optimizer_steps,
             "selection_key": json.dumps(selection),
@@ -1049,67 +1134,63 @@ def train_model(model, bundles, targets, device, args):
                 }),
             }
         print(
-            "[train:spp-v24:{}] epoch={} train_list_nll={:.8f} "
+            "[train:spp-v25:global] epoch={} train_list_nll={:.8f} "
             "guard_list_nll={:.8f}".format(
-                model.core_type, epoch, train_list_nll,
+                epoch, train_list_nll,
                 guard_nll["natural_action_list_nll_per_callback"],
             )
         )
     if best is None:
-        raise RuntimeError("SPP v24 produced no checkpoint")
+        raise RuntimeError("SPP v25 produced no checkpoint")
     model.load_state_dict(best["state_dict"])
     return history, best
 
 
 def self_test_model(hidden_size):
-    for core_type in CORE_TYPES:
-        for size in MODEL_POINTS["lstm"]:
-            model = NaturalCardinalitySPPLSTM(
-                core_type, size, [0.5, 0.5], [0.5, 0.25, 0.25], 0.0
-            )
-            observed = sum(parameter.numel() for parameter in model.parameters())
-            expected = expected_parameter_count(core_type, size, 2, 3)
-            if observed != expected:
-                raise RuntimeError(
-                    "SPP v24 parameter formula mismatch: {} != {}".format(
-                        observed, expected
-                    )
-                )
-    if (
-        inverse_signed_log(signed_log(-12345)) != -12345
-        or inverse_signed_log(signed_log(6789)) != 6789
-    ):
-        raise RuntimeError("signed-log OTHER codec round trip failed")
-    for core_type in CORE_TYPES:
+    bit_priors = [[0.5] * LINE_ADDRESS_BITS for _ in FILL_LEVELS]
+    for size in MODEL_POINTS["lstm"]:
         model = NaturalCardinalitySPPLSTM(
-            core_type, hidden_size, [0.5, 0.5], [0.5, 0.25, 0.25], 0.0
+            size, [0.5, 0.5], [0.5, 0.5], bit_priors
         )
-        features = torch.zeros((5, RUNTIME_FEATURES))
-        kinds = torch.tensor([True, False, True, False, True])
-        changed = features.clone()
-        changed[-1, 0] = 1.0
-        model.eval()
-        with torch.no_grad():
-            first, _ = model.encode(features, kinds)
-            second, _ = model.encode(changed, kinds)
-        if not torch.equal(first[:-1], second[:-1]):
-            raise RuntimeError("future callback changed a prior recurrent state")
+        observed = sum(parameter.numel() for parameter in model.parameters())
+        expected = expected_parameter_count(size, 2)
+        if observed != expected:
+            raise RuntimeError(
+                "SPP v25 parameter formula mismatch: {} != {}".format(
+                    observed, expected
+                )
+            )
+    model = NaturalCardinalitySPPLSTM(
+        hidden_size, [0.5, 0.5], [0.5, 0.5], bit_priors
+    )
+    features = torch.zeros((5, RUNTIME_FEATURES))
+    kinds = torch.tensor([True, False, True, False, True])
+    changed = features.clone()
+    changed[-1, 0] = 1.0
+    model.eval()
+    with torch.no_grad():
+        first, _ = model.encode(features, kinds)
+        second, _ = model.encode(changed, kinds)
+    if not torch.equal(first[:-1], second[:-1]):
+        raise RuntimeError("future callback changed a prior recurrent state")
     sample = NaturalCardinalitySPPLSTM(
-        "global", hidden_size, [0.5, 0.25, 0.25], [0.5, 0.25, 0.25], 0.0
+        hidden_size, [0.5, 0.25, 0.25], [0.5, 0.5], bit_priors
     )
     with torch.no_grad():
         sample.count_head.weight.zero_()
         sample.count_head.bias[:] = torch.tensor([-5.0, -5.0, 5.0])
-        sample.action_head.weight.zero_()
-        sample.action_head.bias[:] = torch.tensor([5.0, -5.0, -5.0])
     decoded = decode_actions(
         sample, np.zeros((2, hidden_size), dtype=np.float32), [10, 20],
-        [(1, 2)], torch.device("cpu"), role="self-test",
+        torch.device("cpu"), role="self-test",
     )
     if decoded[0].tolist() != [2, 2] or any(
         len(items) != 2 for items in decoded[1]
     ):
         raise RuntimeError("categorical count did not schedule exactly K actions")
+    if any(len(items) != len(set(items)) for items in decoded[1]):
+        raise RuntimeError("target uniqueness feasibility mask did not remove duplicates")
+    if decoded[3]["target_mutation_fallback_used"]:
+        raise RuntimeError("unique decode mutated a target")
     fill_metric = complete_behavior_metrics(
         np.asarray([1]), [[11]], [[2]], [[(11, 2)]]
     )
@@ -1121,58 +1202,25 @@ def self_test_model(hidden_size):
         "demand_positions": np.asarray([0, 1], dtype=np.int64),
     }
     targets = build_context_targets(
-        toy_stream, [[(1, 2)], []], [(1, 2)], 2
+        toy_stream, [[(1, 2)], []], 2
     )
     if targets[0].tolist() != [1, 0] or targets[1].tolist() != [[0], [-1]]:
         raise RuntimeError("natural no-STOP target construction changed")
 
 
-def validate_core_selection(path, requested_core):
-    payload = json.loads(Path(path).read_text())
-    expected = {
-        "status": "PASS",
-        "selection_hidden_size": CORE_SELECTION_HIDDEN_SIZE,
-        "selection_metric": CORE_SELECTION_METRIC,
-        "tie_break": CORE_SELECTION_TIE_BREAK,
-    }
-    for key, value in expected.items():
-        if payload.get(key) != value:
-            raise RuntimeError("core selection {} mismatch".format(key))
-    candidates = payload.get("candidates")
-    if (
-        payload.get("selected_core") != requested_core
-        or not isinstance(candidates, dict)
-        or sorted(candidates) != sorted(CORE_TYPES)
-        or any(not math.isfinite(float(candidates[key])) for key in CORE_TYPES)
-    ):
-        raise RuntimeError("invalid or mismatched core selection")
-    expected_core = min(
-        CORE_TYPES,
-        key=lambda key: (float(candidates[key]), key != CORE_SELECTION_TIE_BREAK),
-    )
-    if requested_core != expected_core:
-        raise RuntimeError("selected core does not minimize guard natural NLL")
-    return payload
-
-
 def build_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--policy", required=True, choices=[POLICY])
-    for role in ("train", "guard"):
+    for role in ("train", "guard", "eval"):
         parser.add_argument("--{}-stream".format(role), required=True, type=Path)
         parser.add_argument(
             "--{}-teacher-actions".format(role), required=True, type=Path
         )
-    parser.add_argument("--eval-stream", type=Path)
-    parser.add_argument("--eval-teacher-actions", type=Path)
     parser.add_argument("--source-contract", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--model-family", choices=["lstm"], required=True)
     parser.add_argument("--model-size", type=int, required=True)
     parser.add_argument("--pair-id", required=True)
-    parser.add_argument("--run-mode", choices=["core-ablation", "final"], required=True)
-    parser.add_argument("--core-type", choices=CORE_TYPES, required=True)
-    parser.add_argument("--core-selection-file", type=Path)
     parser.add_argument("--seed", type=int, default=SEED)
     parser.add_argument("--epochs", type=int, default=EPOCHS)
     parser.add_argument("--chunk-len", type=int, default=CHUNK_LEN)
@@ -1185,23 +1233,7 @@ def build_parser():
 def main():
     args = build_parser().parse_args()
     if MODEL_POINTS["lstm"].get(args.model_size) != args.pair_id:
-        raise RuntimeError("model size/pair is not a configured v24 point")
-    if args.run_mode == "core-ablation":
-        if args.model_size != CORE_SELECTION_HIDDEN_SIZE:
-            raise RuntimeError("core ablation is pinned to h32")
-        if args.eval_stream is not None or args.eval_teacher_actions is not None:
-            raise RuntimeError("EVAL must not be supplied during core selection")
-        if args.core_selection_file is not None:
-            raise RuntimeError("core selection input is invalid during ablation")
-        selected_core = None
-    else:
-        if args.eval_stream is None or args.eval_teacher_actions is None:
-            raise RuntimeError("final mode requires EVAL inputs")
-        if args.core_selection_file is None:
-            raise RuntimeError("final mode requires the GUARD-only core selection")
-        selected_core = validate_core_selection(
-            args.core_selection_file, args.core_type
-        )
+        raise RuntimeError("model size/pair is not a configured v25 point")
 
     pinned = describe_model_points()["training_config"]
     actual = {
@@ -1229,7 +1261,7 @@ def main():
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
     if not hasattr(torch, "set_float32_matmul_precision"):
-        raise RuntimeError("v24 requires torch matmul precision control")
+        raise RuntimeError("v25 requires torch matmul precision control")
     torch.set_float32_matmul_precision("highest")
     torch.use_deterministic_algorithms(True)
     device = torch.device(
@@ -1243,15 +1275,14 @@ def main():
     )
     if device.type != "cuda" or "A100" not in device_name:
         raise RuntimeError(
-            "the pinned v24 run requires an A100; observed {}".format(device_name)
+            "the pinned v25 run requires an A100; observed {}".format(device_name)
         )
     model_contract_module.self_test_contract()
     self_test_model(args.model_size)
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
-    # EVAL is deliberately absent until both checkpoint and core selection
-    # have completed.  Final mode loads it only after the selected GUARD
-    # checkpoint has reproduced byte-for-byte behavior metrics.
+    # EVAL is deliberately absent until the GUARD-selected checkpoint has
+    # reproduced exactly.  There is no architecture/core selection stage.
     roles = ["train", "guard"]
     stream_paths = {role: getattr(args, role + "_stream") for role in roles}
     action_paths = {
@@ -1276,31 +1307,26 @@ def main():
     count_stats = count_statistics([len(items) for items in teachers["train"]])
     count_classes = count_stats["count_output_classes"]
     count_prior = count_stats["add_one_smoothed_natural_priors"]
-    exact_pairs, train_pair_frequencies = build_action_vocabulary(
+    train_pair_frequencies = Counter(teacher_action_pairs(
         streams["train"], teachers["train"]
-    )
-    action_counts, action_prior = action_class_prior(
-        exact_pairs, train_pair_frequencies
-    )
-    coordinate_bias = action_coordinate_initial_bias(
-        teacher_action_pairs(streams["train"], teachers["train"])
+    ))
+    fill_counts, fill_prior, delta_bit_one_counts, delta_bit_priors = (
+        fill_and_bit_statistics(streams["train"], teachers["train"])
     )
     targets = {
         role: build_context_targets(
-            streams[role], teachers[role], exact_pairs, count_classes
+            streams[role], teachers[role], count_classes
         ) for role in roles
     }
     model = NaturalCardinalitySPPLSTM(
-        args.core_type, args.model_size, count_prior, action_prior,
-        coordinate_bias,
+        args.model_size, count_prior, fill_prior, delta_bit_priors,
     ).to(device)
     parameter_count = sum(parameter.numel() for parameter in model.parameters())
     expected_parameters = expected_parameter_count(
-        args.core_type, args.model_size, count_classes,
-        action_token_count(len(exact_pairs)),
+        args.model_size, count_classes,
     )
     if parameter_count != expected_parameters:
-        raise RuntimeError("realized SPP v24 parameter count changed")
+        raise RuntimeError("realized SPP v25 parameter count changed")
 
     history, best = train_model(model, bundles, targets, device, args)
     guard_context = score_role_history(
@@ -1312,29 +1338,28 @@ def main():
     if reproduced_guard_nll != best["guard_nll"]:
         raise RuntimeError("selected GUARD checkpoint did not reproduce")
 
-    if args.run_mode == "final":
-        roles.append("eval")
-        stream_paths["eval"] = args.eval_stream
-        action_paths["eval"] = args.eval_teacher_actions
-        streams["eval"] = load_stream(stream_paths["eval"])
-        teachers["eval"] = load_teacher_actions(
-            action_paths["eval"], streams["eval"]["demands"]
+    roles.append("eval")
+    stream_paths["eval"] = args.eval_stream
+    action_paths["eval"] = args.eval_teacher_actions
+    streams["eval"] = load_stream(stream_paths["eval"])
+    teachers["eval"] = load_teacher_actions(
+        action_paths["eval"], streams["eval"]["demands"]
+    )
+    bundles["eval"] = runtime_bundle(streams["eval"])
+    reproduced_eval = runtime_bundle(streams["eval"])
+    if (
+        not np.array_equal(
+            bundles["eval"]["features"], reproduced_eval["features"]
         )
-        bundles["eval"] = runtime_bundle(streams["eval"])
-        reproduced_eval = runtime_bundle(streams["eval"])
-        if (
-            not np.array_equal(
-                bundles["eval"]["features"], reproduced_eval["features"]
-            )
-            or not np.array_equal(
-                bundles["eval"]["demand_kind"],
-                reproduced_eval["demand_kind"],
-            )
-        ):
-            raise RuntimeError("eval runtime encoder is not reproducible")
-        targets["eval"] = build_context_targets(
-            streams["eval"], teachers["eval"], exact_pairs, count_classes
+        or not np.array_equal(
+            bundles["eval"]["demand_kind"],
+            reproduced_eval["demand_kind"],
         )
+    ):
+        raise RuntimeError("eval runtime encoder is not reproducible")
+    targets["eval"] = build_context_targets(
+        streams["eval"], teachers["eval"], count_classes
+    )
 
     history_path = args.out_dir / "training_history.csv"
     model_path = args.out_dir / "model.pt"
@@ -1343,13 +1368,13 @@ def main():
         "state_dict": model.state_dict(),
         "run_id": RUN_ID,
         "operation": OPERATION,
-        "run_mode": args.run_mode,
-        "core_type": args.core_type,
+        "run_mode": "final",
+        "core_type": CORE_TYPE,
         "model_size": args.model_size,
         "count_support": list(range(count_classes)),
         "count_prior": count_prior,
-        "exact_joint_action_pairs": [list(pair) for pair in exact_pairs],
-        "action_prior": action_prior,
+        "fill_prior": fill_prior,
+        "delta_bit_priors": delta_bit_priors,
         "selected_epoch": best["epoch"],
         "selected_guard_nll": best["guard_nll"],
         "experiment_revision": EXPERIMENT_REVISION,
@@ -1366,7 +1391,7 @@ def main():
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
         "decoder_revision": DECODER_REVISION,
-        "run_mode": args.run_mode,
+        "run_mode": "final",
         "parent_input_run_id": PARENT_INPUT_RUN_ID,
         "input_reuse": "v23 input package reused byte-for-byte",
         "trace": TRACE,
@@ -1377,30 +1402,20 @@ def main():
         "track_model_family": "lstm",
         "model_size": args.model_size,
         "architecture_pair_id": args.pair_id,
-        "core_type": args.core_type,
-        "selected_core_type": args.core_type if args.run_mode == "final" else None,
-        "core_ablation_role": CORE_ABLATION_ROLE,
-        "core_selection_hidden_size": CORE_SELECTION_HIDDEN_SIZE,
-        "core_selection_metric": CORE_SELECTION_METRIC,
-        "core_selection_tie_break": CORE_SELECTION_TIE_BREAK,
-        "core_selection_uses_evaluation": False,
-        "core_selection_payload": selected_core,
-        "core_selection_file_sha256": (
-            sha256(args.core_selection_file)
-            if args.core_selection_file is not None else None
-        ),
+        "core_type": CORE_TYPE,
+        "global_core_fixed_for_all_capacities": True,
+        "core_selection_used": False,
+        "event_routed_core_used": False,
         "parameter_count": parameter_count,
         "realized_parameter_count": parameter_count,
         "expected_parameter_count": expected_parameters,
-        "parameter_count_is_dataset_and_core_dependent": True,
+        "parameter_count_is_dataset_dependent": True,
         "parameter_formula": contract["parameter_formula"],
         "model_point_contract": contract,
         "parameter_storage_bytes_float32": parameter_count * 4,
         "peak_persistent_recurrent_state_bytes": 2 * args.model_size * 4,
         "persistent_recurrent_state": (
-            "one chronological hidden/cell pair; event kind selects transition"
-            if args.core_type == "event_routed"
-            else "one global chronological LSTM hidden/cell pair"
+            "one global chronological one-layer LSTM hidden/cell pair"
         ),
         "dynamic_page_state_pages": 0,
         "seed": args.seed,
@@ -1460,10 +1475,16 @@ def main():
         "decoding_rule": DECODING_RULE,
         "decision_rule": DECODING_RULE,
         "count_training_objective": COUNT_OBJECTIVE,
-        "joint_action_training_objective": ACTION_OBJECTIVE,
-        "other_action_training_objective": OTHER_ACTION_OBJECTIVE,
+        "fill_training_objective": FILL_OBJECTIVE,
+        "delta_bit_training_objective": DELTA_BIT_OBJECTIVE,
         "categorical_count_head_used": True,
         "count_head_used": True,
+        "fill_head_used": True,
+        "fill_specific_delta_bit_heads_used": True,
+        "both_fill_bit_heads_require_train_supervision": True,
+        "joint_action_token_head_used": False,
+        "action_vocabulary_used": False,
+        "other_token_used": False,
         "count_regression_used": False,
         "hurdle_head_used": False,
         "stop_token_used": False,
@@ -1480,38 +1501,51 @@ def main():
         "count_train_statistics": count_stats,
         "count_class_weights": None,
         "action_loss_scope": "teacher_action_ranks_only",
-        "joint_action_vocabulary_source": (
-            "TRAIN_observed_delta_fill_pairs_only_plus_OTHER_L2_OTHER_LLC"
+        "fill_levels": list(FILL_LEVELS),
+        "fill_train_class_counts": fill_counts,
+        "fill_add_one_natural_priors": fill_prior,
+        "fill_class_weights": None,
+        "fill_head_initialization_source": (
+            "add_one_smoothed_natural_TRAIN_fill_marginal"
         ),
-        "joint_action_vocabulary_cartesian_product_used": False,
-        "joint_action_vocabulary_max_exact_pairs": MAX_EXACT_ACTION_PAIRS,
-        "exact_joint_action_pairs": [list(pair) for pair in exact_pairs],
-        "exact_joint_action_pair_count": len(exact_pairs),
-        "joint_action_output_classes": action_token_count(len(exact_pairs)),
-        "joint_action_train_class_counts": action_counts,
-        "joint_action_add_one_natural_priors": action_prior,
-        "joint_action_class_weights": None,
-        "other_action_tokens": {
-            "OTHER_L2": other_action_token(2, len(exact_pairs)),
-            "OTHER_LLC": other_action_token(4, len(exact_pairs)),
-        },
-        "other_action_coordinate_initial_bias": coordinate_bias,
-        "delta_other_escape": contract["delta_other_escape"],
-        "delta_coordinate_auxiliary_scope": "OTHER_teacher_actions_only",
+        "delta_payload_bits": LINE_ADDRESS_BITS,
+        "delta_payload_encoding": "exact_unsigned_modular_line_delta_bits",
+        "delta_payload_float_or_clip_used": False,
+        "delta_bit_train_one_counts_by_fill": delta_bit_one_counts,
+        "delta_bit_add_one_priors_by_fill": delta_bit_priors,
+        "delta_bit_head_initialization_source": (
+            "teacher_fill_specific_add_one_smoothed_TRAIN_bit_marginals"
+        ),
+        "training_and_guard_objective_identical": True,
+        "per_callback_objective_terms": [
+            "count_cross_entropy", "real_rank_fill_cross_entropy",
+            "all_real_rank_58_bit_Bernoulli_negative_log_likelihood",
+        ],
         "all_actions_relative_to_current_demand": True,
         "delta_legality_constraints": [],
         "delta_legality_fallback": None,
-        "duplicate_target_handling": "preserve_all_learned_outputs_for_replay",
-        "joint_action_vocabulary_statistics": {
-            role: vocabulary_statistics(
-                streams[role], teachers[role], exact_pairs
-            ) for role in roles
+        "duplicate_target_handling": (
+            "rank_ordered_exact_kbest_payload_feasibility_selection_"
+            "combining_fill_and_payload_log_probability_across_fills"
+        ),
+        "target_uniqueness_feasibility_mask_used": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
+        "infeasible_unique_decode_behavior": "fail_closed",
+        "kbest_payload_enumeration_exact": True,
+        "fill_and_payload_log_probability_combined": True,
+        "source_action_order_preserved": True,
+        "payload_training_statistics": {
+            role: payload_statistics(streams[role], teachers[role])
+            for role in roles
         },
-        "separate_delta_head_used": False,
-        "separate_fill_head_used": False,
+        "separate_fill_head_used": True,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
+        "rank_action_logits_use_previous_action": False,
+        "rank_logits_conditionally_independent_of_previous_actions": True,
         "rank_conditioning": "generic_four_component_sinusoidal_position_code",
         "checkpoint_selection": CHECKPOINT_SELECTION,
         "guard_selected_checkpoint": True,
@@ -1519,16 +1553,14 @@ def main():
         "selected_guard_natural_action_list_nll": best["guard_nll"],
         "guard_selection_composite_or_mean_used": False,
         "evaluation_used_for_selection": False,
-        "evaluation_loaded_after_checkpoint_selection": (
-            args.run_mode == "final"
-        ),
+        "evaluation_loaded_after_checkpoint_selection": True,
         "training_chunks_shuffled": False,
         "training_state_mode": "chronological_stateful_tbptt",
         "training_state_carried_across_chunks": True,
         "training_state_detached_between_chunks": True,
         "global_chronological_state_count": 1,
-        "routed_demand_fill_recurrent_paths": args.core_type == "event_routed",
-        "event_routed_core_adds_runtime_input": False,
+        "global_chronological_lstm": True,
+        "routed_demand_fill_recurrent_paths": False,
         "page_local_causal_state": False,
         "handcrafted_semantic_features_used": False,
         "causal_derived_features": [],
@@ -1536,7 +1568,10 @@ def main():
         "natural_no_stop_target_self_test": "PASS",
         "categorical_count_exact_K_self_test": "PASS",
         "rank_no_action_feedback_self_test": "PASS",
-        "signed_log_other_codec_self_test": "PASS",
+        "exact_modular_delta_bit_codec_self_test": "PASS",
+        "mixed_sign_bernoulli_log_probability_self_test": "PASS",
+        "exact_kbest_subset_enumeration_self_test": "PASS",
+        "unique_target_decode_self_test": "PASS",
         "event_logger_schema": EVENT_LOGGER_SCHEMA,
         "action_attachment_mode": ACTION_ATTACHMENT_MODE,
         "teacher_action_canonicalization": CANONICALIZATION_MODE,
@@ -1579,76 +1614,75 @@ def main():
             action_paths[role]
         )
 
-    if args.run_mode == "final":
-        eval_context = score_role_history(
-            model, bundles, ("train", "guard", "eval"), device, args.chunk_len
-        )["eval"]
-        eval_positions = streams["eval"]["demand_positions"]
-        eval_decisions = eval_context[eval_positions]
-        eval_bases = np.asarray(
-            [row[2] for row in streams["eval"]["demands"]], dtype=np.int64
-        )
-        eval_decode = decode_actions(
-            model, eval_decisions, eval_bases, exact_pairs, device, role="eval"
-        )
-        heldout = complete_behavior_metrics(
-            eval_decode[0], eval_decode[1], eval_decode[2], teachers["eval"]
-        )
-        teacher_counts = np.asarray(
-            [len(items) for items in teachers["eval"]], dtype=np.int64
-        )
-        oracle_decode = decode_actions(
-            model, eval_decisions, eval_bases, exact_pairs, device,
-            count_override=teacher_counts, role="diagnostic-oracle-count",
-        )
-        oracle_metrics = complete_behavior_metrics(
-            oracle_decode[0], oracle_decode[1], oracle_decode[2], teachers["eval"]
-        )
-        oracle_diagnostics = {
-            "diagnosis_only": True,
-            "excluded_from_fair_replay_claims": True,
-            "oracle_count_plus_nn_action": {
-                "replayed": False,
-                "behavior_metrics": oracle_metrics,
-                "decoder_diagnostics": oracle_decode[4],
-            },
-            "nn_count_plus_oracle_action": count_oracle_upper_bound(
-                eval_decode[0], teachers["eval"]
-            ),
-        }
-        modal_delta_counts = Counter()
-        for (delta, _), frequency in train_pair_frequencies.items():
-            modal_delta_counts[int(delta)] += int(frequency)
-        modal_delta = min(
-            modal_delta_counts,
-            key=lambda value: (-modal_delta_counts[value], value),
-        )
-        control_lines, control_fills = build_modal_llc_control(
-            eval_bases, modal_delta
-        )
-        normal_path = args.out_dir / "offline_spp.replay.csv"
-        nn_path = args.out_dir / "offline_nn.replay.csv"
-        control_path = args.out_dir / "offline_modal_llc_control.replay.csv"
-        normal = write_teacher_replay(
-            normal_path, streams["eval"]["demands"], teachers["eval"]
-        )
-        neural = write_prediction_replay(
-            nn_path, streams["eval"]["demands"], eval_decode[1], eval_decode[2]
-        )
-        control = write_prediction_replay(
-            control_path, streams["eval"]["demands"], control_lines, control_fills
-        )
-        diagnostics = output_diagnostics(
-            eval_bases, eval_decode[0], eval_decode[1], eval_decode[3], exact_pairs
-        )
-        metadata.update({
+    eval_context = score_role_history(
+        model, bundles, ("train", "guard", "eval"), device, args.chunk_len
+    )["eval"]
+    eval_positions = streams["eval"]["demand_positions"]
+    eval_decisions = eval_context[eval_positions]
+    eval_bases = np.asarray(
+        [row[2] for row in streams["eval"]["demands"]], dtype=np.int64
+    )
+    eval_decode = decode_actions(
+        model, eval_decisions, eval_bases, device, role="eval"
+    )
+    heldout = complete_behavior_metrics(
+        eval_decode[0], eval_decode[1], eval_decode[2], teachers["eval"]
+    )
+    teacher_counts = np.asarray(
+        [len(items) for items in teachers["eval"]], dtype=np.int64
+    )
+    oracle_decode = decode_actions(
+        model, eval_decisions, eval_bases, device,
+        count_override=teacher_counts, role="diagnostic-oracle-count",
+    )
+    oracle_metrics = complete_behavior_metrics(
+        oracle_decode[0], oracle_decode[1], oracle_decode[2], teachers["eval"]
+    )
+    oracle_diagnostics = {
+        "diagnosis_only": True,
+        "excluded_from_fair_replay_claims": True,
+        "oracle_count_plus_nn_action": {
+            "replayed": False,
+            "behavior_metrics": oracle_metrics,
+            "decoder_diagnostics": oracle_decode[3],
+        },
+        "nn_count_plus_oracle_action": count_oracle_upper_bound(
+            eval_decode[0], teachers["eval"]
+        ),
+    }
+    modal_delta_counts = Counter()
+    for (delta, _), frequency in train_pair_frequencies.items():
+        modal_delta_counts[int(delta)] += int(frequency)
+    modal_delta = min(
+        modal_delta_counts,
+        key=lambda value: (-modal_delta_counts[value], value),
+    )
+    control_lines, control_fills = build_modal_llc_control(
+        eval_bases, modal_delta
+    )
+    normal_path = args.out_dir / "offline_spp.replay.csv"
+    nn_path = args.out_dir / "offline_nn.replay.csv"
+    control_path = args.out_dir / "offline_modal_llc_control.replay.csv"
+    normal = write_teacher_replay(
+        normal_path, streams["eval"]["demands"], teachers["eval"]
+    )
+    neural = write_prediction_replay(
+        nn_path, streams["eval"]["demands"], eval_decode[1], eval_decode[2]
+    )
+    control = write_prediction_replay(
+        control_path, streams["eval"]["demands"], control_lines, control_fills
+    )
+    diagnostics = output_diagnostics(
+        eval_bases, eval_decode[0], eval_decode[1]
+    )
+    metadata.update({
             "evaluation_policy_decode_count": 1,
             "diagnostic_eval_decode_count": 1,
             "oracle_diagnostics": oracle_diagnostics,
             "oracle_diagnostics_replayed": False,
             "oracle_diagnostics_excluded_from_fair_claims": True,
             "heldout_behavior_metrics": heldout,
-            "decoder_eval_diagnostics": eval_decode[4],
+            "decoder_eval_diagnostics": eval_decode[3],
             "action_output_diagnostics": diagnostics,
             "raw_predicted_action_count": diagnostics["raw_predicted_action_count"],
             "materialized_action_count": diagnostics["materialized_action_count"],
@@ -1677,21 +1711,15 @@ def main():
             "non_neural_control_fill_counts": control[2],
             "non_neural_control_list_sha256": sha256(control_path),
         })
-    else:
-        metadata.update({
-            "evaluation_files_loaded": False,
-            "evaluation_used_for_selection": False,
-            "core_ablation_replayed": False,
-        })
 
     (args.out_dir / "run_metadata.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )
     print(json.dumps({
         "status": "PASS",
-        "run_mode": args.run_mode,
+        "run_mode": "final",
         "model_tag": tag,
-        "core_type": args.core_type,
+        "core_type": CORE_TYPE,
         "parameters": parameter_count,
         "selected_epoch": best["epoch"],
         "guard_natural_action_list_nll_per_callback": best["guard_nll"][
