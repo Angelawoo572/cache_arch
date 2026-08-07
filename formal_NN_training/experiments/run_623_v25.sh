@@ -126,6 +126,16 @@ replay_spp() {
     bash "$SPP_EXP/linux/launch_server.sh" replay
 }
 
+analyze_spp() {
+  if pid_is_running "$SPP_DIR/replay.pid" \
+    "$SPP_EXP/linux/run_server.sh"; then
+    echo "[wait] SPP replay is still running; analyze only after it finishes" >&2
+    return 2
+  fi
+  STAGE=analyze BUILD=0 FORCE=0 RESET_PATCH=0 JOBS="${JOBS:-8}" \
+    bash "$SPP_EXP/linux/run_server.sh"
+}
+
 replay() {
   echo "[error] run the tracks separately: replay-spp, then replay-stride after SPP finishes" >&2
   return 2
@@ -133,11 +143,13 @@ replay() {
 
 show_one_status() {
   local label="$1" run_dir="$2" pid_file="$2/replay.pid"
-  local log="$run_dir/replay.nohup.log" pid
+  local log="$run_dir/replay.nohup.log" result="$run_dir/matched_comparison.json"
+  local pid running=0
   echo "[$label]"
   if [[ -s "$pid_file" ]]; then
     pid="$(cat "$pid_file")"
     if kill -0 "$pid" 2>/dev/null; then
+      running=1
       ps -fp "$pid" || true
     else
       echo "replay PID $pid is not running"
@@ -145,7 +157,27 @@ show_one_status() {
   else
     echo "replay has not been launched"
   fi
+  if [[ -s "$result" ]]; then
+    python3 - "$result" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+try:
+    payload = json.loads(path.read_text())
+except (OSError, ValueError) as error:
+    print("[result] invalid {}: {}".format(path, error))
+else:
+    print("[result] status={} {}".format(payload.get("status"), path))
+PY
+  else
+    echo "[result] no matched_comparison.json yet"
+  fi
   if [[ -f "$log" ]]; then
+    if [[ "$running" == 0 ]]; then
+      echo "[retained replay log tail; this may show an earlier failure]"
+    fi
     tail -n 25 "$log"
   else
     echo "no replay log yet: $log"
@@ -186,11 +218,12 @@ case "${1:-}" in
   repair-stride-output) repair_stride_output ;;
   replay-spp) replay_spp ;;
   replay-stride) replay_stride ;;
+  analyze-spp) analyze_spp ;;
   replay) replay ;;
   status) status ;;
   package) package ;;
   *)
-    echo "usage: $0 {prepare|install-outputs|repair-stride-output|replay-spp|replay-stride|status|package}" >&2
+    echo "usage: $0 {prepare|install-outputs|repair-stride-output|replay-spp|replay-stride|analyze-spp|status|package}" >&2
     exit 2
     ;;
 esac
