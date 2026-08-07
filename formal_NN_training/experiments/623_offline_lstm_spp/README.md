@@ -1,96 +1,90 @@
-# 623 SPP v24 — natural callback cardinality
+# 623 SPP v25 — fixed-global cardinality, fill, and exact delta bits
 
-This is the active matched-input, open-loop SPP experiment for
-`623.xalancbmk_s-700B`.
+Active run: `623_offline_lstm_spp_global_cardinality_unique_v25_seed7`  
+Models: `global_cardinality_unique_spp_lstm_h8/16/32/64/128`  
+Parent input: `623_offline_lstm_spp_finite_joint_rank_v23_seed7`
 
-- Run: `623_offline_lstm_spp_natural_cardinality_v24_seed7`
-- Model: GUARD-selected global or event-routed chronological LSTM
-- Decoder: categorical count followed by conditional joint actions
+## Why v23 failed
 
-v23 padded every callback to ten rank labels. That changed a callback-level
-problem in which 58.05% of EVAL callbacks had actions into a token stream that
-was 93.40% STOP. The resulting models emitted between 0 and 5,096 requests,
-recovered at most 0.63% of teacher actions, and all matched no-prefetch IPC.
-v24 removes the artificial STOP target rather than tuning its weight.
+v23 padded every callback to ten ranks, making 93.40% of its token labels STOP
+although 58.05% of EVAL callbacks had a teacher action.  h8 through h128 emitted
+0, 1, 991, 2,325, and 5,096 requests versus 804,086 teacher requests; all five
+neural replays stayed at no-prefetch IPC 0.35321.  h128 recovered only 0.63% of
+the teacher request count.  This is a target/loss failure, not evidence that a
+larger LSTM alone would solve SPP.
 
-## Unchanged matched input
+For comparison, normal SPP reached IPC 0.35390 with 804,086 requests, while the
+non-neural modal `(+3, LLC)` control reached IPC 0.35424.  The control is not a
+candidate for the NN; it is evidence that useful spatial actions exist in the
+same replay and that v23 failed to express them.
 
-The NN still receives only the chronological 59-bit source-visible stream:
+The abandoned v24 draft removed STOP padding but introduced a global/event-core
+selection and an exact-token/OTHER vocabulary.  Because every TRAIN pair fit in
+the exact vocabulary, the OTHER payload heads received no TRAIN labels.  Its
+decode also ranked the OTHER token without including payload probability.  v25
+removes the token vocabulary entirely.
 
-- one `DEMAND/FILL` kind bit;
-- the lossless 58-bit demand line or evicted line.
+## Unchanged input and fixed core
 
-PC is replay transport only. Teacher targets and fills, SPP candidates,
-signature/GHR/confidence state, queue state, hit state, thresholds, and request
-rates are not inputs. The v23 input directory and archive are reused
-byte-for-byte. Because `CACHE_FILL(evicted_addr)` was recorded under source
-SPP, the claim remains matched-input open-loop replay, not closed-loop live NN.
-
-## Natural action-list likelihood
-
-For callback context `h` and teacher list of length `K`, the model learns
+The NN still receives exactly the normal SPP decision-effective external input:
 
 ```text
-P(list | h) = P(K | h) * product over r<K of P(action_r | h, r)
+callback kind + demand line or fill-evicted line
 ```
 
-`K` is an unweighted categorical class from zero through the maximum TRAIN
-teacher count. `K=0` is the implicit no-request decision. The action vocabulary
-contains only joint `(signed delta, fill)` pairs observed in TRAIN, capped by
-the declared architecture budget, plus `OTHER_L2` and `OTHER_LLC`. OTHER uses
-an auxiliary signed-log coordinate.
+It is losslessly encoded as 59 bits and processed in the recorded source order.
+PC, candidates, SPP tables/GHR/filter, action outcomes, thresholds, and request
+rate are not neural inputs.  All five sizes use one global chronological
+one-layer LSTM; only hidden size changes.
 
-There is no STOP token or tail padding, hurdle head, count regression, class
-weight, decode prior correction, threshold, degree cap, page rule, normal
-request budget, or previous-action feedback. At inference, count argmax chooses
-`K`, then exactly `K` independent rank-conditioned action argmaxes are emitted.
+## Direct supervised output
 
-Checkpoint selection minimizes natural action-list NLL on GUARD, with earlier
-epoch as the only tie-break. EVAL is not read during checkpoint or core
-selection.
+For each callback, v25 predicts categorical count `K`.  `K=0` means no request;
+support is zero through the maximum TRAIN teacher count, not an output budget.
+For every real teacher rank `r<K`, it supervises:
 
-## Recurrent-core ablation
+1. unweighted L2/LLC fill cross entropy; and
+2. all 58 bits of `(target_line - base_line) mod 2^58`, using the head selected
+   by the teacher fill.
 
-At h32 only, the notebook trains:
+Both fill-specific bit heads must have real TRAIN examples or training fails.
+The fill bias starts from the add-one-smoothed natural TRAIN fill marginal; each
+bit-head bias starts from its teacher-fill-specific add-one-smoothed TRAIN bit
+marginal.  These are initializations only, not loss weights or decode correction.
 
-- `global`: one ordinary chronological LSTM;
-- `event_routed`: one chronological hidden/cell state, with distinct learned
-  DEMAND and FILL LSTM transitions selected only by the existing kind bit.
-
-The lower GUARD natural action-list NLL wins; global wins an exact tie. The
-selected core is then trained at h8, h16, h32, h64, and h128. The two ablation
-checkpoints are architecture-selection evidence only and are never replayed.
-
-For hidden size `H`, count classes `K`, and joint-action classes `A`, parameter
-counts are:
+TRAIN optimization and GUARD checkpoint selection use the identical per-callback
+objective:
 
 ```text
-global:       9*H^2  + (74+K+A)*H + K+A+1
-event_routed: 17*H^2 + (82+K+A)*H + K+A+1
+count CE + sum(real-rank fill CE) + sum(all real-rank 58-bit Bernoulli NLL)
 ```
 
-## Diagnostics and claims
+There is no STOP padding, class weighting, hurdle, prior correction, joint-action
+token, action vocabulary, OTHER token, float delta, clipping, or rounding.
 
-Each final model records count confusion, count/action entropy, request ratio,
-target/fill metrics, and two diagnosis-only decompositions:
+## Exact unique-target decode
 
-- oracle count + NN action;
-- NN count + oracle action upper bound.
+Count argmax chooses `K`.  At each ordered rank, both fills produce a 58-bit
+independent-Bernoulli distribution.  For each fill, exact k-best flip-subset
+enumeration finds the maximum-probability payload whose target is not already
+used.  The score compared across L2 and LLC is:
 
-Neither oracle path is replayed. The all-callback TRAIN-modal-delta/LLC policy
-remains a separate non-neural control and cannot support a neural win claim.
-The analyzer reports a denominator-zero metric as N/A while preserving a real
-zero numerator when its denominator is positive. No composite score is used.
-
-## Run entrypoints
-
-```bash
-python3 formal_NN_training/experiments/623_offline_lstm_spp/python/model_contract.py --self-test
-python3 formal_NN_training/experiments/623_offline_lstm_spp/python/train_and_offline_infer.py --self-test
-python3 formal_NN_training/experiments/validate_direct_action_contracts.py
+```text
+fill log-probability + exact payload log-probability
 ```
 
-Use `linux/run_server.sh` with `STAGE=reuse-input` to reuse v23 input,
-`colab/623_offline_lstm_spp_A100.ipynb` to train, and
-`linux/launch_server.sh replay` for ChampSim. A root PASS proves the input and
-accounting contract, not an IPC win.
+The higher score wins; deterministic ties prefer L2 and then the lower target.
+The mask is by target address across fills.  It never edits an address or lowers
+`K`, and fails closed only if no feasible payload exists.  Earlier actions affect
+only this feasibility mask; they are never neural inputs.  No same-page rule,
+candidate bank, threshold, degree, or normal template is imposed.
+
+For realized count classes `K`, parameter count is:
+
+```text
+9*H^2 + (191+K)*H + K+118
+```
+
+EVAL is loaded only after GUARD chooses the checkpoint and is policy-decoded
+once.  Oracle decompositions remain diagnosis-only; the modal-LLC control remains
+non-neural.  No IPC claim is valid until all five replay points pass validation.
