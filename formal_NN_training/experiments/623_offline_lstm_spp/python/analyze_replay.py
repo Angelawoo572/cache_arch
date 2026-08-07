@@ -12,8 +12,8 @@ from pathlib import Path
 
 from model_contract import (
     EXPERIMENT_REVISION, EXTERNAL_INPUT_FIELDS, MODEL_REVISION as ACTIVE_MODEL_REVISION,
-    PARENT_INPUT_RUN_ID, POLICY, TRACE, describe_model_points,
-    action_token_count, expected_parameter_count,
+    MODEL_TAG_PREFIX, PARENT_INPUT_RUN_ID, POLICY, TRACE, describe_model_points,
+    expected_parameter_count,
 )
 
 POLICIES = (POLICY,)
@@ -54,6 +54,7 @@ MODEL_TAG_PREFIXES = (
     "hurdle_count_vocab_spp_lstm_",
     "finite_joint_rank_spp_lstm_",
     "natural_cardinality_spp_lstm_",
+    MODEL_TAG_PREFIX,
 )
 EXPECTED_POINTS = {
     ("lstm", 8): "p0",
@@ -407,6 +408,8 @@ def policy_for_method(method):
         "offline_finite_joint_rank_spp_"
     ) or method.startswith(
         "offline_natural_cardinality_spp_"
+    ) or method.startswith(
+        "offline_" + MODEL_TAG_PREFIX
     ):
         return POLICY
     return ""
@@ -429,6 +432,8 @@ def model_tag_for_method(method):
         "offline_finite_joint_rank_spp_"
     ) or method.startswith(
         "offline_natural_cardinality_spp_"
+    ) or method.startswith(
+        "offline_" + MODEL_TAG_PREFIX
     ):
         return method[len("offline_"):]
     return ""
@@ -538,6 +543,7 @@ def validate_active_metadata_v23_legacy(metadata, tag, inputs, source_contract_h
         "model_input_is_causal_external_event_sequence_only": True,
         "cache_fill_feedback_used_as_raw_external_input": True,
         "cache_fill_private_state_used_as_model_input": False,
+        "cache_hit_and_type_are_audit_only": True,
         "teacher_actions_are_model_inputs": False,
         "teacher_actions_are_model_inputs_scope": "labels_and_comparator_only",
         "normal_policy_outputs_used_as_model_inputs": False,
@@ -553,6 +559,8 @@ def validate_active_metadata_v23_legacy(metadata, tag, inputs, source_contract_h
         "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
         "normal_policy_templates_used_by_neural_inference": False,
+        "future_label_window_used": False,
+        "fill_lead_cutoff_used": False,
         "decoder_training_mode": ACTIVE_POINT_CONTRACT["decoder_training_mode"],
         "decoding_rule": ACTIVE_POINT_CONTRACT["decoding_rule"],
         "decoder_previous_teacher_action_used_as_input": False,
@@ -930,7 +938,7 @@ def validate_active_metadata_v23_legacy(metadata, tag, inputs, source_contract_h
 
 
 def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failures):
-    """Fail closed on the natural-cardinality SPP v24 contract."""
+    """Fail closed on the fixed-global, unique-target SPP v25 contract."""
     expected = {
         "run_id": ACTIVE_POINT_CONTRACT["run_id"],
         "operation": ACTIVE_POINT_CONTRACT["operation"],
@@ -980,14 +988,20 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "count_training_objective": ACTIVE_POINT_CONTRACT[
             "count_training_objective"
         ],
-        "joint_action_training_objective": ACTIVE_POINT_CONTRACT[
-            "joint_action_training_objective"
+        "fill_training_objective": ACTIVE_POINT_CONTRACT[
+            "fill_training_objective"
         ],
-        "other_action_training_objective": ACTIVE_POINT_CONTRACT[
-            "other_action_training_objective"
+        "delta_bit_training_objective": ACTIVE_POINT_CONTRACT[
+            "delta_bit_training_objective"
         ],
         "categorical_count_head_used": True,
         "count_head_used": True,
+        "fill_head_used": True,
+        "fill_specific_delta_bit_heads_used": True,
+        "both_fill_bit_heads_require_train_supervision": True,
+        "joint_action_token_head_used": False,
+        "action_vocabulary_used": False,
+        "other_token_used": False,
         "count_regression_used": False,
         "hurdle_head_used": False,
         "stop_token_used": False,
@@ -1002,42 +1016,42 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "count_support_is_tuned_degree": False,
         "count_class_weights": None,
         "action_loss_scope": "teacher_action_ranks_only",
-        "joint_action_vocabulary_source": (
-            "TRAIN_observed_delta_fill_pairs_only_plus_OTHER_L2_OTHER_LLC"
+        "fill_levels": [2, 4],
+        "fill_class_weights": None,
+        "fill_head_initialization_source": (
+            "add_one_smoothed_natural_TRAIN_fill_marginal"
         ),
-        "joint_action_vocabulary_cartesian_product_used": False,
-        "joint_action_class_weights": None,
-        "delta_other_escape": ACTIVE_POINT_CONTRACT["delta_other_escape"],
-        "delta_coordinate_auxiliary_scope": "OTHER_teacher_actions_only",
+        "delta_payload_bits": 58,
+        "delta_payload_encoding": "exact_unsigned_modular_line_delta_bits",
+        "delta_payload_float_or_clip_used": False,
+        "delta_bit_head_initialization_source": (
+            "teacher_fill_specific_add_one_smoothed_TRAIN_bit_marginals"
+        ),
         "all_actions_relative_to_current_demand": True,
         "delta_legality_constraints": [],
         "delta_legality_fallback": None,
-        "separate_delta_head_used": False,
-        "separate_fill_head_used": False,
+        "separate_fill_head_used": True,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
+        "rank_action_logits_use_previous_action": False,
         "checkpoint_selection": ACTIVE_POINT_CONTRACT["checkpoint_selection"],
         "guard_selected_checkpoint": True,
         "guard_selection_composite_or_mean_used": False,
         "evaluation_used_for_selection": False,
+        "evaluation_loaded_after_checkpoint_selection": True,
         "evaluation_policy_decode_count": 1,
         "diagnostic_eval_decode_count": 1,
-        "core_ablation_role": ACTIVE_POINT_CONTRACT["core_ablation_role"],
-        "core_selection_hidden_size": ACTIVE_POINT_CONTRACT[
-            "core_selection_hidden_size"
-        ],
-        "core_selection_metric": ACTIVE_POINT_CONTRACT[
-            "core_selection_metric"
-        ],
-        "core_selection_tie_break": ACTIVE_POINT_CONTRACT[
-            "core_selection_tie_break"
-        ],
-        "core_selection_uses_evaluation": False,
+        "core_type": "global",
+        "global_core_fixed_for_all_capacities": True,
+        "core_selection_used": False,
+        "event_routed_core_used": False,
         "global_chronological_state_count": 1,
-        "event_routed_core_adds_runtime_input": False,
+        "global_chronological_lstm": True,
+        "routed_demand_fill_recurrent_paths": False,
         "page_local_causal_state": False,
         "handcrafted_semantic_features_used": False,
+        "causal_derived_features": [],
         "weights_retrained": True,
         "checkpoint_reused": False,
         "decoder_only_change": False,
@@ -1053,7 +1067,27 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "natural_no_stop_target_self_test": "PASS",
         "categorical_count_exact_K_self_test": "PASS",
         "rank_no_action_feedback_self_test": "PASS",
-        "signed_log_other_codec_self_test": "PASS",
+        "exact_modular_delta_bit_codec_self_test": "PASS",
+        "mixed_sign_bernoulli_log_probability_self_test": "PASS",
+        "exact_kbest_subset_enumeration_self_test": "PASS",
+        "unique_target_decode_self_test": "PASS",
+        "training_and_guard_objective_identical": True,
+        "per_callback_objective_terms": [
+            "count_cross_entropy", "real_rank_fill_cross_entropy",
+            "all_real_rank_58_bit_Bernoulli_negative_log_likelihood",
+        ],
+        "duplicate_target_handling": (
+            "rank_ordered_exact_kbest_payload_feasibility_selection_"
+            "combining_fill_and_payload_log_probability_across_fills"
+        ),
+        "target_uniqueness_feasibility_mask_used": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
+        "infeasible_unique_decode_behavior": "fail_closed",
+        "kbest_payload_enumeration_exact": True,
+        "fill_and_payload_log_probability_combined": True,
+        "source_action_order_preserved": True,
         "non_neural_control_name": (
             "every_callback_TRAIN_modal_delta_FILL_LLC"
         ),
@@ -1069,6 +1103,8 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         "cudnn_deterministic": True,
         "cudnn_benchmark": False,
         "float32_matmul_precision": "highest",
+        "determinism_fail_closed": True,
+        "stochastic_decoding": False,
     }
     for key, value in expected.items():
         if metadata.get(key) != value:
@@ -1097,44 +1133,13 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         metadata.get("model_size"),
         metadata.get("architecture_pair_id"), tag,
     )
-    core_type = metadata.get("core_type")
-    selection = metadata.get("core_selection_payload")
-    candidates = selection.get("candidates") if isinstance(selection, dict) else None
     if (
         point_key not in points
-        or core_type not in ACTIVE_POINT_CONTRACT["core_types"]
-        or metadata.get("selected_core_type") != core_type
-        or not isinstance(candidates, dict)
-        or sorted(candidates) != sorted(ACTIVE_POINT_CONTRACT["core_types"])
-        or selection.get("status") != "PASS"
-        or selection.get("selection_hidden_size")
-        != ACTIVE_POINT_CONTRACT["core_selection_hidden_size"]
-        or selection.get("selection_metric")
-        != ACTIVE_POINT_CONTRACT["core_selection_metric"]
-        or selection.get("tie_break")
-        != ACTIVE_POINT_CONTRACT["core_selection_tie_break"]
-        or selection.get("selected_core") != core_type
-        or selection.get("evaluation_used") is not False
+        or metadata.get("peak_persistent_recurrent_state_bytes")
+        != 2 * metadata.get("model_size", 0) * 4
+        or metadata.get("dynamic_page_state_pages") != 0
     ):
-        failures.append("{} invalid GUARD-only core selection".format(tag))
-    else:
-        selected = min(
-            ACTIVE_POINT_CONTRACT["core_types"],
-            key=lambda name: (
-                float(candidates[name]),
-                name != ACTIVE_POINT_CONTRACT["core_selection_tie_break"],
-            ),
-        )
-        if selected != core_type:
-            failures.append("{} core does not minimize GUARD NLL".format(tag))
-    if re.fullmatch(
-        r"[0-9a-f]{64}", str(metadata.get("core_selection_file_sha256", ""))
-    ) is None:
-        failures.append("{} invalid core-selection hash".format(tag))
-    if metadata.get("routed_demand_fill_recurrent_paths") != (
-        core_type == "event_routed"
-    ):
-        failures.append("{} recurrent core routing flag mismatch".format(tag))
+        failures.append("{} invalid fixed-global architecture point".format(tag))
 
     count_support = metadata.get("count_support")
     count_stats = metadata.get("count_train_statistics")
@@ -1149,49 +1154,65 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
     ):
         failures.append("{} invalid natural TRAIN count support".format(tag))
 
-    pairs = metadata.get("exact_joint_action_pairs")
-    action_classes = metadata.get("joint_action_output_classes")
-    action_counts = metadata.get("joint_action_train_class_counts")
-    action_priors = metadata.get("joint_action_add_one_natural_priors")
-    valid_pairs = (
-        isinstance(pairs, list)
-        and 1 <= len(pairs) <= ACTIVE_POINT_CONTRACT[
-            "joint_action_vocabulary_max_exact_pairs"
-        ]
-        and len({tuple(pair) for pair in pairs if isinstance(pair, list)})
-        == len(pairs)
+    fill_counts = metadata.get("fill_train_class_counts")
+    fill_priors = metadata.get("fill_add_one_natural_priors")
+    bit_one_counts = metadata.get("delta_bit_train_one_counts_by_fill")
+    bit_priors = metadata.get("delta_bit_add_one_priors_by_fill")
+    valid_fill_counts = (
+        isinstance(fill_counts, list) and len(fill_counts) == 2
         and all(
-            isinstance(pair, list) and len(pair) == 2
-            and isinstance(pair[0], int) and not isinstance(pair[0], bool)
-            and pair[1] in (2, 4)
-            for pair in pairs
+            isinstance(value, int) and not isinstance(value, bool) and value > 0
+            for value in fill_counts
         )
     )
-    expected_actions = action_token_count(len(pairs)) if valid_pairs else None
-    if (
-        not valid_pairs
-        or action_classes != expected_actions
-        or not isinstance(action_counts, list)
-        or len(action_counts) != expected_actions
-        or any(
-            not isinstance(value, int) or isinstance(value, bool) or value < 0
-            for value in action_counts
+    valid_bit_counts = (
+        valid_fill_counts and isinstance(bit_one_counts, list)
+        and len(bit_one_counts) == 2
+        and all(
+            isinstance(row, list) and len(row) == 58
+            and all(
+                isinstance(value, int) and not isinstance(value, bool)
+                and 0 <= value <= fill_counts[index]
+                for value in row
+            )
+            for index, row in enumerate(bit_one_counts)
         )
-        or not isinstance(action_priors, list)
-        or len(action_priors) != expected_actions
+    )
+    valid_bit_priors = (
+        isinstance(bit_priors, list) and len(bit_priors) == 2
+        and all(
+            isinstance(row, list) and len(row) == 58
+            and all(isinstance(value, (int, float)) and 0 < value < 1 for value in row)
+            for row in bit_priors
+        )
+    )
+    if (
+        not valid_fill_counts
+        or not isinstance(fill_priors, list) or len(fill_priors) != 2
+        or not valid_bit_counts or not valid_bit_priors
     ):
-        failures.append("{} invalid observed joint-action vocabulary".format(tag))
+        failures.append("{} invalid TRAIN fill/direct-bit supervision".format(tag))
     else:
-        denominator = float(sum(action_counts) + expected_actions)
-        natural = [(value + 1.0) / denominator for value in action_counts]
+        fill_denominator = float(sum(fill_counts) + 2)
+        natural_fill = [
+            (value + 1.0) / fill_denominator for value in fill_counts
+        ]
         if any(
-            not math.isclose(actual, expected_value, rel_tol=1e-7, abs_tol=1e-9)
-            for actual, expected_value in zip(action_priors, natural)
+            not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=1e-9)
+            for actual, expected in zip(fill_priors, natural_fill)
+        ) or any(
+            not math.isclose(
+                bit_priors[fill][bit],
+                (bit_one_counts[fill][bit] + 1.0)
+                / float(fill_counts[fill] + 2),
+                rel_tol=1e-7, abs_tol=1e-9,
+            )
+            for fill in range(2) for bit in range(58)
         ):
-            failures.append("{} action priors are not natural TRAIN priors".format(tag))
-        if point_key in points and core_type in ACTIVE_POINT_CONTRACT["core_types"]:
+            failures.append("{} TRAIN fill/bit priors are not natural".format(tag))
+        if point_key in points:
             expected_parameters = expected_parameter_count(
-                core_type, point_key[0], len(count_support), expected_actions
+                point_key[0], len(count_support)
             )
             if any(
                 metadata.get(key) != expected_parameters
@@ -1201,6 +1222,14 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
                 )
             ):
                 failures.append("{} realized parameter count mismatch".format(tag))
+
+    for forbidden in (
+        "exact_joint_action_pairs", "joint_action_output_classes",
+        "joint_action_train_class_counts", "joint_action_add_one_natural_priors",
+        "other_action_tokens", "exact_joint_action_pair_count",
+    ):
+        if forbidden in metadata:
+            failures.append("{} retains forbidden active {}".format(tag, forbidden))
 
     selected_epoch = metadata.get("selected_epoch")
     selected_guard = metadata.get("selected_guard_natural_action_list_nll")
@@ -1212,6 +1241,8 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
         or not math.isfinite(float(
             selected_guard.get("natural_action_list_nll_per_callback", math.nan)
         ))
+        or selected_guard.get("training_guard_objective_terms")
+        != ["count_sum", "fill_sum", "delta_bit_sum"]
     ):
         failures.append("{} invalid GUARD-selected checkpoint".format(tag))
 
@@ -1266,19 +1297,36 @@ def validate_active_metadata(metadata, tag, inputs, source_contract_hash, failur
     decoder = metadata.get("decoder_eval_diagnostics")
     if (
         not isinstance(output, dict)
-        or output.get("duplicate_outputs_are_preserved_for_replay") is not True
+        or output.get("duplicate_outputs_are_preserved_for_replay") is not False
+        or output.get("unique_targets_per_callback_enforced") is not True
+        or output.get("duplicate_target_actions") != 0
+        or output.get("direct_exact_delta_bit_actions")
+        != output.get("materialized_action_count")
+        or output.get("action_vocabulary_used") is not False
+        or output.get("other_token_used") is not False
+        or output.get("target_mutation_fallback_used") is not False
+        or output.get("count_reduction_fallback_used") is not False
         or metadata.get("offline_nn_entries")
         != metadata.get("materialized_action_count")
         or metadata.get("raw_predicted_action_count")
         != metadata.get("materialized_action_count")
         or not isinstance(decoder, dict)
-        or decoder.get("count_support") != count_support
         or decoder.get("action_feedback_used") is not False
         or decoder.get("probability_threshold_used") is not False
         or decoder.get("class_reweighting_used") is not False
         or decoder.get("decode_prior_correction_used") is not False
+        or decoder.get("rank_action_logits_use_previous_action") is not False
+        or decoder.get(
+            "rank_logits_conditionally_independent_of_previous_actions"
+        ) is not True
+        or decoder.get("target_uniqueness_feasibility_mask_used") is not True
+        or decoder.get("duplicate_decoded_targets") != 0
+        or decoder.get("target_mutation_fallback_used") is not False
+        or decoder.get("count_reduction_fallback_used") is not False
+        or decoder.get("kbest_payload_enumeration_exact") is not True
+        or decoder.get("fill_and_payload_log_probability_combined") is not True
     ):
-        failures.append("{} invalid v24 natural-action accounting".format(tag))
+        failures.append("{} invalid v25 unique-action accounting".format(tag))
     oracle = metadata.get("oracle_diagnostics")
     if (
         not isinstance(oracle, dict)
@@ -2025,7 +2073,8 @@ def main():
         ):
             raise SystemExit("invalid model tag {}".format(tag))
     revisions = {
-        "active" if tag.startswith("natural_cardinality_spp_lstm_") else
+        "active" if tag.startswith(MODEL_TAG_PREFIX) else
+        "v24" if tag.startswith("natural_cardinality_spp_lstm_") else
         "v23" if tag.startswith("finite_joint_rank_spp_lstm_") else
         "v22" if tag.startswith("hurdle_count_vocab_spp_lstm_") else
         "v21" if tag.startswith("stop_emit_vocab_spp_lstm_") else
@@ -2662,11 +2711,19 @@ def main():
             )
             for tag in model_tags
         },
-        "joint_action_entropy_by_model_tag": {
+        "fill_entropy_by_model_tag": {
             tag: (
                 metadata_by_tag.get(tag, {})
                 .get("decoder_eval_diagnostics", {})
-                .get("mean_joint_action_entropy")
+                .get("mean_fill_entropy")
+            )
+            for tag in model_tags
+        },
+        "selected_fill_plus_payload_log_probability_by_model_tag": {
+            tag: (
+                metadata_by_tag.get(tag, {})
+                .get("decoder_eval_diagnostics", {})
+                .get("mean_selected_fill_plus_payload_log_probability")
             )
             for tag in model_tags
         },
@@ -2690,27 +2747,27 @@ def main():
             tag: metadata_by_tag.get(tag, {}).get("oracle_diagnostics")
             for tag in model_tags
         },
-        "selected_core_by_model_tag": {
-            tag: metadata_by_tag.get(tag, {}).get("selected_core_type")
+        "fixed_core_by_model_tag": {
+            tag: metadata_by_tag.get(tag, {}).get("core_type")
             for tag in model_tags
         },
-        "core_selection_hash_by_model_tag": {
-            tag: metadata_by_tag.get(tag, {}).get("core_selection_file_sha256")
+        "core_selection_used_by_model_tag": {
+            tag: metadata_by_tag.get(tag, {}).get("core_selection_used")
             for tag in model_tags
         },
     }
     if active_run:
-        selected_cores = set(
-            capacity_action_list_audit["selected_core_by_model_tag"].values()
+        fixed_cores = set(
+            capacity_action_list_audit["fixed_core_by_model_tag"].values()
         )
-        selection_hashes = set(
+        selection_flags = set(
             capacity_action_list_audit[
-                "core_selection_hash_by_model_tag"
+                "core_selection_used_by_model_tag"
             ].values()
         )
-        if len(selected_cores) != 1 or len(selection_hashes) != 1:
+        if fixed_cores != {"global"} or selection_flags != {False}:
             failures.append(
-                "all five neural points must share one GUARD-only core selection"
+                "all five neural points must use the fixed global core"
             )
     if active_run and capacity_action_list_audit[
         "all_capacities_byte_identical"
@@ -2750,7 +2807,7 @@ def main():
             "spp_track": [
                 "offline_spp",
                 (
-                    "offline_natural_cardinality_spp_{}_<capacity>"
+                    "offline_global_cardinality_unique_spp_{}_h<capacity>"
                     if "active" in revisions else
                     "offline_routed_grammar_spp_{}_<capacity>"
                     if "v19" in revisions else
@@ -2785,7 +2842,8 @@ def main():
         "warnings": warnings,
         "track_guardrail": (
             "Every neural point predicts one natural categorical callback "
-            "count and exactly K rank-conditioned joint delta/fill actions "
+            "count and exactly K rank-conditioned fill plus direct 58-bit "
+            "modular-delta actions "
             "from the same chronological "
             "DEMAND(addr) and CACHE_FILL(evicted_addr) external callback stream. "
             "No page rule, normal-policy template, or captured SPP action is an inference input."
@@ -2810,8 +2868,8 @@ def main():
                 "with non-negative unbounded support"
             ),
             "target_and_fill_distribution": (
-                "TRAIN-observed joint signed-delta/fill pairs plus "
-                "fill-specific signed-log OTHER tokens"
+                "real-rank unweighted L2/LLC fill CE plus teacher-fill-specific "
+                "direct 58-bit modular-delta Bernoulli supervision"
                 if "active" in revisions else
                 "exact signed ZigZag/canonical-LEB128 increment followed by "
                 "fill conditioned on the actual emitted target"
@@ -2826,7 +2884,8 @@ def main():
             "decision": (
                 (
                     "deterministic count argmax followed by exactly K "
-                    "independent rank-conditioned joint-action argmaxes"
+                    "ordered unique targets chosen by exact k-best payload "
+                    "enumeration over combined fill and payload log probability"
                     if "active" in revisions else
                     "stateless event/rank-keyed learned STOP/EMIT, exact "
                     "LEB128 increment, and target-conditioned fill"
@@ -2891,11 +2950,11 @@ def main():
         },
         "architecture_contract": (
             {
-                "name": "GUARD-selected global or event-routed chronological LSTM",
+                "name": "one fixed global chronological one-layer LSTM",
                 "history": "complete train then guard then evaluation chronology",
                 "training": "chronological TBPTT with state carried and detached",
                 "causal_derived_features": [],
-                "decoder": "natural categorical count plus real-rank-only observed joint delta/fill supervision; no STOP padding or prior correction",
+                "decoder": "natural categorical K plus real-rank fill CE and teacher-fill-specific direct 58-bit delta BCE, with exact k-best unique-target decoding and no discrete action classes, padding, or prior correction",
                 "normal_policy_template": False,
             }
             if "active" in revisions else
