@@ -9,10 +9,10 @@ from collections import defaultdict
 from pathlib import Path
 
 from model_contract import (
-    ACTION_OBJECTIVE, CACHE_LINE_BYTES, COUNT_OBJECTIVE,
+    CACHE_LINE_BYTES, COUNT_OBJECTIVE, DELTA_BIT_OBJECTIVE,
     DECODER_TRAINING_MODE, DECODING_RULE, EXPERIMENT_REVISION,
-    EXTERNAL_INPUT_FIELDS, LINE_ADDRESS_BITS, MAX_EXACT_ACTION_PAIRS,
-    OTHER_ACTION_OBJECTIVE, PARENT_INPUT_RUN_ID, POLICY, RUN_ID, TRACE,
+    EXTERNAL_INPUT_FIELDS, FILL_OBJECTIVE, LINE_ADDRESS_BITS,
+    PARENT_INPUT_RUN_ID, POLICY, RUN_ID, TRACE,
     exact_int as as_int,
 )
 
@@ -296,8 +296,13 @@ def main():
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
         "count_training_objective": COUNT_OBJECTIVE,
-        "joint_action_training_objective": ACTION_OBJECTIVE,
-        "other_action_training_objective": OTHER_ACTION_OBJECTIVE,
+        "fill_training_objective": FILL_OBJECTIVE,
+        "delta_bit_training_objective": DELTA_BIT_OBJECTIVE,
+        "training_and_guard_objective_identical": True,
+        "per_callback_objective_terms": [
+            "count_cross_entropy", "real_rank_fill_cross_entropy",
+            "all_real_rank_58_bit_Bernoulli_negative_log_likelihood",
+        ],
         "decoding_rule": DECODING_RULE,
         "categorical_count_head_used": True,
         "count_zero_is_implicit_hurdle": True,
@@ -327,33 +332,41 @@ def main():
         "nn_can_generate_actions_not_emitted_by_teacher": True,
         "model_does_not_use_pc": True,
         "cache_hit_and_type_are_audit_only": True,
+        "core_type": "global",
+        "global_core_fixed_for_all_capacities": True,
+        "core_selection_used": False,
+        "event_routed_core_used": False,
         "teacher_source_page_lines": SOURCE_SPP_PAGE_LINES,
         "fill_classes": ["FILL_L2", "FILL_LLC"],
         "neural_action_decoder": (
             "natural categorical count then exactly K rank-conditioned "
-            "TRAIN-observed joint delta/fill tokens plus fill-specific OTHER"
+            "fill logits and teacher-fill-specific direct 58-bit deltas"
         ),
         "separate_gate_head_used": False,
         "request_count_head_used": True,
         "request_count_regression_used": False,
-        "separate_delta_head_used": False,
-        "separate_fill_head_used": False,
+        "fill_head_used": True,
+        "fill_specific_delta_bit_heads_used": True,
+        "both_fill_bit_heads_require_train_supervision": True,
+        "joint_action_token_head_used": False,
+        "action_vocabulary_used": False,
+        "other_token_used": False,
+        "separate_fill_head_used": True,
         "stop_emit_head_used": False,
         "stochastic_decoding": False,
-        "joint_action_prior_correction_rule": None,
-        "complete_neural_action_space": False,
-        "joint_action_vocabulary_source": (
-            "TRAIN_observed_delta_fill_pairs_only_plus_OTHER_L2_OTHER_LLC"
-        ),
-        "joint_action_vocabulary_cartesian_product_used": False,
-        "joint_action_vocabulary_max_exact_pairs": MAX_EXACT_ACTION_PAIRS,
-        "delta_other_escape": "signed_log_continuous_bounded_approximation",
-        "delta_other_decode_precision": (
-            "rounded_float32_approximate_except_exact_vocabulary"
-        ),
-        "full_signed_line_delta_range_reachable": False,
-        "every_signed_line_delta_exactly_representable": False,
-        "exact_delta_representability_scope": "train_vocabulary_only",
+        "complete_neural_action_space": True,
+        "delta_payload_bits": LINE_ADDRESS_BITS,
+        "delta_payload_encoding": "exact_unsigned_modular_line_delta_bits",
+        "delta_payload_float_or_clip_used": False,
+        "full_modular_line_delta_range_reachable": True,
+        "every_modular_line_delta_exactly_representable": True,
+        "target_uniqueness_feasibility_mask_used": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
+        "infeasible_unique_decode_behavior": "fail_closed",
+        "kbest_payload_enumeration_exact": True,
+        "fill_and_payload_log_probability_combined": True,
         "normal_policy_templates_used_by_neural_inference": False,
         "count_support_source": (
             "zero_through_maximum_teacher_action_count_observed_in_TRAIN"
@@ -398,6 +411,17 @@ def main():
     train_maximum_count = manifest["tracks"][POLICY]["train"][
         "max_actions_per_callback"
     ]
+    train_fill_counts = manifest["tracks"][POLICY]["train"][
+        "teacher_fill_level_counts"
+    ]
+    if (
+        train_fill_counts.get("FILL_L2", 0) <= 0
+        or train_fill_counts.get("FILL_LLC", 0) <= 0
+    ):
+        raise RuntimeError(
+            "both fill-specific bit heads require real TRAIN supervision"
+        )
+    manifest["both_fill_bit_heads_have_real_TRAIN_actions"] = True
     if not isinstance(train_maximum_count, int) or train_maximum_count < 1:
         raise RuntimeError("TRAIN-derived count support is invalid")
     for role in ROLES:
