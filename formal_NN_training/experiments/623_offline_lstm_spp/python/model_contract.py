@@ -1,13 +1,7 @@
 #!/usr/bin/env python3
-"""Torch-free source of truth for the matched-input 623 SPP v24 model.
-
-The input is unchanged: one DEMAND/FILL kind bit and one lossless 58-bit line
-number in source chronology. v24 predicts natural categorical callback
-cardinality, then only the K real actions as TRAIN-observed joint (delta, fill)
-tokens plus fill-specific OTHER escapes. There is no STOP padding, hurdle,
-count regression, class reweighting, prior correction, or action feedback.
-"""
+"""Torch-free source of truth for the matched-input 623 SPP v25 model."""
 import argparse
+import heapq
 import json
 import math
 import re
@@ -15,19 +9,17 @@ import re
 
 TRACE = "623.xalancbmk_s-700B"
 POLICY = "spp"
-RUN_ID = "623_offline_lstm_spp_natural_cardinality_v24_seed7"
+RUN_ID = "623_offline_lstm_spp_global_cardinality_unique_v25_seed7"
 PARENT_INPUT_RUN_ID = "623_offline_lstm_spp_finite_joint_rank_v23_seed7"
-EXPERIMENT_REVISION = (
-    "spp_source_input_variable_delta_fill_feedback_free_running_v11"
-)
+EXPERIMENT_REVISION = "spp_recorded_fill_chronology_matched_input_v25"
 MODEL_REVISION = (
-    "selected_chronological_lstm_natural_cardinality_joint_action_v24"
+    "global_chronological_lstm_natural_cardinality_direct_bits_unique_v25"
 )
 DECODER_REVISION = (
-    "categorical_count_then_conditional_observed_joint_action_map_v24"
+    "categorical_count_fill_exact_bits_kbest_unique_feasibility_v25"
 )
-OPERATION = "train-v24"
-MODEL_TAG_PREFIX = "natural_cardinality_spp_lstm_h"
+OPERATION = "train-v25"
+MODEL_TAG_PREFIX = "global_cardinality_unique_spp_lstm_h"
 MODEL_POINTS = {
     "lstm": {8: "p0", 16: "p1", 32: "p2", 64: "p3", 128: "p4"}
 }
@@ -45,38 +37,30 @@ LINE_ADDRESS_BITS = ADDRESS_BITS - CACHE_LINE_SHIFT
 LINE_ADDRESS_MODULUS = 1 << LINE_ADDRESS_BITS
 RUNTIME_FEATURE_COUNT = LINE_ADDRESS_BITS + 1
 FILL_LEVELS = (2, 4)
-MAX_EXACT_ACTION_PAIRS = 255
 RANK_CODE_SIZE = 4
-OTHER_L2_NAME = "OTHER_L2"
-OTHER_LLC_NAME = "OTHER_LLC"
 EXTERNAL_INPUT_FIELDS = (
     "callback_kind", "invoke_prefetcher.addr", "cache_fill.evicted_addr",
 )
-
-CORE_TYPES = ("global", "event_routed")
-CORE_SELECTION_HIDDEN_SIZE = 32
-CORE_SELECTION_METRIC = "guard_natural_action_list_nll_per_callback"
-CORE_SELECTION_TIE_BREAK = "global"
-CORE_ABLATION_ROLE = "architecture_selection_only_not_replayed"
+CORE_TYPE = "global"
 
 DECODER_TRAINING_MODE = (
-    "natural_categorical_callback_cardinality_then_teacher_rank_observed_"
-    "joint_delta_fill_without_action_feedback"
+    "natural_categorical_callback_cardinality_then_real_rank_fill_and_"
+    "teacher_fill_specific_exact_modular_delta_bits_without_action_feedback"
 )
 COUNT_OBJECTIVE = "unweighted_natural_categorical_count_cross_entropy"
-ACTION_OBJECTIVE = (
-    "teacher_action_rank_only_unweighted_observed_joint_delta_fill_"
-    "cross_entropy"
-)
-OTHER_ACTION_OBJECTIVE = (
-    "fill_specific_OTHER_token_only_signed_log_delta_smooth_l1"
+FILL_OBJECTIVE = "real_teacher_rank_unweighted_L2_LLC_cross_entropy"
+DELTA_BIT_OBJECTIVE = (
+    "real_teacher_rank_teacher_fill_specific_exact_58_bit_modular_"
+    "Bernoulli_negative_log_likelihood"
 )
 DECODING_RULE = (
-    "deterministic_categorical_count_argmax_then_exactly_K_independent_"
-    "rank_conditioned_observed_joint_action_MAP"
+    "deterministic_count_argmax_then_exactly_K_rank_ordered_cross_fill_"
+    "maximum_log_probability_feasible_payload_selection_by_exact_kbest_"
+    "Bernoulli_subset_enumeration_and_fail_if_infeasible"
 )
 CHECKPOINT_SELECTION = (
-    "guard_natural_action_list_NLL_then_earlier_epoch"
+    "guard_per_callback_count_CE_plus_real_rank_fill_CE_plus_all_58_bit_"
+    "NLL_then_earlier_epoch"
 )
 
 
@@ -117,74 +101,96 @@ def count_statistics(counts):
     }
 
 
-def action_token_count(exact_pair_count):
-    count = int(exact_pair_count)
-    if not 1 <= count <= MAX_EXACT_ACTION_PAIRS:
-        raise ValueError("exact joint-action pair count must be in [1, 255]")
-    return count + 2
+def modular_delta(base_line, target_line):
+    return (int(target_line) - int(base_line)) % LINE_ADDRESS_MODULUS
 
 
-def other_action_token(fill_level, exact_pair_count):
-    fill = int(fill_level)
-    if fill not in FILL_LEVELS:
-        raise ValueError("OTHER action requires L2 or LLC fill")
-    return int(exact_pair_count) + FILL_LEVELS.index(fill)
+def modular_delta_bits(delta):
+    value = int(delta)
+    if not 0 <= value < LINE_ADDRESS_MODULUS:
+        raise ValueError("modular line delta is outside 58-bit domain")
+    return [(value >> bit) & 1 for bit in range(LINE_ADDRESS_BITS)]
 
 
-def decode_action_token(token, exact_pairs):
-    index = int(token)
-    pairs = [(int(delta), int(fill)) for delta, fill in exact_pairs]
-    if not 0 <= index < action_token_count(len(pairs)):
-        raise ValueError("action token is outside realized vocabulary")
-    if index < len(pairs):
-        delta, fill = pairs[index]
-        return "EXACT", delta, fill
-    fill = FILL_LEVELS[index - len(pairs)]
-    return "OTHER", None, fill
+def bits_to_modular_delta(bits):
+    values = [int(value) for value in bits]
+    if len(values) != LINE_ADDRESS_BITS or any(value not in (0, 1) for value in values):
+        raise ValueError("payload must contain exactly 58 bits")
+    return sum(value << bit for bit, value in enumerate(values))
 
 
-def expected_parameter_count(
-    core_type, hidden_size, count_output_classes, action_output_classes,
-):
+def modal_bernoulli_payload(logits):
+    """Return deterministic modal bits, their log-probability, and flip costs."""
+    values = [float(value) for value in logits]
+    if len(values) != LINE_ADDRESS_BITS or any(not math.isfinite(x) for x in values):
+        raise ValueError("payload logits must be 58 finite values")
+    # A zero-logit tie chooses bit zero.  For either modal sign, the stable
+    # modal log probability is -log(1 + exp(-abs(logit))).
+    bits = [int(value > 0.0) for value in values]
+    log_probability = -sum(
+        math.log1p(math.exp(-abs(value))) for value in values
+    )
+    return bits, log_probability, [abs(value) for value in values]
+
+
+def k_best_flip_subsets(flip_costs, limit):
+    """Enumerate exact k-best bit-flip subsets in nondecreasing total cost."""
+    costs = [float(value) for value in flip_costs]
+    count = int(limit)
+    if count < 1 or any(value < 0 or not math.isfinite(value) for value in costs):
+        raise ValueError("invalid k-best subset request")
+    order = sorted(range(len(costs)), key=lambda bit: (costs[bit], bit))
+    yield 0.0, ()
+    if count == 1 or not order:
+        return
+    # Each heap subset stores positions in the sorted-cost array.  Replacing
+    # its last position or appending the next position enumerates every subset
+    # exactly once; tuple order supplies deterministic tie breaking.
+    heap = [(costs[order[0]], (0,))]
+    emitted = 1
+    while heap and emitted < count:
+        total, positions = heapq.heappop(heap)
+        yield total, tuple(order[position] for position in positions)
+        emitted += 1
+        last = positions[-1]
+        if last + 1 < len(order):
+            next_position = last + 1
+            heapq.heappush(
+                heap,
+                (total + costs[order[next_position]], positions + (next_position,)),
+            )
+            heapq.heappush(
+                heap,
+                (
+                    total - costs[order[last]] + costs[order[next_position]],
+                    positions[:-1] + (next_position,),
+                ),
+            )
+
+
+def expected_parameter_count(hidden_size, count_output_classes):
     hidden = int(hidden_size)
     counts = int(count_output_classes)
-    actions = int(action_output_classes)
-    if core_type not in CORE_TYPES:
-        raise ValueError("unsupported SPP v24 core")
-    if hidden not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported SPP v24 hidden size")
-    if counts < 1 or actions < 3:
-        raise ValueError("invalid realized v24 output dimensions")
-    if core_type == "global":
-        return (
-            9 * hidden * hidden
-            + (74 + counts + actions) * hidden
-            + counts + actions + 1
-        )
-    return (
-        17 * hidden * hidden
-        + (82 + counts + actions) * hidden
-        + counts + actions + 1
-    )
+    if hidden not in MODEL_POINTS["lstm"] or counts < 1:
+        raise ValueError("unsupported realized SPP v25 dimensions")
+    # projection + one-layer LSTM + rank fusion + count head + 2-way fill
+    # head + two fill-specific 58-bit payload heads.
+    return 9 * hidden * hidden + (191 + counts) * hidden + counts + 118
 
 
 def model_tag(family, size):
     size = int(size)
     if family != "lstm" or size not in MODEL_POINTS["lstm"]:
-        raise ValueError("unsupported SPP v24 model point")
+        raise ValueError("unsupported SPP v25 model point")
     return MODEL_TAG_PREFIX + str(size)
 
 
 def describe_model_points():
-    points = []
-    for size, pair_id in sorted(MODEL_POINTS["lstm"].items()):
-        points.append({
-            "family": "lstm",
-            "size": size,
-            "pair_id": pair_id,
-            "tag": model_tag("lstm", size),
-            "parameter_count_is_dataset_and_core_dependent": True,
-        })
+    points = [{
+        "family": "lstm", "size": size, "pair_id": pair_id,
+        "tag": model_tag("lstm", size),
+        "parameter_count_is_dataset_dependent": True,
+    } for size, pair_id in sorted(MODEL_POINTS["lstm"].items())]
     return {
         "operation": OPERATION,
         "run_id": RUN_ID,
@@ -200,9 +206,7 @@ def describe_model_points():
         "accumulate_chunks": ACCUMULATE_CHUNKS,
         "learning_rate": LEARNING_RATE,
         "training_config": {
-            "seed": SEED,
-            "epochs": EPOCHS,
-            "chunk_len": CHUNK_LEN,
+            "seed": SEED, "epochs": EPOCHS, "chunk_len": CHUNK_LEN,
             "accumulate_chunks": ACCUMULATE_CHUNKS,
             "learning_rate": LEARNING_RATE,
         },
@@ -218,8 +222,12 @@ def describe_model_points():
         },
         "decoder_training_mode": DECODER_TRAINING_MODE,
         "count_training_objective": COUNT_OBJECTIVE,
-        "joint_action_training_objective": ACTION_OBJECTIVE,
-        "other_action_training_objective": OTHER_ACTION_OBJECTIVE,
+        "fill_training_objective": FILL_OBJECTIVE,
+        "delta_bit_training_objective": DELTA_BIT_OBJECTIVE,
+        "per_callback_objective": (
+            "count_CE_plus_sum_real_rank_fill_CE_plus_sum_all_58_bit_NLL"
+        ),
+        "training_and_guard_objective_identical": True,
         "decoding_rule": DECODING_RULE,
         "checkpoint_selection": CHECKPOINT_SELECTION,
         "neural_role": "standalone_direct_action_prefetcher",
@@ -230,26 +238,20 @@ def describe_model_points():
         "normal_policy_request_rate_used_as_budget": False,
         "normal_policy_outputs_used_as_training_targets": True,
         "runtime_feature_count": RUNTIME_FEATURE_COUNT,
-        "runtime_encoding": (
-            "lossless_58_bit_cache_line_plus_one_DEMAND_FILL_kind_bit"
-        ),
+        "runtime_encoding": "lossless_58_bit_cache_line_plus_one_DEMAND_FILL_kind_bit",
         "external_input_fields": list(EXTERNAL_INPUT_FIELDS),
         "model_does_not_use_pc": True,
-        "core_types": list(CORE_TYPES),
-        "core_selection_hidden_size": CORE_SELECTION_HIDDEN_SIZE,
-        "core_selection_metric": CORE_SELECTION_METRIC,
-        "core_selection_tie_break": CORE_SELECTION_TIE_BREAK,
-        "core_ablation_role": CORE_ABLATION_ROLE,
-        "core_selection_uses_evaluation": False,
-        "global_core": (
-            "one global chronological single_layer_LSTM_state"
-        ),
-        "event_routed_core": (
-            "one global chronological hidden_cell_state_with_distinct_"
-            "DEMAND_and_FILL_LSTM_transitions_selected_only_by_callback_kind"
-        ),
-        "event_routed_core_adds_runtime_input": False,
+        "core_type": CORE_TYPE,
+        "global_core": "one_global_chronological_single_layer_LSTM_state",
+        "core_selection_used": False,
+        "event_routed_core_used": False,
         "count_head_used": True,
+        "fill_head_used": True,
+        "fill_specific_delta_bit_heads_used": True,
+        "both_fill_bit_heads_require_train_supervision": True,
+        "joint_action_token_head_used": False,
+        "action_vocabulary_used": False,
+        "other_token_used": False,
         "count_regression_used": False,
         "hurdle_head_used": False,
         "stop_token_used": False,
@@ -261,47 +263,37 @@ def describe_model_points():
         "count_support_is_dataset_derived": True,
         "count_support_is_normal_request_budget": False,
         "count_support_is_tuned_degree": False,
-        "joint_action_vocabulary_source": (
-            "TRAIN_observed_delta_fill_pairs_only_plus_OTHER_L2_OTHER_LLC"
-        ),
-        "joint_action_vocabulary_max_exact_pairs": MAX_EXACT_ACTION_PAIRS,
-        "joint_action_vocabulary_cartesian_product_used": False,
-        "separate_delta_head_used": False,
-        "separate_fill_head_used": False,
         "action_loss_scope": "teacher_action_ranks_only",
-        "delta_other_escape": "signed_log_continuous_bounded_approximation",
+        "delta_payload_encoding": "exact_58_bit_modular_line_delta",
+        "delta_payload_float_or_clip_used": False,
         "probability_threshold_used": False,
         "threshold_related_hardcodes_used": False,
         "inference_policy_hardcodes_used": False,
-        "fixed_page_offset_classes": None,
         "same_page_rule_used_by_neural_inference": False,
         "normal_policy_templates_used_by_neural_inference": False,
         "neural_degree_cap": None,
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
+        "rank_logits_conditionally_independent_of_previous_actions": True,
         "rank_code_size": RANK_CODE_SIZE,
         "fill_levels": list(FILL_LEVELS),
+        "target_uniqueness_feasibility_mask_used": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
+        "infeasible_unique_decode_behavior": "fail_closed",
+        "kbest_payload_enumeration_exact": True,
+        "fill_and_payload_log_probability_combined": True,
+        "source_action_order_preserved": True,
         "stochastic_decoding": False,
-        "guard_selection_composite_or_mean_used": False,
-        "parameter_formula": {
-            "global": (
-                "9*H^2 + (74+K+A)*H + K+A+1"
-            ),
-            "event_routed": (
-                "17*H^2 + (82+K+A)*H + K+A+1"
-            ),
-            "K": "maximum_TRAIN_count+1",
-            "A": "realized_exact_joint_pairs+2",
-        },
-        "parameter_count_is_dataset_and_core_dependent": True,
+        "parameter_formula": "9*H^2 + (191+K)*H + K+118",
+        "parameter_count_is_dataset_dependent": True,
         "non_neural_control": {
             "name": "every_callback_TRAIN_modal_delta_FILL_LLC",
             "delta_source": "TRAIN_teacher_action_frequency_only",
-            "fill_level": "FILL_LLC",
-            "actions_per_callback": 1,
-            "uses_neural_model": False,
-            "excluded_from_neural_claims": True,
+            "fill_level": "FILL_LLC", "actions_per_callback": 1,
+            "uses_neural_model": False, "excluded_from_neural_claims": True,
         },
         "oracle_diagnostics": {
             "oracle_count_plus_nn_action": "diagnosis_only_not_replayed",
@@ -323,41 +315,48 @@ def self_test_contract():
         except ValueError:
             continue
         raise RuntimeError("exact integer parser accepted {!r}".format(invalid))
-
-    statistics = count_statistics([0, 1, 1, 3])
-    if statistics["class_order"] != [0, 1, 2, 3]:
+    if count_statistics([0, 1, 1, 3])["class_order"] != [0, 1, 2, 3]:
         raise RuntimeError("natural count support changed")
-    pairs = [(-1, 2), (4, 4)]
-    if decode_action_token(0, pairs) != ("EXACT", -1, 2):
-        raise RuntimeError("exact joint token changed")
-    if decode_action_token(
-        other_action_token(2, len(pairs)), pairs
-    ) != ("OTHER", None, 2):
-        raise RuntimeError("OTHER_L2 token changed")
-    if decode_action_token(
-        other_action_token(4, len(pairs)), pairs
-    ) != ("OTHER", None, 4):
-        raise RuntimeError("OTHER_LLC token changed")
+    for base, target in ((0, 0), (0, LINE_ADDRESS_MODULUS - 1), (17, 3)):
+        delta = modular_delta(base, target)
+        if bits_to_modular_delta(modular_delta_bits(delta)) != delta:
+            raise RuntimeError("exact 58-bit payload codec changed")
 
-    for core in CORE_TYPES:
-        previous = 0
-        for hidden in sorted(MODEL_POINTS["lstm"]):
-            parameters = expected_parameter_count(core, hidden, 4, 5)
-            if parameters <= previous:
-                raise RuntimeError("parameter count is not monotone")
-            previous = parameters
+    mixed = [2.0, -3.0, 0.0] + [1.0] * (LINE_ADDRESS_BITS - 3)
+    bits, observed_logp, costs = modal_bernoulli_payload(mixed)
+    expected_logp = -(
+        math.log1p(math.exp(-2.0)) + math.log1p(math.exp(-3.0))
+        + math.log(2.0)
+        + (LINE_ADDRESS_BITS - 3) * math.log1p(math.exp(-1.0))
+    )
+    if bits[:3] != [1, 0, 0] or not math.isclose(
+        observed_logp, expected_logp, rel_tol=0.0, abs_tol=1e-12
+    ) or costs[:3] != [2.0, 3.0, 0.0]:
+        raise RuntimeError("mixed-sign Bernoulli modal log-probability changed")
+    subsets = list(k_best_flip_subsets([0.4, 0.1, 0.2], 8))
+    if len({subset for _, subset in subsets}) != 8 or any(
+        subsets[index][0] > subsets[index + 1][0]
+        for index in range(len(subsets) - 1)
+    ):
+        raise RuntimeError("exact k-best subset enumeration changed")
 
+    previous = 0
+    for hidden in sorted(MODEL_POINTS["lstm"]):
+        parameters = expected_parameter_count(hidden, 4)
+        if parameters <= previous:
+            raise RuntimeError("parameter count is not monotone")
+        previous = parameters
     contract = describe_model_points()
     for key in (
-        "count_regression_used", "hurdle_head_used", "stop_token_used",
-        "stop_padding_used", "loss_class_reweighting_used",
-        "decode_prior_correction_used",
-        "joint_action_vocabulary_cartesian_product_used",
+        "joint_action_token_head_used", "action_vocabulary_used",
+        "other_token_used", "count_regression_used", "hurdle_head_used",
+        "stop_token_used", "stop_padding_used", "loss_class_reweighting_used",
+        "decode_prior_correction_used", "core_selection_used",
+        "event_routed_core_used", "delta_payload_float_or_clip_used",
+        "target_mutation_fallback_used", "count_reduction_fallback_used",
     ):
         if contract[key]:
-            raise RuntimeError("{} leaked into SPP v24".format(key))
-    if contract["core_selection_uses_evaluation"]:
-        raise RuntimeError("evaluation leaked into core selection")
+            raise RuntimeError("{} leaked into SPP v25".format(key))
 
 
 def main():
@@ -369,16 +368,13 @@ def main():
     parser.add_argument("--field")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
-    selected = sum((
-        args.json, args.describe_model_points, args.tags_csv, args.base_tag,
-        args.field is not None, args.self_test,
-    ))
+    selected = sum((args.json, args.describe_model_points, args.tags_csv,
+                    args.base_tag, args.field is not None, args.self_test))
     if selected != 1:
         parser.error("select exactly one output mode")
     contract = describe_model_points()
     if args.self_test:
-        self_test_contract()
-        print("PASS")
+        self_test_contract(); print("PASS")
     elif args.json or args.describe_model_points:
         print(json.dumps(contract, indent=2, sort_keys=True))
     elif args.tags_csv:
@@ -393,4 +389,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
