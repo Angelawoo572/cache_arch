@@ -1,78 +1,105 @@
-# 623 Stride v24 — natural-cardinality conditional-action LSTM
+# 623 Stride v25 — dual-context hurdle LSTM
 
-This is the active matched-input, open-loop Stride experiment for
+This folder contains the active matched-input experiment for
 `623.xalancbmk_s-700B`.
 
-- Run: `623_offline_lstm_stride_natural_cardinality_v24_seed7`
-- Model: `pc_keyed_raw_natural_cardinality_rank_delta_v24`
-- Decoder: `categorical_count_then_conditional_rank_delta_map_v24`
+- Run: `623_offline_lstm_stride_dual_context_hurdle_unique_v25_seed7`
+- Points: `h8, h16, h32, h64, h128`
+- Status: design and code are ready; v25 training/replay results are pending
 
-v23 showed that correcting the weighted hurdle prior was not enough: all five
-capacities still emitted about 1.33–1.38 times the offline-Stride requests and
-had essentially identical IPC. v24 therefore changes the supervised object
-rather than adding another threshold or prior patch.
+## What v23 actually established
 
-## Input and fairness boundary
+Stride v23 did **not** train a new architecture. It loaded the byte-identical
+v22 checkpoints and changed only decoding from weighted logits to
+`logit - log(TRAIN class weight)`. It therefore tested a post-hoc prior
+correction, not LSTM capacity.
 
-The runtime encoder remains exactly:
+| Evidence | Observation |
+|---|---:|
+| normal Stride | 166,147 requests; IPC 0.35340 |
+| v23 five NN points | about 221,501--229,100 requests; 1.333--1.379x normal |
+| v23 IPC | 0.35339--0.35340 for all five points |
+| positive callback rate | TRAIN 6.29%; GUARD 1.32%; EVAL 6.91% |
+
+The direct, supported diagnosis is a mismatch between weighted training,
+post-hoc correction, and checkpoint selection. The near-identical behavior
+across hidden sizes does not support adding h256/h1024. A second structural
+problem is that the exact-PC-only recurrent state never observes the other-PC
+callbacks between two uses of the same PC, so it cannot learn chronological
+interference or staleness.
+
+## Input boundary (unchanged)
+
+The neural encoder receives exactly the same two source fields as before:
 
 ```text
 current PC (64 lossless bits) + current cache-line number (58 lossless bits)
 ```
 
-One shared LSTM is routed through state keyed by exact PC. Captured Stride
-actions are labels and the offline-normal comparator only. The NN never sees
-the Stride tracker, last stride, confidence, candidate list, normal request
-rate, queue state, future rows, or action outcomes.
+Captured Stride actions are labels and an offline-normal comparator only. The
+NN does not receive the normal tracker's entries, confidence, last stride,
+candidates, degree, request rate, queue state, future events, or action
+outcomes. The v23 input archive is reused byte-for-byte.
 
-The v23 input archive is reused byte-for-byte. No recollection is required.
+## v25 model
 
-## Natural action-list likelihood
+Each configured `H` is the total recurrent width and is split evenly:
 
-For callback `t` with teacher list
-`A_t = (a_t,0, ..., a_t,K_t-1)`, v24 learns:
+- a global chronological LSTM sees every callback;
+- an exact-PC local LSTM preserves same-PC history;
+- a learned fusion combines both contexts.
+
+The output likelihood is
 
 ```text
-P(A_t | h_t) = P(K_t | h_t) * product over r<K_t of P(a_t,r | h_t, r)
+P(ZERO/POSITIVE | h)
+* P(K | h, POSITIVE)
+* product over real ranks r<K of P(delta_r | h, r)
 ```
 
-- `K_t` is one unweighted categorical label. `K=0` is the implicit
-  no-request case.
-- Count support is `0..max(TRAIN teacher count)`; it is dataset support, not
-  a copied Stride degree or request budget.
-- Delta loss exists only for real teacher ranks `r<K_t`.
-- Exact delta symbols come from FIT-TRAIN, followed by one `OTHER` signed-log
-  escape.
-- Stride actions are always `FILL_L2`, so there is no meaningless fill head.
-- Inference uses count argmax and emits exactly `K` independent rank-delta
-  argmax actions.
+- The hurdle and positive count losses use the natural, unweighted labels.
+- `K` is categorical over the positive counts observed in the applicable
+  training partition. This dataset-derived support is not a copied normal
+  degree or request budget.
+- Every real teacher rank supervises all 58 modular delta bits. There is no
+  token vocabulary or escape head, so every address-producing output is
+  trained. The bit-head starts from add-one-smoothed per-bit marginals of FIT
+  during selection and complete TRAIN during final retraining; this is only a
+  natural-prior bias initialization, not loss reweighting.
+- Ordered decoding masks an already emitted target and chooses the next
+  feasible learned action; it never feeds an earlier action back into the NN,
+  mutates a decoded address, or emits duplicate targets.
 
-There is no hurdle, log-count regression, STOP padding, class reweighting,
-prior correction, probability threshold, page rule, degree cap, or
-teacher/predicted-action feedback.
+There are no class weights, prior correction, STOP padding, tuned threshold,
+normal request budget, previous-action feedback, or normal-policy private
+inputs.
 
-## Checkpoint selection
+## Selection and evidence
 
-The last block of original TRAIN, with length equal to the original GUARD
-callback count, is held out chronologically. Checkpoints minimize natural
-action-list NLL on this blocked validation suffix; earlier epoch breaks exact
-ties. Original GUARD is retained only as a phase-shift audit. EVAL is decoded
-once after checkpoint selection.
+For epoch selection, the first 80% of original TRAIN is FIT and the last 20%
+is blocked validation. FIT alone defines the selection count support and bit
+initialization.
+The selected epoch minimizes the complete per-callback NLL (hurdle, positive
+count, and all 58 bits at every real rank), with the earlier epoch winning
+an exact tie. The seed is then reset and a fresh model is trained on complete
+TRAIN for exactly that many epochs using complete-TRAIN support. Original
+GUARD is a phase-shift audit only; EVAL is decoded once.
 
-Every capacity also records two diagnosis-only decompositions:
+The final report must keep capacity, target quality, trigger quality, request
+pressure, and replay IPC separate. Oracle-count/NN-target and
+NN-count/oracle-target paths are diagnosis only and are never replayed.
 
-- oracle count + NN action;
-- NN count + oracle-action upper bound.
+## Run
 
-Neither diagnostic is replayed or allowed to support a neural win.
+Use the shared short wrapper from the repository root:
 
-## Sweep and evidence
+```bash
+bash formal_NN_training/experiments/run_623_v25.sh prepare
+bash formal_NN_training/experiments/run_623_v25.sh install-outputs
+bash formal_NN_training/experiments/run_623_v25.sh replay
+bash formal_NN_training/experiments/run_623_v25.sh status
+bash formal_NN_training/experiments/run_623_v25.sh package
+```
 
-The complete `h8, h16, h32, h64, h128` sweep remains mandatory. Report IPC,
-miss rate, request pressure, count confusion/MAE, target and trigger metrics,
-coverage, timeliness, entropy, usefulness, lateness, and raw action-list
-hashes separately. Undefined rates use JSON `null` / blank CSV; a numeric
-zero means the denominator existed.
-
-A root `PASS` proves input, metadata, deterministic decoding, replay, and
-accounting consistency. It does not prove that the NN beats Stride.
+A root `PASS` proves matched input, deterministic decoding, replay, and
+accounting consistency. It does not by itself prove an IPC win.
