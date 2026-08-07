@@ -9,71 +9,87 @@
 
 \begin{document}
 \begin{center}
-{\LARGE\bfseries\color{navy} 623 Stride v24: Natural-Cardinality LSTM}\\[3pt]
+{\LARGE\bfseries\color{navy} 623 Stride: v23 Diagnosis and v25 Design}\\[3pt]
 {\small \texttt{623.xalancbmk\_s-700B} \quad seed 7 \quad matched-input open-loop replay}
 \end{center}
 
-\fbox{\parbox{0.96\linewidth}{\textbf{Results pending.} This document defines
-the v24 experiment and required evidence.  No IPC win over normal Stride may be
-claimed until all five replay points complete and the root comparison is PASS.}}
+\fbox{\parbox{0.96\linewidth}{\textbf{v25 results pending.}  This report
+separates the completed v23 diagnosis from the replacement experiment.  No
+v25 IPC claim is permitted until every replay point completes and the root
+comparison is PASS.}}
 
-\section*{Why v24 replaces the v23 decoder}
-The v23 prior correction reduced requests but still produced 1.33--1.38 times
-the normal Stride request count, while all five IPC values remained effectively
-equal to normal Stride.  v24 therefore retrains the action-list likelihood
-rather than applying another decode-only correction.
+\section*{What v23 measured}
+v23 reused the byte-identical v22 checkpoints and changed only the decoding
+rule to subtract the logarithm of the TRAIN class weight.  It therefore tested
+post-hoc prior correction, not a new recurrent architecture or more capacity.
 
-For callback context $h_t$, teacher count $K_t$, and teacher targets $a_{t,r}$,
-the model minimizes
-\[
- -\log P(K_t\mid h_t)
- -\sum_{r=0}^{K_t-1}\log P(a_{t,r}\mid h_t,r).
-\]
-$K$ is an unweighted categorical class from zero through the complete original
-TRAIN maximum.  $K=0$ is the implicit hurdle.  Only real teacher ranks receive
-delta loss.  There is no weighted hurdle, log-count regression, STOP padding,
-class reweighting, decode prior correction, threshold, or action feedback.
-
-\section*{Fair-input and model contract}
 \begin{tabularx}{\linewidth}{@{}lX@{}}
 \toprule
-Item & Contract \\
+Evidence & Observation \\
 \midrule
-Runtime input & Lossless raw PC64 plus current cache-line58 only. \\
-History & One shared-weight LSTM with hidden/cell state routed by exact observed PC. \\
-Teacher actions & Labels, comparator, and diagnosis only; never model input. \\
-Output & Categorical count followed by exactly $K$ current-demand-relative rank deltas; fill is always FILL\_L2, so no fill head is created. \\
-Excluded & Handcrafted stride/reuse features, normal candidates/private state, request budget, page rules, thresholds, and action feedback. \\
-Input reuse & The v23 input directory and archive are reused byte-for-byte. \\
+Normal Stride & 166,147 requests; IPC 0.35340. \\
+v23 five points & Approximately 221,501--229,100 requests, or 1.333--1.379
+times normal; IPC 0.35339--0.35340. \\
+Callback prior & Positive rate 6.29\% in TRAIN, 1.32\% in GUARD, and 6.91\%
+in EVAL. \\
+Capacity & The five points behave almost identically; v23 does not support
+adding h256 or h1024. \\
 \bottomrule
 \end{tabularx}
 
-The delta vocabulary is learned from FIT-TRAIN and includes a continuous
-signed-log OTHER escape.  All five hidden sizes 8, 16, 32, 64, and 128 are
-trained from scratch.
+The directly supported failure is the mismatch among weighted training,
+finite-model calibration, decode-only prior correction, and checkpoint
+selection.  In addition, an exact-PC-only cell receives no intervening
+other-PC callbacks, so it cannot represent chronological tracker interference
+or staleness.  That is a structural blind spot, not proof that PC/line input is
+insufficient.
 
-\section*{Checkpoint selection}
-The original TRAIN sequence is split chronologically: a suffix equal in length
-to the original GUARD phase is held out.  Checkpoint selection minimizes
-natural action-list NLL on that blocked suffix, with earlier epoch as the only
-tie-break.  The original GUARD remains a phase-shift audit and EVAL never
-selects a checkpoint.
+\section*{Unchanged input and new recurrent core}
+The runtime input remains exactly lossless PC64 plus current line58.  Normal
+Stride actions are labels and an offline comparator only; candidates, tracker
+state, confidence, degree, request rate, queue state, future events, and action
+outcomes are excluded.
 
-For count classes $K$, delta classes $C$, and hidden size $H$, the realized
+For each total hidden width $H\in\{8,16,32,64,128\}$, v25 splits $H$ evenly
+between a global chronological LSTM and an exact-PC local LSTM, then applies a
+learned fusion.  Thus the model sees both callback interleaving and same-PC
+history without copying the normal 64-entry tracker.
+
+\section*{Natural hurdle/list likelihood}
+For context $h_t$, positive count $K_t$, and ordered targets $a_{t,r}$, v25
+minimizes the complete per-callback negative log likelihood
+\[
+-\log P(Z_t\mid h_t)
+-\mathbf{1}[Z_t=\mathrm{POS}]\log P(K_t\mid h_t)
+-\sum_{r<K_t}\log P(a_{t,r}\mid h_t,r).
+\]
+The hurdle and positive categorical count are unweighted.  Every real teacher
+rank supervises all 58 modular delta bits; there is no token vocabulary or
+escape head.  The bit-head weight starts at zero and its bias is the
+add-one-smoothed per-bit marginal logit of FIT for selection and complete TRAIN
+for final retraining.  This is natural-prior initialization, not reweighting.
+Ordered decoding uses exact k-best Bernoulli enumeration under a deterministic
+uniqueness feasibility mask.  It never mutates a target, uses a threshold/page
+rule/normal budget, or feeds an action back into the NN.
+
+For $K$ realized positive-count classes, the exact
 parameter count is
 \[
-N=8H^2+(122+4+K+C+11)H+K+C+1.
+N=5H^2+(201+K)H+K+60.
 \]
 
-\section*{Required evidence}
-Each point reports IPC, L2 miss rate, raw and selected accuracy, coverage,
-timeliness, request pressure, fill level, count confusion and MAE,
-trigger/target precision and recall, request ratio, count/delta entropy, and
-action-list identity.  Denominator-zero ratios are N/A; no composite score is
-used.
+\section*{Selection and required evidence}
+The first 80\% of original TRAIN is FIT and the final 20\% is chronological
+validation.  FIT alone defines selection support.  Minimum complete NLL
+selects the epoch; an exact tie selects the earlier epoch.  The seed is reset
+and a fresh model is then retrained on complete TRAIN for exactly that many
+epochs with complete-TRAIN support.  Original GUARD is a phase-shift audit;
+EVAL is decoded once.
 
-Oracle-count plus NN-action and NN-count plus oracle-action are diagnosis-only
-and are never replayed.  PASS proves fairness and accounting integrity, not a
-performance win.
+The final evidence keeps IPC, miss rate, request ratio, hurdle/count confusion,
+trigger precision/recall, target precision/recall, per-bit entropy,
+uniqueness, entropy, timeliness, and action-list hashes separate.  Oracle
+decompositions are diagnosis-only and are not replayed.  PASS proves fairness
+and accounting, not a performance win.
 
 \end{document}
