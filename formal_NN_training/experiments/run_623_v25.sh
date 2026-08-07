@@ -11,6 +11,11 @@ STRIDE_RUN="$(python3 "$STRIDE_CONTRACT" --field run_id)"
 SPP_RUN="$(python3 "$SPP_CONTRACT" --field run_id)"
 STRIDE_DIR="$STRIDE_EXP/runs/$STRIDE_RUN"
 SPP_DIR="$SPP_EXP/runs/$SPP_RUN"
+STRIDE_TRACE="$(python3 "$STRIDE_CONTRACT" --field trace)"
+STRIDE_POLICY="$(python3 "$STRIDE_CONTRACT" --field policy)"
+STRIDE_TAGS="$(python3 "$STRIDE_CONTRACT" --tags-csv)"
+STRIDE_OUTPUT_REPAIR="$STRIDE_EXP/python/repair_colab_output_manifest.py"
+INSTALL_COLAB_OUTPUT="$ROOT/formal_NN_training/common/install_colab_output.py"
 
 for value in "$STRIDE_RUN" "$SPP_RUN"; do
   [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || {
@@ -74,11 +79,56 @@ install_outputs() {
   echo "[installed] $spp_target"
 }
 
-replay() {
+pid_is_running() {
+  local pid_file="$1" expected_command="$2" pid command
+  [[ -s "$pid_file" ]] || return 1
+  pid="$(cat "$pid_file")"
+  [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  command="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  [[ "$command" == *"$expected_command"* ]]
+}
+
+repair_stride_output() {
+  local archive="$STRIDE_DIR/$STRIDE_RUN.colab_output.tar.gz"
+  local installed_manifest="$STRIDE_DIR/colab_output/sweep_manifest.json"
+  python3 "$STRIDE_OUTPUT_REPAIR" \
+    --archive "$archive" \
+    --installed-manifest "$installed_manifest" \
+    --run-id "$STRIDE_RUN" \
+    --trace "$STRIDE_TRACE" \
+    --policy "$STRIDE_POLICY"
+  gzip -t "$archive"
+  python3 "$INSTALL_COLAB_OUTPUT" \
+    --archive "$archive" \
+    --output-dir "$STRIDE_DIR/colab_output" \
+    --model-tags "$STRIDE_TAGS"
+}
+
+replay_stride() {
+  if pid_is_running "$SPP_DIR/replay.pid" \
+    "$SPP_EXP/linux/run_server.sh"; then
+    echo "[wait] SPP replay is still running; leave it alone and start Stride after it finishes" >&2
+    return 2
+  fi
+  repair_stride_output
   BUILD=0 FORCE=0 RESET_PATCH=0 JOBS="${JOBS:-8}" \
     bash "$STRIDE_EXP/linux/launch_server.sh" replay
+}
+
+replay_spp() {
+  if pid_is_running "$STRIDE_DIR/replay.pid" \
+    "$STRIDE_EXP/linux/run_server.sh"; then
+    echo "[wait] Stride replay is still running; do not start SPP concurrently" >&2
+    return 2
+  fi
   BUILD=0 FORCE=0 RESET_PATCH=0 JOBS="${JOBS:-8}" \
     bash "$SPP_EXP/linux/launch_server.sh" replay
+}
+
+replay() {
+  echo "[error] run the tracks separately: replay-spp, then replay-stride after SPP finishes" >&2
+  return 2
 }
 
 show_one_status() {
@@ -133,11 +183,14 @@ package() {
 case "${1:-}" in
   prepare) prepare ;;
   install-outputs) install_outputs ;;
+  repair-stride-output) repair_stride_output ;;
+  replay-spp) replay_spp ;;
+  replay-stride) replay_stride ;;
   replay) replay ;;
   status) status ;;
   package) package ;;
   *)
-    echo "usage: $0 {prepare|install-outputs|replay|status|package}" >&2
+    echo "usage: $0 {prepare|install-outputs|repair-stride-output|replay-spp|replay-stride|status|package}" >&2
     exit 2
     ;;
 esac
