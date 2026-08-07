@@ -378,7 +378,7 @@ collect() {
 }
 
 validate_preserved_inputs() {
-  local validated_manifest
+  local validated_manifest installed_validation
   validated_manifest="$(mktemp "$RUN_DIR/.spp_collection_manifest.XXXXXX")"
   if ! python3 "$VALIDATE_INPUTS" \
     --input-dir "$STREAM_DIR" --manifest-out "$validated_manifest" \
@@ -386,13 +386,21 @@ validate_preserved_inputs() {
     rm -f "$validated_manifest"
     return 1
   fi
-  # The checked-in validator records current TRAIN/guard/eval histograms and
-  # action-space semantics.  The reused source collection manifest is historical
-  # provenance, not the current decoder contract, so byte equality between the
-  # two JSON schemas would be incorrect.  Successful current validation checks
-  # the actual gzip contents; SHA256SUMS below independently pins every reused
-  # input byte, including the historical manifest itself.
+  # The source collection manifest inside colab_input is historical provenance.
+  # Once Colab output is installed, compare its separate fresh v25 validation
+  # byte-for-byte with a new Sacramento validation of the preserved inputs.
+  installed_validation="$COLAB_ROOT/validated_collection_manifest.json"
+  if [[ -s "$installed_validation" ]]; then
+    if ! cmp "$validated_manifest" "$installed_validation"; then
+      echo "[error] Colab fresh validation differs from current Sacramento input validation" >&2
+      rm -f "$validated_manifest"
+      return 1
+    fi
+    echo "[PASS] Colab fresh validation matches current preserved SPP inputs byte-for-byte"
+  fi
   rm -f "$validated_manifest"
+  # SHA256SUMS independently pins every reused input byte, including the
+  # historical collection manifest itself.
   ( cd "$STREAM_DIR" && sha256sum -c SHA256SUMS )
 }
 
@@ -472,11 +480,11 @@ run_method() {
 
 require_colab_outputs() {
   local tag
-  validate_preserved_inputs
   prepare_colab_output_archive
   python3 "$INSTALL_COLAB_OUTPUT" \
     --archive "$RUN_DIR/$RUN_ID.colab_output.tar.gz" \
     --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
+  validate_preserved_inputs
   for tag in "${MODEL_TAGS[@]}"; do
     for name in run_metadata.json offline_spp.replay.csv \
       offline_nn.replay.csv offline_modal_llc_control.replay.csv \
