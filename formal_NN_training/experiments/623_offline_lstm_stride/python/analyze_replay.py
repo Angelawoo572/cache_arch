@@ -919,7 +919,7 @@ def validate_active_metadata_v23_legacy(metadata, tag, inputs, failures):
                     )
                 )
 def validate_active_metadata(metadata, tag, inputs, failures):
-    """Fail closed on the natural-cardinality v24 Stride contract."""
+    """Fail closed on the dual-context hurdle/count Stride v25 contract."""
     experiment = Path(__file__).resolve().parents[1]
     repository = Path(__file__).resolve().parents[4]
     expected = {
@@ -962,17 +962,26 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         "decoder_training_mode": ACTIVE_CONTRACT["decoder_training_mode"],
         "decoding_rule": ACTIVE_CONTRACT["decoding_rule"],
         "decision_rule": ACTIVE_CONTRACT["decoding_rule"],
-        "count_training_objective": ACTIVE_CONTRACT[
-            "count_training_objective"
+        "complete_training_objective": ACTIVE_CONTRACT[
+            "complete_training_objective"
+        ],
+        "hurdle_training_objective": ACTIVE_CONTRACT[
+            "hurdle_training_objective"
+        ],
+        "positive_count_training_objective": ACTIVE_CONTRACT[
+            "positive_count_training_objective"
         ],
         "categorical_count_head_used": True,
         "count_head_used": True,
         "count_regression_used": False,
         "log_count_used": False,
-        "hurdle_head_used": False,
+        "hurdle_head_used": True,
+        "hurdle_classes": ["ZERO", "POSITIVE"],
+        "hurdle_loss_class_weights": None,
+        "positive_only_categorical_count_head_used": True,
         "stop_token_used": False,
-        "separate_global_gate_used": False,
-        "separate_count_head_used": False,
+        "separate_global_gate_used": True,
+        "separate_count_head_used": True,
         "stop_padding_used": False,
         "loss_class_reweighting_used": False,
         "decode_prior_correction_used": False,
@@ -981,16 +990,38 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         "count_support_is_dataset_derived": True,
         "count_support_is_normal_request_budget": False,
         "count_support_is_tuned_degree": False,
+        "maximum_count_exposed_as_normal_request_budget": False,
         "delta_training_objective": ACTIVE_CONTRACT[
             "delta_training_objective"
         ],
+        "positive_count_support_source": "complete_original_TRAIN_labels_only",
+        "selection_positive_count_support_source": "FIT_labels_only",
+        "delta_token_head_used": False,
+        "delta_vocabulary_used": False,
+        "delta_escape_head_used": False,
+        "rank_delta_payload_head": "one_direct_58bit_modular_Bernoulli_head",
+        "rank_delta_payload_bits": 58,
+        "delta_decode_precision": "exact_all_58_modular_bits",
+        "full_modular_line_delta_range_reachable": True,
+        "delta_bit_loss_scope": "all_58_bits_of_every_real_teacher_rank",
+        "delta_bit_initialization": (
+            "zero_weight_add_one_smoothed_partition_bit_marginal_logit_bias"
+        ),
+        "delta_bit_prior_source_selection": "all_real_FIT_teacher_actions",
+        "delta_bit_prior_source_final": "all_real_complete_TRAIN_teacher_actions",
         "all_deltas_relative_to_current_demand": True,
         "stride_fill_level": "FILL_L2_only_no_learned_fill_head",
         "fill_level": "FILL_L2_only_no_fill_head",
         "decoder_previous_teacher_action_used_as_input": False,
         "decoder_previous_predicted_action_used_as_input": False,
         "decoder_previous_sampled_action_used_as_input": False,
-        "action_loss_scope": "teacher_action_ranks_only",
+        "deterministic_target_uniqueness_constraint_used": True,
+        "target_uniqueness_constraint_is_neural_action_feedback": False,
+        "decoded_target_projection_or_mutation_used": False,
+        "action_loss_scope": "all_58_bits_of_every_real_teacher_rank",
+        "blocked_validation_source": (
+            "chronological_last20pct_of_original_TRAIN"
+        ),
         "blocked_validation_length_source": ACTIVE_CONTRACT[
             "blocked_validation_length_source"
         ],
@@ -1008,11 +1039,25 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         "checkpoint_reused": False,
         "decoder_only_change": False,
         "training_chunks_shuffled": False,
-        "training_state_mode": "exact_pc_keyed_stateful_tbptt",
+        "selection_support_derived_from_FIT_only": True,
+        "final_support_derived_from_complete_TRAIN_only": True,
+        "selected_FIT_checkpoint_reused_for_final_model": False,
+        "final_retrained_from_scratch": True,
+        "final_retrain_seed_reset": True,
+        "final_retrain_training_partition": "complete_original_TRAIN",
+        "dual_context_core_used": True,
+        "global_chronological_lstm_used": True,
+        "exact_pc_local_lstm_used": True,
+        "learned_global_local_fusion_used": True,
+        "training_state_mode": "dual_global_chronological_and_exact_pc_local_tbptt",
         "training_state_carried_across_chunks": True,
         "training_state_detached_between_chunks": True,
-        "training_state_routing": "one_lstm_state_per_exact_observed_PC",
-        "inference_state_routing": "one_lstm_state_per_exact_observed_PC",
+        "training_state_routing": (
+            "one_global_chronological_state_plus_one_local_state_per_exact_PC"
+        ),
+        "inference_state_routing": (
+            "one_global_chronological_state_plus_one_local_state_per_exact_PC"
+        ),
         "training_config": ACTIVE_CONTRACT["training_config"],
         "cublas_workspace_config": ACTIVE_CONTRACT[
             "determinism_contract"
@@ -1049,37 +1094,81 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         point["model_tag"]: point for point in ACTIVE_CONTRACT["points"]
     }
     point = point_by_tag.get(tag)
-    count_support = metadata.get("count_support")
-    vocabulary = metadata.get("exact_delta_vocabulary")
+    count_support = metadata.get("positive_count_support")
+    selection_count_support = metadata.get("selection_positive_count_support")
     if (
         point is None
         or metadata.get("model_size") != point["model_size"]
+        or metadata.get("total_recurrent_width") != point["model_size"]
+        or metadata.get("global_recurrent_width") != point["model_size"] // 2
+        or metadata.get("exact_pc_local_recurrent_width")
+        != point["model_size"] // 2
         or metadata.get("architecture_pair_id")
         != point["architecture_pair_id"]
         or not isinstance(count_support, list)
         or not count_support
-        or count_support != list(range(len(count_support)))
-        or not isinstance(vocabulary, list)
-        or not 0 < len(vocabulary)
-        <= ACTIVE_CONTRACT["delta_vocabulary_max_exact"]
-        or len(set(vocabulary)) != len(vocabulary)
-        or metadata.get("other_delta_class") != len(vocabulary)
-    ):
-        failures.append("{} invalid v24 realized support".format(tag))
-    else:
-        realized = expected_parameter_count(
-            point["model_size"], len(count_support), len(vocabulary) + 1
+        or count_support != sorted(set(count_support))
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            for value in count_support
         )
+        or not isinstance(selection_count_support, list)
+        or not selection_count_support
+        or selection_count_support != sorted(set(selection_count_support))
+        or any(
+            not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            for value in selection_count_support
+        )
+        or metadata.get("maximum_complete_TRAIN_teacher_count")
+        != max(count_support)
+    ):
+        failures.append("{} invalid v25 selection/final realized support".format(tag))
+    else:
+        realized = expected_parameter_count(point["model_size"], len(count_support))
         for key in (
             "parameter_count", "realized_parameter_count",
             "expected_parameter_count",
         ):
             if metadata.get(key) != realized:
                 failures.append(
-                    "{} {} does not match realized v24 formula".format(
+                    "{} {} does not match realized v25 formula".format(
                         tag, key
                     )
                 )
+
+    count_stats = metadata.get("count_train_statistics")
+    fit_count_stats = metadata.get("count_fit_train_statistics")
+    if (
+        not isinstance(count_stats, dict)
+        or count_stats.get("positive_count_support") != count_support
+        or count_stats.get("loss_class_weights") is not None
+        or not isinstance(fit_count_stats, dict)
+        or fit_count_stats.get("positive_count_support")
+        != selection_count_support
+        or fit_count_stats.get("loss_class_weights") is not None
+    ):
+        failures.append("{} invalid natural positive-count statistics".format(tag))
+    for key in ("hurdle_complete_TRAIN_natural_prior", "hurdle_FIT_natural_prior"):
+        prior = metadata.get(key)
+        if (
+            not isinstance(prior, list) or len(prior) != 2
+            or any(not isinstance(value, (int, float)) or value <= 0 for value in prior)
+            or not math.isclose(sum(prior), 1.0, rel_tol=0.0, abs_tol=1e-9)
+        ):
+            failures.append("{} invalid {}".format(tag, key))
+    for key in (
+        "delta_bit_FIT_add_one_priors",
+        "delta_bit_complete_TRAIN_add_one_priors",
+    ):
+        prior = metadata.get(key)
+        if (
+            not isinstance(prior, list) or len(prior) != 58
+            or any(
+                not isinstance(value, (int, float)) or not 0 < value < 1
+                for value in prior
+            )
+        ):
+            failures.append("{} invalid {}".format(tag, key))
 
     if metadata.get("model_point_contract") != ACTIVE_CONTRACT:
         failures.append("{} embedded model contract differs".format(tag))
@@ -1089,12 +1178,23 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         not isinstance(selected_epoch, int)
         or isinstance(selected_epoch, bool)
         or not 1 <= selected_epoch <= metadata.get("epochs", 0)
+        or metadata.get("final_retrain_epochs") != selected_epoch
         or not isinstance(selected_validation, dict)
         or not math.isfinite(float(selected_validation.get(
-            "natural_action_list_nll_per_callback", float("nan")
+            "complete_nll_per_callback", float("nan")
         )))
     ):
         failures.append("{} invalid blocked-validation selection".format(tag))
+    fit_callbacks = metadata.get("fit_train_callbacks")
+    blocked_callbacks = metadata.get("blocked_validation_callbacks")
+    if (
+        not isinstance(fit_callbacks, int) or isinstance(fit_callbacks, bool)
+        or not isinstance(blocked_callbacks, int)
+        or isinstance(blocked_callbacks, bool)
+        or fit_callbacks <= 0 or blocked_callbacks <= 0
+        or fit_callbacks != (fit_callbacks + blocked_callbacks) * 4 // 5
+    ):
+        failures.append("{} invalid chronological 80/20 TRAIN split".format(tag))
     oracle = metadata.get("oracle_diagnostics")
     if (
         not isinstance(oracle, dict)
@@ -1121,6 +1221,26 @@ def validate_active_metadata(metadata, tag, inputs, failures):
         != metadata.get("inference_state_router_sha256")
     ):
         failures.append("{} encoder/state-router identity mismatch".format(tag))
+
+    decoder = metadata.get("decoder_eval_diagnostics")
+    if (
+        not isinstance(decoder, dict)
+        or decoder.get("hurdle_classes") != ["ZERO", "POSITIVE"]
+        or decoder.get("positive_count_support") != count_support
+        or decoder.get("all_emitted_target_lines_unique_within_callback")
+        is not True
+        or decoder.get(
+            "deterministic_target_uniqueness_feasibility_mask_used"
+        ) is not True
+        or decoder.get("decoded_target_projection_or_mutation_used") is not False
+        or decoder.get("uniqueness_constraint_used_as_neural_input") is not False
+        or decoder.get("probability_threshold_used") is not False
+        or decoder.get("class_reweighting_used") is not False
+        or decoder.get("decode_prior_correction_used") is not False
+        or decoder.get("action_feedback_used") is not False
+        or decoder.get("normal_request_budget_used") is not False
+    ):
+        failures.append("{} invalid v25 hurdle/unique decoder audit".format(tag))
 
     for role in ("train", "guard", "eval"):
         for kind in ("stream", "candidate"):
@@ -2040,13 +2160,21 @@ def main():
             ),
             "count_confusion": behavior.get("count_confusion"),
             "count_mae": behavior.get("count_mae"),
-            "mean_count_entropy": decoder.get("mean_count_entropy"),
-            "mean_count_entropy_normalized": decoder.get(
-                "mean_count_entropy_normalized"
+            "mean_hurdle_entropy": decoder.get("mean_hurdle_entropy"),
+            "mean_hurdle_entropy_normalized": decoder.get(
+                "mean_hurdle_entropy_normalized"
             ),
-            "mean_delta_entropy": decoder.get("mean_delta_entropy"),
-            "mean_delta_entropy_normalized": decoder.get(
-                "mean_delta_entropy_normalized"
+            "mean_positive_count_entropy": decoder.get(
+                "mean_positive_count_entropy"
+            ),
+            "mean_positive_count_entropy_normalized": decoder.get(
+                "mean_positive_count_entropy_normalized"
+            ),
+            "mean_delta_bit_entropy": decoder.get(
+                "mean_delta_bit_entropy"
+            ),
+            "mean_delta_bit_entropy_normalized": decoder.get(
+                "mean_delta_bit_entropy_normalized"
             ),
             "oracle_diagnostics": metadata.get("oracle_diagnostics"),
         }
@@ -2057,7 +2185,7 @@ def main():
     }
     if len(capacity_action_list_audit) == 5 and len(action_hashes) == 1:
         warnings.append(
-            "all five v24 Stride capacities exported the same hard action "
+            "all five active Stride capacities exported the same hard action "
             "list; inspect count confusion and entropy before interpreting IPC"
         )
     transport_fidelity = {}
@@ -2131,16 +2259,19 @@ def main():
             "page-offset table, same-page rule, or Stride degree cap."
         ),
         ACTIVE_MODEL_REVISION: (
-            "The neural model uses one exact-PC keyed LSTM over lossless raw "
-            "PC64/line58 bits with no engineered stride or reuse feature. "
-            "One unweighted categorical head predicts natural callback "
-            "cardinality, with zero as the implicit no-request case; only "
-            "real teacher ranks supervise the TRAIN delta vocabulary/OTHER "
-            "action head. A chronological suffix of TRAIN selects checkpoints "
-            "by action-list NLL while the original GUARD is phase-shift audit "
-            "only. There is no hurdle, count regression, STOP padding, class "
-            "reweighting, prior correction, threshold, source template, page "
-            "rule, request budget, neural degree cap, or action feedback."
+            "The neural model splits each reported H between one global "
+            "chronological LSTM and one exact-PC-local LSTM over the unchanged "
+            "lossless PC64/line58 input, then learns their fusion. An unweighted "
+            "natural ZERO/POSITIVE hurdle is followed by a positive-only "
+            "categorical count and a direct 58-bit modular Bernoulli payload "
+            "for every real rank. The first 80% of TRAIN fits and the "
+            "last 20% selects an epoch by the complete objective, after which "
+            "the seed/model are reset and that epoch count is retrained on all "
+            "TRAIN. The original GUARD is phase-shift audit only. Ordered "
+            "decoding enforces unique targets without target mutation or action "
+            "feedback. There is no STOP padding, class reweighting, prior "
+            "correction, threshold, source template, page rule, request budget, "
+            "or neural degree cap."
         ),
     }
     payload = {
@@ -2219,11 +2350,11 @@ def main():
             }
             if TRACK_MODEL_FAMILY == "cnn"
             else {
-                "name": "exact-PC keyed raw-input LSTM",
-                "history": "one hidden/cell pair per exact observed PC",
-                "training": "chronological keyed TBPTT with state carried and detached",
+                "name": "dual global chronological plus exact-PC-local raw-input LSTM",
+                "history": "one global hidden/cell pair plus one local pair per exact observed PC",
+                "training": "chronological dual-context TBPTT with state carried and detached",
                 "runtime_features": "raw PC64 plus aligned line58 only",
-                "action_decoder": "natural categorical count followed by exactly K independent rank-conditioned TRAIN delta vocabulary/OTHER actions",
+                "action_decoder": "natural hurdle plus positive categorical count followed by exactly K rank-conditioned direct 58-bit modular payloads",
             }
         ),
         "metric_definitions": {
