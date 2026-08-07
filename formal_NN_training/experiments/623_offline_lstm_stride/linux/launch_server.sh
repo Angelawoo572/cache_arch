@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Safe nohup launcher.  It creates RUN_DIR before the shell opens the log.
+# Safe active-v25 nohup launcher. It derives RUN_ID from model_contract.py.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
