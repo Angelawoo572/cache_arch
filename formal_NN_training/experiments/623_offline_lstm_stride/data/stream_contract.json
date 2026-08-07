@@ -1,9 +1,9 @@
 {
-  "experiment_revision": "stride_source_input_variable_delta_free_running_v9",
-  "model_revision": "pc_keyed_raw_natural_cardinality_rank_delta_v24",
-  "decoder_revision": "categorical_count_then_conditional_rank_delta_map_v24",
-  "run_id": "623_offline_lstm_stride_natural_cardinality_v24_seed7",
-  "operation": "train-v24",
+  "experiment_revision": "stride_dual_context_hurdle_unique_v25",
+  "model_revision": "dual_context_raw_hurdle_positive_count_rank_delta_bits_v25",
+  "decoder_revision": "ordered_unique_hurdle_count_delta_bits_map_v25",
+  "run_id": "623_offline_lstm_stride_dual_context_hurdle_unique_v25_seed7",
+  "operation": "train-v25",
   "parent_input_run_id": "623_offline_lstm_stride_prior_corrected_hurdle_v23_seed7",
   "input_archive_reused_byte_for_byte": true,
   "event_logger_schema": "623_causal_trigger_v5",
@@ -22,25 +22,32 @@
     "teacher_or_future_used": false
   },
   "architecture": {
-    "input_projection": "linear 122 to H followed by tanh",
-    "state": "one single-layer LSTM dynamically routed by exact observed PC",
-    "stateful_training": "exact-PC keyed chronological TBPTT",
+    "total_hidden_width": "H",
+    "global_branch": "linear 122 to H/2, then one chronological LSTM of width H/2",
+    "local_branch": "linear 122 to H/2, then one exact-PC-routed LSTM of width H/2",
+    "fusion": "concatenate to H, learned H-to-H linear fusion, tanh",
+    "stateful_training": "chronological TBPTT; one global state plus exact-PC local states",
     "decoder_heads": [
-      "natural categorical callback count",
-      "shared rank-conditioned exact-delta-plus-OTHER action",
-      "OTHER-only signed-log delta coordinate"
+      "unweighted ZERO/POSITIVE hurdle",
+      "positive-only categorical callback count",
+      "one shared rank-conditioned direct 58-bit modular delta payload"
     ],
-    "hurdle_head_used": false,
+    "hurdle_head_used": true,
+    "count_zero_is_implicit_hurdle": true,
     "count_regression_used": false,
     "log_count_used": false,
     "stop_padding_used": false
   },
-  "natural_action_list_likelihood": {
-    "factorization": "P(K|h) times product over r<K of P(delta_r|h,r)",
-    "count_loss": "unweighted natural categorical cross-entropy",
-    "count_support": "0 through maximum action count in complete original TRAIN",
-    "count_zero_is_implicit_hurdle": true,
-    "action_loss_scope": "teacher action ranks only",
+  "complete_callback_likelihood": {
+    "factorization": "P(ZERO/POSITIVE|h), P(K|h,POSITIVE), and all 58 Bernoulli terms at every real rank",
+    "hurdle_loss": "unweighted natural binary cross-entropy",
+    "positive_count_loss": "unweighted positive-only categorical cross-entropy",
+    "selection_count_support": "positive counts observed in FIT only",
+    "final_count_support": "positive counts observed in complete original TRAIN only",
+    "maximum_complete_TRAIN_count": "reported as data evidence, never copied as a normal request budget",
+    "action_loss_scope": "all_58_bits_of_every_real_teacher_rank",
+    "delta_payload_loss": "sum of 58 Bernoulli negative log likelihood terms for every real teacher rank",
+    "loss_normalization": "complete likelihood sum divided by callbacks",
     "class_reweighting": false,
     "decode_prior_correction": false,
     "probability_threshold": false,
@@ -48,27 +55,37 @@
   },
   "target_decoder": {
     "coordinate": "relative to current demand line",
-    "delta_vocabulary_source": "FIT_TRAIN labels only",
-    "delta_vocabulary_max_exact": 255,
-    "delta_output_classes": "realized exact vocabulary plus OTHER",
-    "delta_other_escape": "signed_log_continuous_bounded_approximation",
-    "OTHER_auxiliary_scope": "OTHER teacher actions only",
+    "delta_token_head_used": false,
+    "delta_vocabulary_used": false,
+    "delta_escape_head_used": false,
+    "delta_payload": "one exact 58-bit modular Bernoulli head",
+    "delta_payload_loss_scope": "all 58 bits of every real teacher rank",
+    "selection_initialization": "zero weights plus add-one-smoothed FIT bit-marginal logit biases",
+    "final_initialization": "zero weights plus add-one-smoothed complete-TRAIN bit-marginal logit biases",
     "fill_level": "FILL_L2 only; no learned fill head",
+    "ordered_uniqueness": "exact k-best enumeration chooses the highest-probability feasible 58-bit payload at each rank",
+    "target_projection_or_mutation": false,
+    "fail_closed_if_no_feasible_target": true,
     "same_page_rule": null,
     "stride_template": null
   },
   "checkpoint_selection": {
-    "primary_role": "chronological suffix blocked from original TRAIN",
-    "blocked_validation_length": "original GUARD callback count",
-    "metric": "natural categorical action-list NLL",
+    "fit_partition": "first floor(4/5 * TRAIN callbacks)",
+    "validation_partition": "remaining chronological last 20% of TRAIN",
+    "selection_support": "FIT labels only",
+    "metric": "complete validation NLL per callback, identical terms to training",
     "tie_break": "earlier epoch",
+    "after_selection": "reset seed, reinitialize, and retrain from scratch on complete TRAIN for selected epochs",
+    "final_support": "complete TRAIN labels only",
     "original_guard_role": "phase-shift audit only",
     "evaluation_used_for_selection": false,
     "composite_or_mean_result_score_used": false
   },
   "model_sweep": {
-    "family": "lstm",
-    "hidden_sizes": [8, 16, 32, 64, 128],
+    "family": "dual-context LSTM",
+    "total_hidden_sizes": [8, 16, 32, 64, 128],
+    "global_hidden_sizes": [4, 8, 16, 32, 64],
+    "exact_pc_local_hidden_sizes": [4, 8, 16, 32, 64],
     "pair_ids": ["p0", "p1", "p2", "p3", "p4"],
     "source_of_truth": "python/model_contract.py"
   },
@@ -78,15 +95,18 @@
     "chunk_len": 1024,
     "accumulate_chunks": 16,
     "learning_rate": 0.002,
+    "fit_numerator": 4,
+    "fit_denominator": 5,
     "chunks_shuffled": false
   },
   "inference": {
-    "rule": "categorical count argmax then exactly K independent rank delta argmaxes",
+    "rule": "hurdle argmax, positive count argmax, then exactly K ordered unique targets",
     "normal_request_budget": null,
     "normal_degree_cap": null,
     "neural_degree_cap": null,
     "sampling": null,
-    "truncation": null
+    "truncation": null,
+    "target_mutation": null
   },
   "oracle_diagnostics": {
     "oracle_count_plus_nn_action": "diagnosis only; never replayed",
@@ -109,11 +129,10 @@
   "checkpoint_reused": false,
   "decoder_only_change": false,
   "parameter_accounting": {
-    "formula": "8*H^2 + (122+8+K+C+11)*H + K+C+1",
-    "K": "maximum complete original TRAIN count plus one",
-    "C": "realized exact FIT_TRAIN delta vocabulary plus OTHER",
+    "formula": "5*H^2 + (201+K)*H + K+60",
+    "H": "total recurrent width split equally across global and exact-PC-local branches",
+    "K": "number of positive count classes in complete TRAIN",
     "dataset_dependent": true
   },
-  "persistent_state_accounting": "2H float32 values per exact observed PC"
+  "persistent_state_accounting": "one global H/2 hidden/cell pair plus one H/2 hidden/cell pair per exact observed PC"
 }
-
