@@ -2230,6 +2230,11 @@ def main():
             source_contract_hash = sha256(source_contract_path)
         except (OSError, json.JSONDecodeError) as exc:
             failures.append("invalid SPP source contract: {}".format(exc))
+    # The byte-reused input package intentionally retains its historical
+    # collection manifest.  It proves where the immutable gzip payload came
+    # from, but its experiment/decoder revision is not the active v25 model
+    # contract.  The fresh v25 validation generated from those same bytes is
+    # installed at the Colab-output root and is checked separately below.
     collection_manifest = {}
     collection_manifest_path = input_dir / "collection_manifest.json"
     if not collection_manifest_path.is_file():
@@ -2239,10 +2244,50 @@ def main():
             collection_manifest = json.loads(collection_manifest_path.read_text())
         except (OSError, json.JSONDecodeError) as exc:
             failures.append("invalid collection manifest: {}".format(exc))
-        expected_manifest = {
+        historical_expected = {
             "status": "PASS",
             "trace": TRACE,
+            "event_logger_schema": EVENT_LOGGER_SCHEMA,
+            "action_attachment_mode": ACTION_ATTACHMENT_MODE,
+            "policy": POLICY,
+        }
+        for key, expected in historical_expected.items():
+            if collection_manifest.get(key) != expected:
+                failures.append(
+                    "historical collection manifest {}={!r}; expected {!r}"
+                    .format(key, collection_manifest.get(key), expected)
+                )
+        historical_revision = collection_manifest.get("experiment_revision")
+        if not isinstance(historical_revision, str) or not historical_revision:
+            failures.append(
+                "historical collection manifest lacks experiment_revision"
+            )
+        if set(collection_manifest.get("tracks", {})) != {POLICY}:
+            failures.append(
+                "historical collection manifest contains a foreign policy track"
+            )
+
+    validated_collection_manifest = {}
+    validated_collection_manifest_path = (
+        colab_root / "validated_collection_manifest.json"
+    )
+    if active_run and not validated_collection_manifest_path.is_file():
+        failures.append("missing {}".format(validated_collection_manifest_path))
+    elif active_run:
+        try:
+            validated_collection_manifest = json.loads(
+                validated_collection_manifest_path.read_text()
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            failures.append(
+                "invalid fresh validated collection manifest: {}".format(exc)
+            )
+        expected_manifest = {
+            "status": "PASS",
+            "run_id": ACTIVE_POINT_CONTRACT["run_id"],
+            "trace": TRACE,
             "experiment_revision": EXPERIMENT_REVISION,
+            "parent_input_run_id": PARENT_INPUT_RUN_ID,
             "event_logger_schema": EVENT_LOGGER_SCHEMA,
             "action_attachment_mode": ACTION_ATTACHMENT_MODE,
             "policy": POLICY,
@@ -2281,14 +2326,17 @@ def main():
             "spp_source_contract_sha256": source_contract_hash,
         }
         for key, expected in expected_manifest.items():
-            if collection_manifest.get(key) != expected:
+            if validated_collection_manifest.get(key) != expected:
                 failures.append(
-                    "collection manifest {}={!r}; expected {!r}".format(
-                        key, collection_manifest.get(key), expected
+                    "fresh validated collection manifest {}={!r}; expected {!r}"
+                    .format(
+                        key, validated_collection_manifest.get(key), expected
                     )
                 )
-        if set(collection_manifest.get("tracks", {})) != {POLICY}:
-            failures.append("collection manifest contains a foreign policy track")
+        if set(validated_collection_manifest.get("tracks", {})) != {POLICY}:
+            failures.append(
+                "fresh validated collection manifest contains a foreign policy track"
+            )
     input_info = {}
     for policy in POLICIES:
         input_info[policy] = {}
@@ -2312,6 +2360,36 @@ def main():
                     failures.append(
                         "cannot hash {}: {}".format(path, exc)
                     )
+
+    if active_run and validated_collection_manifest:
+        validated_tracks = validated_collection_manifest.get("tracks", {}).get(
+            POLICY, {}
+        )
+        hash_fields = {
+            "stream": (
+                "stream_gzip_sha256", "stream_content_sha256",
+            ),
+            "teacher_actions": (
+                "teacher_actions_gzip_sha256",
+                "teacher_actions_content_sha256",
+            ),
+        }
+        for role in ("train", "guard", "eval"):
+            validated_role = validated_tracks.get(role, {})
+            for kind, (gzip_key, content_key) in hash_fields.items():
+                observed = input_info.get(POLICY, {}).get(role, {}).get(kind, {})
+                expected_hashes = {
+                    gzip_key: observed.get("gzip_sha256"),
+                    content_key: observed.get("content_sha256"),
+                }
+                for key, expected in expected_hashes.items():
+                    if validated_role.get(key) != expected:
+                        failures.append(
+                            "fresh validated collection manifest {} {} {} "
+                            "does not match current input bytes".format(
+                                role, kind, key
+                            )
+                        )
 
     metadata_by_tag = {}
     normal_hashes = {policy: {} for policy in POLICIES}
@@ -3024,6 +3102,15 @@ def main():
                 "historical_input_package_provenance_only"
             ),
             "collection_manifest_decoder_fields_are_current_contract": False,
+            "fresh_validated_collection_manifest": (
+                validated_collection_manifest
+            ),
+            "fresh_validated_collection_manifest_role": (
+                "active_v25_contract_and_current_input_byte_validation"
+            ),
+            "fresh_validated_collection_manifest_matches_current_inputs": (
+                active_run and bool(validated_collection_manifest)
+            ),
             "spp_source_contract_sha256": source_contract_hash,
             "policy_inputs": input_info,
         },
