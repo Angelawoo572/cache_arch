@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-# Safe nohup launcher.  It creates RUN_DIR before the shell opens the log.
+# Safe active-v25 nohup launcher. It derives RUN_ID from model_contract.py.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/623_offline_lstm_spp"
-MODEL_POINTS_SCRIPT="$EXP/python/model_contract.py"
-DEFAULT_RUN_ID="$(python3 "$MODEL_POINTS_SCRIPT" --field run_id)"
+MODEL_CONTRACT="$EXP/python/model_contract.py"
+DEFAULT_RUN_ID="$(python3 "$MODEL_CONTRACT" --field run_id)"
 RUN_ID="${RUN_ID:-$DEFAULT_RUN_ID}"
 if [[ ! "$RUN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
   echo "[error] RUN_ID must be one safe path token: $RUN_ID" >&2
