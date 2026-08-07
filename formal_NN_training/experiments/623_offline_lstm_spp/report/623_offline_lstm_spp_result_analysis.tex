@@ -1,89 +1,63 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.7in]{geometry}
-\usepackage[T1]{fontenc}
-\usepackage{lmodern,microtype,booktabs,tabularx,amsmath,xcolor}
-\usepackage[hidelinks]{hyperref}
-\definecolor{navy}{HTML}{17365D}
-\setlength{\parindent}{0pt}
-\setlength{\parskip}{5pt}
-
+\usepackage[margin=0.72in]{geometry}
+\usepackage{xcolor,amsmath}
+\definecolor{navy}{RGB}{20,45,80}
+\setlength{\parindent}{0pt}\setlength{\parskip}{5pt}
 \begin{document}
-\begin{center}
-{\LARGE\bfseries\color{navy} 623 SPP v24: Natural-Cardinality LSTM}\\[3pt]
-{\small \texttt{623.xalancbmk\_s-700B} \quad seed 7 \quad matched-input open-loop replay}
-\end{center}
+{\LARGE\bfseries\color{navy} 623 SPP v25: Direct Fill and Delta Bits}\\[3pt]
+\texttt{623\_offline\_lstm\_spp\_global\_cardinality\_unique\_v25\_seed7}
 
-\fbox{\parbox{0.96\linewidth}{\textbf{Results pending.} This document defines
-the v24 experiment and the evidence that must be produced.  No IPC win over
-normal SPP may be claimed until all five replay points complete and the root
-matched comparison is PASS.}}
+\section*{Evidence-driven redesign}
+v23 made 93.40\% of padded rank labels STOP although 58.05\% of EVAL callbacks
+had actions.  Its five models emitted 0, 1, 991, 2,325, and 5,096 requests
+versus 804,086 teacher requests, and all stayed at no-prefetch IPC 0.35321.
+Normal SPP reached IPC 0.35390 with those 804,086 requests, while the non-neural
+modal $(+3,\mathrm{LLC})$ control reached IPC 0.35424.  Thus the replay contains
+useful spatial actions; v23 did not learn to express them.
+The abandoned v24 token vocabulary fixed padding but left its OTHER payload
+heads without TRAIN labels because every TRAIN pair was an exact token.  It also
+did not combine payload probability with token probability during decode.
 
-\section*{Why v24 replaces the v23 decoder}
-The v23 rank-padded target stream was 93.40\% STOP even though 58.05\% of EVAL
-callbacks had one or more teacher actions.  Its five models emitted between 0
-and 5,096 requests and recovered at most 0.63\% of teacher actions.  The defect
-is therefore the supervised object, not merely hidden-state capacity.
+\section*{Unchanged information boundary}
+The external input remains one callback-kind bit and one lossless 58-bit demand
+or evicted line in recorded source chronology.  PC, SPP private state,
+candidates, outcomes, thresholds, and request rate are excluded.  All five
+hidden sizes use one global chronological one-layer LSTM.
 
-For callback context $h_t$, teacher count $K_t$, and action list $A_t$,
-v24 minimizes the natural list negative log likelihood
+\section*{Complete real-rank likelihood}
+For callback context $h_t$, count $K_t$, fill $f_{t,r}$, and modular delta bits
+$d_{t,r,b}$, v25 minimizes
 \[
- -\log P(K_t\mid h_t)
- -\sum_{r=0}^{K_t-1}\log P(a_{t,r}\mid h_t,r).
+ -\log p(K_t\mid h_t)
+ -\sum_{r<K_t}\log p(f_{t,r}\mid h_t,r)
+ -\sum_{r<K_t}\sum_{b=0}^{57}
+   \log p(d_{t,r,b}\mid h_t,r,f_{t,r}).
 \]
-There are no repeated STOP labels.  $K=0$ is the implicit no-request case.
-Count and action cross entropies are unweighted, and deterministic inference
-uses count argmax followed by exactly $K$ rank-conditioned action argmaxes.
+The same per-callback sum is used for TRAIN optimization and GUARD checkpoint
+selection.  Both fill-specific bit heads require actual TRAIN actions.  Fill
+and bit biases use add-one-smoothed TRAIN marginals only for initialization;
+loss remains unweighted.  There is no STOP padding, action vocabulary, OTHER
+token, class weighting, prior correction, float delta, clipping, or rounding.
 
-\section*{Fair-input contract}
-\begin{tabularx}{\linewidth}{@{}lX@{}}
-\toprule
-Item & Contract \\
-\midrule
-Runtime input & One DEMAND/FILL bit and the lossless 58-bit demand or evicted line, in source chronology. \\
-Teacher actions & Labels, comparator, and diagnosis only; never recurrent or decoder input. \\
-Excluded & PC, SPP candidates/private tables/GHR/confidence, hit state, queue state, thresholds, normal request budget, page rule, and action feedback. \\
-Action vocabulary & TRAIN-observed $(\Delta,\mathrm{fill})$ pairs plus fill-specific OTHER escapes; no Cartesian product. \\
-Input reuse & The v23 directory and archive are reused byte-for-byte. \\
-Claim boundary & Matched-input open-loop offline comparison because fill callbacks were recorded under source SPP. \\
-\bottomrule
-\end{tabularx}
-
-\section*{Recurrent-core selection}
-At hidden size 32, two candidates are trained without loading EVAL:
-\begin{itemize}
-\item a global chronological LSTM;
-\item one chronological hidden/cell state with distinct DEMAND and FILL LSTM transitions selected only by the existing callback-kind bit.
-\end{itemize}
-The smaller GUARD natural list NLL wins; global wins an exact tie.  Only that
-core is then trained at hidden sizes 8, 16, 32, 64, and 128.  Core-ablation
-checkpoints are not replayed.
-
-For count classes $K$, joint-action classes $A$, and hidden size $H$, parameter
-counts are
+\section*{Exact feasible decode}
+Count argmax chooses $K$.  At each source-ordered rank and for each fill, the
+modal 58-bit assignment has stable log probability
 \[
-N_{\rm global}=9H^2+(74+K+A)H+K+A+1,
+ -\sum_b\log(1+e^{-|z_b|}),
 \]
+and flipping bit $b$ reduces it by $|z_b|$.  Exact k-best subset enumeration
+therefore finds the highest-probability payload not already used.  L2 and LLC
+candidates are compared by fill log probability plus payload log probability.
+The target mask crosses fill levels; it never changes a target or reduces $K$.
+Previous actions are feasibility state only, never neural input.  No same-page
+rule or normal-prefetcher template is imposed.
+
+For count classes $K$ and hidden size $H$, parameters are
 \[
-N_{\rm routed}=17H^2+(82+K+A)H+K+A+1.
+9H^2+(191+K)H+K+118.
 \]
-
-\section*{Required evidence}
-Each point reports IPC, L2 miss rate, raw and selected accuracy, coverage,
-timeliness, requested/issued/fill counts and fill levels, count confusion and
-MAE, target/fill precision and recall, request ratio, count/action entropy, and
-action-list identity.  Denominator-zero ratios are N/A rather than numeric
-zero.  No composite score is used.
-
-Oracle-count plus NN-action and NN-count plus oracle-action are diagnosis-only
-decompositions and are never replayed.  The all-callback TRAIN-modal-delta,
-FILL\_LLC policy is a separate non-neural control and is excluded from neural
-claims.
-
-\section*{Completion rule}
-A completed experiment requires all five neural replay rows, the offline normal
-SPP comparator, no-prefetch and live transport references, the non-neural
-control, a root PASS with no failures, and the diagnosis files.  PASS proves
-contract and accounting integrity; performance conclusions must be made from
-the separate measured dimensions above.
-
+EVAL is loaded after GUARD selection and decoded once.  Oracle decompositions
+remain non-replayed diagnostics, and the modal-LLC control is non-neural.  IPC,
+miss, request, usefulness, timeliness, fill, count, target, entropy, and mask
+evidence must be reported separately after all five replay points complete.
 \end{document}
