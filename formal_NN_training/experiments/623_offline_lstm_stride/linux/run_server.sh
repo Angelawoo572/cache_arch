@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Independent 623 track: normal Stride versus the v24 natural-cardinality LSTM.
+# Independent 623 v25 track: normal Stride versus the active LSTM contract.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -42,11 +42,11 @@ MODEL_TAGS_CSV="${MODEL_TAGS:-$DEFAULT_MODEL_TAGS}"
 BASE_TAG="${BASE_TAG:-$DEFAULT_BASE_TAG}"
 
 [[ "$MODEL_TAGS_CSV" == "$DEFAULT_MODEL_TAGS" ]] || {
-  echo "[error] active v24 replay requires the exact five configured MODEL_TAGS" >&2
+  echo "[error] active v25 replay requires the exact model_contract MODEL_TAGS" >&2
   exit 2
 }
 [[ "$BASE_TAG" == "$DEFAULT_BASE_TAG" ]] || {
-  echo "[error] active v24 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
+  echo "[error] active v25 replay requires BASE_TAG=$DEFAULT_BASE_TAG" >&2
   exit 2
 }
 
@@ -297,9 +297,9 @@ validate_preserved_inputs() {
 
 colab_dir() { printf '%s/%s' "$COLAB_ROOT" "$1"; }
 
-# Active v24 validation is local to Stride and imports only torch-free modules,
+# Active v25 validation is local to Stride and imports only torch-free modules,
 # so the replay host does not need torch or numpy.
-assert_model_metadata_v24() {
+assert_active_model_metadata() {
   python3 "$VALIDATE_MODEL_METADATA" \
     --metadata "$1" --input-dir "$STREAM_DIR"
 }
@@ -336,16 +336,25 @@ run_method() {
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    offline_natural_cardinality_stride_lstm_*)
+    *)
       local tag="${method#offline_}"
-      local list="$(colab_dir "$tag")/offline_nn.replay.csv"
+      local configured=0 configured_tag list
+      if [[ "$method" == offline_* ]]; then
+        for configured_tag in "${MODEL_TAGS[@]}"; do
+          [[ "$tag" != "$configured_tag" ]] || configured=1
+        done
+      fi
+      [[ "$configured" == 1 ]] || {
+        echo "[error] unknown or unconfigured method $method" >&2
+        exit 2
+      }
+      list="$(colab_dir "$tag")/offline_nn.replay.csv"
       [[ -s "$list" ]] || { echo "[error] missing $list" >&2; exit 2; }
       DEMAND_EVENT_LOG="$raw" PFETCH_LIST_PATH="$list" "$BIN" \
         --l2c_prefetcher_types=list_replayer \
         --warmup_instructions=25000000 --simulation_instructions=25000000 \
         -traces "$TRACE_FILE" > "$log" 2>&1
       ;;
-    *) echo "[error] unknown method $method" >&2; exit 2 ;;
   esac
   grep -q '^Core_0_IPC ' "$log" || { echo "[error] missing final IPC for $method" >&2; exit 3; }
   [[ -s "$raw" ]] || { echo "[error] missing event output for $method" >&2; exit 3; }
@@ -362,13 +371,14 @@ require_colab_outputs() {
     --output-dir "$COLAB_ROOT" --model-tags "$MODEL_TAGS_CSV"
   for tag in "${MODEL_TAGS[@]}"; do
     for name in run_metadata.json offline_stride.replay.csv \
-      offline_nn.replay.csv model.pt training_history.csv; do
+      offline_nn.replay.csv model.pt training_history.csv \
+      trainer.stdout_stderr.log; do
       [[ -s "$(colab_dir "$tag")/$name" ]] || {
         echo "[error] missing Colab output $(colab_dir "$tag")/$name" >&2
         exit 2
       }
     done
-    assert_model_metadata_v24 "$(colab_dir "$tag")/run_metadata.json"
+    assert_active_model_metadata "$(colab_dir "$tag")/run_metadata.json"
   done
 }
 
