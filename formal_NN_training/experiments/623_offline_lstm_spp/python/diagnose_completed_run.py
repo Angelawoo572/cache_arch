@@ -10,11 +10,14 @@ import argparse
 import csv
 import hashlib
 import json
+import math
 from pathlib import Path
 
 from model_contract import (
-    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as ACTIVE_MODEL_REVISION, POLICY,
+    EXTERNAL_INPUT_FIELDS, MODEL_REVISION as ACTIVE_MODEL_REVISION,
+    MODEL_TAG_PREFIX, POLICY,
     RUN_ID as DEFAULT_RUN_ID, TRACE, describe_model_points,
+    expected_parameter_count,
 )
 
 V15_MODEL_REVISION = "compact_crn_joint_delta_fill_mixture_v15"
@@ -40,8 +43,8 @@ REVISION_PROFILES = {
         "hard_distinct_delta_fill_spp_lstm_h{}",
     ),
     ACTIVE_MODEL_REVISION: (
-        "offline_natural_cardinality_spp_lstm_",
-        "natural_cardinality_spp_lstm_h{}",
+        "offline_" + MODEL_TAG_PREFIX,
+        MODEL_TAG_PREFIX + "{}",
     ),
 }
 SOURCE_INPUTS = list(EXTERNAL_INPUT_FIELDS)
@@ -251,40 +254,64 @@ def input_contract_mismatches(metadata):
         "decode_prior_correction_used": False,
         "manual_loss_weights_used": False,
         "action_loss_scope": "teacher_action_ranks_only",
-        "joint_action_training_objective": ACTIVE_POINT_CONTRACT[
-            "joint_action_training_objective"
+        "fill_training_objective": ACTIVE_POINT_CONTRACT[
+            "fill_training_objective"
         ],
-        "other_action_training_objective": ACTIVE_POINT_CONTRACT[
-            "other_action_training_objective"
+        "delta_bit_training_objective": ACTIVE_POINT_CONTRACT[
+            "delta_bit_training_objective"
         ],
-        "joint_action_vocabulary_cartesian_product_used": False,
-        "joint_action_class_weights": None,
-        "separate_delta_head_used": False,
-        "separate_fill_head_used": False,
+        "fill_head_used": True,
+        "fill_specific_delta_bit_heads_used": True,
+        "both_fill_bit_heads_require_train_supervision": True,
+        "joint_action_token_head_used": False,
+        "action_vocabulary_used": False,
+        "other_token_used": False,
+        "separate_fill_head_used": True,
         "count_support_is_dataset_derived": True,
         "count_support_is_normal_request_budget": False,
         "count_support_is_tuned_degree": False,
         "count_class_weights": None,
+        "fill_levels": [2, 4],
+        "fill_class_weights": None,
+        "fill_head_initialization_source": (
+            "add_one_smoothed_natural_TRAIN_fill_marginal"
+        ),
         "neural_degree_cap": None,
         "probability_threshold_used": False,
+        "threshold_related_hardcodes_used": False,
         "inference_policy_hardcodes_used": False,
         "stochastic_decoding": False,
+        "delta_payload_bits": 58,
+        "delta_payload_encoding": "exact_unsigned_modular_line_delta_bits",
+        "delta_payload_float_or_clip_used": False,
+        "delta_bit_head_initialization_source": (
+            "teacher_fill_specific_add_one_smoothed_TRAIN_bit_marginals"
+        ),
+        "training_and_guard_objective_identical": True,
+        "per_callback_objective_terms": [
+            "count_cross_entropy", "real_rank_fill_cross_entropy",
+            "all_real_rank_58_bit_Bernoulli_negative_log_likelihood",
+        ],
+        "target_uniqueness_feasibility_mask_used": True,
+        "target_uniqueness_ignores_fill_level": True,
+        "target_mutation_fallback_used": False,
+        "count_reduction_fallback_used": False,
+        "infeasible_unique_decode_behavior": "fail_closed",
+        "kbest_payload_enumeration_exact": True,
+        "fill_and_payload_log_probability_combined": True,
+        "source_action_order_preserved": True,
+        "rank_action_logits_use_previous_action": False,
+        "rank_logits_conditionally_independent_of_previous_actions": True,
         "checkpoint_selection": ACTIVE_POINT_CONTRACT["checkpoint_selection"],
         "guard_selection_composite_or_mean_used": False,
         "evaluation_used_for_selection": False,
         "evaluation_loaded_after_checkpoint_selection": True,
-        "core_selection_uses_evaluation": False,
-        "core_ablation_role": ACTIVE_POINT_CONTRACT["core_ablation_role"],
-        "core_selection_hidden_size": ACTIVE_POINT_CONTRACT[
-            "core_selection_hidden_size"
-        ],
-        "core_selection_metric": ACTIVE_POINT_CONTRACT[
-            "core_selection_metric"
-        ],
-        "core_selection_tie_break": ACTIVE_POINT_CONTRACT[
-            "core_selection_tie_break"
-        ],
-        "event_routed_core_adds_runtime_input": False,
+        "core_type": "global",
+        "global_core_fixed_for_all_capacities": True,
+        "core_selection_used": False,
+        "event_routed_core_used": False,
+        "global_chronological_lstm": True,
+        "routed_demand_fill_recurrent_paths": False,
         "non_neural_control_uses_model": False,
         "non_neural_control_excluded_from_neural_claims": True,
         "oracle_diagnostics_replayed": False,
@@ -322,18 +349,171 @@ def input_contract_mismatches(metadata):
             "actual": count_support,
             "expected": "zero through maximum TRAIN teacher count",
         })
-    core = metadata.get("core_type")
-    selection = metadata.get("core_selection_payload") or {}
+    count_stats = metadata.get("count_train_statistics") or {}
     if (
-        core not in ACTIVE_POINT_CONTRACT["core_types"]
-        or metadata.get("selected_core_type") != core
-        or selection.get("selected_core") != core
-        or selection.get("evaluation_used") is not False
+        count_stats.get("class_order") != count_support
+        or count_stats.get("count_output_classes") != len(count_support or ())
+        or count_stats.get("loss_class_weights") is not None
     ):
         mismatches.append({
-            "field": "core_selection_payload",
-            "actual": selection,
-            "expected": "GUARD-only selected global/event_routed core",
+            "field": "count_train_statistics",
+            "actual": count_stats,
+            "expected": "natural unweighted TRAIN count support",
+        })
+    fill_counts = metadata.get("fill_train_class_counts")
+    fill_priors = metadata.get("fill_add_one_natural_priors")
+    bit_counts = metadata.get("delta_bit_train_one_counts_by_fill")
+    bit_priors = metadata.get("delta_bit_add_one_priors_by_fill")
+    valid_fill_counts = (
+        isinstance(fill_counts, list) and len(fill_counts) == 2
+        and all(
+            isinstance(value, int) and not isinstance(value, bool) and value > 0
+            for value in fill_counts
+        )
+    )
+    valid_fill_priors = (
+        isinstance(fill_priors, list) and len(fill_priors) == 2
+        and all(
+            isinstance(value, (int, float)) and not isinstance(value, bool)
+            and 0 < value < 1
+            for value in fill_priors
+        )
+    )
+    valid_bit_counts = (
+        valid_fill_counts and isinstance(bit_counts, list)
+        and len(bit_counts) == 2
+        and all(
+            isinstance(row, list) and len(row) == 58
+            and all(
+                isinstance(value, int) and not isinstance(value, bool)
+                and 0 <= value <= fill_counts[index]
+                for value in row
+            )
+            for index, row in enumerate(bit_counts)
+        )
+    )
+    valid_bit_priors = (
+        isinstance(bit_priors, list) and len(bit_priors) == 2
+        and all(
+            isinstance(row, list) and len(row) == 58
+            and all(
+                isinstance(value, (int, float)) and not isinstance(value, bool)
+                and 0 < value < 1
+                for value in row
+            )
+            for row in bit_priors
+        )
+    )
+    if not (
+        valid_fill_counts and valid_fill_priors
+        and valid_bit_counts and valid_bit_priors
+    ):
+        mismatches.append({
+            "field": "fill/direct_bit_TRAIN_supervision",
+            "actual": {
+                "fill_counts": fill_counts,
+                "fill_priors": fill_priors,
+                "bit_counts": bit_counts,
+                "bit_priors": bit_priors,
+            },
+            "expected": "both fills supervised with natural add-one bit priors",
+        })
+    else:
+        natural_fill = [
+            (value + 1.0) / float(sum(fill_counts) + 2)
+            for value in fill_counts
+        ]
+        natural_bits = [
+            [
+                (bit_counts[fill][bit] + 1.0)
+                / float(fill_counts[fill] + 2)
+                for bit in range(58)
+            ]
+            for fill in range(2)
+        ]
+        if any(
+            not math.isclose(actual, expected, rel_tol=1e-7, abs_tol=1e-9)
+            for actual, expected in zip(fill_priors, natural_fill)
+        ) or any(
+            not math.isclose(
+                bit_priors[fill][bit], natural_bits[fill][bit],
+                rel_tol=1e-7, abs_tol=1e-9,
+            )
+            for fill in range(2) for bit in range(58)
+        ):
+            mismatches.append({
+                "field": "fill/direct_bit_TRAIN_priors",
+                "actual": {"fill": fill_priors, "bits": bit_priors},
+                "expected": {"fill": natural_fill, "bits": natural_bits},
+            })
+    if isinstance(count_support, list) and count_support:
+        expected_parameters = expected_parameter_count(
+            metadata.get("model_size"), len(count_support)
+        )
+        for key in (
+            "parameter_count", "realized_parameter_count",
+            "expected_parameter_count",
+        ):
+            if metadata.get(key) != expected_parameters:
+                mismatches.append({
+                    "field": key,
+                    "actual": metadata.get(key),
+                    "expected": expected_parameters,
+                })
+    for forbidden in (
+        "exact_joint_action_pairs", "joint_action_output_classes",
+        "joint_action_train_class_counts", "joint_action_add_one_natural_priors",
+        "other_action_tokens", "exact_joint_action_pair_count",
+    ):
+        if forbidden in metadata:
+            mismatches.append({
+                "field": forbidden,
+                "actual": metadata.get(forbidden),
+                "expected": "absent from active direct-bit metadata",
+            })
+    if (
+        metadata.get("peak_persistent_recurrent_state_bytes")
+        != 2 * metadata.get("model_size", 0) * 4
+        or metadata.get("dynamic_page_state_pages") != 0
+    ):
+        mismatches.append({
+            "field": "fixed_global_recurrent_state",
+            "actual": {
+                "bytes": metadata.get("peak_persistent_recurrent_state_bytes"),
+                "pages": metadata.get("dynamic_page_state_pages"),
+            },
+            "expected": "one global hidden/cell pair and no page state",
+        })
+    output = metadata.get("action_output_diagnostics") or {}
+    decoder = metadata.get("decoder_eval_diagnostics") or {}
+    if (
+        output.get("duplicate_outputs_are_preserved_for_replay") is not False
+        or output.get("unique_targets_per_callback_enforced") is not True
+        or output.get("duplicate_target_actions") != 0
+        or output.get("direct_exact_delta_bit_actions")
+        != output.get("materialized_action_count")
+        or output.get("action_vocabulary_used") is not False
+        or output.get("other_token_used") is not False
+        or output.get("target_mutation_fallback_used") is not False
+        or output.get("count_reduction_fallback_used") is not False
+        or decoder.get("duplicate_decoded_targets") != 0
+        or decoder.get("target_uniqueness_feasibility_mask_used") is not True
+        or decoder.get(
+            "rank_logits_conditionally_independent_of_previous_actions"
+        ) is not True
+        or decoder.get("action_feedback_used") is not False
+        or decoder.get("kbest_payload_enumeration_exact") is not True
+        or decoder.get("fill_and_payload_log_probability_combined") is not True
+    ):
+        mismatches.append({
+            "field": "unique_target_decoder",
+            "actual": {
+                "output": output,
+                "decoder": decoder,
+            },
+            "expected": (
+                "cross-fill direct-bit k-best unique targets without action feedback"
+            ),
         })
     if "A100" not in str(metadata.get("training_device_name", "")):
         mismatches.append({
@@ -504,61 +684,50 @@ def model_record(row, metadata, normal, no_pref, matched):
     diagnostic_keys = (
         "heldout_behavior_metrics",
         "core_type",
-        "selected_core_type",
-        "core_selection_payload",
-        "core_selection_metric",
+        "global_core_fixed_for_all_capacities",
+        "core_selection_used",
+        "event_routed_core_used",
         "decoder_training_mode",
         "decoder_previous_teacher_action_used_as_input",
         "decoder_previous_predicted_action_used_as_input",
         "decoder_previous_sampled_action_used_as_input",
-        "joint_action_training_objective",
-        "other_action_training_objective",
         "count_training_objective",
+        "fill_training_objective",
+        "delta_bit_training_objective",
+        "training_and_guard_objective_identical",
+        "per_callback_objective_terms",
         "count_support",
         "count_train_statistics",
         "stop_token_used",
         "stop_padding_used",
         "loss_class_reweighting_used",
         "decode_prior_correction_used",
-        "joint_action_vocabulary_source",
-        "joint_action_vocabulary_cartesian_product_used",
-        "exact_joint_action_pairs",
-        "joint_action_output_classes",
-        "joint_action_train_class_counts",
-        "joint_action_add_one_natural_priors",
-        "hurdle_training_objective",
-        "hurdle_train_class_counts",
-        "hurdle_train_class_priors",
-        "hurdle_class_weighting_used",
-        "positive_count_training_objective",
-        "positive_count_train_samples",
-        "positive_count_train_min",
-        "positive_count_train_max",
-        "positive_log_count_train_mean",
-        "positive_log_count_train_std",
-        "positive_count_decoding_rule",
-        "terminal_stop_supervised_for_every_teacher_sequence",
-        "separate_gate_head_used",
-        "request_count_head_used",
-        "request_count_regression_used",
-        "delta_training_objective",
-        "delta_decoding_rule",
-        "delta_vocabulary_source",
-        "exact_delta_vocabulary_size",
-        "delta_vocabulary_statistics",
-        "delta_other_escape",
-        "delta_other_decode_precision",
-        "duplicate_target_handling",
-        "fill_training_objective",
+        "fill_head_used",
+        "fill_specific_delta_bit_heads_used",
+        "both_fill_bit_heads_require_train_supervision",
+        "joint_action_token_head_used",
+        "action_vocabulary_used",
+        "other_token_used",
+        "fill_levels",
         "fill_train_class_counts",
-        "fill_train_priors",
-        "fill_train_inverse_frequency_weights",
-        "fill_prior_correction_at_decode_used",
-        "fill_prior_correction_rule",
-        "fill_decoding_rule",
-        "fill_conditioned_on_actual_emitted_target",
-        "fill_argmax_used",
-        "fill_target_conditioning_features",
+        "fill_add_one_natural_priors",
+        "fill_class_weights",
+        "fill_head_initialization_source",
+        "delta_payload_bits",
+        "delta_payload_encoding",
+        "delta_payload_float_or_clip_used",
+        "delta_bit_train_one_counts_by_fill",
+        "delta_bit_add_one_priors_by_fill",
+        "delta_bit_head_initialization_source",
+        "duplicate_target_handling",
+        "target_uniqueness_feasibility_mask_used",
+        "target_uniqueness_ignores_fill_level",
+        "target_mutation_fallback_used",
+        "count_reduction_fallback_used",
+        "infeasible_unique_decode_behavior",
+        "kbest_payload_enumeration_exact",
+        "fill_and_payload_log_probability_combined",
+        "rank_logits_conditionally_independent_of_previous_actions",
         "decoder_guard_diagnostics",
         "decoder_eval_diagnostics",
         "oracle_diagnostics",
@@ -689,19 +858,19 @@ def main():
         metadata.get("runtime_encoder_sha256")
         for metadata in selected_metadata
     }
-    selected_cores = {
-        metadata.get("selected_core_type") for metadata in selected_metadata
+    fixed_cores = {
+        metadata.get("core_type") for metadata in selected_metadata
     }
-    core_selections = {
-        json.dumps(metadata.get("core_selection_payload"), sort_keys=True)
+    core_selection_flags = {
+        metadata.get("core_selection_used")
         for metadata in selected_metadata
     }
     contract_verified = (
         all(record["input_contract_verified"] for record in records)
         and all(record["analyzer_evidence_verified"] for record in records)
         and len(encoder_hashes) == 1
-        and len(selected_cores) == 1
-        and len(core_selections) == 1
+        and fixed_cores == {"global"}
+        and core_selection_flags == {False}
     )
     if not contract_verified:
         problems = [{
@@ -731,11 +900,9 @@ def main():
         "input_contract_verified": True,
         "current_metadata_bound_to_analyzer_evidence": True,
         "cross_capacity_runtime_encoder_identical": True,
-        "cross_capacity_selected_core_identical": True,
-        "selected_core_type": next(iter(selected_cores)),
-        "core_selection_payload": selected_metadata[0].get(
-            "core_selection_payload"
-        ),
+        "cross_capacity_fixed_global_core_identical": True,
+        "fixed_core_type": "global",
+        "core_selection_used": False,
         "runtime_encoder_sha256": next(iter(encoder_hashes)),
         "same_external_input": SOURCE_INPUTS,
         "capacity_action_list_audit": matched.get(
