@@ -120,6 +120,30 @@ recorded. Therefore $W$ and request pressure indicate risk, but neither is
 renamed cache pollution and no aggregate score is reported.
 \end{infobox}
 
+\subsection*{Held-out callback decision audit}
+\begin{infobox}[title={\bfseries Dense teacher, always-act student}]
+SPP's chronological evaluation stream contains demand and cache-fill
+callbacks, but the decision denominator here is exactly the $404{,}219$
+held-out \emph{demand} callbacks.  A callback is \emph{act} when $K>0$, not
+when it emits exactly one action.  The SPP teacher is 97.24\% act/2.76\%
+silent; every tested LSTM capacity is 100\% act/0\% silent.  Trigger-confusion
+counters show 2.76\% silent$\to$act and 0.00\% act$\to$silent.  These are
+imitation outcomes, not useful/harmful classifications; cache outcomes are
+measured separately by replay.
+\end{infobox}
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Capacity & SPP silent & SPP act & LSTM silent & LSTM act &
+$\Delta$ act (pp) & silent$\to$act & act$\to$silent \\
+\midrule
+h8--h128 & 2.76\% & 97.24\% & 0.00\% & 100.00\% &
++2.76 & 2.76\% & 0.00\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \section*{2. Cache outcomes}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
@@ -240,7 +264,12 @@ has higher selected accuracy.
 \begin{itemize}[itemsep=1pt,topsep=1pt]
 \item h16 is the compact high-performing point: IPC 0.43654 versus 0.42834 for offline SPP (+1.91\%), L2 miss rate falls from 17.53\% to 1.50\%, coverage rises from 65.11\% to 97.01\%, and requests fall by 12.87\%. Timeliness is slightly lower (99.63\% versus 99.71\%), while late and useless counts rise; the result is therefore reported as an outcome/pressure tradeoff rather than a single-score win.
 \item h128 is the measured IPC maximum at 0.43660, only 0.00006 above h16 while using 23.17$\times$ as many parameters. h32 is also within 0.00002 of h16. Capacity is non-monotonic at h64, so this one-seed sweep supports practical saturation near h16, not a universal optimum.
-\item h8 is not an input, gate, count, target, or replay collapse. It predicts actions on every callback, has 100\% teacher-trigger recall, 74.86\% target F1, and emits 1.897M accepted actions. Its distinctive failure is fill selection: every emitted action is \texttt{FILL\_LLC}, leaving zero \texttt{FILL\_L2}, zero L2 prefetch fills, and zero L2 useful hits.
+\item h8 is not an input, gate, count, target, or replay collapse. Like every
+tested capacity, it acts on 100\% of callbacks versus the teacher's 97.24\%;
+it has 100\% teacher-trigger recall, 74.86\% target F1, and emits 1.897M
+accepted actions. Its distinctive failure is fill selection: every emitted
+action is \texttt{FILL\_LLC}, leaving zero \texttt{FILL\_L2}, zero L2
+prefetch fills, and zero L2 useful hits.
 \item The training action labels are 10.49\% \texttt{FILL\_L2} and 89.51\% \texttt{FILL\_LLC}; evaluation is 10.40\%/89.60\%. The h8 signature is therefore consistent with minority-fill information being lost in the smallest shared representation under the unweighted two-class fill loss. h16 and larger models recover roughly 380k--393k L2 actions, which rules out a global encoder, label, or replayer defect.
 \end{itemize}
 \end{infobox}
@@ -262,8 +291,10 @@ LSTM h128 & 100.00\% & 97.24\% & 100.00\% & 77.10\% & 93.94\% & 0.972 & 392,788 
 
 \begin{infobox}[title={\bfseries Remaining learned-gate limitation}]
 Teacher SPP acts on 97.243\% of evaluation demand callbacks, whereas every
-capacity predicts the positive categorical mode on 100\%. This is a learned
-argmax operating point, not a probability threshold or hard-coded degree.
+capacity predicts the positive categorical mode on 100\% and is never silent.
+Equivalently, 2.757\% of callbacks are silent$\to$act and none are
+act$\to$silent. This is a learned argmax operating point, not a probability
+threshold or hard-coded degree.
 The v2 objective removes the severe v1 under-triggering, but does not make the
 gate perfectly calibrated. The report preserves this limitation instead of
 equating higher IPC with exact SPP imitation.

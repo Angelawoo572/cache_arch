@@ -129,6 +129,32 @@ pressure indicate risk, but neither proves cache pollution; consequently
 $1-A_{\rm sel}$ is not reported as pollution and no aggregate score is used.
 \end{infobox}
 
+\subsection*{Held-out callback decision audit}
+\begin{infobox}[title={\bfseries Dense teacher, always-act student}]
+On the same $404{,}219$ held-out demand callbacks, \emph{act} means the decoded
+request count satisfies $K>0$; it does not mean one action, because an active
+callback may emit multiple requests.  Offline AMPM acts on 93.74\% of
+callbacks and is silent on 6.26\%.  Every tested LSTM capacity decodes a
+positive count on 100\% of callbacks.  The rates come from the current default
+run's \texttt{run\_metadata.json}; cache usefulness remains a separate replay
+outcome.
+\end{infobox}
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Capacity & AMPM silent & AMPM act & LSTM silent & LSTM act &
+$\Delta$ act (pp) \\
+\midrule
+h8   & 6.26\% & 93.74\% & 0.00\% & 100.00\% & +6.26 \\
+h16  & 6.26\% & 93.74\% & 0.00\% & 100.00\% & +6.26 \\
+h32  & 6.26\% & 93.74\% & 0.00\% & 100.00\% & +6.26 \\
+h64  & 6.26\% & 93.74\% & 0.00\% & 100.00\% & +6.26 \\
+h128 & 6.26\% & 93.74\% & 0.00\% & 100.00\% & +6.26 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \section*{2. Cache outcomes}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
@@ -246,6 +272,11 @@ IPC.
 \begin{itemize}[itemsep=1pt,topsep=1pt]
 \item h64 is the best IPC point: 0.43332 versus 0.43054 for offline AMPM (+0.65\%); L2 miss rate falls from 4.218\% to 2.581\% and coverage rises from 91.61\% to 94.87\%.
 \item h8 has the highest raw accuracy (45.68\%) but only 88.28\% coverage, so it loses IPC.  Accuracy alone rewards conservative traffic and cannot replace coverage or miss rate.
+\item That apparent h8 conservatism is not callback silence: h8, like every
+other capacity, acts on 100\% of held-out callbacks versus AMPM's 93.74\%.
+Its lower measured request pressure must therefore arise after the binary
+decision, through learned count/target behavior and downstream handling.  Act
+rate alone cannot explain either accuracy or IPC.
 \item h128's selected accuracy is 50.95\% while raw accuracy is 17.48\% because 715,571 of 1,089,357 issued attempts are PQ merges.  This is exactly why selected accuracy is displayed beside raw accuracy and merge count, never alone.
 \end{itemize}
 \end{infobox}

@@ -129,6 +129,44 @@ pressure indicate risk, but neither proves cache pollution; consequently
 $1-A_{\rm sel}$ is not reported as pollution and no aggregate score is used.
 \end{infobox}
 
+\subsection*{Held-out callback decision audit}
+\begin{infobox}[title={\bfseries Silent versus act is a callback metric}]
+For the same $N_{\rm cb}=404{,}219$ held-out demand callbacks, a method is
+\emph{act} when its decoded request count satisfies $K>0$ and \emph{silent}
+when $K=0$.  Thus
+\[
+ r_{\rm act}=\frac{\#\{K>0\}}{N_{\rm cb}},\qquad
+ r_{\rm silent}=1-r_{\rm act},\qquad
+ \Delta_{\rm act}=r_{\rm act}^{\rm LSTM}-r_{\rm act}^{\rm Stride}.
+\]
+This is not actions per callback: a single act callback may emit multiple
+requests.  The training teacher is 84.00\% silent/16.00\% act; the table uses
+the held-out teacher, 84.30\% silent/15.70\% act, so every comparison below is
+on the same events.  Rates are read from the current default run's
+\texttt{run\_metadata.json} by the repository callback-rate analysis script.
+\end{infobox}
+
+\begin{center}\scriptsize
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Capacity & Stride silent & Stride act & LSTM silent & LSTM act &
+$\Delta$ act (pp) & silent$\to$act & act$\to$silent \\
+\midrule
+h8   & 84.30\% & 15.70\% & 43.59\% & 56.41\% & +40.71 & 41.38\% & 0.67\% \\
+h16  & 84.30\% & 15.70\% & 45.38\% & 54.62\% & +38.92 & 40.46\% & 1.55\% \\
+h32  & 84.30\% & 15.70\% & 79.91\% & 20.09\% &  +4.39 &  4.91\% & 0.53\% \\
+h64  & 84.30\% & 15.70\% & 42.24\% & 57.76\% & +42.06 & 42.27\% & 0.21\% \\
+h128 & 84.30\% & 15.70\% & 82.03\% & 17.97\% &  +2.27 &  2.85\% & 0.58\% \\
+\bottomrule
+\end{tabular}}
+\end{center}
+
+{\footnotesize \emph{Silent$\to$act} and \emph{act$\to$silent} are
+teacher/student decision mismatches, not useful and harmful prefetches.  Their
+difference equals the net act-rate change before rounding; cache usefulness is
+judged separately by replay.}
+
 \section*{2. Cache outcomes}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
@@ -246,6 +284,12 @@ IPC.
 \begin{itemize}[itemsep=1pt,topsep=1pt]
 \item Offline Stride provides a small benefit: IPC 0.37016 versus 0.36800 and L2 miss rate 41.63\% versus 50.25\% without prefetching.
 \item The best measured point is h16: IPC 0.40994 (1.1140$\times$ no prefetch and 10.75\% above Offline Stride), L2 miss rate 20.88\%, and coverage 58.45\%.  Its selected accuracy is 30.15\% and timeliness is 99.91\%; those dimensions support, but do not replace, the IPC and miss outcomes.
+\item h16 acts on 54.62\% of held-out callbacks versus Stride's 15.70\%,
+a net increase of 38.92 percentage points.  It newly acts on 40.46\% of all
+callbacks and suppresses 1.55\%, up to displayed rounding.  This denser
+decision policy is consistent with the measured pressure increase, but it is
+not itself a usefulness claim: h64 acts even more often (57.76\%) while
+remaining slightly below h16 in IPC.
 \item That gain uses substantially more traffic: h16 requests 0.974 prefetches per L2 load versus 0.304 for Offline Stride.  Useless/issued rises from 0.430\% to 1.112\%, while resolved-fill utility remains 96.44\%.  This is a measured benefit--pressure tradeoff, not a single-score win.
 \item Capacity is non-monotonic on this seed and window: h8, h16, and h64 form the high-performing group, whereas h32 and h128 remain near Offline Stride.  The 1,908-parameter h8 is only 0.00070 IPC below h16; h16 is the measured best, not yet a robust saturation point.
 \item Raw and selected accuracy are nearly identical because PQ merges are zero or tiny (at most 161).  The large performance differences therefore are not artifacts of deduplicating the accuracy denominator.  No direct harmful-victim/re-reference counter exists, so the report does not rename useless requests or low accuracy as cache pollution.

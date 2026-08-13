@@ -129,6 +129,32 @@ pressure indicate risk, but neither proves cache pollution; consequently
 $1-A_{\rm sel}$ is not reported as pollution and no aggregate score is used.
 \end{infobox}
 
+\subsection*{Held-out callback decision audit}
+\begin{infobox}[title={\bfseries Dense teacher, always-act student}]
+On the same $404{,}219$ held-out demand callbacks, \emph{act} means the decoded
+request count satisfies $K>0$; it does not mean one action, because an active
+callback may emit multiple requests.  Offline Streamer is already dense:
+92.46\% act and 7.54\% silent.  Every tested LSTM capacity decodes a positive
+count on 100\% of callbacks.  The rates come from the current default run's
+\texttt{run\_metadata.json}; cache usefulness remains a separate replay
+outcome.
+\end{infobox}
+
+\begin{center}\scriptsize
+\begin{tabular}{@{}lrrrrr@{}}
+\toprule
+Capacity & Streamer silent & Streamer act & LSTM silent & LSTM act &
+$\Delta$ act (pp) \\
+\midrule
+h8   & 7.54\% & 92.46\% & 0.00\% & 100.00\% & +7.54 \\
+h16  & 7.54\% & 92.46\% & 0.00\% & 100.00\% & +7.54 \\
+h32  & 7.54\% & 92.46\% & 0.00\% & 100.00\% & +7.54 \\
+h64  & 7.54\% & 92.46\% & 0.00\% & 100.00\% & +7.54 \\
+h128 & 7.54\% & 92.46\% & 0.00\% & 100.00\% & +7.54 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \section*{2. Cache outcomes}
 \begin{center}\scriptsize
 \resizebox{\textwidth}{!}{%
@@ -246,6 +272,11 @@ IPC.
 \begin{itemize}[itemsep=1pt,topsep=1pt]
 \item The IPC plateau begins at h32: h32 and h64 are 0.43744, and h128 is 0.43744 after rounding, versus 0.43150 for offline Streamer (about +1.38\%).
 \item h32 lowers L2 miss rate from 3.834\% to 1.138\% and raises coverage from 92.37\% to 97.75\%.  The IPC gain follows useful coverage and miss reduction, not a timeliness change; both methods are already above 99.9\% timely.
+\item All five LSTMs act on every held-out callback, erasing Streamer's 7.54\%
+silent share.  Therefore h8's traffic efficiency and the h32--h128 IPC plateau
+cannot be attributed to learning different silence rates; they arise from the
+learned counts/targets and their downstream cache behavior.  This dense track
+does not support the generic claim that staying silent is most of the lesson.
 \item h8 is the traffic-efficient point: 1.791 requests/L2 access and 27.40\% selected accuracy, versus Streamer's 4.015 and 11.57\%.  Added width above h32 changes neither cache outcome nor IPC.
 \end{itemize}
 \end{infobox}
