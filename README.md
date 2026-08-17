@@ -1,37 +1,63 @@
 # cache_arch
 
-This repository contains two matched-input neural-prefetcher studies:
+A matched-input, trace-driven study of offline LSTM cache prefetchers in
+ChampSim for `602.gcc_s-734B`, evaluated against Stride, Streamer, AMPM, and
+SPP.
 
-- `formal_NN_training/experiments/602_offline_lstm_{stride,streamer,ampm,spp}/`
-  is the completed four-prefetcher 602 study.
-- `formal_NN_training/experiments/623_offline_lstm_{stride,spp}/` is the
-  active 623 redesign.
+## Start here
 
-Matched input means that a neural policy receives only the source-visible
-callback fields available to its corresponding normal prefetcher.  Normal
-actions, candidates, request budgets, and private normal-prefetcher state are
-not neural runtime inputs.  This fairness boundary does **not** require the NN
-to copy the normal prefetcher's internal algorithm, output templates, page
-rules, thresholds, or degree.
+- [Project website](https://angelawoo572.github.io/cache_arch/)
+- [Quick presentation: `602_deck_v7_15.pdf`](formal_NN_training/experiments/602_deck_v7_15.pdf)
+- [All 602 experiments](formal_NN_training/experiments/)
+- [Shared implementation](formal_NN_training/common/)
 
-The active 623 v21 models therefore remain independent direct-action learners.
-Their stable, torch-free architecture and run metadata live in each track's
-`python/model_contract.py`; `data/stream_contract.json` records the external
-input and causal-use contract.  Their rank-conditioned decoder learns a direct
-`STOP`/`EMIT(delta)` action sequence without a separate rounded-count head and
-without teacher/predicted-action feedback.  Colab trains and performs offline
-inference, and Linux/ChampSim replays the NN and matched offline-normal lists
-through the same keyed replayer.
+The primary project artifacts are intentionally concentrated in two places:
 
-Run data are intentionally ignored by Git.  Shared helpers under
-`formal_NN_training/common/` split gzip archives into verified parts no larger
-than 90 MiB for Mac/Google Drive/Colab transfer; track-specific scripts remain
-inside their experiment directories.
+- `formal_NN_training/experiments/` contains the presentation and the four
+  complete 602 experiment tracks.
+- `formal_NN_training/common/` contains shared model, policy, validation,
+  installation, keyed-sampling, and archive-transfer helpers.
 
-See `formal_NN_training/README.md` and the per-experiment READMEs for the 602
-reference design, the audited 623 failure history, current architecture, and
-the limits of each comparison.
+## 602 experiment source
 
-Historical split-workflow helpers are retained only under
-`formal_NN_training/legacy/scripts/direct_action_split_workflow/`; active
-experiments do not import them.
+| Conventional comparator | Experiment directory | Neural runtime input boundary |
+| --- | --- | --- |
+| Stride | [`602_offline_lstm_stride`](formal_NN_training/experiments/602_offline_lstm_stride/) | Current PC and cache-line address |
+| Streamer | [`602_offline_lstm_streamer`](formal_NN_training/experiments/602_offline_lstm_streamer/) | Cache-line address |
+| AMPM | [`602_offline_lstm_ampm`](formal_NN_training/experiments/602_offline_lstm_ampm/) | Cache-line address |
+| SPP | [`602_offline_lstm_spp`](formal_NN_training/experiments/602_offline_lstm_spp/) | Chronological demand and cache-fill address callbacks |
+
+Each experiment directory is self-contained: begin with its README, then use
+its track-specific collection, training, offline inference, replay, analysis,
+contract, and report files.
+
+## Comparison boundary
+
+For every primary comparison, the offline conventional prefetcher and offline
+LSTM consume the same chronological source-visible input stream and their
+actions are replayed through the same keyed queue/cache path. Conventional
+actions may be supervised labels, but conventional candidates, request budgets,
+private state, and future labels are not neural runtime inputs.
+
+This is a same-input comparison, not a requirement that the LSTM reproduce the
+conventional prefetcher's internal algorithm. End-to-end replay metrics remain
+the final evaluation boundary.
+
+## Repository map
+
+```text
+formal_NN_training/
+├── experiments/
+│   ├── 602_deck_v7_15.pdf
+│   ├── 602_offline_lstm_stride/
+│   ├── 602_offline_lstm_streamer/
+│   ├── 602_offline_lstm_ampm/
+│   └── 602_offline_lstm_spp/
+└── common/
+
+docs/
+└── index.html              # GitHub Pages project website
+```
+
+Other repository content supports development history and adjacent experiments;
+the paths above are the public entry points for the completed 602 study.
