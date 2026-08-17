@@ -7,7 +7,7 @@ SPP.
 ## Start here
 
 - [Project website](https://angelawoo572.github.io/cache_arch/)
-- [Quick presentation: `602_deck_v7_15.pdf`](formal_NN_training/experiments/602_deck_v7_15.pdf)
+- [Quick presentation: `602_deck_v7_15.pdf`](https://angelawoo572.github.io/cache_arch/602_deck_v7_15.pdf)
 - [All 602 experiments](formal_NN_training/experiments/)
 - [Shared implementation](formal_NN_training/common/)
 
@@ -56,7 +56,8 @@ formal_NN_training/
 └── common/
 
 docs/
-└── index.html              # GitHub Pages project website
+├── index.html              # GitHub Pages project website
+└── 602_deck_v7_15.pdf      # Pages-hosted copy of the presentation
 ```
 
 Other repository content supports development history and adjacent experiments;

@@ -378,6 +378,83 @@
 
     .deck-notes li { padding: 6px 0 10px 5px; }
 
+    .pdf-viewer {
+      margin-top: 22px;
+      border: 1px solid rgba(119, 167, 255, 0.28);
+      border-radius: 22px;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .pdf-toolbar {
+      min-height: 64px;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(17, 31, 52, 0.92);
+    }
+
+    .pdf-title {
+      min-width: 0;
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      font-size: 14px;
+      font-weight: 750;
+    }
+
+    .pdf-title span:last-child {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .pdf-badge {
+      flex: 0 0 auto;
+      padding: 4px 7px;
+      border: 1px solid rgba(94, 231, 244, 0.32);
+      border-radius: 6px;
+      color: var(--cyan);
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 10px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+    }
+
+    .pdf-toolbar a {
+      flex: 0 0 auto;
+      color: var(--cyan);
+      font-size: 13px;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .pdf-toolbar a:hover { text-decoration: underline; text-underline-offset: 4px; }
+
+    .pdf-frame {
+      display: block;
+      width: 100%;
+      height: min(82vh, 920px);
+      min-height: 680px;
+      border: 0;
+      background: #eef1f5;
+    }
+
+    .pdf-fallback {
+      min-height: 300px;
+      padding: 48px;
+      display: grid;
+      place-items: center;
+      color: #172033;
+      text-align: center;
+    }
+
+    .pdf-fallback a { color: #0645ad; }
+
     .tracks {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -485,6 +562,8 @@
       .tracks,
       .resources { grid-template-columns: 1fr; }
       .step { min-height: 0; }
+      .pdf-toolbar { align-items: flex-start; flex-direction: column; }
+      .pdf-frame { height: 72vh; min-height: 520px; }
       .footer-row { align-items: flex-start; flex-direction: column; }
     }
 
@@ -520,7 +599,7 @@
           against Stride, Streamer, AMPM, and SPP.
         </p>
         <div class="actions">
-          <a class="button primary" href="https://github.com/Angelawoo572/cache_arch/blob/main/formal_NN_training/experiments/602_deck_v7_15.pdf" target="_blank" rel="noopener noreferrer">Quick view: presentation PDF ↗</a>
+          <a class="button primary" href="#slides">Read the presentation here ↓</a>
           <a class="button" href="https://github.com/Angelawoo572/cache_arch" target="_blank" rel="noopener noreferrer">Browse the repository ↗</a>
         </div>
 
@@ -600,11 +679,11 @@
               <span class="filetype">PDF · 602 DECK</span>
               <h3>Neural cache prefetching in one presentation.</h3>
               <p>
-                Open <code>formal_NN_training/experiments/602_deck_v7_15.pdf</code>
-                directly in GitHub’s PDF viewer.
+                Read the complete deck directly below, or open the same Pages-hosted
+                PDF full screen. No repository navigation is required.
               </p>
             </div>
-            <a class="button primary" href="https://github.com/Angelawoo572/cache_arch/blob/main/formal_NN_training/experiments/602_deck_v7_15.pdf" target="_blank" rel="noopener noreferrer">View the presentation ↗</a>
+            <a class="button primary" href="#slides">Jump to the embedded slides ↓</a>
           </article>
 
           <aside class="deck-notes" aria-label="Presentation reading guide">
@@ -616,6 +695,24 @@
               <li>Read IPC together with coverage, accuracy, traffic, and timeliness.</li>
             </ol>
           </aside>
+        </div>
+
+        <div class="pdf-viewer" id="slides">
+          <div class="pdf-toolbar">
+            <div class="pdf-title">
+              <span class="pdf-badge">PDF</span>
+              <span>602_deck_v7_15.pdf</span>
+            </div>
+            <a href="./602_deck_v7_15.pdf" target="_blank" rel="noopener noreferrer">Open full screen ↗</a>
+          </div>
+          <object class="pdf-frame" data="./602_deck_v7_15.pdf#view=FitH&amp;toolbar=1" type="application/pdf" aria-label="602 neural cache prefetching presentation">
+            <div class="pdf-fallback">
+              <p>
+                This browser cannot display an embedded PDF.
+                <a href="./602_deck_v7_15.pdf" target="_blank" rel="noopener noreferrer">Open the presentation on this site.</a>
+              </p>
+            </div>
+          </object>
         </div>
       </div>
     </section>
