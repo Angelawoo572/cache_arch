@@ -193,4 +193,3 @@ class FrozenStrideLiveModel:
             "hidden": h_value.numpy().astype(np.float32).tolist(),
             "cell": c_value.numpy().astype(np.float32).tolist(),
         }
-
