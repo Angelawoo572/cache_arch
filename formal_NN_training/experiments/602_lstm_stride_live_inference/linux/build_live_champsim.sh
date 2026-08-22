@@ -75,10 +75,12 @@ digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
 payload = {
     "schema_version": 1,
     "parent_commit": subprocess.check_output(
-        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        universal_newlines=True,
     ).strip(),
     "champsim_commit": subprocess.check_output(
-        ["git", "-C", str(champ), "rev-parse", "HEAD"], text=True
+        ["git", "-C", str(champ), "rev-parse", "HEAD"],
+        universal_newlines=True,
     ).strip(),
     "binary": str(binary),
     "binary_sha256": digest(binary),

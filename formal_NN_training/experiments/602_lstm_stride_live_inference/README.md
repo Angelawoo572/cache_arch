@@ -81,6 +81,15 @@ GRU r,z,n equations, signed-log decoding, dynamic exact-PC (h,c) state,
 nanoseconds are measurements of the simulator host, not simulated CPU cycles.
 The functional first version models zero NN latency.
 
+## Sacramento compatibility
+
+Host-side collection, validation, aggregation, export orchestration, and
+Python/C++ parity are kept syntactically compatible with Python 3.6. The
+synthetic parity fixture uses the legacy NumPy `RandomState` API, so it also
+works with NumPy releases older than 1.17. None of these Sacramento stages
+requires pandas. Colab training still requires PyTorch and NumPy, and plot
+generation requires matplotlib.
+
 ## State boundary
 
 The primary parity mode ignores all warmup callbacks, emits no warmup

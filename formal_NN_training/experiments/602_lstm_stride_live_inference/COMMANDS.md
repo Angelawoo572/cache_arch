@@ -68,6 +68,24 @@ mkdir -p "$RUN_DIR/logs" "$RUN_DIR/incoming"
 
 ## D. Pre-run validation
 
+The Sacramento host may use Python 3.6 and a NumPy release older than 1.17.
+The host-side workflow deliberately requires no pandas. Record the versions
+before validation:
+
+~~~bash
+python3 --version
+python3 - <<'PY'
+import numpy as np
+print("NumPy", np.__version__)
+print("[PASS] legacy RandomState available:", hasattr(np.random, "RandomState"))
+print("[PASS] pandas is not required by Sacramento stages")
+PY
+~~~
+
+If an older branch revision failed on `subprocess(..., text=True)` or
+`numpy.random.default_rng`, pull the current branch and restart here at section
+D. Do not begin collection until both validators and synthetic parity pass.
+
 ~~~bash
 python3 formal_NN_training/experiments/validate_direct_action_contracts.py
 python3 "$EXP/validation/validate_live_contract.py"

@@ -22,7 +22,8 @@ from live_model_format import (
 def git_commit():
     try:
         return subprocess.check_output(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"], text=True
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            universal_newlines=True,
         ).strip()
     except (OSError, subprocess.CalledProcessError):
         return "unknown"

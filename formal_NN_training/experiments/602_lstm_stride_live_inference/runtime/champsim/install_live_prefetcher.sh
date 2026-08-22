@@ -184,7 +184,8 @@ targets = sys.argv[3:]
 payload = {
     "schema_version": 1,
     "champsim_head": subprocess.check_output(
-        ["git", "-C", str(root), "rev-parse", "HEAD"], text=True
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        universal_newlines=True,
     ).strip(),
     "installed_sha256": {
         relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()

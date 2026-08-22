@@ -327,7 +327,9 @@ def synthetic_cases(hidden):
             if delta else 0.0
         )
         cases.append((name, tensors, events))
-    rng = np.random.default_rng(602)
+    # RandomState is intentional: Sacramento has a pre-1.17 NumPy without the
+    # newer Generator API. The fixed seed keeps the fixture deterministic.
+    rng = np.random.RandomState(602)
     tensors = empty_tensors(hidden)
     for name in TENSOR_ORDER:
         tensors[name][...] = rng.uniform(

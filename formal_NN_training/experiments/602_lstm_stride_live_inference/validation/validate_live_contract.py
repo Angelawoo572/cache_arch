@@ -177,6 +177,32 @@ def validate_shell():
             fail("destructive git clean token in {}".format(path))
 
 
+def validate_sacramento_python_compatibility():
+    """Keep host-side control/validation code usable on Sacramento Python 3.6."""
+    sources = list(EXP.rglob("*.py")) + list(EXP.rglob("*.sh"))
+    sources.append(EXP / "colab/train_prefix_sweep.ipynb")
+    forbidden = {
+        "Python 3.7 subprocess text keyword": "text" + "=True",
+        "Python 3.7 subprocess capture_output keyword": (
+            "capture_" + "output="
+        ),
+        "NumPy 1.17 random generator": "default_" + "rng",
+        "Python 3.8 pathlib missing_ok": "missing_" + "ok=",
+        "Python 3.9 string prefix helper": "remove" + "prefix(",
+        "Python 3.9 pathlib relative helper": "is_" + "relative_to(",
+    }
+    bad = []
+    for path in sources:
+        source = path.read_text()
+        for description, token in forbidden.items():
+            if token in source:
+                bad.append("{}: {}".format(path, description))
+        if "import " + "pandas" in source or "from " + "pandas" in source:
+            bad.append("{}: pandas is not a Sacramento dependency".format(path))
+    if bad:
+        fail("Sacramento Python 3.6 compatibility failures: {}".format(bad))
+
+
 def validate_artifacts():
     probe = EXP / "runs/contract_probe/model.bin"
     ignored = subprocess.run(
@@ -186,7 +212,7 @@ def validate_artifacts():
     if ignored.returncode != 0:
         fail("generated runs/model.bin is not ignored")
     tracked = subprocess.check_output(
-        ["git", "-C", str(ROOT), "ls-files"], text=True
+        ["git", "-C", str(ROOT), "ls-files"], universal_newlines=True
     ).splitlines()
     prefix = str(EXP.relative_to(ROOT)) + "/"
     bad = []
@@ -214,12 +240,14 @@ def main():
     validate_config()
     validate_sources()
     validate_shell()
+    validate_sacramento_python_compatibility()
     validate_artifacts()
     print("[PASS] frozen live runtime has no learning/teacher/list dependency")
     print("[PASS] external model inputs are PC and cache-line address only")
     print("[PASS] h8=1908 and h16=5220; no other hidden size configured")
     print("[PASS] versioned float32 export contains all recurrent/action heads")
     print("[PASS] parity reset and optional realistic warmup are separated")
+    print("[PASS] Sacramento Python 3.6/legacy NumPy path needs no pandas")
     print("[PASS] generated data, logs, checkpoints, and weights are untracked")
     print("[PASS] completed offline 602 Stride reference remains present")
 
