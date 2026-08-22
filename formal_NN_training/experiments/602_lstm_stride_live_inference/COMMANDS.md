@@ -646,7 +646,8 @@ git add \
   .gitignore \
   formal_NN_training/README.md \
   formal_NN_training/common/stride_direct_action_model.py \
-  formal_NN_training/experiments/602_lstm_stride_live_inference
+  formal_NN_training/experiments/602_lstm_stride_live_inference \
+  formal_NN_training/experiments/602_offline_lstm_stride/python/train_and_offline_infer.py
 
 git status --short
 git diff --cached --check
