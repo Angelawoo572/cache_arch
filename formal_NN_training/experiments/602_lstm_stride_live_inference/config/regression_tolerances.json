@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "exact_metadata_fields": [
+    "hidden_size",
+    "parameter_count",
+    "model_revision",
+    "runtime_encoder_sha256",
+    "training_runtime_fields",
+    "inference_runtime_fields",
+    "normal_policy_outputs_used_as_training_targets",
+    "normal_policy_outputs_used_as_model_inputs",
+    "eval_stream_sha256"
+  ],
+  "absolute_metric_tolerances": {
+    "heldout_behavior_metrics.count_exact_match_rate": 0.0,
+    "heldout_behavior_metrics.target_precision": 0.0,
+    "heldout_behavior_metrics.target_recall": 0.0,
+    "heldout_behavior_metrics.target_f1": 0.0
+  },
+  "system_metric_tolerances_for_retrained_anchors": {
+    "ipc": 0.002,
+    "coverage": 0.02,
+    "requests_per_l2_load": 0.02,
+    "l2_load_miss_rate": 0.01
+  },
+  "note": "Same-checkpoint refactor validation requires exact actions. Nonzero system tolerances apply only to separately retrained 20M anchors and never convert an action mismatch into PASS."
+}

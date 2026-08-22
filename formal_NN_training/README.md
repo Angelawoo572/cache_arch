@@ -10,6 +10,7 @@ SPP comparators in ChampSim.
 - [`experiments/602_offline_lstm_streamer/`](experiments/602_offline_lstm_streamer/)
 - [`experiments/602_offline_lstm_ampm/`](experiments/602_offline_lstm_ampm/)
 - [`experiments/602_offline_lstm_spp/`](experiments/602_offline_lstm_spp/)
+- [`experiments/602_lstm_stride_live_inference/`](experiments/602_lstm_stride_live_inference/)
 - [`experiments/602_deck_v7_15.pdf`](experiments/602_deck_v7_15.pdf)
 
 Each experiment keeps its collection, training, offline inference, replay,
@@ -44,6 +45,12 @@ The retained `common/` modules are all used by the 602 tracks:
 - `direct_action_lstm.py`: shared recurrent direct-action implementation;
 - `normal_policy_reference.py`: conventional-policy reference utilities;
 - `threshold_free_policy.py`: learned threshold-free policy components.
+- `stride_direct_action_model.py`: stable access to the completed Stride
+  model definition for prefix training, frozen export, and parity.
+
+The live Stride sibling preserves the completed offline experiment as its
+regression oracle while adding frozen-weight C++ inference in the measured L2
+callback path. It is a deployment-mode study, not a fifth matched comparator.
 
 ## Static validation
 

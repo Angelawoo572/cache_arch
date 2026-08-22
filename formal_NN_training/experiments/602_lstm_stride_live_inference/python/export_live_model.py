@@ -35,8 +35,8 @@ def load_json(path):
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True, type=Path)
-    parser.add_argument("--run-metadata", type=Path)
-    parser.add_argument("--training-manifest", type=Path)
+    parser.add_argument("--run-metadata", required=True, type=Path)
+    parser.add_argument("--training-manifest", required=True, type=Path)
     parser.add_argument("--evaluation-stream", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--hidden-size", required=True, type=int, choices=[8, 16])
@@ -101,6 +101,7 @@ def main():
         "python_source": str(AUTHORITATIVE_SOURCE.relative_to(ROOT)),
         "python_source_sha256": authoritative_source_sha256(),
         "checkpoint_sha256": sha256(args.checkpoint),
+        "source_run_metadata_sha256": sha256(args.run_metadata),
         "training_stream_sha256": (
             training.get("training_stream_sha256")
             or run_metadata.get("train_stream_sha256")
@@ -115,10 +116,40 @@ def main():
         "online_learning": False,
         "optimizer_in_live_runtime": False,
         "backpropagation_in_live_runtime": False,
+        "heldout_behavior_metrics": run_metadata.get(
+            "heldout_behavior_metrics"
+        ),
+        "training_runtime_fields": run_metadata.get(
+            "training_runtime_fields"
+        ),
+        "inference_runtime_fields": run_metadata.get(
+            "inference_runtime_fields"
+        ),
+        "normal_policy_outputs_used_as_training_targets": (
+            run_metadata.get(
+                "normal_policy_outputs_used_as_training_targets"
+            )
+        ),
+        "normal_policy_outputs_used_as_model_inputs": (
+            run_metadata.get(
+                "normal_policy_outputs_used_as_model_inputs"
+            )
+        ),
     }
     metadata_path.write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )
+    point_metadata_path = args.out_dir.parent / "point_metadata.json"
+    if point_metadata_path.is_file():
+        point = json.loads(point_metadata_path.read_text())
+        history = point.setdefault("status_history", [])
+        if "export_complete" not in history:
+            history.append("export_complete")
+        point["status"] = "export_complete"
+        point["failure_reason"] = None
+        point_metadata_path.write_text(
+            json.dumps(point, indent=2, sort_keys=True) + "\n"
+        )
     print(json.dumps({
         "status": "export_complete",
         "model_bin": str(model_path),

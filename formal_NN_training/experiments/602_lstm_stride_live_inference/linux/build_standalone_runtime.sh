@@ -29,4 +29,3 @@ mkdir -p "$(dirname "$OUT")"
 "$CXX" -std=c++11 -Wall -Wextra -Werror -pedantic -O2 -I "$EXP/runtime" "$EXP/runtime/stride_lstm_model_loader.cc" "$EXP/runtime/stride_lstm_runtime.cc" "$EXP/runtime/standalone_runner.cc" -o "$OUT"
 "$OUT" --help >/dev/null
 echo "[ok] $OUT"
-

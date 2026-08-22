@@ -92,4 +92,3 @@ print("[ok] {}".format(path))
 PY
 git -C "$CHAMP_DIR" status --short
 echo "[ok] $OUT"
-

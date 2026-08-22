@@ -32,6 +32,7 @@ import math
 import platform
 import random
 import sys
+import time
 from collections import Counter, OrderedDict, deque
 from pathlib import Path
 
@@ -801,11 +802,13 @@ def main():
     train_unique_pc_count = len(_group_indices_by_pc(train_rows))
     eval_unique_pc_count = len(_group_indices_by_pc(eval_rows))
     recurrent_state_bytes_per_pc = 2 * args.hidden_size * 4
+    training_started = time.monotonic()
     history, gate_class_weights = train_model(
         model, train_rows, train_runtime, train_counts, train_deltas,
         device, args.epochs, args.chunk_len, args.pc_batch_size,
         args.learning_rate,
     )
+    training_wall_clock_seconds = time.monotonic() - training_started
     encoded = score_model(
         model, eval_rows, eval_runtime, device,
         args.chunk_len, args.pc_batch_size,
@@ -987,6 +990,7 @@ def main():
         "offline_lstm_list_sha256": sha256(nn_path),
         "heldout_behavior_metrics": behavior,
         "train_rows": len(train_rows),
+        "training_wall_clock_seconds": training_wall_clock_seconds,
         "eval_rows": len(eval_rows),
         "device": str(device),
         "python": platform.python_version(),

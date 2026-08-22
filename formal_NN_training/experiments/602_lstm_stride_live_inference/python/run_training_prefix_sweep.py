@@ -329,7 +329,12 @@ def main():
                 "runtime_encoder_sha256"
             ],
             "optimizer_steps": optimizer_steps,
-            "training_wall_clock_seconds": time.monotonic() - started,
+            "training_wall_clock_seconds": old_metadata.get(
+                "training_wall_clock_seconds"
+            ),
+            "training_and_offline_inference_wall_clock_seconds": (
+                time.monotonic() - started
+            ),
             "gate_loss": float(history["gate_loss_per_callback"]),
             "count_loss": float(
                 history["positive_count_loss_per_positive_callback"]

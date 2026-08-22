@@ -13,6 +13,61 @@ ROOT = Path(__file__).resolve().parents[4]
 from live_model_format import FORMAT_VERSION, TENSOR_ORDER, read_model, sha256
 
 
+DEFAULT_TOLERANCES = (
+    ROOT
+    / "formal_NN_training/experiments/602_lstm_stride_live_inference"
+    / "config/regression_tolerances.json"
+)
+
+
+def dotted(payload, path):
+    value = payload
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def compare_metadata(candidate_path, reference_path, tolerances_path):
+    candidate = json.loads(Path(candidate_path).read_text())
+    reference = json.loads(Path(reference_path).read_text())
+    config = json.loads(Path(tolerances_path).read_text())
+    errors = []
+    for field in config["exact_metadata_fields"]:
+        left = dotted(candidate, field)
+        right = dotted(reference, field)
+        if left != right:
+            errors.append(
+                "exact metadata {}: candidate={!r} reference={!r}".format(
+                    field, left, right
+                )
+            )
+    for field, tolerance in config[
+        "absolute_metric_tolerances"
+    ].items():
+        left = dotted(candidate, field)
+        right = dotted(reference, field)
+        if left is None or right is None:
+            errors.append(
+                "metric {} unavailable: candidate={!r} reference={!r}".format(
+                    field, left, right
+                )
+            )
+        elif abs(float(left) - float(right)) > float(tolerance):
+            errors.append(
+                "metric {} differs by {} > {}".format(
+                    field, abs(float(left) - float(right)), tolerance
+                )
+            )
+    if errors:
+        raise RuntimeError("metadata regression mismatch\n" + "\n".join(errors))
+    return {
+        "exact_fields": len(config["exact_metadata_fields"]),
+        "metric_fields": len(config["absolute_metric_tolerances"]),
+    }
+
+
 def compare_checkpoint_actions(
     first_path, second_path, stream, max_events,
     frozen_model_type, load_checkpoint, load_stream,
@@ -47,6 +102,11 @@ def build_parser():
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--reference-checkpoint", type=Path)
+    parser.add_argument("--candidate-run-metadata", type=Path)
+    parser.add_argument("--reference-run-metadata", type=Path)
+    parser.add_argument(
+        "--metric-tolerances", type=Path, default=DEFAULT_TOLERANCES
+    )
     parser.add_argument("--evaluation-stream", type=Path)
     parser.add_argument("--max-events", type=int)
     return parser
@@ -106,6 +166,19 @@ def main():
     if errors:
         raise SystemExit("EXPORT FAIL\n" + "\n".join(errors))
     compared = 0
+    metadata_comparison = None
+    if bool(args.candidate_run_metadata) != bool(
+        args.reference_run_metadata
+    ):
+        raise RuntimeError(
+            "candidate/reference run metadata must be supplied together"
+        )
+    if args.candidate_run_metadata:
+        metadata_comparison = compare_metadata(
+            args.candidate_run_metadata,
+            args.reference_run_metadata,
+            args.metric_tolerances,
+        )
     if args.reference_checkpoint:
         if not args.evaluation_stream:
             raise RuntimeError(
@@ -125,6 +198,7 @@ def main():
         "exact_tensor_parity": True,
         "checkpoint_action_events_compared": compared,
         "parameter_count": expected["parameter_count"],
+        "metadata_comparison": metadata_comparison,
     }, sort_keys=True))
 
 

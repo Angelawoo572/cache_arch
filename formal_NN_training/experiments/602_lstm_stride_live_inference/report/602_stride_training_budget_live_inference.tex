@@ -1,0 +1,83 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.8in]{geometry}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\providecommand{\RunDir}{../runs/602_gcc_stride_prefix_seed7}
+\title{602 Stride Training Budget: Offline Training and Live Inference}
+\author{Reproducible experiment report}
+\date{\today}
+
+\newcommand{\runfigure}[2]{%
+  \IfFileExists{\RunDir/plots/#1}{%
+    \begin{figure}[ht]
+      \centering
+      \includegraphics[width=0.83\linewidth]{\RunDir/plots/#1}
+      \caption{#2}
+    \end{figure}
+  }{}%
+}
+
+\begin{document}
+\maketitle
+
+\section{Question and deployment contract}
+This study asks, separately for h16 and h8, for the smallest offline training
+prefix that preserves system performance when frozen inference executes in
+the live ChampSim L2 callback. “Online” denotes callback placement only.
+There is no online learning, gradient, optimizer, teacher, or action-list
+lookup in the live runtime.
+
+The current event's teacher action-list length is \(K\).  The neural student
+learns whether to issue, the positive count \(K\), and one signed delta/target
+address per slot.  \(K\) is not history length, training rows, hidden size,
+model capacity, or a fixed prefetch degree.
+
+\section{Fixed controls}
+The trace is 602.gcc\_s-734B; seed is 7; epochs are 12; TBPTT length is 256;
+and all optimizer, learning-rate, encoder, PC-keyed state, hurdle, count,
+free-running decoder, teacher, class-balance, held-out stream, replay,
+ChampSim, window, and metric definitions remain fixed.  Only retired training
+instructions and the two predeclared curves h8/h16 vary.
+
+h8 contains 1,908 trainable parameters (7,632 float32 bytes); h16 contains
+5,220 (20,880 bytes).  Per observed PC, recurrent state is \(8H\) bytes.
+
+\section{Measurement boundary}
+Primary parity mode uses 25M warmup plus 25M measured instructions. Warmup
+callbacks neither advance neural state nor issue neural requests. At the first
+measured callback the PC-state map is explicitly empty. Optional realistic
+state warmup is separately named and never mixed into a parity row.
+
+\section{Supervision and learning curves}
+\runfigure{01_decision_rows.png}{Decision rows versus retired training instructions.}
+\runfigure{02_positive_count_rows.png}{Positive-count rows versus retired training instructions.}
+\runfigure{03_action_atoms.png}{Action atoms versus retired training instructions.}
+\runfigure{04_offline_ipc.png}{Keyed offline IPC, with separate h8 and h16 curves.}
+\runfigure{05_live_ipc.png}{Live IPC, with separate h8 and h16 curves.}
+\runfigure{06_offline_vs_live_ipc.png}{Offline versus live IPC.}
+\runfigure{07_coverage.png}{Coverage versus retired training instructions.}
+\runfigure{08_requests_per_l2_load.png}{Request pressure versus retired training instructions.}
+\runfigure{09_student_heldout_act_rate.png}{Student held-out act rate.}
+\runfigure{10_l2_load_miss_rate.png}{L2 load miss rate.}
+
+\section{Deployment cost and Pareto analysis}
+\runfigure{11_weight_bytes_vs_live_ipc.png}{Model weight bytes versus live IPC.}
+\runfigure{12_recurrent_state_bytes_vs_live_ipc.png}{Peak recurrent-state bytes versus live IPC.}
+\runfigure{13_host_inference_latency.png}{Host-side inference timing percentiles.}
+\runfigure{14_pareto_frontier.png}{Training/model/live-IPC Pareto frontier.}
+Host nanoseconds are not interpreted as simulated cycles.
+
+\section{Required conclusions}
+\IfFileExists{\RunDir/report/generated_conclusions.tex}{%
+  \input{\RunDir/report/generated_conclusions.tex}
+}{%
+  \textbf{NA---Sacramento/Colab execution is required.} No performance
+  conclusion is inferred from unexecuted code.
+}
+
+Winner selection follows the complete chain: action match, traffic,
+timeliness, coverage/miss rate, then IPC. Training loss, imitation accuracy,
+or count accuracy alone is insufficient.
+
+\end{document}

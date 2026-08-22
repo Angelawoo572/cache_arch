@@ -1,0 +1,87 @@
+{
+  "schema_version": 1,
+  "execution_mode": "offline_training_live_online_inference",
+  "online_definition": "inference_in_live_champsim_callback_path_only",
+  "online_learning": false,
+  "weights_frozen_in_champsim": true,
+  "backpropagation_in_live_runtime": false,
+  "optimizer_in_live_runtime": false,
+  "teacher_in_live_runtime": false,
+  "replay_list_in_live_runtime": false,
+  "external_model_inputs": [
+    "pc",
+    "cache_line_address"
+  ],
+  "state_key": "dynamic_exact_pc",
+  "model_revision": "compact_shared_pc_hurdle_delta_v9",
+  "runtime_encoder": "lossless_lsb_first_pc64_then_byte_address64",
+  "feature_width": 128,
+  "runtime_encoder_sha256_source": "authoritative_python_function_hash",
+  "hidden_sizes": [
+    8,
+    16
+  ],
+  "parameter_counts": {
+    "h8": 1908,
+    "h16": 5220
+  },
+  "float_type": "float32",
+  "format_version": 1,
+  "learned_outputs": [
+    "issue_or_silent",
+    "positive_slot_count_K",
+    "signed_delta_and_target_address_per_slot"
+  ],
+  "K_definition": "current_event_teacher_action_list_length_during_offline_supervision",
+  "K_is_not": [
+    "history_length",
+    "training_sample_count",
+    "eligible_example_count",
+    "hidden_size",
+    "model_capacity",
+    "fixed_prefetch_degree"
+  ],
+  "lstm_gate_order": [
+    "input",
+    "forget",
+    "candidate",
+    "output"
+  ],
+  "gru_gate_order": [
+    "reset",
+    "update",
+    "new"
+  ],
+  "primary_state_mode": "parity",
+  "parity_warmup_callbacks_update_state": false,
+  "parity_warmup_callbacks_emit_prefetches": false,
+  "parity_measurement_start_state": "empty",
+  "optional_state_mode": "realistic_state_warmup",
+  "nn_inference_latency_cycles": 0,
+  "host_timing_is_simulated_latency": false,
+  "pc_state_capacity": null,
+  "manual_probability_threshold": null,
+  "manual_degree_cap": null,
+  "same_page_rule": false,
+  "quantization": false,
+  "point_statuses": [
+    "no_callbacks",
+    "single_class_no_act",
+    "single_class_no_silent",
+    "insufficient_rows",
+    "trainable",
+    "training_failed",
+    "trained_all_silent",
+    "trained_nonempty",
+    "offline_inference_complete",
+    "offline_replay_complete",
+    "offline_replay_failed",
+    "export_complete",
+    "export_failed",
+    "parity_complete",
+    "parity_failed",
+    "live_smoke_complete",
+    "live_run_complete",
+    "live_run_failed"
+  ]
+}

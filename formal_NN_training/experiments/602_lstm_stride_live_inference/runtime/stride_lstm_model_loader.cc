@@ -165,4 +165,3 @@ void FrozenModel::Load(const std::string& path) {
 }
 
 }  // namespace stride_lstm
-

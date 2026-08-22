@@ -157,10 +157,27 @@ payload = {
 }
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 PY
+  set +e
   if [[ "${TRACE_FILE_OPENS:-0}" == 1 ]] && command -v strace >/dev/null 2>&1; then
     STRIDE_LSTM_MODEL_BIN="$model" STRIDE_LSTM_STATE_MODE="$STATE_MODE" strace -f -e trace=openat -o "$open_log" "${command[@]}" > "$log" 2>&1
   else
     STRIDE_LSTM_MODEL_BIN="$model" STRIDE_LSTM_STATE_MODE="$STATE_MODE" "${command[@]}" > "$log" 2>&1
+  fi
+  run_status=$?
+  set -e
+  if [[ "$run_status" != 0 ]]; then
+    python3 - "$point_dir/point_metadata.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+data.setdefault("status_history", []).append("live_run_failed")
+data["status"] = "live_run_failed"
+data["failure_reason"] = "ChampSim live command failed; inspect run.log"
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+PY
+    exit "$run_status"
   fi
   grep -Fq 'adding L2C_PREFETCHER: stride_lstm_live' "$log"
   grep -Fq 'stride_lstm_live_weights frozen' "$log"
@@ -169,5 +186,22 @@ PY
     echo "[error] forbidden replay file access observed" >&2
     exit 6
   fi
+  python3 - "$point_dir/point_metadata.json" "$RUN_MODE" <<'PY'
+import json
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+status = (
+    "live_smoke_complete" if sys.argv[2] == "smoke"
+    else "live_run_complete"
+)
+data = json.loads(path.read_text())
+history = data.setdefault("status_history", [])
+if status not in history:
+    history.append(status)
+data["status"] = status
+data["failure_reason"] = None
+path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+PY
   echo "[complete] h$hidden $budget seed$seed $STATE_MODE $RUN_MODE"
 done

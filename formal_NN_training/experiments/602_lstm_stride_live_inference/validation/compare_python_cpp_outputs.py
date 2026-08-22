@@ -300,8 +300,7 @@ def compare_results(expected, observed, state_tolerance, fixture):
     return max_hidden, max_cell
 
 
-def synthetic_cases():
-    hidden = 8
+def synthetic_cases(hidden):
     events = [
         (0x10, 0),
         (0x10, 1),
@@ -338,12 +337,11 @@ def synthetic_cases():
     tensors["log_count_mean.bias"][0] = np.float32(math.log(2.0))
     tensors["action_decoder.delta_head.bias"][0] = np.float32(0.8)
     cases.append(("stateful_interleaved_address_edges", tensors, events))
-    return hidden, cases
+    return cases
 
 
 def run_synthetic(args):
     args.work_dir.mkdir(parents=True, exist_ok=True)
-    hidden, cases = synthetic_cases()
     result = {
         "mode": "synthetic",
         "fixtures": [],
@@ -351,36 +349,40 @@ def run_synthetic(args):
         "max_hidden_state_error": 0.0,
         "max_cell_state_error": 0.0,
     }
-    for name, tensors, events in cases:
-        case_dir = args.work_dir / name
-        case_dir.mkdir(parents=True, exist_ok=True)
-        model_path = case_dir / "model.bin"
-        events_path = case_dir / "events.csv"
-        output_path = case_dir / "cpp_outputs.jsonl"
-        stats_path = case_dir / "runtime_stats.json"
-        write_model_from_arrays(model_path, tensors, hidden)
-        write_events(events_path, events)
-        reference = NumpyFrozenRuntime(read_model(model_path))
-        expected = [
-            reference.infer(pc, line) for pc, line in events
-        ]
-        observed = run_cpp(
-            args.cpp_runner, model_path, events_path, output_path, stats_path
-        )
-        max_hidden, max_cell = compare_results(
-            expected, observed, args.state_tolerance, name
-        )
-        result["max_hidden_state_error"] = max(
-            result["max_hidden_state_error"], max_hidden
-        )
-        result["max_cell_state_error"] = max(
-            result["max_cell_state_error"], max_cell
-        )
-        result["fixtures"].append({
-            "name": name,
-            "events": len(events),
-            "status": "PASS",
-        })
+    # h16 is deliberately validated before the identical h8 infrastructure.
+    for hidden in (16, 8):
+        for name, tensors, events in synthetic_cases(hidden):
+            fixture_name = "h{}_{}".format(hidden, name)
+            case_dir = args.work_dir / fixture_name
+            case_dir.mkdir(parents=True, exist_ok=True)
+            model_path = case_dir / "model.bin"
+            events_path = case_dir / "events.csv"
+            output_path = case_dir / "cpp_outputs.jsonl"
+            stats_path = case_dir / "runtime_stats.json"
+            write_model_from_arrays(model_path, tensors, hidden)
+            write_events(events_path, events)
+            reference = NumpyFrozenRuntime(read_model(model_path))
+            expected = [
+                reference.infer(pc, line) for pc, line in events
+            ]
+            observed = run_cpp(
+                args.cpp_runner, model_path, events_path, output_path,
+                stats_path,
+            )
+            max_hidden, max_cell = compare_results(
+                expected, observed, args.state_tolerance, fixture_name
+            )
+            result["max_hidden_state_error"] = max(
+                result["max_hidden_state_error"], max_hidden
+            )
+            result["max_cell_state_error"] = max(
+                result["max_cell_state_error"], max_cell
+            )
+            result["fixtures"].append({
+                "name": fixture_name,
+                "events": len(events),
+                "status": "PASS",
+            })
     result["status"] = "PASS"
     return result
 
@@ -445,6 +447,7 @@ def build_parser():
     parser.add_argument("--max-events", type=int, default=0)
     parser.add_argument("--state-tolerance", type=float, default=2e-5)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--point-metadata", type=Path)
     return parser
 
 
@@ -452,7 +455,35 @@ def main():
     args = build_parser().parse_args()
     if not args.cpp_runner.is_file():
         raise RuntimeError("C++ runner missing: {}".format(args.cpp_runner))
-    result = run_synthetic(args) if args.synthetic else run_recorded(args)
+    try:
+        result = (
+            run_synthetic(args) if args.synthetic else run_recorded(args)
+        )
+    except Exception:
+        if args.point_metadata and args.point_metadata.is_file():
+            point = json.loads(args.point_metadata.read_text())
+            point.setdefault("status_history", []).append("parity_failed")
+            point["status"] = "parity_failed"
+            point["failure_reason"] = (
+                "inspect standalone parity output for the first mismatch"
+            )
+            args.point_metadata.write_text(
+                json.dumps(point, indent=2, sort_keys=True) + "\n"
+            )
+        raise
+    if (
+        not args.synthetic and args.point_metadata
+        and args.point_metadata.is_file()
+    ):
+        point = json.loads(args.point_metadata.read_text())
+        history = point.setdefault("status_history", [])
+        if "parity_complete" not in history:
+            history.append("parity_complete")
+        point["status"] = "parity_complete"
+        point["failure_reason"] = None
+        args.point_metadata.write_text(
+            json.dumps(point, indent=2, sort_keys=True) + "\n"
+        )
     text = json.dumps(result, indent=2, sort_keys=True) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

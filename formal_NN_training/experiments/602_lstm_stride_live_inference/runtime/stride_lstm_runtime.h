@@ -67,4 +67,3 @@ std::string StaticOperationCountsJson(std::uint32_t hidden_size);
 }  // namespace stride_lstm
 
 #endif
-

@@ -194,6 +194,11 @@ accuracy_compare_all_traces.csv
 # Isolated experiment run bundles and Colab outputs remain local.
 formal_NN_training/experiments/*/runs/
 
+# Extra guardrails for the 602 live sibling if generated files are accidentally
+# placed outside its runs/ directory.
+formal_NN_training/experiments/602_lstm_stride_live_inference/**/*.bin
+formal_NN_training/experiments/602_lstm_stride_live_inference/**/*.tar.gz
+
 # Colab/PyTorch checkpoints and generated model artifacts.
 *.pt
 *.pth

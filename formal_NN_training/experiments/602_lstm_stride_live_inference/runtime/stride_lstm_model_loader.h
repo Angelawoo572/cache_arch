@@ -35,4 +35,3 @@ class FrozenModel {
 }  // namespace stride_lstm
 
 #endif
-
