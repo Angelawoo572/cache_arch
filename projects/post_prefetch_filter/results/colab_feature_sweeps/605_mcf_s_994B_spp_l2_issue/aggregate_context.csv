@@ -1,2 +1,0 @@
-trace,ipc,L1D_hit_rate,L1D_miss_rate,L1D_MPKI,L2C_hit_rate,L2C_miss_rate,L2C_MPKI,LLC_hit_rate,LLC_miss_rate,LLC_MPKI,prefetch_issued,prefetch_useful,prefetch_useless,prefetch_accuracy,source
-605.mcf_s-994B,2.299,0.861221,0.138779,53.05952,0.207309,0.792691,69.0696,0.237951,0.762049,41.10396,593,0,593,0.0,manual_spp_25m_context

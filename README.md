@@ -15,8 +15,8 @@ The primary project artifacts are intentionally concentrated in two places:
 
 - `formal_NN_training/experiments/` contains the presentation and the four
   complete 602 experiment tracks.
-- `formal_NN_training/common/` contains shared model, policy, validation,
-  installation, keyed-sampling, and archive-transfer helpers.
+- `formal_NN_training/common/` contains the shared model and policy helpers
+  used by the four 602 tracks.
 
 ## 602 experiment source
 
@@ -60,5 +60,4 @@ docs/
 └── 602_deck_v7_15.pdf      # Pages-hosted copy of the presentation
 ```
 
-Other repository content supports development history and adjacent experiments;
-the paths above are the public entry points for the completed 602 study.
+The paths above are the public entry points for the completed 602 study.

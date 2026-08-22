@@ -1,8 +1,0 @@
-{
-  "ooo_cpu": [
-    {
-      "L2C": { "prefetcher": "list_replayer" }
-    }
-  ],
-  "LLC": { "replacement": "lru" }
-}
