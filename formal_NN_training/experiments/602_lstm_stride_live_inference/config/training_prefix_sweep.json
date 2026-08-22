@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "trace": "602.gcc_s-734B",
+  "hidden_sizes": [8, 16],
+  "seeds": [7],
+  "instruction_budgets": [
+    {"instructions": 100, "tag": "i100"},
+    {"instructions": 250, "tag": "i250"},
+    {"instructions": 500, "tag": "i500"},
+    {"instructions": 1000, "tag": "i1k"},
+    {"instructions": 2000, "tag": "i2k"},
+    {"instructions": 5000, "tag": "i5k"},
+    {"instructions": 10000, "tag": "i10k"},
+    {"instructions": 20000, "tag": "i20k"},
+    {"instructions": 50000, "tag": "i50k"},
+    {"instructions": 100000, "tag": "i100k"},
+    {"instructions": 250000, "tag": "i250k"},
+    {"instructions": 500000, "tag": "i500k"},
+    {"instructions": 1000000, "tag": "i1m"},
+    {"instructions": 2000000, "tag": "i2m"},
+    {"instructions": 5000000, "tag": "i5m"},
+    {"instructions": 10000000, "tag": "i10m"},
+    {"instructions": 20000000, "tag": "i20m"}
+  ],
+  "fixed_controls": {
+    "model_revision": "compact_shared_pc_hurdle_delta_v9",
+    "epochs": 12,
+    "chunk_length": 256,
+    "pc_batch_size": 128,
+    "optimizer": "Adam",
+    "learning_rate": 0.002,
+    "teacher": "conventional_stride",
+    "seed": 7,
+    "training_warmup_instructions": 0,
+    "evaluation_warmup_instructions": 25000000,
+    "evaluation_simulation_instructions": 25000000,
+    "state_routing": "dynamic_exact_pc",
+    "fresh_initialization_per_point": true
+  }
+}
