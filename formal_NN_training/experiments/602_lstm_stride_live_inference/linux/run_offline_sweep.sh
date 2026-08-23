@@ -153,7 +153,10 @@ data = json.loads(path.read_text())
 history = data.setdefault("status_history", [])
 if "offline_replay_complete" not in history:
     history.append("offline_replay_complete")
-data["status"] = "offline_replay_complete"
+if data.get("status") not in {
+    "live_smoke_complete", "live_run_complete",
+}:
+    data["status"] = "offline_replay_complete"
 data["failure_reason"] = None
 path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 PY
