@@ -67,41 +67,21 @@ def main():
             grouped[hidden], key=lambda row: row["instruction_budget"]
         )
         reference = reference_20m(rows)
-        trainable = first(rows, lambda row: row.get("status") not in {
-            "no_callbacks", "single_class_no_act",
-            "single_class_no_silent", "insufficient_rows",
-            "training_failed",
-        })
-        non_silent = first(rows, lambda row: (
-            (row.get("offline_replay_entry_count") or 0) > 0
-        ))
         near_transition = transition(rows)
         one_percent = smallest_within(rows, reference, 0.01)
         half_percent = smallest_within(rows, reference, 0.005)
         reaching_99 = smallest_reaching_at_least(rows, reference, 0.99)
         plateau, _ = stable_plateau(rows, reference, 0.005)
-        above_plateau = None
-        if plateau:
-            above_plateau = first(
-                rows,
-                lambda row: (
-                    row["instruction_budget"]
-                    > plateau["instruction_budget"]
-                    and row.get("ipc") is not None
-                ),
-            )
-        for row, reason in (
-            (trainable, "first_trainable_budget"),
-            (non_silent, "first_non_all_silent_budget"),
-            (near_transition, "near_offline_transition"),
-            (reaching_99, "smallest_reaching_at_least_99_percent_of_20m_offline_ipc"),
-            (one_percent, "smallest_within_1_percent_of_20m_offline_ipc"),
-            (half_percent, "smallest_within_0.5_percent_of_20m_offline_ipc"),
-            (plateau, "first_stable_offline_plateau_candidate"),
-            (above_plateau, "one_point_above_stable_offline_plateau_candidate"),
-            (reference, "20m_reference"),
+        by_tag = {row["budget_tag"]: row for row in rows}
+        for budget_tag, reason in (
+            ("i1m", "primary_1m_vs_20m_live_validation"),
+            ("i20m", "same_hidden_size_live_reference"),
+            ("i250k" if hidden == 8 else "i100k",
+             "aggressive_high_performing_candidate"),
         ):
-            add(selected, row, reason)
+            row = by_tag.get(budget_tag)
+            if row and row.get("ipc") is not None:
+                add(selected, row, reason)
         below = None
         if near_transition:
             below = next((
@@ -131,6 +111,10 @@ def main():
         "launch_performed": False,
         "selected_points": points,
         "confirmation_set": confirmation,
+        "offline_diagnostics": {
+            "selection_is_secondary_to_offline_fairness": True,
+            "one_sided_and_two_sided_metrics_are_not_interchangeable": True,
+        },
     }
     for path in (args.output, args.selection_config):
         path.parent.mkdir(parents=True, exist_ok=True)

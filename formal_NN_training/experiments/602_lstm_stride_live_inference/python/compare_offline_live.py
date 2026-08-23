@@ -106,6 +106,111 @@ def plateau_summary(rows, reference, tolerance=0.005):
     }
 
 
+def difference(value, reference, percentage_points=False):
+    if value is None or reference is None:
+        return None
+    scale = 100.0 if percentage_points else 1.0
+    return scale * (float(value) - float(reference))
+
+
+def offline_equivalence_rows(rows):
+    """Compare every point only with the 20M model of the same hidden size."""
+    grouped = defaultdict(list)
+    for row in rows:
+        grouped[(row["hidden_size"], row.get("seed"))].append(row)
+    output = []
+    plateau_tags = {}
+    for (hidden, seed), group in grouped.items():
+        reference = reference_20m(group)
+        plateau, suffix = stable_plateau(group, reference, 0.005)
+        plateau_tags[(hidden, seed)] = {
+            row["budget_tag"] for row in suffix
+        } if plateau else set()
+        for row in sorted(group, key=lambda item: item["instruction_budget"]):
+            copy = dict(row)
+            copy.update({
+                "comparison_reference": "h{}-i20m-seed{}".format(
+                    hidden, row.get("seed")
+                ),
+                "ipc_20m": reference.get("ipc") if reference else None,
+                "relative_ipc_difference_vs_same_h_20m": (
+                    (row["ipc"] - reference["ipc"]) / reference["ipc"]
+                    if reference and row.get("ipc") is not None
+                    and reference.get("ipc") not in (None, 0) else None
+                ),
+                "absolute_relative_ipc_difference_vs_same_h_20m": (
+                    relative_deviation(row.get("ipc"), reference.get("ipc"))
+                    if reference else None
+                ),
+                "coverage_percentage_point_difference_vs_same_h_20m": (
+                    difference(row.get("coverage"), reference.get("coverage"), True)
+                    if reference else None
+                ),
+                "l2_miss_rate_percentage_point_difference_vs_same_h_20m": (
+                    difference(row.get("l2_load_miss_rate"),
+                               reference.get("l2_load_miss_rate"), True)
+                    if reference else None
+                ),
+                "request_pressure_difference_vs_same_h_20m": (
+                    difference(row.get("requests_per_l2_load"),
+                               reference.get("requests_per_l2_load"))
+                    if reference else None
+                ),
+                "student_act_rate_percentage_point_difference_vs_same_h_20m": (
+                    difference(row.get("student_heldout_act_rate"),
+                               reference.get("student_heldout_act_rate"), True)
+                    if reference else None
+                ),
+                "timeliness_percentage_point_difference_vs_same_h_20m": (
+                    difference(row.get("timeliness"), reference.get("timeliness"), True)
+                    if reference else None
+                ),
+                "replay_action_count_difference_vs_same_h_20m": (
+                    difference(row.get("offline_replay_entry_count"),
+                               reference.get("offline_replay_entry_count"))
+                    if reference else None
+                ),
+                "within_plus_minus_1_percent_20m_ipc": (
+                    relative_deviation(row.get("ipc"), reference.get("ipc")) <= 0.01
+                    if reference and relative_deviation(
+                        row.get("ipc"), reference.get("ipc")) is not None else None
+                ),
+                "within_plus_minus_0_5_percent_20m_ipc": (
+                    relative_deviation(row.get("ipc"), reference.get("ipc")) <= 0.005
+                    if reference and relative_deviation(
+                        row.get("ipc"), reference.get("ipc")) is not None else None
+                ),
+                "within_plus_minus_0_1_percent_20m_ipc": (
+                    relative_deviation(row.get("ipc"), reference.get("ipc")) <= 0.001
+                    if reference and relative_deviation(
+                        row.get("ipc"), reference.get("ipc")) is not None else None
+                ),
+                "stable_0_5_percent_ipc_plateau_member": (
+                    row["budget_tag"] in plateau_tags[(hidden, seed)]
+                ),
+                "stable_0_5_percent_ipc_plateau_start": (
+                    plateau is not None
+                    and row["budget_tag"] == plateau["budget_tag"]
+                ),
+            })
+            output.append(copy)
+    return output
+
+
+def key_budget_rows(rows):
+    keep = {"i100k", "i250k", "i500k", "i1m", "i2m", "i5m", "i10m", "i20m"}
+    fields = (
+        "hidden_size", "budget_tag", "instruction_budget", "decision_rows",
+        "positive_count_rows", "action_atoms", "student_heldout_act_rate",
+        "requests_per_l2_load", "coverage", "l2_load_miss_rate", "ipc",
+        "relative_ipc_difference_vs_same_h_20m",
+        "stable_0_5_percent_ipc_plateau_start",
+        "stable_0_5_percent_ipc_plateau_member",
+    )
+    return [{field: row.get(field) for field in fields}
+            for row in rows if row.get("budget_tag") in keep]
+
+
 def conclusions_for_hidden(offline, live):
     offline = sorted(offline, key=lambda row: row["instruction_budget"])
     live = sorted(live, key=lambda row: row["instruction_budget"])
@@ -197,6 +302,15 @@ def conclusions_for_hidden(offline, live):
             smallest_within(offline, off_ref, 0.005)
         ),
         "smallest_within_0.1_percent_20m_offline_ipc": tag(
+            smallest_within(offline, off_ref, 0.001)
+        ),
+        "minimum_budget_within_plus_minus_1.0_percent_of_same_h_20m_offline_ipc": tag(
+            smallest_within(offline, off_ref, 0.01)
+        ),
+        "minimum_budget_within_plus_minus_0.5_percent_of_same_h_20m_offline_ipc": tag(
+            smallest_within(offline, off_ref, 0.005)
+        ),
+        "minimum_budget_within_plus_minus_0.1_percent_of_same_h_20m_offline_ipc": tag(
             smallest_within(offline, off_ref, 0.001)
         ),
         "smallest_within_1.0_percent_20m_live_ipc": tag(
@@ -381,6 +495,44 @@ def write_conclusions_csv(path, conclusions):
             })
 
 
+def fmt(value, digits=4, percent_value=False):
+    if value is None:
+        return "NA"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    number = 100.0 * value if percent_value else value
+    return ("{:." + str(digits) + "f}").format(number)
+
+
+def write_key_budget_tex(path, rows):
+    def integer(value):
+        return "NA" if value is None else str(value)
+    lines = [
+        r"\begin{longtable}{rrrrrrrrrrrrr}",
+        r"\toprule",
+        r"H & Budget & Inst. & Decisions & $K>0$ & Atoms & Act\% & Req/load & Cov.\% & Miss\% & IPC & $\Delta$IPC\% & Plateau\\",
+        r"\midrule",
+        r"\endhead",
+    ]
+    for row in rows:
+        lines.append("{} & {} & {} & {} & {} & {} & {} & {} & {} & {} & {} & {} & {}\\\\".format(
+            row["hidden_size"], tex_escape(row["budget_tag"]),
+            row["instruction_budget"], integer(row.get("decision_rows")),
+            integer(row.get("positive_count_rows")), integer(row.get("action_atoms")),
+            fmt(row.get("student_heldout_act_rate"), 2, True),
+            fmt(row.get("requests_per_l2_load"), 3),
+            fmt(row.get("coverage"), 2, True),
+            fmt(row.get("l2_load_miss_rate"), 2, True),
+            fmt(row.get("ipc"), 5),
+            fmt(row.get("relative_ipc_difference_vs_same_h_20m"), 3, True),
+            ("start" if row.get("stable_0_5_percent_ipc_plateau_start")
+             else "member" if row.get("stable_0_5_percent_ipc_plateau_member")
+             else "no"),
+        ))
+    lines.extend([r"\bottomrule", r"\end{longtable}"])
+    path.write_text("\n".join(lines) + "\n")
+
+
 def write_tex(path, conclusions, frontier):
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
@@ -390,21 +542,12 @@ def write_tex(path, conclusions, frontier):
         ("First non-all-silent model", "first_non_all_silent_model"),
         ("Offline transition region", "offline_transition_region"),
         ("Offline stable plateau (0.5% IPC)", "offline_stable_plateau"),
-        ("Live transition region", "live_transition_region"),
-        ("Live stable plateau (0.5% IPC)", "live_stable_plateau"),
         ("Offline: minimum reaching at least 99% of 20M IPC", "smallest_budget_reaching_at_least_99_percent_of_20m_offline_ipc"),
         ("Offline: minimum reaching at least 99.5% of 20M IPC", "smallest_budget_reaching_at_least_99_5_percent_of_20m_offline_ipc"),
         ("Offline: minimum reaching at least 99.9% of 20M IPC", "smallest_budget_reaching_at_least_99_9_percent_of_20m_offline_ipc"),
-        ("Live: minimum reaching at least 99% of 20M IPC", "smallest_budget_reaching_at_least_99_percent_of_20m_live_ipc"),
-        ("Live: minimum reaching at least 99.5% of 20M IPC", "smallest_budget_reaching_at_least_99_5_percent_of_20m_live_ipc"),
-        ("Live: minimum reaching at least 99.9% of 20M IPC", "smallest_budget_reaching_at_least_99_9_percent_of_20m_live_ipc"),
-        ("Offline: minimum within 1.0% of 20M IPC", "smallest_within_1.0_percent_20m_offline_ipc"),
-        ("Offline: minimum within 0.5% of 20M IPC", "smallest_within_0.5_percent_20m_offline_ipc"),
-        ("Offline: minimum within 0.1% of 20M IPC", "smallest_within_0.1_percent_20m_offline_ipc"),
-        ("Live: minimum within 1.0% of 20M IPC", "smallest_within_1.0_percent_20m_live_ipc"),
-        ("Live: minimum within 0.5% of 20M IPC", "smallest_within_0.5_percent_20m_live_ipc"),
-        ("Live: minimum within 0.1% of 20M IPC", "smallest_within_0.1_percent_20m_live_ipc"),
-        ("Request pressure at live stable plateau", "request_pressure_at_live_stable_plateau"),
+        ("Offline: minimum within +/-1.0% of same-H 20M IPC", "smallest_within_1.0_percent_20m_offline_ipc"),
+        ("Offline: minimum within +/-0.5% of same-H 20M IPC", "smallest_within_0.5_percent_20m_offline_ipc"),
+        ("Offline: minimum within +/-0.1% of same-H 20M IPC", "smallest_within_0.1_percent_20m_offline_ipc"),
     ]
     lines = []
     for hidden in (8, 16):
@@ -425,19 +568,20 @@ def write_tex(path, conclusions, frontier):
         lines.extend([
             r"\bottomrule",
             r"\end{longtable}",
-            r"\paragraph{High-performing small-budget candidates.} Offline: "
+            r"\paragraph{Aggressive high-performing offline candidates.} "
             + compact_candidates(conclusions[key].get(
                 "offline_high_performing_small_budget_candidates"
-            ))
-            + r"; live: "
-            + compact_candidates(conclusions[key].get(
-                "live_high_performing_small_budget_candidates"
             )),
             "",
-            r"\paragraph{Plateau evidence.} Offline: "
+            r"\paragraph{Offline plateau evidence.} "
             + compact_plateau(conclusions[key].get("offline_stable_plateau"))
-            + r"; live: "
-            + compact_plateau(conclusions[key].get("live_stable_plateau")),
+            ,
+            "",
+            r"\paragraph{Secondary functional-live status.} Transition: "
+            + tex_escape(conclusions[key].get("live_transition_region"))
+            + r"; stable plateau: "
+            + compact_plateau(conclusions[key].get("live_stable_plateau"))
+            + r". These data do not establish the primary offline claim.",
             "",
         ])
     lines.extend([
@@ -447,10 +591,7 @@ def write_tex(path, conclusions, frontier):
                 for row in frontier
             ) if frontier else "NA---live runs required."
         ),
-        r"\paragraph{h8 versus h16 at 20M.} "
-        + tex_escape(conclusions.get("h8_compact_vs_h16")),
-        r"\paragraph{Incremental h16 live benefit.} "
-        + tex_escape(conclusions.get("h16_incremental_live_benefit")),
+        r"\paragraph{Scope.} 602.gcc\_s-734B, seed 7, original offline keyed-replay protocol.",
     ])
     path.write_text("\n".join(lines) + "\n")
 
@@ -466,6 +607,21 @@ def main():
     offline_data = load(args.run_dir / "offline_sweep_results.json")
     live_data = load(args.run_dir / "live_sweep_results.json")
     offline = offline_data["points"]
+    offline_equivalence = offline_equivalence_rows(offline)
+    write_outputs(
+        offline_equivalence,
+        args.run_dir / "offline_20m_equivalence.csv",
+        args.run_dir / "offline_20m_equivalence.json",
+        {"comparison_rule": "each h8/h16 point versus same-hidden-size i20m"},
+    )
+    key_rows = key_budget_rows(offline_equivalence)
+    write_outputs(
+        key_rows,
+        args.run_dir / "report/key_budgets.csv",
+        args.run_dir / "report/key_budgets.json",
+    )
+    (args.run_dir / "report").mkdir(parents=True, exist_ok=True)
+    write_key_budget_tex(args.run_dir / "report/generated_key_budgets.tex", key_rows)
     live = [
         row for row in live_data["points"]
         if row.get("state_mode") == "parity"
@@ -480,10 +636,16 @@ def main():
         (row["hidden_size"], row["instruction_budget"], row["seed"]): row
         for row in live
     }
+    live_reference_by_hidden = {
+        hidden: reference_20m([
+            row for row in live if row.get("hidden_size") == hidden
+        ]) for hidden in (8, 16)
+    }
     joined = []
     for row in offline:
         key = (row["hidden_size"], row["instruction_budget"], row["seed"])
         live_row = live_by_key.get(key)
+        live_reference = live_reference_by_hidden.get(row["hidden_size"])
         combined = {
             "hidden_size": row["hidden_size"],
             "instruction_budget": row["instruction_budget"],
@@ -515,6 +677,23 @@ def main():
                 if live_row
                 and live_row.get("requests_per_l2_load") is not None
                 and row.get("requests_per_l2_load") is not None else None
+            ),
+            "live_relative_ipc_difference_vs_same_h_live_20m": (
+                (live_row["ipc"] - live_reference["ipc"])
+                / live_reference["ipc"]
+                if live_row and live_reference
+                and live_row.get("ipc") is not None
+                and live_reference.get("ipc") not in (None, 0) else None
+            ),
+            "live_coverage_percentage_point_difference_vs_same_h_live_20m": (
+                difference(live_row.get("coverage"),
+                           live_reference.get("coverage"), True)
+                if live_row and live_reference else None
+            ),
+            "live_request_pressure_difference_vs_same_h_live_20m": (
+                difference(live_row.get("requests_per_l2_load"),
+                           live_reference.get("requests_per_l2_load"))
+                if live_row and live_reference else None
             ),
             "status": live_row.get("status") if live_row else row.get("status"),
             "failure_reason": (
@@ -550,7 +729,14 @@ def main():
         )
         for hidden in (8, 16)
     }
-    conclusions["schema_version"] = 2
+    conclusions["schema_version"] = 3
+    conclusions["primary_protocol"] = (
+        "original 602 offline Python causal inference plus keyed replay; "
+        "each N is compared with i20m of the same hidden size"
+    )
+    conclusions["scope_limit"] = (
+        "602.gcc_s-734B, seed 7, original offline keyed-replay protocol"
+    )
     conclusions["analysis_policy"] = {
         "reaching_at_least": (
             "IPC_N >= requested_fraction * IPC_20M (one-sided)"

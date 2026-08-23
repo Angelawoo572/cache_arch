@@ -1,12 +1,15 @@
 # Report build
 
-The tracked TeX file contains the contract and conclusion structure but no
-invented measurements. `compare_offline_live.py` writes the actual conclusion
+The tracked TeX file makes the original offline keyed-replay comparison the
+primary result and contains no invented measurements. Every h8 point is
+compared with h8-i20m and every h16 point with h16-i20m.
+`compare_offline_live.py` writes the actual conclusion
 CSV, JSON, and TeX into the ignored run directory. It distinguishes one-sided
 performance sufficiency, two-sided equivalence to 20M, and a stable plateau
 over all subsequent observed budgets. The plateau IPC band is 0.5%; coverage,
-request pressure, and student act rate are separate 5% diagnostics and do not
-silently redefine the IPC plateau.
+request pressure, student act rate, timeliness, and replay actions are
+reported separately and do not silently redefine the IPC plateau. Functional
+live inference is a secondary section with zero modeled NN latency.
 
 After aggregation and plotting, package a self-contained Overleaf project from
 the repository root:

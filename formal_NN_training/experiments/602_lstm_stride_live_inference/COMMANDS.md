@@ -3,6 +3,167 @@
 All measurements and generated files stay below the ignored runs directory.
 Commands marked “estimate” are planning estimates, not measured results.
 
+## Current offline-fairness continuation (no training or ChampSim rerun)
+
+The primary comparison is h8-N versus h8-i20m and h16-N versus h16-i20m
+under the original offline keyed-replay protocol. These commands consume
+existing artifacts only.
+
+### 1. Branch and completed-run paths
+
+~~~bash
+cd ~/cache
+git status --short
+git switch experiment/602-stride-live-inference
+git pull --ff-only
+EXP=formal_NN_training/experiments/602_lstm_stride_live_inference
+NEW_RUN_DIR=$EXP/runs/602_gcc_stride_prefix_seed7
+export EXP NEW_RUN_DIR
+~~~
+
+Stop if `git status --short` is nonempty. Locate the old default 20M run, then
+replace the placeholder with the exact directory:
+
+~~~bash
+find formal_NN_training -type d -name '602_offline_lstm_stride_compact_hurdle_v9_seed7' -print
+find formal_NN_training -type f -path '*602_offline_lstm_stride_compact_hurdle_v9_seed7*/run_metadata.json' -print
+OLD_RUN_DIR=/replace/with/602_offline_lstm_stride_compact_hurdle_v9_seed7
+export OLD_RUN_DIR
+test -d "$OLD_RUN_DIR" && test -d "$NEW_RUN_DIR"
+~~~
+
+### 2. Fairness and old-versus-new 20M validation
+
+~~~bash
+python3 "$EXP/validation/validate_offline_fairness.py" --run-dir "$NEW_RUN_DIR"
+python3 "$EXP/validation/validate_20m_backward_regression.py" \
+  --old-run-dir "$OLD_RUN_DIR" --new-run-dir "$NEW_RUN_DIR"
+~~~
+
+`INCOMPLETE` means an identity/artifact is unavailable, not exact parity. Add
+`--require-complete` or `--require-exact` only when all local evidence is
+expected to exist.
+
+### 3. Regenerate derived offline analysis and redesigned figures
+
+~~~bash
+python3 "$EXP/python/aggregate_offline_results.py" --run-dir "$NEW_RUN_DIR"
+python3 "$EXP/python/aggregate_live_results.py" --run-dir "$NEW_RUN_DIR"
+python3 "$EXP/python/compare_offline_live.py" --run-dir "$NEW_RUN_DIR"
+python3 "$EXP/python/plot_results.py" --run-dir "$NEW_RUN_DIR"
+~~~
+
+These create `offline_20m_equivalence.csv/json`, `report/key_budgets.*`,
+`report/conclusions.*`, and the three `plots/main_*.png` figures. They do not
+change raw logs, streams, replay lists, checkpoints, or measured values.
+
+### 4. TeX/PDF or Overleaf
+
+Local two-pass build:
+
+~~~bash
+RUN_DIR_ABS=$(cd "$NEW_RUN_DIR" && pwd)
+mkdir -p "$RUN_DIR_ABS/report/pdf"
+cd "$EXP/report"
+pdflatex -interaction=nonstopmode -halt-on-error \
+  -output-directory "$RUN_DIR_ABS/report/pdf" \
+  "\def\RunDir{$RUN_DIR_ABS}\input{602_stride_training_budget_live_inference.tex}"
+pdflatex -interaction=nonstopmode -halt-on-error \
+  -output-directory "$RUN_DIR_ABS/report/pdf" \
+  "\def\RunDir{$RUN_DIR_ABS}\input{602_stride_training_budget_live_inference.tex}"
+cd ~/cache
+~~~
+
+Self-contained Overleaf ZIP:
+
+~~~bash
+RUN_DIR="$NEW_RUN_DIR" FORCE=1 bash "$EXP/linux/package_overleaf_report.sh"
+~~~
+
+### 5. Recommended live validation (only if a point is absent)
+
+Four primary i1m-versus-i20m points:
+
+~~~bash
+nohup env RUN_DIR="$NEW_RUN_DIR" HIDDEN_SIZES=8,16 BUDGETS=i1m,i20m SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$NEW_RUN_DIR/logs/live_primary_i1m_i20m.nohup.log" 2>&1 < /dev/null &
+echo $! > "$NEW_RUN_DIR/logs/live_primary_i1m_i20m.pid"
+tail -f "$NEW_RUN_DIR/logs/live_primary_i1m_i20m.nohup.log"
+~~~
+
+Two aggressive candidates:
+
+~~~bash
+nohup env RUN_DIR="$NEW_RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i250k SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$NEW_RUN_DIR/logs/live_aggressive_h8_i250k.nohup.log" 2>&1 < /dev/null &
+echo $! > "$NEW_RUN_DIR/logs/live_aggressive_h8_i250k.pid"
+
+nohup env RUN_DIR="$NEW_RUN_DIR" HIDDEN_SIZES=16 BUDGETS=i100k SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$NEW_RUN_DIR/logs/live_aggressive_h16_i100k.nohup.log" 2>&1 < /dev/null &
+echo $! > "$NEW_RUN_DIR/logs/live_aggressive_h16_i100k.pid"
+~~~
+
+Optional all-valid live curve (expensive, not required for the offline claim):
+
+~~~bash
+nohup env RUN_DIR="$NEW_RUN_DIR" LIVE_ALL_VALID=1 HIDDEN_SIZES=8,16 BUDGETS=all SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$NEW_RUN_DIR/logs/live_all_valid.nohup.log" 2>&1 < /dev/null &
+echo $! > "$NEW_RUN_DIR/logs/live_all_valid.pid"
+~~~
+
+Aggregate completed live points without interpolation:
+
+~~~bash
+python3 "$EXP/python/aggregate_live_results.py" --run-dir "$NEW_RUN_DIR"
+python3 "$EXP/python/compare_offline_live.py" --run-dir "$NEW_RUN_DIR"
+~~~
+
+### 6. Copy report to Mac
+
+Run on the Mac:
+
+~~~bash
+(base) angelawoo@Angelas-MacBook-Pro-5 ~ % mkdir -p ~/Documents/cache_arch_stride_live
+(base) angelawoo@Angelas-MacBook-Pro-5 ~ % scp qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/report/pdf/602_stride_training_budget_live_inference.pdf ~/Documents/cache_arch_stride_live/
+(base) angelawoo@Angelas-MacBook-Pro-5 ~ % scp qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/602_stride_live_overleaf.zip ~/Documents/cache_arch_stride_live/
+~~~
+
+### 7. Artifact and source-only Git checks
+
+~~~bash
+cd ~/cache
+git check-ignore "$NEW_RUN_DIR/offline_20m_equivalence.json" "$NEW_RUN_DIR/report/conclusions.json"
+git ls-files "$NEW_RUN_DIR"
+git status --short
+git diff --check
+git diff --stat
+git diff
+~~~
+
+Commit only the listed source/doc paths; do not use `git add .`:
+
+~~~bash
+git add formal_NN_training/experiments/602_lstm_stride_live_inference/{README.md,COMMANDS.md}
+git add formal_NN_training/experiments/602_lstm_stride_live_inference/config/{offline_fairness_contract.json,live_selection.json}
+git add formal_NN_training/experiments/602_lstm_stride_live_inference/python/{compare_offline_live.py,plot_results.py,select_live_budgets.py}
+git add formal_NN_training/experiments/602_lstm_stride_live_inference/report/602_stride_training_budget_live_inference.tex
+git add formal_NN_training/experiments/602_lstm_stride_live_inference/linux/package_overleaf_report.sh
+git add formal_NN_training/experiments/602_lstm_stride_live_inference/validation/{validate_offline_fairness.py,validate_20m_backward_regression.py}
+git status --short
+git commit -m "Make offline keyed replay the primary 602 sufficiency analysis"
+git push origin experiment/602-stride-live-inference
+~~~
+
+Do not merge to main.
+
 ## A. Mac login
 
 Start at the Mac prompt:

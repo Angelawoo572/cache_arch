@@ -1,18 +1,20 @@
 {
   "schema_version": 1,
   "approved": false,
-  "generated_from": null,
+  "generated_from": "offline fairness recommendation; regenerate from measured offline results before approval",
   "selection_policy": [
-    "first_trainable",
-    "first_non_all_silent",
-    "near_offline_transition",
-    "smallest_reaching_at_least_99pct_of_20m_offline_ipc",
-    "smallest_within_1pct_of_20m_offline_ipc",
-    "smallest_within_0_5pct_of_20m_offline_ipc",
-    "stable_offline_plateau",
-    "one_above_stable_offline_plateau",
-    "20m_reference"
+    "primary_live_validation_h8_i1m_i20m",
+    "primary_live_validation_h16_i1m_i20m",
+    "aggressive_candidate_h8_i250k",
+    "aggressive_candidate_h16_i100k"
   ],
-  "selected_points": [],
-  "note": "Review and set approved=true before a selected full-live sweep."
+  "selected_points": [
+    {"hidden_size": 8, "instruction_budget": 250000, "budget_tag": "i250k", "seed": 7, "reasons": ["aggressive_high_performing_candidate"]},
+    {"hidden_size": 8, "instruction_budget": 1000000, "budget_tag": "i1m", "seed": 7, "reasons": ["primary_1m_vs_20m_live_validation"]},
+    {"hidden_size": 8, "instruction_budget": 20000000, "budget_tag": "i20m", "seed": 7, "reasons": ["same_hidden_size_live_reference"]},
+    {"hidden_size": 16, "instruction_budget": 100000, "budget_tag": "i100k", "seed": 7, "reasons": ["aggressive_high_performing_candidate"]},
+    {"hidden_size": 16, "instruction_budget": 1000000, "budget_tag": "i1m", "seed": 7, "reasons": ["primary_1m_vs_20m_live_validation"]},
+    {"hidden_size": 16, "instruction_budget": 20000000, "budget_tag": "i20m", "seed": 7, "reasons": ["same_hidden_size_live_reference"]}
+  ],
+  "note": "Recommendation only. Review measured offline conclusions and set approved=true before launching."
 }

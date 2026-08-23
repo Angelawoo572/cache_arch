@@ -1,4 +1,10 @@
-# 602 Stride: offline training and live inference
+# 602 Stride: offline training-prefix sufficiency and live inference
+
+The primary scientific result uses the original offline keyed-replay
+protocol: h8-N is compared only with h8-i20m, and h16-N only with h16-i20m,
+while the trace-start training prefix is the sole changing variable.
+Functional live inference is a secondary deployment validation with zero
+modeled NN inference latency.
 
 This sibling experiment keeps the completed
 [602_offline_lstm_stride](../602_offline_lstm_stride/) study unchanged and
@@ -14,10 +20,13 @@ future field, or action-list lookup.
 
 ## Scientific questions
 
-- **h16 performance reference:** find the smallest offline prefix that
-  preserves live system performance.
-- **h8 compact reference:** find the smallest offline prefix that approaches
-  the h16 live result with fewer weights and less recurrent state.
+- **h16 performance reference:** find the smallest offline prefix equivalent
+  to h16-i20m under the original keyed-replay system protocol.
+- **h8 compact reference:** find the smallest offline prefix equivalent to
+  h8-i20m under that same protocol.
+- **secondary deployment check:** test the offline conclusion using frozen
+  functional live inference, without using incomplete live points to decide
+  the primary training-size result.
 
 h8 and h16 remain separate learning curves. h8 has 1,908 parameters (7,632
 float32 weight bytes); h16 has 5,220 parameters (20,880 bytes). h32/h64/h128

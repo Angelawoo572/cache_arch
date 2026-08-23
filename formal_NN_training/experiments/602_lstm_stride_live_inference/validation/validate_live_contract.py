@@ -210,19 +210,13 @@ def validate_sacramento_python_compatibility():
         fail("Sacramento Python 3.6 compatibility failures: {}".format(bad))
 
 
-def validate_no_content_fingerprints():
-    extensions = {".py", ".sh", ".md", ".json", ".ipynb", ".tex"}
+def validate_fingerprint_scope():
+    """Keep requested fairness identities out of Colab transfer workflow."""
     sources = [
-        path for path in EXP.rglob("*")
-        if (
-            path.is_file()
-            and path.suffix in extensions
-            and "runs" not in path.relative_to(EXP).parts
-        )
+        EXP / "colab/train_prefix_sweep.ipynb",
+        EXP / "linux/package_colab_input.sh",
+        EXP / "linux/install_colab_output.sh",
     ]
-    sources.append(
-        ROOT / "formal_NN_training/common/stride_direct_action_model.py"
-    )
     forbidden = (
         "s" + "ha256",
         "hash" + "lib",
@@ -235,9 +229,9 @@ def validate_no_content_fingerprints():
         lowered = path.read_text().lower()
         for token in forbidden:
             if token in lowered:
-                bad.append("{}: forbidden content fingerprint token".format(path))
+                bad.append("{}: Colab transfer fingerprint token".format(path))
     if bad:
-        fail("content fingerprints remain: {}".format(bad))
+        fail("fingerprints leaked into Colab transfer workflow: {}".format(bad))
 
 
 def validate_artifacts():
@@ -278,7 +272,7 @@ def main():
     validate_sources()
     validate_shell()
     validate_sacramento_python_compatibility()
-    validate_no_content_fingerprints()
+    validate_fingerprint_scope()
     validate_artifacts()
     print("[PASS] frozen live runtime has no learning/teacher/list dependency")
     print("[PASS] external model inputs are PC and cache-line address only")
@@ -286,7 +280,7 @@ def main():
     print("[PASS] versioned float32 export contains all recurrent/action heads")
     print("[PASS] parity reset and optional realistic warmup are separated")
     print("[PASS] Sacramento Python 3.6/legacy NumPy path needs no pandas")
-    print("[PASS] tracked workflow source has no content fingerprints/sidecars")
+    print("[PASS] fairness identities remain separate from Colab transfer workflow")
     print("[PASS] generated data, logs, checkpoints, and weights are untracked")
     print("[PASS] completed offline 602 Stride reference remains present")
 

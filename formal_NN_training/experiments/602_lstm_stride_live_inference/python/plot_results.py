@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the fourteen required h8/h16-separated diagnostic plots."""
+"""Generate offline-primary figures plus secondary deployment diagnostics."""
 
 import argparse
 import json
 import os
 from pathlib import Path
+
+from analysis_policy import reference_20m, stable_plateau
 
 
 COLORS = {8: "#0072B2", 16: "#D55E00"}
@@ -66,6 +68,91 @@ def save(fig, path):
     fig.clf()
 
 
+def main_offline_ipc_figure(plt, offline, references, out):
+    fig, ax = plt.subplots(figsize=(8.2, 5.0))
+    for hidden in (8, 16):
+        rows = points_for(offline, hidden, "ipc")
+        reference = reference_20m(rows)
+        if not rows or reference is None:
+            continue
+        x = [row["instruction_budget"] for row in rows]
+        y = [row["ipc"] for row in rows]
+        ax.plot(x, y, marker="o", color=COLORS[hidden], label="h{} offline keyed replay".format(hidden))
+        lower, upper = reference["ipc"] * 0.995, reference["ipc"] * 1.005
+        ax.fill_between(x, [lower] * len(x), [upper] * len(x),
+                        color=COLORS[hidden], alpha=0.09,
+                        label="h{} i20m +/-0.5%".format(hidden))
+        plateau, _ = stable_plateau(rows, reference, 0.005)
+        if plateau:
+            ax.annotate("h{} stable plateau starts {}".format(hidden, plateau["budget_tag"]),
+                        (plateau["instruction_budget"], plateau["ipc"]),
+                        xytext=(6, 12), textcoords="offset points", fontsize=8,
+                        color=COLORS[hidden])
+        aggressive = "i250k" if hidden == 8 else "i100k"
+        candidate = next((row for row in rows if row["budget_tag"] == aggressive), None)
+        if candidate:
+            ax.scatter([candidate["instruction_budget"]], [candidate["ipc"]],
+                       marker="*", s=150, color=COLORS[hidden], edgecolor="black",
+                       zorder=5)
+            ax.annotate("{} aggressive candidate".format(aggressive),
+                        (candidate["instruction_budget"], candidate["ipc"]),
+                        xytext=(6, -16), textcoords="offset points", fontsize=8)
+    for name in ("no_pref", "offline_stride"):
+        reference = references.get(name, {})
+        if reference.get("ipc") is not None:
+            ax.axhline(reference["ipc"], linestyle="--", alpha=0.55,
+                       label=name.replace("_", " "))
+    status_markers(ax, offline)
+    ax.set_xscale("log")
+    ax.set_xlabel("retired training instructions")
+    ax.set_ylabel("offline keyed-replay IPC")
+    ax.grid(True, alpha=0.25)
+    ax.legend(fontsize=8, ncol=2)
+    save(fig, out / "main_01_offline_ipc_equivalence.png")
+
+
+def main_difference_figure(plt, equivalence, out):
+    fields = (
+        ("relative_ipc_difference_vs_same_h_20m", "relative IPC difference", 100.0),
+        ("coverage_percentage_point_difference_vs_same_h_20m", "coverage difference (pp)", 1.0),
+        ("l2_miss_rate_percentage_point_difference_vs_same_h_20m", "L2 miss-rate difference (pp)", 1.0),
+        ("request_pressure_difference_vs_same_h_20m", "requests/load difference", 1.0),
+        ("student_act_rate_percentage_point_difference_vs_same_h_20m", "student act-rate difference (pp)", 1.0),
+    )
+    fig, axes = plt.subplots(len(fields), 1, figsize=(8.2, 11.0), sharex=True)
+    for ax, (field, ylabel, scale) in zip(axes, fields):
+        for hidden in (8, 16):
+            rows = points_for(equivalence, hidden, field)
+            if rows:
+                ax.plot([row["instruction_budget"] for row in rows],
+                        [scale * row[field] for row in rows], marker="o",
+                        color=COLORS[hidden], label="h{} vs h{}-i20m".format(hidden, hidden))
+        ax.axhline(0.0, color="black", linestyle=":", linewidth=1)
+        ax.set_ylabel(ylabel)
+        ax.grid(True, alpha=0.25)
+    axes[0].legend(fontsize=8)
+    axes[-1].set_xscale("log")
+    axes[-1].set_xlabel("retired training instructions")
+    save(fig, out / "main_02_same_h_20m_differences.png")
+
+
+def main_supervision_figure(plt, prefix, out):
+    fig, axes = plt.subplots(1, 3, figsize=(11.0, 3.8), sharex=True)
+    for ax, field, title in zip(
+            axes, ("decision_rows", "positive_count_rows", "action_atoms"),
+            ("decision rows", "teacher K>0 rows", "teacher action atoms = sum(K)")):
+        rows = sorted((row for row in prefix if row.get(field) is not None),
+                      key=lambda row: row["instruction_budget"])
+        ax.plot([row["instruction_budget"] for row in rows],
+                [row[field] for row in rows], marker="o", color="#009E73")
+        ax.set_xscale("log")
+        ax.set_title(title)
+        ax.set_xlabel("retired instructions")
+        ax.grid(True, alpha=0.25)
+    axes[0].set_ylabel("teacher-label count")
+    save(fig, out / "main_03_training_supervision.png")
+
+
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", required=True, type=Path)
@@ -94,6 +181,13 @@ def main():
     ]
     joined = load(args.run_dir / "offline_vs_live.json")["points"]
     frontier = load(args.run_dir / "pareto_frontier.json")["points"]
+    equivalence = load(args.run_dir / "offline_20m_equivalence.json")["points"]
+
+    main_offline_ipc_figure(
+        plt, offline, offline_data.get("references", {}), out
+    )
+    main_difference_figure(plt, equivalence, out)
+    main_supervision_figure(plt, prefix, out)
 
     for field, filename, ylabel in (
         ("decision_rows", "01_decision_rows.png", "decision rows"),
@@ -226,6 +320,7 @@ def main():
     save(fig, out / "13_host_inference_latency.png")
 
     fig, ax = plt.subplots(figsize=(7.2, 5.0))
+    any_live = False
     for hidden in (8, 16):
         selected = [
             row for row in live
@@ -241,6 +336,7 @@ def main():
             ],
             alpha=0.55, color=COLORS[hidden], label="h{}".format(hidden),
         )
+        any_live = any_live or bool(selected)
     if frontier:
         ax.scatter(
             [row["instruction_budget"] for row in frontier],
@@ -248,13 +344,17 @@ def main():
             facecolors="none", edgecolors="black", s=150,
             label="Pareto frontier",
         )
-    ax.set_xscale("log")
+    if any_live:
+        ax.set_xscale("log")
+    else:
+        ax.text(0.5, 0.5, "NA---functional live runs not available",
+                transform=ax.transAxes, ha="center", va="center")
     ax.set_xlabel("retired training instructions")
     ax.set_ylabel("live IPC")
     ax.grid(True, alpha=0.25)
     ax.legend()
     save(fig, out / "14_pareto_frontier.png")
-    print("[ok] wrote 14 plots to {}".format(out))
+    print("[ok] wrote 3 offline-primary and 14 diagnostic plots to {}".format(out))
 
 
 if __name__ == "__main__":

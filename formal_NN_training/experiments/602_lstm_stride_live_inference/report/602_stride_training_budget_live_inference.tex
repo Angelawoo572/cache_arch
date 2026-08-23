@@ -1,93 +1,85 @@
 \documentclass[10pt]{article}
-\usepackage[margin=0.8in]{geometry}
-\usepackage{booktabs}
-\usepackage{graphicx}
-\usepackage{hyperref}
-\usepackage{longtable}
-\usepackage{amsmath}
+\usepackage[margin=0.72in]{geometry}
+\usepackage{booktabs,longtable,graphicx,hyperref,amsmath,pdflscape}
 \providecommand{\RunDir}{../runs/602_gcc_stride_prefix_seed7}
-\title{602 Stride Training Budget: Offline Training and Live Inference}
-\author{Reproducible experiment report}
+\title{602 Stride Training-Prefix Sufficiency\\
+under the Original Offline Keyed-Replay Protocol}
+\author{Seed-7 reproducible analysis}
 \date{\today}
-
-\newcommand{\runfigure}[2]{%
-  \IfFileExists{\RunDir/plots/#1}{%
-    \begin{figure}[ht]
-      \centering
-      \includegraphics[width=0.83\linewidth]{\RunDir/plots/#1}
-      \caption{#2}
-    \end{figure}
-  }{}%
-}
-
+\newcommand{\runfigure}[3]{\IfFileExists{\RunDir/plots/#1}{\begin{figure}[p]\centering\includegraphics[width=#2\linewidth]{\RunDir/plots/#1}\caption{#3}\end{figure}}{\par\textbf{Missing generated figure: #1}\par}}
 \begin{document}
 \maketitle
-
-\section{Question and deployment contract}
-This study asks, separately for h16 and h8, for the smallest offline training
-prefix that preserves system performance when frozen inference executes in
-the live ChampSim L2 callback. “Online” denotes callback placement only.
-There is no online learning, gradient, optimizer, teacher, or action-list
-lookup in the live runtime.
-
-The current event's teacher action-list length is \(K\).  The neural student
-learns whether to issue, the positive count \(K\), and one signed delta/target
-address per slot.  \(K\) is not history length, training rows, hidden size,
-model capacity, or a fixed prefetch degree.
-
-\section{Fixed controls}
-The trace is 602.gcc\_s-734B; seed is 7; epochs are 12; TBPTT length is 256;
-and all optimizer, learning-rate, encoder, PC-keyed state, hurdle, count,
-free-running decoder, teacher, class-balance, held-out stream, replay,
-ChampSim, window, and metric definitions remain fixed.  Only retired training
-instructions and the two predeclared curves h8/h16 vary.
-
-h8 contains 1,908 trainable parameters (7,632 float32 bytes); h16 contains
-5,220 (20,880 bytes).  Per observed PC, recurrent state is \(8H\) bytes.
-
-\section{Measurement boundary}
-Primary parity mode uses 25M warmup plus 25M measured instructions. Warmup
-callbacks neither advance neural state nor issue neural requests. At the first
-measured callback the PC-state map is explicitly empty. Optional realistic
-state warmup is separately named and never mixed into a parity row.
-
-\section{Supervision and learning curves}
-\runfigure{01_decision_rows.png}{Decision rows versus retired training instructions.}
-\runfigure{02_positive_count_rows.png}{Positive-count rows versus retired training instructions.}
-\runfigure{03_action_atoms.png}{Action atoms versus retired training instructions.}
-\runfigure{04_offline_ipc.png}{Keyed offline IPC, with separate h8 and h16 curves.}
-\runfigure{05_live_ipc.png}{Live IPC, with separate h8 and h16 curves.}
-\runfigure{06_offline_vs_live_ipc.png}{Offline versus live IPC.}
-\runfigure{07_coverage.png}{Coverage versus retired training instructions.}
-\runfigure{08_requests_per_l2_load.png}{Request pressure versus retired training instructions.}
-\runfigure{09_student_heldout_act_rate.png}{Student held-out act rate.}
-\runfigure{10_l2_load_miss_rate.png}{L2 load miss rate.}
-
-\section{Deployment cost and Pareto analysis}
-\runfigure{11_weight_bytes_vs_live_ipc.png}{Model weight bytes versus live IPC.}
-\runfigure{12_recurrent_state_bytes_vs_live_ipc.png}{Peak recurrent-state bytes versus live IPC.}
-\runfigure{13_host_inference_latency.png}{Host-side inference timing percentiles.}
-\runfigure{14_pareto_frontier.png}{Training/model/live-IPC Pareto frontier.}
-Host nanoseconds are not interpreted as simulated cycles.
-
-\clearpage
-\section{Required conclusions}
-The report distinguishes three non-interchangeable concepts. ``Reaching at
-least'' is a one-sided sufficiency test and may include a point that
-outperforms 20M. ``Within'' uses the two-sided relative IPC error
-\(\lvert IPC_N-IPC_{20M}\rvert/IPC_{20M}\). A stable plateau requires the
-candidate and every subsequent \emph{observed} budget through 20M to remain
-within 0.5\% of 20M IPC; coverage, request pressure, and student act-rate
-stability are reported separately as supporting diagnostics.
-\IfFileExists{\RunDir/report/generated_conclusions.tex}{%
-  \input{\RunDir/report/generated_conclusions.tex}
-}{%
-  \textbf{NA---Sacramento/Colab execution is required.} No performance
-  conclusion is inferred from unexecuted code.
-}
-
-Winner selection follows the complete chain: action match, traffic,
-timeliness, coverage/miss rate, then IPC. Training loss, imitation accuracy,
-or count accuracy alone is insufficient.
-
+\section{Question}
+Holding the existing h8/h16 model, training recipe, fixed evaluation stream,
+offline causal inference, keyed replay transport, ChampSim configuration,
+measurement window, and metric definitions constant, what is the smallest
+trace-start training prefix whose offline keyed-replay system result is
+equivalent to the corresponding 20M model? Every h8 point is compared with
+h8--20M; every h16 point is compared with h16--20M.
+\section{Original 602 offline keyed-replay protocol}
+Training uses trace start through $N$ retired instructions with zero training
+warmup. Python performs causal offline inference on one fixed held-out stream
+and writes one PC--line--occurrence-keyed action list per model. The same
+list-replayer binary then runs 25M ChampSim warmup instructions and 25M
+measured instructions. Conventional Stride supplies labels only. PC and
+cache-line address are the only external neural inputs.
+\section{What is fixed and what changes}
+Only $N$ changes within an h8 or h16 curve. Seed 7, 12 epochs, TBPTT length
+256, PC batch size 128, Adam, learning rate 0.002, runtime encoder, dynamic
+exact-PC state routing, hurdle/count/delta heads, prefix-derived class balance,
+evaluation stream, replay format, references, cache configuration, and metric
+parser remain fixed. Fixed epochs mean larger prefixes receive more optimizer
+steps; this measures trace and training work under the current fixed recipe
+and does not isolate unique-data diversity from optimizer-step count.
+\IfFileExists{\RunDir/report/offline_fairness.tex}{\paragraph{Machine audit.}\input{\RunDir/report/offline_fairness.tex}}{}
+\section{20M backward regression}
+\IfFileExists{\RunDir/report/20m_backward_regression.tex}{\input{\RunDir/report/20m_backward_regression.tex}}{Exact local old-run artifacts were not supplied to this TeX build. Run the backward-regression validator with explicit \texttt{OLD\_RUN\_DIR} and \texttt{NEW\_RUN\_DIR}. Historical IPC-only comparison is insufficient to claim exact artifact parity.}
+\section{Training supervision versus instruction prefix}
+\runfigure{main_03_training_supervision.png}{0.98}{Decision rows, teacher $K>0$ rows, and teacher action atoms. These are label statistics, not student act rates.}
+\section{h8: $N$ versus h8--20M}
+The h8 curve and all differences use h8--20M as their sole training-size
+reference. The marked h8--i250k point is retained as a real aggressive,
+high-performing candidate; it is not called a 20M-equivalent policy merely
+because its IPC is high.
+\section{h16: $N$ versus h16--20M}
+The h16 curve and all differences use h16--20M as their sole training-size
+reference. The marked h16--i100k point is likewise retained as an aggressive
+candidate and is not mislabeled as a stable plateau.
+\runfigure{main_01_offline_ipc_equivalence.png}{0.98}{Primary fair offline keyed-replay IPC curves, same-hidden-size 20M bands, stable-plateau annotations, and aggressive candidates.}
+\runfigure{main_02_same_h_20m_differences.png}{0.98}{Differences from the corresponding same-hidden-size 20M model.}
+\section{System-performance versus policy-behavior equivalence}
+``Reaching at least'' is the one-sided test $IPC_N\ge f\,IPC_{20M}$.
+``Within'' is the two-sided test
+$\lvert IPC_N-IPC_{20M}\rvert/IPC_{20M}\le\epsilon$. A stable 0.5\%-IPC
+plateau requires a candidate and every subsequent observed budget through 20M
+to remain within the band. Coverage, miss rate, request pressure, student act
+rate, timeliness, and replay-action count are reported separately. The phrase
+\emph{policy equivalent} is reserved for evidence that traffic and action
+behavior are also close.
+\subsection*{Key budgets}
+\begin{landscape}\scriptsize
+\IfFileExists{\RunDir/report/generated_key_budgets.tex}{\input{\RunDir/report/generated_key_budgets.tex}}{NA---run the analysis generator.}
+\end{landscape}
+\section{Seed-7 conclusion and limitations}
+\IfFileExists{\RunDir/report/generated_conclusions.tex}{\input{\RunDir/report/generated_conclusions.tex}}{NA---the generated conclusions are not available.}
+All conclusions are limited to 602.gcc\_s-734B, seed 7, and the original
+offline keyed-replay protocol until multi-seed evidence is available.
+\section{Secondary live-deployment validation}
+Live results are secondary. They are functional frozen C++ inference in the
+ChampSim callback with no replay list, teacher, optimizer, gradient, or weight
+update and with \textbf{zero modeled NN inference latency}. The primary four
+validation points are h8/h16 at i1m and i20m; h8--i250k and h16--i100k are
+additional aggressive candidates. For each point, analysis separately reports
+live-$N$ versus offline-$N$, and live-$N$ versus same-H live-20M. Missing
+live points are neither interpolated nor used for the primary offline claim.
+\section{Future latency-aware evaluation}
+Host wall-clock nanoseconds are not simulated CPU cycles. Latency-aware issue
+delay is a separate future experiment on the four primary and two aggressive
+checkpoints; no NN latency model is added here.
+\section{Appendix: reproducibility and audit}
+Machine-readable outputs are \texttt{offline\_fairness.json},
+\texttt{20m\_backward\_regression.json},
+\texttt{offline\_20m\_equivalence.json}, \texttt{key\_budgets.json}, and
+\texttt{conclusions.json}. Generated artifacts remain below the ignored run
+directory. Source commands are in \texttt{COMMANDS.md}.
 \end{document}
