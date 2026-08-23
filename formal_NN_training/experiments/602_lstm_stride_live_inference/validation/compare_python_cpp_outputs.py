@@ -412,7 +412,16 @@ def run_recorded(args):
     else:
         reference = NumpyFrozenRuntime(read_model(args.model_bin))
         reference_mode = "independent_numpy_model_bin"
-    expected = [reference.infer(pc, line) for pc, line in events]
+    expected = []
+    for index, (pc, line) in enumerate(events, 1):
+        expected.append(reference.infer(pc, line))
+        if index % 10000 == 0 or index == len(events):
+            print(
+                "[python-reference] {}/{} events".format(
+                    index, len(events)
+                ),
+                flush=True,
+            )
     observed = run_cpp(
         args.cpp_runner, args.model_bin, event_path, output_path, stats_path
     )
