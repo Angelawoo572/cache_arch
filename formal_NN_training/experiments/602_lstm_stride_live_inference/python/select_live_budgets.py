@@ -7,20 +7,17 @@ import math
 from collections import defaultdict
 from pathlib import Path
 
+from analysis_policy import (
+    first,
+    reference_20m,
+    smallest_reaching_at_least,
+    smallest_within,
+    stable_plateau,
+)
+
 
 def load_points(path):
     return json.loads(Path(path).read_text())["points"]
-
-
-def first(rows, predicate):
-    return next((row for row in rows if predicate(row)), None)
-
-
-def within(rows, reference, fraction):
-    if not reference or reference.get("ipc") in (None, 0):
-        return None
-    target = reference["ipc"] * (1.0 - fraction)
-    return first(rows, lambda row: row.get("ipc") is not None and row["ipc"] >= target)
 
 
 def transition(rows):
@@ -69,13 +66,7 @@ def main():
         rows = sorted(
             grouped[hidden], key=lambda row: row["instruction_budget"]
         )
-        reference = first(
-            reversed(rows),
-            lambda row: (
-                row["instruction_budget"] == 20000000
-                and row.get("ipc") is not None
-            ),
-        )
+        reference = reference_20m(rows)
         trainable = first(rows, lambda row: row.get("status") not in {
             "no_callbacks", "single_class_no_act",
             "single_class_no_silent", "insufficient_rows",
@@ -85,15 +76,17 @@ def main():
             (row.get("offline_replay_entry_count") or 0) > 0
         ))
         near_transition = transition(rows)
-        one_percent = within(rows, reference, 0.01)
-        half_percent = within(rows, reference, 0.005)
+        one_percent = smallest_within(rows, reference, 0.01)
+        half_percent = smallest_within(rows, reference, 0.005)
+        reaching_99 = smallest_reaching_at_least(rows, reference, 0.99)
+        plateau, _ = stable_plateau(rows, reference, 0.005)
         above_plateau = None
-        if half_percent:
+        if plateau:
             above_plateau = first(
                 rows,
                 lambda row: (
                     row["instruction_budget"]
-                    > half_percent["instruction_budget"]
+                    > plateau["instruction_budget"]
                     and row.get("ipc") is not None
                 ),
             )
@@ -101,9 +94,11 @@ def main():
             (trainable, "first_trainable_budget"),
             (non_silent, "first_non_all_silent_budget"),
             (near_transition, "near_offline_transition"),
+            (reaching_99, "smallest_reaching_at_least_99_percent_of_20m_offline_ipc"),
             (one_percent, "smallest_within_1_percent_of_20m_offline_ipc"),
             (half_percent, "smallest_within_0.5_percent_of_20m_offline_ipc"),
-            (above_plateau, "one_point_above_apparent_plateau"),
+            (plateau, "first_stable_offline_plateau_candidate"),
+            (above_plateau, "one_point_above_stable_offline_plateau_candidate"),
             (reference, "20m_reference"),
         ):
             add(selected, row, reason)

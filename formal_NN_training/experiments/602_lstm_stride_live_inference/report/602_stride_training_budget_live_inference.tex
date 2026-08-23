@@ -3,6 +3,8 @@
 \usepackage{booktabs}
 \usepackage{graphicx}
 \usepackage{hyperref}
+\usepackage{longtable}
+\usepackage{amsmath}
 \providecommand{\RunDir}{../runs/602_gcc_stride_prefix_seed7}
 \title{602 Stride Training Budget: Offline Training and Live Inference}
 \author{Reproducible experiment report}
@@ -68,7 +70,15 @@ state warmup is separately named and never mixed into a parity row.
 \runfigure{14_pareto_frontier.png}{Training/model/live-IPC Pareto frontier.}
 Host nanoseconds are not interpreted as simulated cycles.
 
+\clearpage
 \section{Required conclusions}
+The report distinguishes three non-interchangeable concepts. ``Reaching at
+least'' is a one-sided sufficiency test and may include a point that
+outperforms 20M. ``Within'' uses the two-sided relative IPC error
+\(\lvert IPC_N-IPC_{20M}\rvert/IPC_{20M}\). A stable plateau requires the
+candidate and every subsequent \emph{observed} budget through 20M to remain
+within 0.5\% of 20M IPC; coverage, request pressure, and student act-rate
+stability are reported separately as supporting diagnostics.
 \IfFileExists{\RunDir/report/generated_conclusions.tex}{%
   \input{\RunDir/report/generated_conclusions.tex}
 }{%

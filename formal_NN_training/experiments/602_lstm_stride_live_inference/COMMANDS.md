@@ -87,6 +87,7 @@ D. Do not begin collection until both validators and synthetic parity pass.
 ~~~bash
 python3 formal_NN_training/experiments/validate_direct_action_contracts.py
 python3 "$EXP/validation/validate_live_contract.py"
+python3 -m unittest "$EXP/validation/test_analysis_policy.py"
 python3 -m compileall -q formal_NN_training/common "$EXP/python" "$EXP/validation"
 find "$EXP" -name '*.sh' -print0 | xargs -0 -n1 bash -n
 if command -v shellcheck >/dev/null 2>&1; then
@@ -529,6 +530,7 @@ python3 "$EXP/python/compare_offline_live.py" --run-dir "$RUN_DIR"
 python3 "$EXP/python/plot_results.py" --run-dir "$RUN_DIR"
 python3 "$EXP/validation/validate_training_sweep.py" --run-dir "$RUN_DIR" --require-all
 jq . "$RUN_DIR/report/conclusions.json"
+column -s, -t < "$RUN_DIR/report/conclusions.csv"
 column -s, -t < "$RUN_DIR/pareto_frontier.csv"
 ~~~
 
@@ -558,6 +560,7 @@ pareto_frontier.csv/json
 selected_live_budgets.json
 plots/01_*.png through plots/14_*.png
 report/conclusions.json
+report/conclusions.csv
 report/generated_conclusions.tex
 602_stride_live_overleaf.zip
 ~~~

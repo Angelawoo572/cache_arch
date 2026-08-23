@@ -2,30 +2,26 @@
 """Join offline/live results, compute conclusions, and find the Pareto set."""
 
 import argparse
+import csv
 import json
 import math
 from collections import defaultdict
 from pathlib import Path
 
 from result_utils import write_outputs
+from analysis_policy import (
+    first,
+    reference_20m,
+    relative_deviation,
+    smallest_reaching_at_least,
+    smallest_within,
+    stability_evidence,
+    stable_plateau,
+)
 
 
 def load(path):
     return json.loads(Path(path).read_text())
-
-
-def first(rows, predicate):
-    return next((row for row in rows if predicate(row)), None)
-
-
-def threshold(rows, reference, fraction, field="ipc"):
-    if reference is None or reference.get(field) in (None, 0):
-        return None
-    target = reference[field] * (1.0 - fraction)
-    return first(
-        rows,
-        lambda row: row.get(field) is not None and row[field] >= target,
-    )
 
 
 def transition(rows, field="ipc"):
@@ -42,18 +38,72 @@ def transition(rows, field="ipc"):
     return [left["budget_tag"], right["budget_tag"]]
 
 
-def reference_20m(rows):
-    return first(
-        reversed(rows),
-        lambda row: (
-            row.get("instruction_budget") == 20000000
-            and row.get("ipc") is not None
-        ),
-    )
-
-
 def tag(row):
     return row["budget_tag"] if row else None
+
+
+def high_performing_candidates(rows, reference):
+    if reference is None or reference.get("ipc") in (None, 0):
+        return []
+    result = []
+    for row in rows:
+        if (
+            row.get("instruction_budget", 0) >= reference["instruction_budget"]
+            or row.get("ipc") is None
+            or row["ipc"] <= reference["ipc"]
+        ):
+            continue
+        candidate = {
+            "budget_tag": row["budget_tag"],
+            "instruction_budget": row["instruction_budget"],
+            "ipc": row["ipc"],
+            "relative_ipc_uplift_vs_20m": (
+                (row["ipc"] - reference["ipc"]) / reference["ipc"]
+            ),
+        }
+        aggressive_signals = []
+        for field in (
+            "coverage", "requests_per_l2_load", "student_heldout_act_rate"
+        ):
+            candidate[field] = row.get(field)
+            candidate[field + "_20m"] = reference.get(field)
+            if (
+                row.get(field) is not None
+                and reference.get(field) is not None
+                and row[field] > reference[field]
+            ):
+                aggressive_signals.append(field)
+        candidate["aggressive_signals_vs_20m"] = aggressive_signals
+        result.append(candidate)
+    return result
+
+
+def plateau_summary(rows, reference, tolerance=0.005):
+    candidate, suffix = stable_plateau(rows, reference, tolerance)
+    if candidate is None:
+        return None
+    return {
+        "budget_tag": candidate["budget_tag"],
+        "instruction_budget": candidate["instruction_budget"],
+        "ipc_relative_tolerance": tolerance,
+        "definition": (
+            "candidate and every subsequent observed budget through 20M "
+            "are within the two-sided IPC tolerance"
+        ),
+        "observed_budget_tags": [row["budget_tag"] for row in suffix],
+        "max_ipc_relative_deviation": max(
+            relative_deviation(row["ipc"], reference["ipc"])
+            for row in suffix
+        ),
+        "auxiliary_stability_near_20m": stability_evidence(
+            suffix,
+            reference,
+            (
+                "coverage", "requests_per_l2_load",
+                "student_heldout_act_rate",
+            ),
+        ),
+    }
 
 
 def conclusions_for_hidden(offline, live):
@@ -104,34 +154,59 @@ def conclusions_for_hidden(offline, live):
         }
     else:
         teacher_trend = None
-    coverage_plateau = threshold(live, live_ref, 0.005, field="coverage")
-    live_plateau_row = threshold(live, live_ref, 0.005)
+    offline_plateau = plateau_summary(offline, off_ref)
+    live_plateau = plateau_summary(live, live_ref)
+    live_plateau_row = first(
+        live,
+        lambda row: (
+            live_plateau is not None
+            and row.get("budget_tag") == live_plateau["budget_tag"]
+        ),
+    )
     result = {
         "first_prefix_with_any_callback": tag(first_callback),
         "first_prefix_with_any_positive_label": tag(first_positive),
         "first_trainable_prefix": tag(first_trainable),
         "first_non_all_silent_model": tag(first_non_silent),
         "offline_transition_region": transition(offline),
-        "offline_plateau": tag(threshold(offline, off_ref, 0.005)),
+        "offline_stable_plateau": offline_plateau,
         "live_transition_region": transition(live),
-        "live_plateau": tag(threshold(live, live_ref, 0.005)),
+        "live_stable_plateau": live_plateau,
+        "smallest_budget_reaching_at_least_99_percent_of_20m_offline_ipc": tag(
+            smallest_reaching_at_least(offline, off_ref, 0.99)
+        ),
+        "smallest_budget_reaching_at_least_99_5_percent_of_20m_offline_ipc": tag(
+            smallest_reaching_at_least(offline, off_ref, 0.995)
+        ),
+        "smallest_budget_reaching_at_least_99_9_percent_of_20m_offline_ipc": tag(
+            smallest_reaching_at_least(offline, off_ref, 0.999)
+        ),
+        "smallest_budget_reaching_at_least_99_percent_of_20m_live_ipc": tag(
+            smallest_reaching_at_least(live, live_ref, 0.99)
+        ),
+        "smallest_budget_reaching_at_least_99_5_percent_of_20m_live_ipc": tag(
+            smallest_reaching_at_least(live, live_ref, 0.995)
+        ),
+        "smallest_budget_reaching_at_least_99_9_percent_of_20m_live_ipc": tag(
+            smallest_reaching_at_least(live, live_ref, 0.999)
+        ),
         "smallest_within_1.0_percent_20m_offline_ipc": tag(
-            threshold(offline, off_ref, 0.01)
+            smallest_within(offline, off_ref, 0.01)
         ),
         "smallest_within_0.5_percent_20m_offline_ipc": tag(
-            threshold(offline, off_ref, 0.005)
+            smallest_within(offline, off_ref, 0.005)
         ),
         "smallest_within_0.1_percent_20m_offline_ipc": tag(
-            threshold(offline, off_ref, 0.001)
+            smallest_within(offline, off_ref, 0.001)
         ),
         "smallest_within_1.0_percent_20m_live_ipc": tag(
-            threshold(live, live_ref, 0.01)
+            smallest_within(live, live_ref, 0.01)
         ),
         "smallest_within_0.5_percent_20m_live_ipc": tag(
-            threshold(live, live_ref, 0.005)
+            smallest_within(live, live_ref, 0.005)
         ),
         "smallest_within_0.1_percent_20m_live_ipc": tag(
-            threshold(live, live_ref, 0.001)
+            smallest_within(live, live_ref, 0.001)
         ),
         "trained_all_silent_budgets": all_silent,
         "small_prefix_behavior": (
@@ -141,10 +216,15 @@ def conclusions_for_hidden(offline, live):
             if first_non_silent else None
         ),
         "teacher_similarity_trend": teacher_trend,
-        "coverage_plateau": tag(coverage_plateau),
-        "request_pressure_at_live_plateau": (
+        "request_pressure_at_live_stable_plateau": (
             live_plateau_row.get("requests_per_l2_load")
             if live_plateau_row else None
+        ),
+        "offline_high_performing_small_budget_candidates": (
+            high_performing_candidates(offline, off_ref)
+        ),
+        "live_high_performing_small_budget_candidates": (
+            high_performing_candidates(live, live_ref)
         ),
         "offline_20m_ipc": off_ref.get("ipc") if off_ref else None,
         "live_20m_ipc": live_ref.get("ipc") if live_ref else None,
@@ -215,44 +295,152 @@ def tex_escape(value):
     )
 
 
+def display_value(value):
+    if isinstance(value, dict) and "budget_tag" in value:
+        return value["budget_tag"]
+    return value
+
+
+def percent(value):
+    return "NA" if value is None else "{:.3f}\\%".format(100.0 * value)
+
+
+def compact_candidates(candidates):
+    if not candidates:
+        return "none observed"
+    items = []
+    labels = {
+        "coverage": "coverage",
+        "requests_per_l2_load": "request pressure",
+        "student_heldout_act_rate": "student act rate",
+    }
+    for candidate in candidates:
+        signals = candidate.get("aggressive_signals_vs_20m") or []
+        items.append(
+            "{} (IPC uplift {}; higher than 20M: {})".format(
+                tex_escape(candidate["budget_tag"]),
+                percent(candidate.get("relative_ipc_uplift_vs_20m")),
+                ", ".join(labels[item] for item in signals)
+                if signals else "no reported traffic/act-rate metric",
+            )
+        )
+    return "; ".join(items)
+
+
+def compact_plateau(plateau):
+    if plateau is None:
+        return (
+            "NA (no pre-20M candidate has an observed suffix entirely "
+            "within 0.5\\% of 20M IPC)"
+        )
+    auxiliary = plateau["auxiliary_stability_near_20m"]
+    diagnostics = []
+    for field, label in (
+        ("coverage", "coverage"),
+        ("requests_per_l2_load", "request pressure"),
+        ("student_heldout_act_rate", "student act rate"),
+    ):
+        item = auxiliary[field]
+        verdict = item["all_observed_within_tolerance"]
+        diagnostics.append("{} {} (max deviation {})".format(
+            label,
+            "stable" if verdict is True else
+            "not stable" if verdict is False else "NA",
+            percent(item["max_relative_deviation"]),
+        ))
+    return "{}; observed suffix {}; max IPC deviation {}; {}".format(
+        tex_escape(plateau["budget_tag"]),
+        tex_escape(plateau["observed_budget_tags"]),
+        percent(plateau["max_ipc_relative_deviation"]),
+        "; ".join(diagnostics),
+    )
+
+
+def write_conclusions_csv(path, conclusions):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as handle:
+        writer = csv.DictWriter(
+            handle, fieldnames=("hidden_size", "conclusion", "value")
+        )
+        writer.writeheader()
+        for hidden in (8, 16):
+            for key in sorted(conclusions["h{}".format(hidden)]):
+                value = conclusions["h{}".format(hidden)][key]
+                if isinstance(value, (dict, list)):
+                    value = json.dumps(value, sort_keys=True)
+                writer.writerow({
+                    "hidden_size": hidden,
+                    "conclusion": key,
+                    "value": "NA" if value is None else value,
+                })
+        for key in sorted(conclusions["analysis_policy"]):
+            writer.writerow({
+                "hidden_size": "all",
+                "conclusion": "analysis_policy." + key,
+                "value": conclusions["analysis_policy"][key],
+            })
+
+
 def write_tex(path, conclusions, frontier):
     path.parent.mkdir(parents=True, exist_ok=True)
     fields = [
-        "first_prefix_with_any_callback",
-        "first_prefix_with_any_positive_label",
-        "first_trainable_prefix",
-        "first_non_all_silent_model",
-        "offline_transition_region",
-        "offline_plateau",
-        "live_transition_region",
-        "live_plateau",
-        "smallest_within_1.0_percent_20m_offline_ipc",
-        "smallest_within_0.5_percent_20m_offline_ipc",
-        "smallest_within_0.1_percent_20m_offline_ipc",
-        "smallest_within_1.0_percent_20m_live_ipc",
-        "smallest_within_0.5_percent_20m_live_ipc",
-        "smallest_within_0.1_percent_20m_live_ipc",
-        "small_prefix_behavior",
-        "teacher_similarity_trend",
-        "coverage_plateau",
-        "request_pressure_at_live_plateau",
+        ("First prefix with any callback", "first_prefix_with_any_callback"),
+        ("First prefix with any $K>0$ label", "first_prefix_with_any_positive_label"),
+        ("First trainable prefix", "first_trainable_prefix"),
+        ("First non-all-silent model", "first_non_all_silent_model"),
+        ("Offline transition region", "offline_transition_region"),
+        ("Offline stable plateau (0.5% IPC)", "offline_stable_plateau"),
+        ("Live transition region", "live_transition_region"),
+        ("Live stable plateau (0.5% IPC)", "live_stable_plateau"),
+        ("Offline: minimum reaching at least 99% of 20M IPC", "smallest_budget_reaching_at_least_99_percent_of_20m_offline_ipc"),
+        ("Offline: minimum reaching at least 99.5% of 20M IPC", "smallest_budget_reaching_at_least_99_5_percent_of_20m_offline_ipc"),
+        ("Offline: minimum reaching at least 99.9% of 20M IPC", "smallest_budget_reaching_at_least_99_9_percent_of_20m_offline_ipc"),
+        ("Live: minimum reaching at least 99% of 20M IPC", "smallest_budget_reaching_at_least_99_percent_of_20m_live_ipc"),
+        ("Live: minimum reaching at least 99.5% of 20M IPC", "smallest_budget_reaching_at_least_99_5_percent_of_20m_live_ipc"),
+        ("Live: minimum reaching at least 99.9% of 20M IPC", "smallest_budget_reaching_at_least_99_9_percent_of_20m_live_ipc"),
+        ("Offline: minimum within 1.0% of 20M IPC", "smallest_within_1.0_percent_20m_offline_ipc"),
+        ("Offline: minimum within 0.5% of 20M IPC", "smallest_within_0.5_percent_20m_offline_ipc"),
+        ("Offline: minimum within 0.1% of 20M IPC", "smallest_within_0.1_percent_20m_offline_ipc"),
+        ("Live: minimum within 1.0% of 20M IPC", "smallest_within_1.0_percent_20m_live_ipc"),
+        ("Live: minimum within 0.5% of 20M IPC", "smallest_within_0.5_percent_20m_live_ipc"),
+        ("Live: minimum within 0.1% of 20M IPC", "smallest_within_0.1_percent_20m_live_ipc"),
+        ("Request pressure at live stable plateau", "request_pressure_at_live_stable_plateau"),
     ]
-    lines = [
-        r"\begin{tabular}{lll}",
-        r"\toprule",
-        r"Conclusion & h8 & h16\\",
-        r"\midrule",
-    ]
-    for field in fields:
-        lines.append("{} & {} & {}\\\\".format(
-            tex_escape(field),
-            tex_escape(conclusions["h8"].get(field)),
-            tex_escape(conclusions["h16"].get(field)),
-        ))
+    lines = []
+    for hidden in (8, 16):
+        key = "h{}".format(hidden)
+        lines.extend([
+            r"\subsection*{" + key + "}",
+            r"\begin{longtable}{@{}p{0.62\linewidth}p{0.30\linewidth}@{}}",
+            r"\toprule",
+            r"Conclusion & Result\\",
+            r"\midrule",
+            r"\endhead",
+        ])
+        for label, field in fields:
+            lines.append("{} & {}\\\\".format(
+                tex_escape(label),
+                tex_escape(display_value(conclusions[key].get(field))),
+            ))
+        lines.extend([
+            r"\bottomrule",
+            r"\end{longtable}",
+            r"\paragraph{High-performing small-budget candidates.} Offline: "
+            + compact_candidates(conclusions[key].get(
+                "offline_high_performing_small_budget_candidates"
+            ))
+            + r"; live: "
+            + compact_candidates(conclusions[key].get(
+                "live_high_performing_small_budget_candidates"
+            )),
+            "",
+            r"\paragraph{Plateau evidence.} Offline: "
+            + compact_plateau(conclusions[key].get("offline_stable_plateau"))
+            + r"; live: "
+            + compact_plateau(conclusions[key].get("live_stable_plateau")),
+            "",
+        ])
     lines.extend([
-        r"\bottomrule",
-        r"\end{tabular}",
-        "",
         r"\paragraph{Pareto points.} " + (
             ", ".join(
                 "h{}--{}".format(row["hidden_size"], row["budget_tag"])
@@ -362,6 +550,28 @@ def main():
         )
         for hidden in (8, 16)
     }
+    conclusions["schema_version"] = 2
+    conclusions["analysis_policy"] = {
+        "reaching_at_least": (
+            "IPC_N >= requested_fraction * IPC_20M (one-sided)"
+        ),
+        "within": (
+            "abs(IPC_N - IPC_20M) / abs(IPC_20M) <= tolerance "
+            "(two-sided)"
+        ),
+        "stable_plateau": (
+            "candidate and every subsequent observed IPC point through "
+            "20M are within 0.5% of IPC_20M; at least two observed points "
+            "are required"
+        ),
+        "auxiliary_stability": (
+            "coverage, requests_per_l2_load, and student_heldout_act_rate "
+            "are reported separately with a 5% relative diagnostic band"
+        ),
+        "missing_budget_rule": (
+            "unrun or missing budgets are not counted as stable observations"
+        ),
+    }
     conclusions["pareto_points"] = [
         {
             "hidden_size": row["hidden_size"],
@@ -399,6 +609,7 @@ def main():
     (report_dir / "conclusions.json").write_text(
         json.dumps(conclusions, indent=2, sort_keys=True) + "\n"
     )
+    write_conclusions_csv(report_dir / "conclusions.csv", conclusions)
     write_tex(
         report_dir / "generated_conclusions.tex", conclusions, frontier
     )

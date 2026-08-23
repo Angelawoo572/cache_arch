@@ -6,9 +6,11 @@
     "first_trainable",
     "first_non_all_silent",
     "near_offline_transition",
+    "smallest_reaching_at_least_99pct_of_20m_offline_ipc",
     "smallest_within_1pct_of_20m_offline_ipc",
     "smallest_within_0_5pct_of_20m_offline_ipc",
-    "one_above_apparent_plateau",
+    "stable_offline_plateau",
+    "one_above_stable_offline_plateau",
     "20m_reference"
   ],
   "selected_points": [],
