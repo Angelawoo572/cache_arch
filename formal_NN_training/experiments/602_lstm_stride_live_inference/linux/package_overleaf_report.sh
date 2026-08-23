@@ -5,12 +5,11 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_lstm_stride_live_inference"
 RUN_DIR="${RUN_DIR:-$EXP/runs/602_gcc_stride_prefix_seed7}"
-OUTPUT="${OUTPUT:-$RUN_DIR/602_stride_live_overleaf.zip}"
+OUTPUT="${OUTPUT:-$RUN_DIR/602_stride_offline_sufficiency_overleaf.zip}"
 FORCE="${FORCE:-0}"
 SOURCE_TEX="$EXP/report/602_stride_training_budget_live_inference.tex"
-CONCLUSIONS="$RUN_DIR/report/generated_conclusions.tex"
-KEY_BUDGETS="$RUN_DIR/report/generated_key_budgets.tex"
-PLOT_DIR="$RUN_DIR/plots"
+REPORT_DIR="$RUN_DIR/report"
+PLOT_DIR="$RUN_DIR/report_plots"
 
 usage() {
   cat <<'EOF'
@@ -21,25 +20,49 @@ Environment:
   OUTPUT=PATH    Output Overleaf ZIP.
   FORCE=1        Replace an existing ZIP after validation.
 
-The ZIP contains main.tex, generated conclusion/key-budget TeX, the three
-offline-primary figures, and available diagnostic plots. It excludes
-checkpoints, logs, event streams, venvs, and all other run artifacts.
+The ZIP contains main.tex, the generated report/*.tex inputs, three required
+offline-primary PNG figures, and up to two measured live-appendix figures. It
+excludes checkpoints, logs, event streams, replay lists, venvs, and all other
+run artifacts.
 EOF
 }
 
 [[ "${1:-}" != "-h" && "${1:-}" != "--help" ]] || { usage; exit 0; }
 [[ -s "$SOURCE_TEX" ]] || { echo "[error] missing tracked report TeX" >&2; exit 2; }
-[[ -s "$CONCLUSIONS" ]] || { echo "[error] missing generated conclusions: $CONCLUSIONS" >&2; exit 2; }
-[[ -s "$KEY_BUDGETS" ]] || { echo "[error] missing generated key table: $KEY_BUDGETS" >&2; exit 2; }
+REQUIRED_TEX=(
+  generated_conclusions.tex
+  generated_h8_key_budgets.tex
+  generated_h16_key_budgets.tex
+  generated_behavior_differences.tex
+  generated_live_validation.tex
+  offline_fairness_report.tex
+  regression_20m_report.tex
+)
+for name in "${REQUIRED_TEX[@]}"; do
+  [[ -s "$REPORT_DIR/$name" ]] || {
+    echo "[error] missing generated report input: $REPORT_DIR/$name" >&2
+    exit 2
+  }
+done
 [[ -d "$PLOT_DIR" ]] || { echo "[error] missing plots directory: $PLOT_DIR" >&2; exit 2; }
 
-mapfile -t PLOTS < <(find "$PLOT_DIR" -maxdepth 1 -type f -name '*.png' -size +0c -print | sort)
-[[ "${#PLOTS[@]}" -ge 3 ]] || {
-  echo "[error] expected at least 3 plots, found ${#PLOTS[@]}" >&2
-  exit 2
-}
-for required in main_01_offline_ipc_equivalence.png main_02_same_h_20m_differences.png main_03_training_supervision.png; do
-  [[ -s "$PLOT_DIR/$required" ]] || { echo "[error] missing primary plot: $required" >&2; exit 2; }
+REQUIRED_PLOTS=(
+  01_fair_offline_ipc_curve.png
+  02_differences_from_same_h_20m.png
+  03_training_supervision.png
+)
+PLOTS=()
+for name in "${REQUIRED_PLOTS[@]}"; do
+  [[ -s "$PLOT_DIR/$name" ]] || {
+    echo "[error] missing required offline figure: $PLOT_DIR/$name" >&2
+    exit 2
+  }
+  PLOTS+=("$PLOT_DIR/$name")
+done
+for name in \
+  04_live_vs_offline_same_checkpoint.png \
+  05_live_sufficiency_vs_same_h_20m.png; do
+  [[ ! -s "$PLOT_DIR/$name" ]] || PLOTS+=("$PLOT_DIR/$name")
 done
 if [[ -e "$OUTPUT" && "$FORCE" != 1 ]]; then
   echo "[error] archive exists; inspect it or set FORCE=1: $OUTPUT" >&2
@@ -48,16 +71,14 @@ fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-project="$tmp/602_stride_live_overleaf"
-mkdir -p "$project/plots" "$project/report"
+project="$tmp/602_stride_offline_sufficiency_overleaf"
+mkdir -p "$project/report_plots" "$project/report"
 cp "$SOURCE_TEX" "$project/main.tex"
-cp "$CONCLUSIONS" "$project/report/generated_conclusions.tex"
-cp "$KEY_BUDGETS" "$project/report/generated_key_budgets.tex"
-for optional in offline_fairness.tex 20m_backward_regression.tex; do
-  [[ ! -s "$RUN_DIR/report/$optional" ]] || cp "$RUN_DIR/report/$optional" "$project/report/$optional"
+for name in "${REQUIRED_TEX[@]}"; do
+  cp "$REPORT_DIR/$name" "$project/report/$name"
 done
 for plot in "${PLOTS[@]}"; do
-  cp "$plot" "$project/plots/"
+  cp "$plot" "$project/report_plots/"
 done
 
 python3 - "$project/main.tex" <<'PY'
@@ -95,17 +116,24 @@ import zipfile
 
 with zipfile.ZipFile(sys.argv[1]) as archive:
     names = archive.namelist()
-required = {"main.tex", "report/generated_conclusions.tex", "report/generated_key_budgets.tex"}
-missing = required.difference(names)
-plots = [name for name in names if name.startswith("plots/") and name.endswith(".png")]
-primary = {
-    "plots/main_01_offline_ipc_equivalence.png",
-    "plots/main_02_same_h_20m_differences.png",
-    "plots/main_03_training_supervision.png",
+required = {
+    "main.tex",
+    "report/generated_conclusions.tex",
+    "report/generated_h8_key_budgets.tex",
+    "report/generated_h16_key_budgets.tex",
+    "report/generated_behavior_differences.tex",
+    "report/generated_live_validation.tex",
+    "report/offline_fairness_report.tex",
+    "report/regression_20m_report.tex",
+    "report_plots/01_fair_offline_ipc_curve.png",
+    "report_plots/02_differences_from_same_h_20m.png",
+    "report_plots/03_training_supervision.png",
 }
-if missing or not primary.issubset(names):
+missing = required.difference(names)
+plots = [name for name in names if name.startswith("report_plots/") and name.endswith(".png")]
+if missing or len(plots) not in (3, 5):
     raise SystemExit("[error] invalid Overleaf archive")
-print("PASS: Overleaf project has report inputs and {} plots".format(len(plots)))
+print("PASS: offline-primary Overleaf project has all required report inputs")
 for name in names:
     print(name)
 PY

@@ -16,6 +16,7 @@ from analysis_policy import (  # noqa: E402
     stable_plateau,
 )
 from compare_offline_live import conclusions_for_hidden  # noqa: E402
+from offline_sufficiency import build_analysis, point_differences  # noqa: E402
 
 
 def row(tag, budget, ipc):
@@ -106,6 +107,46 @@ class AnalysisPolicyTest(unittest.TestCase):
                 "budget_tag"
             ],
             "i100k",
+        )
+
+    def test_point_differences_use_same_hidden_reference(self):
+        rows = [
+            dict(row("i1m", 1000000, 0.401), hidden_size=8, seed=7),
+            dict(row("i20m", 20000000, 0.400), hidden_size=8, seed=7),
+        ]
+        result = point_differences(rows)
+        self.assertAlmostEqual(
+            result[0]["relative_ipc_difference_vs_same_h_20m"], 0.0025
+        )
+        self.assertEqual(
+            result[0]["same_hidden_size_20m_budget_tag"], "i20m"
+        )
+
+    def test_h8_and_h16_references_never_cross(self):
+        offline = [
+            dict(row("i1m", 1000000, 0.401), hidden_size=8, seed=7),
+            dict(row("i20m", 20000000, 0.400), hidden_size=8, seed=7),
+            dict(row("i1m", 1000000, 0.503), hidden_size=16, seed=7),
+            dict(row("i20m", 20000000, 0.500), hidden_size=16, seed=7),
+        ]
+        analysis = build_analysis(offline, [])
+        h8_i1m = next(
+            item for item in analysis["offline_points"]
+            if item["hidden_size"] == 8 and item["budget_tag"] == "i1m"
+        )
+        h16_i1m = next(
+            item for item in analysis["offline_points"]
+            if item["hidden_size"] == 16 and item["budget_tag"] == "i1m"
+        )
+        self.assertAlmostEqual(
+            h8_i1m["relative_ipc_difference_vs_same_h_20m"], 0.0025
+        )
+        self.assertAlmostEqual(
+            h16_i1m["relative_ipc_difference_vs_same_h_20m"], 0.006
+        )
+        self.assertEqual(
+            analysis["comparison_rule"],
+            "h8-N versus h8-20M; h16-N versus h16-20M",
         )
 
 

@@ -1,85 +1,167 @@
 \documentclass[10pt]{article}
 \usepackage[margin=0.72in]{geometry}
-\usepackage{booktabs,longtable,graphicx,hyperref,amsmath,pdflscape}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,microtype}
+\usepackage{booktabs,longtable,array,tabularx}
+\usepackage{graphicx,float,pdflscape}
+\usepackage{xcolor,amsmath}
+\usepackage[hidelinks]{hyperref}
 \providecommand{\RunDir}{../runs/602_gcc_stride_prefix_seed7}
-\title{602 Stride Training-Prefix Sufficiency\\
-under the Original Offline Keyed-Replay Protocol}
-\author{Seed-7 reproducible analysis}
-\date{\today}
-\newcommand{\runfigure}[3]{\IfFileExists{\RunDir/plots/#1}{\begin{figure}[p]\centering\includegraphics[width=#2\linewidth]{\RunDir/plots/#1}\caption{#3}\end{figure}}{\par\textbf{Missing generated figure: #1}\par}}
+
+\definecolor{navy}{HTML}{17365D}
+\definecolor{teal}{HTML}{008B72}
+\definecolor{pale}{HTML}{F3F6FA}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\renewcommand{\arraystretch}{1.08}
+
+\newcommand{\reportfigure}[3][0.90\linewidth]{%
+  \IfFileExists{\RunDir/report_plots/#2}{%
+    \begin{figure}[H]
+      \centering
+      \includegraphics[width=#1]{\RunDir/report_plots/#2}
+      \caption{#3}
+    \end{figure}
+  }{\textbf{Missing generated figure:} \texttt{#2}}%
+}
+
+\newcommand{\generatedinput}[1]{%
+  \IfFileExists{\RunDir/report/#1}{%
+    \input{\RunDir/report/#1}
+  }{%
+    \textbf{NA---run the corresponding analysis-only command to generate
+    \texttt{#1}. No result is inferred from a missing artifact.}
+  }%
+}
+
 \begin{document}
-\maketitle
+\begin{center}
+{\LARGE\bfseries\color{navy} 602 Stride Training-Prefix Sufficiency}\\[2pt]
+{\large under the Original Offline Keyed-Replay Protocol}\\[5pt]
+{\small 602.gcc\_s-734B \quad $\vert$ \quad seed 7 \quad $\vert$ \quad
+25M warmup + 25M measured instructions}
+\end{center}
+
 \section{Question}
-Holding the existing h8/h16 model, training recipe, fixed evaluation stream,
-offline causal inference, keyed replay transport, ChampSim configuration,
-measurement window, and metric definitions constant, what is the smallest
-trace-start training prefix whose offline keyed-replay system result is
-equivalent to the corresponding 20M model? Every h8 point is compared with
-h8--20M; every h16 point is compared with h16--20M.
+Holding the existing h8/h16 model, fixed training recipe, held-out evaluation
+stream, Python offline causal inference, keyed replay transport, ChampSim
+binary/configuration, measurement window, and metric definitions constant,
+what is the smallest trace-start training prefix $N$ whose offline keyed-replay
+system result is equivalent to the corresponding 20M model?
+
+The primary comparisons are strictly
+\[
+\text{h8-}N\ \text{versus h8-i20m},\qquad
+\text{h16-}N\ \text{versus h16-i20m}.
+\]
+No cross-hidden-size reference is used to decide training-size sufficiency.
+
 \section{Original 602 offline keyed-replay protocol}
-Training uses trace start through $N$ retired instructions with zero training
-warmup. Python performs causal offline inference on one fixed held-out stream
-and writes one PC--line--occurrence-keyed action list per model. The same
-list-replayer binary then runs 25M ChampSim warmup instructions and 25M
-measured instructions. Conventional Stride supplies labels only. PC and
-cache-line address are the only external neural inputs.
+The unchanged authority is
+\texttt{formal\_NN\_training/experiments/602\_offline\_lstm\_stride/}.
+Training uses the trace start from 0 to 20M retired instructions with zero
+training warmup. Evaluation is one fixed held-out stream collected with 25M
+warmup and 25M measured instructions. Python performs causal offline inference
+and writes one keyed replay list per model. The same list-replayer ChampSim
+binary/configuration and the same no-prefetch reference measure every point.
+Teacher actions are labels only; the only external NN inputs are PC and
+cache-line address.
+
 \section{What is fixed and what changes}
-Only $N$ changes within an h8 or h16 curve. Seed 7, 12 epochs, TBPTT length
-256, PC batch size 128, Adam, learning rate 0.002, runtime encoder, dynamic
-exact-PC state routing, hurdle/count/delta heads, prefix-derived class balance,
-evaluation stream, replay format, references, cache configuration, and metric
-parser remain fixed. Fixed epochs mean larger prefixes receive more optimizer
-steps; this measures trace and training work under the current fixed recipe
-and does not isolate unique-data diversity from optimizer-step count.
-\IfFileExists{\RunDir/report/offline_fairness.tex}{\paragraph{Machine audit.}\input{\RunDir/report/offline_fairness.tex}}{}
-\section{20M backward regression}
-\IfFileExists{\RunDir/report/20m_backward_regression.tex}{\input{\RunDir/report/20m_backward_regression.tex}}{Exact local old-run artifacts were not supplied to this TeX build. Run the backward-regression validator with explicit \texttt{OLD\_RUN\_DIR} and \texttt{NEW\_RUN\_DIR}. Historical IPC-only comparison is insufficient to claim exact artifact parity.}
+Only the trace-start training prefix changes. Hidden size is analyzed as two
+predeclared curves rather than as a changing control within a curve. Seed,
+model revision, runtime encoder, PC-keyed state router, 12 epochs, TBPTT length
+256, PC batch size 128, Adam, learning rate 0.002, Stride teacher, class-balance
+formula, evaluation stream, inference semantics, replay format, simulator,
+references, and metric parser remain fixed.
+
+Class weights are recomputed from each prefix's own labels:
+\[
+w_c=\frac{N_{\mathrm{decision}}}{2N_c}.
+\]
+The 20M label frequencies are never reused for a smaller prefix. Since epochs
+remain fixed, larger datasets receive more optimizer steps. This experiment
+therefore answers how much trace and training work are needed under the current
+fixed recipe; it does not isolate unique-data diversity from optimizer-step
+count.
+
+\section{20M backward-regression result}
+\generatedinput{regression_20m_report.tex}
+Matching historical IPC anchors alone is insufficient. The validator reports
+stream/list/log/metadata identity, system metrics, and act/silent behavior
+separately. If old local artifacts are incomplete, the mode is explicitly
+``historical-metric regression only'' and exact artifact parity is not claimed.
+
 \section{Training supervision versus instruction prefix}
-\runfigure{main_03_training_supervision.png}{0.98}{Decision rows, teacher $K>0$ rows, and teacher action atoms. These are label statistics, not student act rates.}
-\section{h8: $N$ versus h8--20M}
-The h8 curve and all differences use h8--20M as their sole training-size
-reference. The marked h8--i250k point is retained as a real aggressive,
-high-performing candidate; it is not called a 20M-equivalent policy merely
-because its IPC is high.
-\section{h16: $N$ versus h16--20M}
-The h16 curve and all differences use h16--20M as their sole training-size
-reference. The marked h16--i100k point is likewise retained as an aggressive
-candidate and is not mislabeled as a stable plateau.
-\runfigure{main_01_offline_ipc_equivalence.png}{0.98}{Primary fair offline keyed-replay IPC curves, same-hidden-size 20M bands, stable-plateau annotations, and aggressive candidates.}
-\runfigure{main_02_same_h_20m_differences.png}{0.98}{Differences from the corresponding same-hidden-size 20M model.}
-\section{System-performance versus policy-behavior equivalence}
-``Reaching at least'' is the one-sided test $IPC_N\ge f\,IPC_{20M}$.
-``Within'' is the two-sided test
-$\lvert IPC_N-IPC_{20M}\rvert/IPC_{20M}\le\epsilon$. A stable 0.5\%-IPC
-plateau requires a candidate and every subsequent observed budget through 20M
-to remain within the band. Coverage, miss rate, request pressure, student act
-rate, timeliness, and replay-action count are reported separately. The phrase
-\emph{policy equivalent} is reserved for evidence that traffic and action
-behavior are also close.
-\subsection*{Key budgets}
-\begin{landscape}\scriptsize
-\IfFileExists{\RunDir/report/generated_key_budgets.tex}{\input{\RunDir/report/generated_key_budgets.tex}}{NA---run the analysis generator.}
+\reportfigure{03_training_supervision.png}{Decision rows, teacher-positive
+rows, and teacher action atoms. These are label statistics, not student act
+rates.}
+
+\section{h8: N versus h8-i20m}
+\reportfigure{01_fair_offline_ipc_curve.png}{Primary offline keyed-replay IPC.
+Each curve has its own 20M reference and $\pm0.5\%$ band; stars mark
+data-derived aggressive high-performing candidates, not policy-equivalent
+points.}
+\begin{landscape}
+\generatedinput{generated_h8_key_budgets.tex}
 \end{landscape}
+
+\begin{landscape}
+\section{h16: N versus h16-i20m}
+\generatedinput{generated_h16_key_budgets.tex}
+\end{landscape}
+
+\section{System-performance equivalence versus policy behavior}
+\reportfigure[0.88\linewidth]{02_differences_from_same_h_20m.png}{Signed
+differences from the corresponding same-hidden-size 20M model. The IPC panel
+shows the $\pm0.5\%$ band; cache and policy/traffic dimensions remain separate.}
+\generatedinput{generated_behavior_differences.tex}
+
+``Reaching at least'' is a one-sided performance-sufficiency test and can
+include a point above 20M. ``Within'' is two-sided IPC closeness. A stable
+0.5\%-IPC plateau requires the candidate and every subsequent observed larger
+budget through 20M to remain within the band. Close IPC/cache outcomes may be
+called \emph{system-performance equivalent}. The stronger term
+\emph{policy equivalent} is not used unless act rate, request pressure, replay
+actions, and action behavior are also explicitly close.
+
 \section{Seed-7 conclusion and limitations}
-\IfFileExists{\RunDir/report/generated_conclusions.tex}{\input{\RunDir/report/generated_conclusions.tex}}{NA---the generated conclusions are not available.}
-All conclusions are limited to 602.gcc\_s-734B, seed 7, and the original
-offline keyed-replay protocol until multi-seed evidence is available.
+\generatedinput{generated_conclusions.tex}
+
 \section{Secondary live-deployment validation}
-Live results are secondary. They are functional frozen C++ inference in the
-ChampSim callback with no replay list, teacher, optimizer, gradient, or weight
-update and with \textbf{zero modeled NN inference latency}. The primary four
-validation points are h8/h16 at i1m and i20m; h8--i250k and h16--i100k are
-additional aggressive candidates. For each point, analysis separately reports
-live-$N$ versus offline-$N$, and live-$N$ versus same-H live-20M. Missing
-live points are neither interpolated nor used for the primary offline claim.
+Offline training means weights are learned before simulation. Offline keyed
+replay means Python precomputes actions and ChampSim replays them. Functional
+live inference means frozen C++ inference executes inside the ChampSim
+callback, with no replay list, teacher, optimizer, gradient, or weight update.
+Current live results use \textbf{zero modeled NN inference latency}. A future
+latency-aware experiment would explicitly model inference cycles before
+issuing requests. Host wall-clock nanoseconds are not simulated CPU latency.
+
+\generatedinput{generated_live_validation.tex}
+\IfFileExists{\RunDir/report_plots/04_live_vs_offline_same_checkpoint.png}{%
+  \reportfigure{04_live_vs_offline_same_checkpoint.png}{Same-checkpoint
+  implementation parity: live-$N$ versus offline-$N$.}
+  \reportfigure{05_live_sufficiency_vs_same_h_20m.png}{Secondary live
+  training-size sufficiency: live-$N$ versus same-H live-i20m.}
+}{}
+
+Incomplete live results never establish or revise the primary offline
+training-size conclusion. Missing live points are not interpolated or smoothed.
+
 \section{Future latency-aware evaluation}
-Host wall-clock nanoseconds are not simulated CPU cycles. Latency-aware issue
-delay is a separate future experiment on the four primary and two aggressive
-checkpoints; no NN latency model is added here.
-\section{Appendix: reproducibility and audit}
-Machine-readable outputs are \texttt{offline\_fairness.json},
-\texttt{20m\_backward\_regression.json},
-\texttt{offline\_20m\_equivalence.json}, \texttt{key\_budgets.json}, and
-\texttt{conclusions.json}. Generated artifacts remain below the ignored run
-directory. Source commands are in \texttt{COMMANDS.md}.
+No simulated NN latency is added in this task. Representative future latency
+candidates are h8-i1m, h8-i20m, h16-i1m, h16-i20m, h8-i250k, and h16-i100k.
+They should be swept only in a separately named latency-aware experiment.
+
+\appendix
+\section{Fairness audit}
+\generatedinput{offline_fairness_report.tex}
+
+\section{Reproducibility boundary}
+All raw checkpoints, event streams, replay lists, logs, binaries, archives,
+and generated run directories remain ignored and unchanged. The report is
+regenerated only from completed artifacts. No retraining or ChampSim replay is
+performed by the validators, aggregators, plotting script, or TeX packaging
+step.
+
 \end{document}

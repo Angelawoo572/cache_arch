@@ -1,122 +1,108 @@
-# 602 Stride: offline training-prefix sufficiency and live inference
+# 602 Stride training-prefix sufficiency
 
-The primary scientific result uses the original offline keyed-replay
-protocol: h8-N is compared only with h8-i20m, and h16-N only with h16-i20m,
-while the trace-start training prefix is the sole changing variable.
-Functional live inference is a secondary deployment validation with zero
-modeled NN inference latency.
+The primary study in this directory is the h8/h16 training-prefix sweep under
+the **original 602 offline keyed-replay protocol**. The completed sibling
+experiment [`602_offline_lstm_stride`](../602_offline_lstm_stride/) remains
+unchanged and is the authority for the model, labels, Python inference, keyed
+replay transport, ChampSim setup, and metric definitions.
 
-This sibling experiment keeps the completed
-[602_offline_lstm_stride](../602_offline_lstm_stride/) study unchanged and
-adds a new execution mode:
+## Primary scientific question
 
-> The conventional Stride policy supplies labels before deployment. The LSTM
-> is trained offline. ChampSim loads float32 weights once, keeps them frozen,
-> and runs causal inference inside each measured L2 demand callback.
+Holding the existing model and protocol constant, what is the smallest
+trace-start prefix `N` whose offline keyed-replay system result is equivalent
+to the corresponding 20M model?
 
-“Online” means only that inference executes in the live callback path. It does
-not mean online learning: the live runtime has no gradient, optimizer, teacher,
-future field, or action-list lookup.
+The comparisons are always:
 
-## Scientific questions
+- h8-`N` versus h8-i20m;
+- h16-`N` versus h16-i20m.
 
-- **h16 performance reference:** find the smallest offline prefix equivalent
-  to h16-i20m under the original keyed-replay system protocol.
-- **h8 compact reference:** find the smallest offline prefix equivalent to
-  h8-i20m under that same protocol.
-- **secondary deployment check:** test the offline conclusion using frozen
-  functional live inference, without using incomplete live points to decide
-  the primary training-size result.
+h8 is never compared with h16-i20m to decide training-size sufficiency.
 
-h8 and h16 remain separate learning curves. h8 has 1,908 parameters (7,632
-float32 weight bytes); h16 has 5,220 parameters (20,880 bytes). h32/h64/h128
-and alternative architectures are outside this fixed-model deployment study.
+## Original offline protocol
 
-## K and learned actions
+- trace: `602.gcc_s-734B`;
+- training prefix: trace start, warmup 0, measured instructions `N`;
+- held-out evaluation: one fixed stream;
+- system measurement: 25M ChampSim warmup + 25M measured instructions;
+- inference: Python causal offline inference;
+- transport: one keyed replay list per model through the same list-replayer;
+- references: the same no-prefetch and offline Stride artifacts;
+- labels: conventional Stride actions, never NN inputs;
+- external NN inputs: current PC and cache-line address only.
 
-For one event, K is exactly the conventional teacher action-list length.
-Thus [104, 106] means K=2. It is not history length, sample count, hidden size,
-model capacity, or a fixed degree.
+Only `N` changes within each hidden-size curve. Seed, model revision, encoder,
+state router, 12 epochs, TBPTT length 256, PC batch size 128, Adam, learning
+rate 0.002, teacher, class-balance formula, held-out stream, replay format,
+ChampSim binary/configuration, and metric parser stay fixed.
 
-The student retains all three learned outputs:
+Class weights are recomputed from each prefix's own labels:
 
-1. issue or stay silent;
-2. a positive slot count K after issuing;
-3. one signed delta and reconstructed target address for every slot.
+```text
+weight[c] = decision_rows / (2 * prefix_label_frequency[c])
+```
 
-No probability threshold, degree cap, same-page filter, or normal Stride
-private state is added at inference.
+The 20M class frequencies are not reused. Fixed epochs mean larger prefixes
+receive more optimizer steps, so this study measures required trace and
+training work under the current recipe; it does not isolate data diversity
+from optimizer-step count.
 
-## Reused authority
+## Interpretation policy
 
-The completed offline trainer remains the one authoritative Python
-implementation of CompactPCKeyedHurdleStrideLSTM,
-CompactDirectDeltaDecoder, feature encoding, hurdle/count decoding,
-free-running delta feedback, label conversion, class balancing, and address
-reconstruction. formal_NN_training/common/stride_direct_action_model.py
-loads that module through a stable wrapper. This minimum-diff approach keeps
-existing state_dict names and shapes intact.
+Three concepts remain separate:
 
-The prefix trainer calls the existing CLI with a fresh seed-7 initialization
-for every (H, budget). It never continues another budget and never borrows
-20M class frequencies.
+1. **Minimum reaching at least 99/99.5/99.9% of 20M IPC** is one-sided
+   performance sufficiency. A point above 20M may satisfy it.
+2. **Minimum within +/-1.0/0.5/0.1% of 20M IPC** uses two-sided relative
+   error.
+3. **Stable 0.5%-IPC plateau** requires a candidate and every subsequent
+   observed same-hidden-size budget through 20M to remain within +/-0.5% of
+   same-H i20m.
 
-## Phases
+Coverage, L2 miss rate, request pressure, student act rate, timeliness, and
+replay-action count are reported separately. Close IPC/cache outcomes may be
+called system-performance equivalent. Policy equivalence is not claimed
+unless action and traffic behavior are also explicitly close.
 
-1. Collect the 17 exact trace-start prefixes with warmup 0 and simulation N.
-   One stream per N is shared by h8/h16.
-2. Train/evaluate every valid h8/h16 point on the fixed held-out stream and
-   create the existing keyed offline lists.
-3. Validate h16 20M export/parity and build live ChampSim, then repeat the
-   same validation with h8 20M. Sacramento does not need PyTorch.
-4. Run all valid keyed offline replays and recommend a deduplicated live set.
-5. After manual approval, run selected full live points. All 34 are launched
-   only with LIVE_ALL_VALID=1.
+The current seed-7 data place the stable offline IPC plateau at approximately
+i1m for both h8 and h16. h8-i250k and h16-i100k remain real aggressive
+high-performing candidates, but their different traffic/coverage/act behavior
+prevents calling them 20M-equivalent policies.
 
-Tiny prefixes are diagnostic data. no_callbacks, single-class,
-insufficient_rows, training failure, or all-silent collapse remain visible.
-Undefined metrics remain NA.
+This conclusion is limited to `602.gcc_s-734B`, seed 7, and the original
+offline keyed-replay protocol until multi-seed evidence exists.
 
-## Frozen export and C++ runtime
+## Audit outputs
 
-model.bin format version 1 is little-endian float32 and contains all 16
-state_dict tensors: input projection, all LSTM weights/biases, emit head,
-positive-count head, all GRU weights/biases, and delta head.
-model_metadata.json records the tensor contract, Python source, runtime
-encoder, model revision, seed, budget, and frozen-weight deployment settings.
+`validation/validate_offline_fairness.py` writes a point-by-point JSON/CSV/TeX
+audit of all fixed controls, source hashes, prefix-local class weights, shared
+evaluation identity, replay format, keyed-replayer binary, references, and
+metric parser.
 
-The dependency-free C++11 runtime implements the PyTorch LSTM i,f,g,o and
-GRU r,z,n equations, signed-log decoding, dynamic exact-PC (h,c) state,
-58-bit line-address reconstruction, and per-callback host timing. Host
-nanoseconds are measurements of the simulator host, not simulated CPU cycles.
-The functional first version models zero NN latency.
+`validation/validate_20m_regression.py` compares h8/h16 i20m against
+`602_offline_lstm_stride_compact_hurdle_v9_seed7`. Exact artifact identity and
+metric regression are separate. When the old run tree is incomplete, the
+output says `historical-metric regression only` and does not claim exact
+artifact parity.
 
-## Sacramento compatibility
+## Secondary functional live inference
 
-Host-side collection, validation, aggregation, export orchestration, and
-Python/C++ parity are kept syntactically compatible with Python 3.6. The
-synthetic parity fixture uses the legacy NumPy `RandomState` API, so it also
-works with NumPy releases older than 1.17. None of these Sacramento stages
-requires pandas. Colab training still requires PyTorch and NumPy, and plot
-generation requires matplotlib.
+Live validation is secondary deployment evidence. Frozen C++ inference runs
+inside the ChampSim callback with no replay list, teacher, optimizer,
+gradient, or weight update. Current live results have **zero modeled NN
+inference latency**. Host wall-clock nanoseconds are not simulated CPU cycles.
 
-## State boundary
+The default recommended live set is:
 
-The primary parity mode ignores all warmup callbacks, emits no warmup
-prefetches, explicitly resets neural state when measurement begins, and starts
-the measured region with an empty PC-state map. This matches the existing
-held-out evaluation boundary.
+- primary: h8-i1m, h8-i20m, h16-i1m, h16-i20m;
+- aggressive candidates: h8-i250k, h16-i100k.
 
-Optional realistic_state_warmup advances frozen state during warmup but emits
-nothing there. Its logs are named and aggregated separately; it cannot replace
-or share a result row with parity mode.
+Every live row has two comparisons: live-`N` versus offline-`N` for
+same-checkpoint implementation parity, and live-`N` versus same-H live-i20m
+for live training-size sufficiency. Missing live points are never
+interpolated. `LIVE_ALL_VALID=1` remains available but is not required for the
+primary offline conclusion.
 
-## Generated outputs
-
-Everything below runs/ is ignored, including prefix streams, event logs,
-checkpoints, action lists, model.bin, archives, simulator binaries, CSV/JSON
-aggregates, figures, and report inputs. Source, configuration, notebook,
-validators, TeX, and this documentation are tracked.
-
-See [COMMANDS.md](COMMANDS.md) for the complete Mac, Sacramento, Colab, SCP,
-validation, analysis, and source-only commit workflow.
+See [COMMANDS.md](COMMANDS.md) for the analysis-only, live-validation,
+report, SCP, and source-only Git workflow. Completed training and keyed replay
+are not rerun by those analysis commands.

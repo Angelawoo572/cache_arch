@@ -210,13 +210,32 @@ def validate_sacramento_python_compatibility():
         fail("Sacramento Python 3.6 compatibility failures: {}".format(bad))
 
 
-def validate_fingerprint_scope():
-    """Keep requested fairness identities out of Colab transfer workflow."""
+def validate_no_content_fingerprints():
+    """Keep fingerprints out of training/export/runtime source.
+
+    Post-hoc fairness and 20M regression validators intentionally compute
+    artifact identities. They are read-only analysis tools and are excluded
+    from this deployment-transfer restriction.
+    """
+    extensions = {".py", ".sh", ".md", ".json", ".ipynb", ".tex"}
+    audit_fingerprint_sources = {
+        Path("validation/provenance_utils.py"),
+        Path("validation/test_offline_audits.py"),
+        Path("validation/validate_20m_regression.py"),
+        Path("validation/validate_offline_fairness.py"),
+    }
     sources = [
-        EXP / "colab/train_prefix_sweep.ipynb",
-        EXP / "linux/package_colab_input.sh",
-        EXP / "linux/install_colab_output.sh",
+        path for path in EXP.rglob("*")
+        if (
+            path.is_file()
+            and path.suffix in extensions
+            and "runs" not in path.relative_to(EXP).parts
+            and path.relative_to(EXP) not in audit_fingerprint_sources
+        )
     ]
+    sources.append(
+        ROOT / "formal_NN_training/common/stride_direct_action_model.py"
+    )
     forbidden = (
         "s" + "ha256",
         "hash" + "lib",
@@ -229,9 +248,9 @@ def validate_fingerprint_scope():
         lowered = path.read_text().lower()
         for token in forbidden:
             if token in lowered:
-                bad.append("{}: Colab transfer fingerprint token".format(path))
+                bad.append("{}: forbidden content fingerprint token".format(path))
     if bad:
-        fail("fingerprints leaked into Colab transfer workflow: {}".format(bad))
+        fail("content fingerprints remain: {}".format(bad))
 
 
 def validate_artifacts():
@@ -272,7 +291,7 @@ def main():
     validate_sources()
     validate_shell()
     validate_sacramento_python_compatibility()
-    validate_fingerprint_scope()
+    validate_no_content_fingerprints()
     validate_artifacts()
     print("[PASS] frozen live runtime has no learning/teacher/list dependency")
     print("[PASS] external model inputs are PC and cache-line address only")
@@ -280,7 +299,7 @@ def main():
     print("[PASS] versioned float32 export contains all recurrent/action heads")
     print("[PASS] parity reset and optional realistic warmup are separated")
     print("[PASS] Sacramento Python 3.6/legacy NumPy path needs no pandas")
-    print("[PASS] fairness identities remain separate from Colab transfer workflow")
+    print("[PASS] training/export/runtime source has no content fingerprints")
     print("[PASS] generated data, logs, checkpoints, and weights are untracked")
     print("[PASS] completed offline 602 Stride reference remains present")
 
