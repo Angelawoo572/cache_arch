@@ -17,7 +17,12 @@ ROOT = Path(__file__).resolve().parents[4]
 EXP = ROOT / "formal_NN_training/experiments/602_lstm_stride_live_inference"
 sys.path.insert(0, str(EXP / "python"))
 
-from live_model_format import TENSOR_ORDER, read_model, write_model
+from live_model_format import (
+    TENSOR_ORDER,
+    expected_tensor_shapes,
+    read_model,
+    write_model,
+)
 
 
 LINE_MASK = (1 << 58) - 1
@@ -38,24 +43,7 @@ class ArrayTensor:
 
 
 def shapes(hidden):
-    return {
-        "input_projection.weight": (hidden, 128),
-        "input_projection.bias": (hidden,),
-        "encoder_lstm.weight_ih_l0": (4 * hidden, hidden),
-        "encoder_lstm.weight_hh_l0": (4 * hidden, hidden),
-        "encoder_lstm.bias_ih_l0": (4 * hidden,),
-        "encoder_lstm.bias_hh_l0": (4 * hidden,),
-        "emit_head.weight": (2, hidden),
-        "emit_head.bias": (2,),
-        "log_count_mean.weight": (1, hidden),
-        "log_count_mean.bias": (1,),
-        "action_decoder.action_cell.weight_ih": (3 * hidden, 1),
-        "action_decoder.action_cell.weight_hh": (3 * hidden, hidden),
-        "action_decoder.action_cell.bias_ih": (3 * hidden,),
-        "action_decoder.action_cell.bias_hh": (3 * hidden,),
-        "action_decoder.delta_head.weight": (1, hidden),
-        "action_decoder.delta_head.bias": (1,),
-    }
+    return expected_tensor_shapes(hidden, 128)
 
 
 def empty_tensors(hidden):
@@ -401,24 +389,29 @@ def load_gzip_rows(path, max_events):
 
 
 def run_recorded(args):
-    if not args.model_bin or not args.checkpoint or not args.stream:
+    if not args.model_bin or not args.stream:
         raise RuntimeError(
-            "recorded mode requires --model-bin, --checkpoint, and --stream"
+            "recorded mode requires --model-bin and --stream"
         )
-    if str(ROOT) not in sys.path:
-        sys.path.insert(0, str(ROOT))
-    from formal_NN_training.common.stride_direct_action_model import (
-        FrozenStrideLiveModel,
-        load_checkpoint,
-    )
     args.work_dir.mkdir(parents=True, exist_ok=True)
     events = load_gzip_rows(args.stream, args.max_events)
     event_path = args.work_dir / "recorded_events.csv"
     output_path = args.work_dir / "recorded_cpp_outputs.jsonl"
     stats_path = args.work_dir / "recorded_runtime_stats.json"
     write_events(event_path, events)
-    model, _ = load_checkpoint(args.checkpoint)
-    reference = FrozenStrideLiveModel(model)
+    if args.checkpoint:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from formal_NN_training.common.stride_direct_action_model import (
+            FrozenStrideLiveModel,
+            load_checkpoint,
+        )
+        model, _ = load_checkpoint(args.checkpoint)
+        reference = FrozenStrideLiveModel(model)
+        reference_mode = "authoritative_pytorch_checkpoint"
+    else:
+        reference = NumpyFrozenRuntime(read_model(args.model_bin))
+        reference_mode = "independent_numpy_model_bin"
     expected = [reference.infer(pc, line) for pc, line in events]
     observed = run_cpp(
         args.cpp_runner, args.model_bin, event_path, output_path, stats_path
@@ -428,6 +421,7 @@ def run_recorded(args):
     )
     return {
         "mode": "recorded_stream",
+        "reference_mode": reference_mode,
         "events": len(events),
         "action_mismatch_count": 0,
         "action_mismatch_rate": 0.0,

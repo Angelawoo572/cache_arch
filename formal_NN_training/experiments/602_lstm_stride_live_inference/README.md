@@ -58,7 +58,8 @@ for every (H, budget). It never continues another budget and never borrows
    One stream per N is shared by h8/h16.
 2. Train/evaluate every valid h8/h16 point on the fixed held-out stream and
    create the existing keyed offline lists.
-3. Validate h16 20M export/parity/live smoke, then repeat with h8 20M.
+3. Validate h16 20M export/parity and build live ChampSim, then repeat the
+   same validation with h8 20M. Sacramento does not need PyTorch.
 4. Run all valid keyed offline replays and recommend a deduplicated live set.
 5. After manual approval, run selected full live points. All 34 are launched
    only with LIVE_ALL_VALID=1.

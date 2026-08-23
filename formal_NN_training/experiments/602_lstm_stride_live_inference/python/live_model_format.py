@@ -33,6 +33,30 @@ TENSOR_ORDER = [
 ]
 
 
+def expected_tensor_shapes(hidden_size, feature_width=128):
+    """Return the complete version-1 tensor contract without importing torch."""
+    hidden = int(hidden_size)
+    features = int(feature_width)
+    return {
+        "input_projection.weight": (hidden, features),
+        "input_projection.bias": (hidden,),
+        "encoder_lstm.weight_ih_l0": (4 * hidden, hidden),
+        "encoder_lstm.weight_hh_l0": (4 * hidden, hidden),
+        "encoder_lstm.bias_ih_l0": (4 * hidden,),
+        "encoder_lstm.bias_hh_l0": (4 * hidden,),
+        "emit_head.weight": (2, hidden),
+        "emit_head.bias": (2,),
+        "log_count_mean.weight": (1, hidden),
+        "log_count_mean.bias": (1,),
+        "action_decoder.action_cell.weight_ih": (3 * hidden, 1),
+        "action_decoder.action_cell.weight_hh": (3 * hidden, hidden),
+        "action_decoder.action_cell.bias_ih": (3 * hidden,),
+        "action_decoder.action_cell.bias_hh": (3 * hidden,),
+        "action_decoder.delta_head.weight": (1, hidden),
+        "action_decoder.delta_head.bias": (1,),
+    }
+
+
 def write_model(path, state_dict, hidden_size, feature_width):
     path = Path(path)
     missing = set(TENSOR_ORDER).difference(state_dict)

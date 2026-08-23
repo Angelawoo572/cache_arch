@@ -14,7 +14,7 @@ usage() {
   cat <<'EOF'
 Usage: launch_stage.sh stage0|stage1|stage2|stage3|status
 
-stage0  h16 i20m export, validation, standalone parity, build, live smoke
+stage0  h16 i20m export validation, standalone parity, and live build
 stage1  h8 i20m through the identical infrastructure
 stage2  full h8/h16 offline training/inference sweep (Colab/GPU)
 stage3  aggregate offline results and recommend; does not launch live runs
@@ -25,6 +25,7 @@ Optional old anchors:
   OLD_H8_CHECKPOINT=/path/model.pt
 
 FORCE=1 is forwarded only to explicit rebuild/export/live operations.
+PYTORCH_PARITY=1 requires torch and validates model.bin against model.pt.
 EOF
 }
 
@@ -38,25 +39,26 @@ export_and_validate() {
   local old_checkpoint
   old_checkpoint="$(printenv "$old_variable" 2>/dev/null || true)"
   [[ -s "$checkpoint" ]] || { echo "[error] missing h$hidden 20M checkpoint" >&2; exit 3; }
-  export_args=(
-    --checkpoint "$checkpoint"
-    --run-metadata "$point/offline/run_metadata.json"
-    --out-dir "$export_dir"
-    --hidden-size "$hidden"
-    --instruction-budget 20000000
-    --seed 7
-  )
-  [[ "$FORCE" != 1 ]] || export_args+=(--force)
-  if [[ ! -s "$export_dir/model.bin" || "$FORCE" == 1 ]]; then
-    python3 "$EXP/python/export_live_model.py" "${export_args[@]}"
-  fi
+  [[ -s "$export_dir/model.bin" && -s "$export_dir/model_metadata.json" ]] || {
+    echo "[error] Colab export missing for h$hidden i20m; rerun the notebook export cell" >&2
+    exit 3
+  }
   validate_args=(
     --model-bin "$export_dir/model.bin"
     --metadata "$export_dir/model_metadata.json"
-    --checkpoint "$checkpoint"
   )
+  if [[ "${PYTORCH_PARITY:-0}" == 1 ]]; then
+    validate_args+=(--checkpoint "$checkpoint")
+  fi
   if [[ -n "$old_checkpoint" ]]; then
-    validate_args+=(--reference-checkpoint "$old_checkpoint" --evaluation-stream "$EVAL")
+    [[ "${PYTORCH_PARITY:-0}" == 1 ]] || {
+      echo "[error] OLD checkpoint comparison requires PYTORCH_PARITY=1 and torch" >&2
+      exit 3
+    }
+    validate_args+=(
+      --reference-checkpoint "$old_checkpoint"
+      --evaluation-stream "$EVAL"
+    )
   fi
   python3 "$EXP/python/validate_export.py" "${validate_args[@]}"
   RUN_DIR="$RUN_DIR" FORCE="$FORCE" bash "$EXP/linux/build_standalone_runtime.sh"
@@ -66,15 +68,16 @@ export_and_validate() {
     --cpp-runner "$runner"
     --work-dir "$point/parity/recorded"
     --model-bin "$export_dir/model.bin"
-    --checkpoint "$checkpoint"
     --stream "$EVAL"
     --point-metadata "$point/point_metadata.json"
     --output "$point/parity/recorded/summary.json"
   )
+  if [[ "${PYTORCH_PARITY:-0}" == 1 ]]; then
+    recorded_args+=(--checkpoint "$checkpoint")
+  fi
   [[ "$PARITY_MAX_EVENTS" == 0 ]] || recorded_args+=(--max-events "$PARITY_MAX_EVENTS")
   python3 "$EXP/validation/compare_python_cpp_outputs.py" "${recorded_args[@]}"
   RUN_DIR="$RUN_DIR" FORCE="$FORCE" bash "$EXP/linux/build_live_champsim.sh"
-  RUN_DIR="$RUN_DIR" HIDDEN_SIZES="$hidden" BUDGETS=i20m SEEDS=7 RUN_MODE=smoke STATE_MODE=parity WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=20000000 FORCE="$FORCE" bash "$EXP/linux/run_live_sweep.sh" run
 }
 
 case "$STAGE" in

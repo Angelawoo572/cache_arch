@@ -24,6 +24,13 @@ def read_json(path):
     return value
 
 
+def experiment_sources(pattern):
+    return [
+        path for path in EXP.rglob(pattern)
+        if "runs" not in path.relative_to(EXP).parts
+    ]
+
+
 def validate_notebook(path):
     notebook = read_json(path)
     if notebook.get("nbformat") != 4:
@@ -116,7 +123,7 @@ def validate_sources():
     missing = [str(path) for path in required if not path.is_file()]
     if missing:
         fail("required source missing: {}".format(missing))
-    for path in EXP.rglob("*.py"):
+    for path in experiment_sources("*.py"):
         ast.parse(path.read_text(), filename=str(path))
     notebook = EXP / "colab/train_prefix_sweep.ipynb"
     if not notebook.is_file():
@@ -167,7 +174,7 @@ def validate_sources():
 
 
 def validate_shell():
-    scripts = sorted(EXP.rglob("*.sh"))
+    scripts = sorted(experiment_sources("*.sh"))
     for path in scripts:
         subprocess.run(["bash", "-n", str(path)], check=True)
         text = path.read_text()
@@ -179,7 +186,7 @@ def validate_shell():
 
 def validate_sacramento_python_compatibility():
     """Keep host-side control/validation code usable on Sacramento Python 3.6."""
-    sources = list(EXP.rglob("*.py")) + list(EXP.rglob("*.sh"))
+    sources = experiment_sources("*.py") + experiment_sources("*.sh")
     sources.append(EXP / "colab/train_prefix_sweep.ipynb")
     forbidden = {
         "Python 3.7 subprocess text keyword": "text" + "=True",
@@ -207,7 +214,11 @@ def validate_no_content_fingerprints():
     extensions = {".py", ".sh", ".md", ".json", ".ipynb", ".tex"}
     sources = [
         path for path in EXP.rglob("*")
-        if path.is_file() and path.suffix in extensions
+        if (
+            path.is_file()
+            and path.suffix in extensions
+            and "runs" not in path.relative_to(EXP).parts
+        )
     ]
     sources.append(
         ROOT / "formal_NN_training/common/stride_direct_action_model.py"
@@ -275,7 +286,7 @@ def main():
     print("[PASS] versioned float32 export contains all recurrent/action heads")
     print("[PASS] parity reset and optional realistic warmup are separated")
     print("[PASS] Sacramento Python 3.6/legacy NumPy path needs no pandas")
-    print("[PASS] no content fingerprints or transfer sidecars remain")
+    print("[PASS] tracked workflow source has no content fingerprints/sidecars")
     print("[PASS] generated data, logs, checkpoints, and weights are untracked")
     print("[PASS] completed offline 602 Stride reference remains present")
 
