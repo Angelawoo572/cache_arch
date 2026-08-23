@@ -349,28 +349,25 @@ RUN_DIR="$RUN_DIR" bash "$EXP/linux/run_offline_sweep.sh" status
 Offline replay is the learning-curve/reference phase. It is not proof that
 live callback inference works.
 
-## O. h16-first export and standalone parity
+## O. h16-first torch-free export validation and standalone parity
 
-h16 20M:
+All checkpoints and `model.bin` files are exported in Colab. Sacramento does
+not re-import PyTorch checkpoints. Validate the complete h16 export first:
 
 ~~~bash
 POINT=$RUN_DIR/points/h16/i20m/seed7
-python3 "$EXP/python/export_live_model.py" \
-  --checkpoint "$POINT/offline/model.pt" \
-  --run-metadata "$POINT/offline/run_metadata.json" \
-  --out-dir "$POINT/export" \
-  --hidden-size 16 --instruction-budget 20000000 --seed 7
+python3 "$EXP/python/validate_export.py" \
+  --model-bin "$POINT/export/model.bin" \
+  --metadata "$POINT/export/model_metadata.json"
 ~~~
 
-h8 20M:
+Then h8:
 
 ~~~bash
 POINT=$RUN_DIR/points/h8/i20m/seed7
-python3 "$EXP/python/export_live_model.py" \
-  --checkpoint "$POINT/offline/model.pt" \
-  --run-metadata "$POINT/offline/run_metadata.json" \
-  --out-dir "$POINT/export" \
-  --hidden-size 8 --instruction-budget 20000000 --seed 7
+python3 "$EXP/python/validate_export.py" \
+  --model-bin "$POINT/export/model.bin" \
+  --metadata "$POINT/export/model_metadata.json"
 ~~~
 
 Build and synthetic parity:
@@ -393,7 +390,6 @@ for H in 16 8; do
     --cpp-runner "$RUN_DIR/bin/stride_lstm_standalone" \
     --work-dir "$POINT/parity/recorded" \
     --model-bin "$POINT/export/model.bin" \
-    --checkpoint "$POINT/offline/model.pt" \
     --stream "$RUN_DIR/evaluation/602.gcc_s-734B.eval_stream.csv.gz" \
     --point-metadata "$POINT/point_metadata.json" \
     --output "$POINT/parity/recorded/summary.json"
@@ -408,7 +404,8 @@ jq . "$POINT/parity/recorded/summary.json"
 head -1 "$POINT/parity/recorded/cpp_outputs.jsonl"
 ~~~
 
-To compare a user-held old checkpoint against the unchanged action semantics:
+On a machine that has PyTorch, exact model.pt-to-model.bin validation and an
+optional old-checkpoint action comparison remain available:
 
 ~~~bash
 python3 "$EXP/python/validate_export.py" \
@@ -458,51 +455,11 @@ CHAMP_DIR=external/ChampSim \
   bash "$EXP/runtime/champsim/install_live_prefetcher.sh" restore
 ~~~
 
-## Q. Live smoke tests
+## Q. Live binary audit
 
-Small functional smoke, h16:
-
-~~~bash
-RUN_DIR="$RUN_DIR" HIDDEN_SIZES=16 BUDGETS=i20m SEEDS=7 \
-RUN_MODE=small_smoke STATE_MODE=parity \
-WARMUP_INSTRUCTIONS=100000 SIMULATION_INSTRUCTIONS=100000 \
-TRACE_FILE_OPENS=1 \
-  bash "$EXP/linux/run_live_sweep.sh" run
-~~~
-
-h16 and h8 20M-checkpoint live smoke (25M warmup, 20M measured):
-
-~~~bash
-RUN_DIR="$RUN_DIR" HIDDEN_SIZES=16 BUDGETS=i20m SEEDS=7 \
-RUN_MODE=smoke STATE_MODE=parity \
-WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=20000000 \
-  bash "$EXP/linux/run_live_sweep.sh" run
-
-RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i20m SEEDS=7 \
-RUN_MODE=smoke STATE_MODE=parity \
-WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=20000000 \
-  bash "$EXP/linux/run_live_sweep.sh" run
-~~~
-
-Inspect state boundary and timing:
-
-~~~bash
-LOG=$RUN_DIR/points/h16/i20m/seed7/live/parity/smoke/run.log
-grep -E 'stride_lstm_live_(measurement_start|measured_callbacks|inference_calls|generated_addresses|unique_pcs|peak_recurrent_state_bytes|weight_bytes|host_)' "$LOG"
-~~~
-
-Confirm no action-list file was opened:
-
-~~~bash
-OPEN_LOG=$RUN_DIR/points/h16/i20m/seed7/live/parity/small_smoke/openat.log
-if grep -F 'replay.csv' "$OPEN_LOG"; then
-  echo "FAIL: action-list access"
-else
-  echo "PASS: no replay.csv opened"
-fi
-~~~
-
-Confirm no learning/teacher implementation is linked:
+The recommended workflow proceeds from full recorded-stream parity directly
+to selected full live runs; no smoke simulation is required. Confirm that no
+learning/teacher implementation is linked:
 
 ~~~bash
 if strings "$RUN_DIR/bin/champsim.602_stride_lstm_live" | \
@@ -739,7 +696,8 @@ nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i1m FORCE=1 \
   > "$RUN_DIR/logs/offline_h8_i1m_force.nohup.log" 2>&1 < /dev/null &
 ~~~
 
-h16 anchor export/parity/build/live smoke, then h8 through the same stages:
+h16 anchor export validation/full parity/build, then h8 through the same
+torch-free validation path. These commands do not launch smoke simulations:
 
 ~~~bash
 nohup env RUN_DIR="$RUN_DIR" \
@@ -755,6 +713,27 @@ echo $! > "$RUN_DIR/logs/stage1_h8.pid"
 tail -f "$RUN_DIR/logs/stage1_h8.nohup.log"
 ~~~
 
+Run the actual full h16 20M live reference first, then the actual full h8 20M
+live reference. These are measured runs, not reduced-instruction tests:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=16 BUDGETS=i20m SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live \
+  WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_h16_i20m.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/live_h16_i20m.pid"
+tail -f "$RUN_DIR/logs/live_h16_i20m.nohup.log"
+
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i20m SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live \
+  WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_h8_i20m.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/live_h8_i20m.pid"
+tail -f "$RUN_DIR/logs/live_h8_i20m.nohup.log"
+~~~
+
 Standalone live ChampSim build by itself:
 
 ~~~bash
@@ -763,24 +742,6 @@ nohup env RUN_DIR="$RUN_DIR" \
   > "$RUN_DIR/logs/build_live.nohup.log" 2>&1 < /dev/null &
 echo $! > "$RUN_DIR/logs/build_live.pid"
 tail -f "$RUN_DIR/logs/build_live.nohup.log"
-~~~
-
-Small h16 and h8 live smokes:
-
-~~~bash
-nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=16 BUDGETS=i20m SEEDS=7 \
-  RUN_MODE=small_smoke STATE_MODE=parity \
-  WARMUP_INSTRUCTIONS=100000 SIMULATION_INSTRUCTIONS=100000 \
-  TRACE_FILE_OPENS=1 \
-  bash "$EXP/linux/run_live_sweep.sh" run \
-  > "$RUN_DIR/logs/live_small_h16.nohup.log" 2>&1 < /dev/null &
-
-nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i20m SEEDS=7 \
-  RUN_MODE=small_smoke STATE_MODE=parity \
-  WARMUP_INSTRUCTIONS=100000 SIMULATION_INSTRUCTIONS=100000 \
-  TRACE_FILE_OPENS=1 \
-  bash "$EXP/linux/run_live_sweep.sh" run \
-  > "$RUN_DIR/logs/live_small_h8.nohup.log" 2>&1 < /dev/null &
 ~~~
 
 Recommended selected live sweep:
@@ -849,8 +810,6 @@ change them.
 | All valid keyed offline replays + 3 references | Sacramento | 10–40 h if most of 34 train | ignored logs/events |
 | Synthetic standalone parity | Sacramento or Mac/Linux | under 1 min | ignored fixtures |
 | Full held-out parity per anchor | Sacramento/Colab CPU | 2–20 min, callback-count dependent | ignored JSONL |
-| 100K+100K small live smoke | Sacramento | 1–10 min | ignored log |
-| 25M+20M anchor live smoke | Sacramento | 10–60 min per h8/h16 point | ignored log |
 | Selected full live sweep | Sacramento | roughly 0.5–2 h per selected point; commonly 4–20 h total | ignored logs |
 | Plot/report inspection | Sacramento or Mac with Python/TeX | 1–10 min | ignored plots/PDF |
 
@@ -868,7 +827,7 @@ Estimated disk:
   observed PC; peak raw state is 64×U or 128×U bytes for U live PCs, excluding
   hash-map allocator overhead.
 
-Collection, keyed replay, ChampSim build, live smoke, and full live runs are
+Collection, keyed replay, ChampSim build, and full live runs are
 Sacramento tasks. Training needs Colab/GPU. Archive verification, SCP, JSON/CSV
 inspection, and final PDF viewing can be done on the Mac. All run outputs are
 ignored; source, configs, notebook, validators, TeX, README, and COMMANDS are
