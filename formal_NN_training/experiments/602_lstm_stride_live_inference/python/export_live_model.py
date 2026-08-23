@@ -3,7 +3,6 @@
 
 import argparse
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -18,17 +17,6 @@ from live_model_format import (
     write_model,
 )
 
-
-def git_commit():
-    try:
-        return subprocess.check_output(
-            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
-            universal_newlines=True,
-        ).strip()
-    except (OSError, subprocess.CalledProcessError):
-        return "unknown"
-
-
 def load_json(path):
     return json.loads(Path(path).read_text()) if path else {}
 
@@ -37,8 +25,6 @@ def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--checkpoint", required=True, type=Path)
     parser.add_argument("--run-metadata", required=True, type=Path)
-    parser.add_argument("--training-manifest", required=True, type=Path)
-    parser.add_argument("--evaluation-stream", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--hidden-size", required=True, type=int, choices=[8, 16])
     parser.add_argument("--instruction-budget", required=True, type=int)
@@ -55,10 +41,7 @@ def main():
         AUTHORITATIVE_SOURCE,
         EXPERIMENT_REVISION,
         MODEL_REVISION,
-        authoritative_source_sha256,
         load_checkpoint,
-        runtime_encoder_sha256,
-        sha256,
     )
     model_path = args.out_dir / "model.bin"
     metadata_path = args.out_dir / "model_metadata.json"
@@ -71,7 +54,6 @@ def main():
         args.checkpoint, expected_hidden_size=args.hidden_size
     )
     run_metadata = load_json(args.run_metadata)
-    training = load_json(args.training_manifest)
     parameter_count = write_model(
         model_path, model.state_dict(), model.hidden_size, model.feature_count
     )
@@ -98,18 +80,7 @@ def main():
         "recurrent_state_bytes_per_pc": args.hidden_size * 2 * 4,
         "model_revision": MODEL_REVISION,
         "experiment_revision": EXPERIMENT_REVISION,
-        "runtime_encoder_sha256": runtime_encoder_sha256(),
         "python_source": str(AUTHORITATIVE_SOURCE.relative_to(ROOT)),
-        "python_source_sha256": authoritative_source_sha256(),
-        "checkpoint_sha256": sha256(args.checkpoint),
-        "source_run_metadata_sha256": sha256(args.run_metadata),
-        "training_stream_sha256": (
-            training.get("training_stream_sha256")
-            or run_metadata.get("train_stream_sha256")
-        ),
-        "evaluation_stream_sha256": sha256(args.evaluation_stream),
-        "export_sha256": sha256(model_path),
-        "git_commit_sha": git_commit(),
         "seed": args.seed,
         "instruction_budget": args.instruction_budget,
         "teacher_role": "offline_labels_only",
@@ -155,7 +126,6 @@ def main():
         "status": "export_complete",
         "model_bin": str(model_path),
         "model_metadata": str(metadata_path),
-        "export_sha256": metadata["export_sha256"],
         "parameter_count": parameter_count,
     }, sort_keys=True))
 

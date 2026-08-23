@@ -148,8 +148,6 @@ def point_metadata(
         "k_histogram": manifest.get("k_histogram"),
         "unique_pcs": manifest.get("unique_pcs"),
         "unique_positive_pcs": manifest.get("unique_positive_pcs"),
-        "training_stream_sha256": manifest.get("training_stream_sha256"),
-        "raw_event_log_sha256": manifest.get("raw_event_log_sha256"),
         "model_revision": MODEL_REVISION,
         "seed": seed,
         "epochs": controls["epochs"],
@@ -280,6 +278,7 @@ def main():
             "--learning-rate", str(controls["learning_rate"]),
             "--hidden-size", str(hidden),
             "--device", args.device,
+            "--omit-content-fingerprints",
         ]
         if args.dry_run:
             print("[dry-run] " + " ".join(command))
@@ -324,10 +323,6 @@ def main():
             behavior["gate_target_positive_rows"]
         )
         status.update({
-            "evaluation_stream_sha256": old_metadata["eval_stream_sha256"],
-            "runtime_encoder_sha256": old_metadata[
-                "runtime_encoder_sha256"
-            ],
             "optimizer_steps": optimizer_steps,
             "training_wall_clock_seconds": old_metadata.get(
                 "training_wall_clock_seconds"

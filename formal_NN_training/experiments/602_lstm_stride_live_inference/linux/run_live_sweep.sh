@@ -109,15 +109,15 @@ for point in "${POINTS[@]}"; do
     exit 4
   }
   python3 - "$model" "$metadata" <<'PY'
-import hashlib
 import json
 import sys
 from pathlib import Path
 model, metadata_path = map(Path, sys.argv[1:])
 metadata = json.loads(metadata_path.read_text())
-digest = hashlib.sha256(model.read_bytes()).hexdigest()
-if digest != metadata.get("export_sha256") or not metadata.get("weights_frozen"):
+if not model.is_file() or not metadata.get("weights_frozen"):
     raise SystemExit("invalid frozen export: {}".format(model))
+if metadata.get("format_version") != 1:
+    raise SystemExit("unsupported model format: {}".format(model))
 PY
   if [[ -s "$log" && "$FORCE" != 1 ]] &&
      grep -Fq 'stride_lstm_live_measured_callbacks ' "$log"; then

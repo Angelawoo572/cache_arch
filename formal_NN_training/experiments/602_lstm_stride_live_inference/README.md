@@ -72,8 +72,8 @@ Undefined metrics remain NA.
 model.bin format version 1 is little-endian float32 and contains all 16
 state_dict tensors: input projection, all LSTM weights/biases, emit head,
 positive-count head, all GRU weights/biases, and delta head.
-model_metadata.json binds the binary to checkpoint, streams, Python source,
-runtime encoder, model revision, seed, budget, and Git commit SHA.
+model_metadata.json records the tensor contract, Python source, runtime
+encoder, model revision, seed, budget, and frozen-weight deployment settings.
 
 The dependency-free C++11 runtime implements the PyTorch LSTM i,f,g,o and
 GRU r,z,n equations, signed-log decoding, dynamic exact-PC (h,c) state,

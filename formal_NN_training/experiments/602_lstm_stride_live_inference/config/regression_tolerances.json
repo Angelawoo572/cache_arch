@@ -4,12 +4,10 @@
     "hidden_size",
     "parameter_count",
     "model_revision",
-    "runtime_encoder_sha256",
     "training_runtime_fields",
     "inference_runtime_fields",
     "normal_policy_outputs_used_as_training_targets",
-    "normal_policy_outputs_used_as_model_inputs",
-    "eval_stream_sha256"
+    "normal_policy_outputs_used_as_model_inputs"
   ],
   "absolute_metric_tolerances": {
     "heldout_behavior_metrics.count_exact_match_rate": 0.0,

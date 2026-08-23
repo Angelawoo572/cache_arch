@@ -16,7 +16,6 @@
   "model_revision": "compact_shared_pc_hurdle_delta_v9",
   "runtime_encoder": "lossless_lsb_first_pc64_then_byte_address64",
   "feature_width": 128,
-  "runtime_encoder_sha256_source": "authoritative_python_function_hash",
   "hidden_sizes": [
     8,
     16

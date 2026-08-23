@@ -7,7 +7,6 @@ New training, export, and parity tools all import this wrapper instead of
 copying model or decoder code.
 """
 
-import hashlib
 import importlib.util
 import sys
 from pathlib import Path
@@ -58,21 +57,7 @@ CompactPCKeyedHurdleStrideLSTM = (
 )
 expected_parameter_count = authoritative.expected_parameter_count
 runtime_features = authoritative.runtime_features
-runtime_encoder_sha256 = authoritative.runtime_encoder_sha256
-state_router_sha256 = authoritative.state_router_sha256
 load_stream = authoritative.load_stream
-
-
-def sha256(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def authoritative_source_sha256():
-    return sha256(AUTHORITATIVE_SOURCE)
 
 
 def _torch_load(path, map_location="cpu"):

@@ -56,9 +56,7 @@ fi
 mkdir -p "$(dirname "$OUT")"
 cp "$BUILT" "$OUT"
 python3 - "$ROOT" "$CHAMP_DIR" "$EXP" "$OUT" <<'PY'
-import hashlib
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -71,22 +69,10 @@ sources = [
     experiment / "runtime/champsim/stride_lstm_live.h",
     experiment / "runtime/champsim/stride_lstm_live.cc",
 ]
-digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
 payload = {
     "schema_version": 1,
-    "parent_commit": subprocess.check_output(
-        ["git", "-C", str(root), "rev-parse", "HEAD"],
-        universal_newlines=True,
-    ).strip(),
-    "champsim_commit": subprocess.check_output(
-        ["git", "-C", str(champ), "rev-parse", "HEAD"],
-        universal_newlines=True,
-    ).strip(),
     "binary": str(binary),
-    "binary_sha256": digest(binary),
-    "source_sha256": {
-        str(path.relative_to(root)): digest(path) for path in sources
-    },
+    "sources": [str(path.relative_to(root)) for path in sources],
 }
 path = binary.with_suffix(binary.suffix + ".build_metadata.json")
 path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")

@@ -35,15 +35,12 @@ export_and_validate() {
   local point="$RUN_DIR/points/h$hidden/i20m/seed7"
   local checkpoint="$point/offline/model.pt"
   local export_dir="$point/export"
-  local manifest="$RUN_DIR/training_prefixes/i20m/training_manifest.json"
   local old_checkpoint
   old_checkpoint="$(printenv "$old_variable" 2>/dev/null || true)"
   [[ -s "$checkpoint" ]] || { echo "[error] missing h$hidden 20M checkpoint" >&2; exit 3; }
   export_args=(
     --checkpoint "$checkpoint"
     --run-metadata "$point/offline/run_metadata.json"
-    --training-manifest "$manifest"
-    --evaluation-stream "$EVAL"
     --out-dir "$export_dir"
     --hidden-size "$hidden"
     --instruction-budget 20000000

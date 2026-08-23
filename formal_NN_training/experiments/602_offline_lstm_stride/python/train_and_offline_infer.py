@@ -731,6 +731,13 @@ def build_parser():
         "--device", choices=["auto", "cpu", "cuda"], default="auto"
     )
     parser.add_argument("--hidden-size", type=int, default=16)
+    parser.add_argument(
+        "--omit-content-fingerprints", action="store_true",
+        help=(
+            "omit content fingerprint fields from generated metadata; "
+            "used by the 602 live-inference Colab transfer workflow"
+        ),
+    )
     return parser
 
 
@@ -842,8 +849,6 @@ def main():
     }, args.out_dir / "model.pt")
     write_table(args.out_dir / "training_history.csv", history)
 
-    encoder_hash = runtime_encoder_sha256()
-    router_hash = state_router_sha256()
     metadata = {
         "trace": TRACE,
         "matched_normal_prefetcher": "stride",
@@ -878,9 +883,6 @@ def main():
             "602_offline_lstm_stride.train_and_offline_infer."
             "runtime_features"
         ),
-        "runtime_encoder_sha256": encoder_hash,
-        "training_runtime_encoder_sha256": encoder_hash,
-        "inference_runtime_encoder_sha256": encoder_hash,
         "effective_external_inputs": ["pc", "cache_line_address"],
         "training_runtime_fields": ["pc", "cache_line_address"],
         "inference_runtime_fields": ["pc", "cache_line_address"],
@@ -889,9 +891,6 @@ def main():
         "state_routing": (
             "dynamic_exact_pc_keyed_recurrent_state_no_fixed_capacity"
         ),
-        "state_router_sha256": router_hash,
-        "training_state_router_sha256": router_hash,
-        "inference_state_router_sha256": router_hash,
         "pc_state_capacity": None,
         "persistent_recurrent_state_floats_per_observed_pc": (
             2 * args.hidden_size
@@ -986,8 +985,6 @@ def main():
         "offline_lstm_entries": nn_entries,
         "offline_lstm_triggers": nn_triggers,
         "degenerate_empty_prediction": nn_entries == 0,
-        "offline_stride_list_sha256": sha256(normal_path),
-        "offline_lstm_list_sha256": sha256(nn_path),
         "heldout_behavior_metrics": behavior,
         "train_rows": len(train_rows),
         "training_wall_clock_seconds": training_wall_clock_seconds,
@@ -996,13 +993,28 @@ def main():
         "python": platform.python_version(),
         "numpy": np.__version__,
         "torch": torch.__version__,
-        "train_stream_sha256": sha256(args.train_stream),
-        "eval_stream_sha256": sha256(args.eval_stream),
-        "train_stream_content_sha256": gzip_content_sha256(
-            args.train_stream
-        ),
-        "eval_stream_content_sha256": gzip_content_sha256(args.eval_stream),
     }
+    if not args.omit_content_fingerprints:
+        encoder_hash = runtime_encoder_sha256()
+        router_hash = state_router_sha256()
+        metadata.update({
+            "runtime_encoder_sha256": encoder_hash,
+            "training_runtime_encoder_sha256": encoder_hash,
+            "inference_runtime_encoder_sha256": encoder_hash,
+            "state_router_sha256": router_hash,
+            "training_state_router_sha256": router_hash,
+            "inference_state_router_sha256": router_hash,
+            "offline_stride_list_sha256": sha256(normal_path),
+            "offline_lstm_list_sha256": sha256(nn_path),
+            "train_stream_sha256": sha256(args.train_stream),
+            "eval_stream_sha256": sha256(args.eval_stream),
+            "train_stream_content_sha256": gzip_content_sha256(
+                args.train_stream
+            ),
+            "eval_stream_content_sha256": gzip_content_sha256(
+                args.eval_stream
+            ),
+        })
     (args.out_dir / "run_metadata.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )

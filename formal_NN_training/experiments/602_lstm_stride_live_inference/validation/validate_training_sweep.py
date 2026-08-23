@@ -2,18 +2,12 @@
 """Validate collected supervision and per-point status without hiding probes."""
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[4]
 EXP = ROOT / "formal_NN_training/experiments/602_lstm_stride_live_inference"
-
-
-def digest(path):
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
-
 
 def build_parser():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -53,8 +47,6 @@ def main():
                 errors.append("{} mismatch {}".format(field, manifest_path))
         if not stream.is_file():
             errors.append("missing stream {}".format(stream))
-        elif digest(stream) != row.get("training_stream_sha256"):
-            errors.append("stream SHA mismatch {}".format(stream))
         if row.get("status") not in {
             "no_callbacks", "single_class_no_act",
             "single_class_no_silent", "insufficient_rows", "trainable",

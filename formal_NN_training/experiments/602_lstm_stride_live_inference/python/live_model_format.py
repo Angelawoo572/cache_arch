@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Versioned float32 model.bin format shared by exporter and validators."""
 
-import hashlib
 import struct
 from pathlib import Path
 
@@ -32,14 +31,6 @@ TENSOR_ORDER = [
     "action_decoder.delta_head.weight",
     "action_decoder.delta_head.bias",
 ]
-
-
-def sha256(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def write_model(path, state_dict, hidden_size, feature_width):

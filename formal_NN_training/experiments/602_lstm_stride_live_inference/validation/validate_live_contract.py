@@ -203,6 +203,32 @@ def validate_sacramento_python_compatibility():
         fail("Sacramento Python 3.6 compatibility failures: {}".format(bad))
 
 
+def validate_no_content_fingerprints():
+    extensions = {".py", ".sh", ".md", ".json", ".ipynb", ".tex"}
+    sources = [
+        path for path in EXP.rglob("*")
+        if path.is_file() and path.suffix in extensions
+    ]
+    sources.append(
+        ROOT / "formal_NN_training/common/stride_direct_action_model.py"
+    )
+    forbidden = (
+        "s" + "ha256",
+        "hash" + "lib",
+        "check" + "sum",
+        "di" + "gest",
+        "commit_" + "s" + "ha",
+    )
+    bad = []
+    for path in sources:
+        lowered = path.read_text().lower()
+        for token in forbidden:
+            if token in lowered:
+                bad.append("{}: forbidden content fingerprint token".format(path))
+    if bad:
+        fail("content fingerprints remain: {}".format(bad))
+
+
 def validate_artifacts():
     probe = EXP / "runs/contract_probe/model.bin"
     ignored = subprocess.run(
@@ -241,6 +267,7 @@ def main():
     validate_sources()
     validate_shell()
     validate_sacramento_python_compatibility()
+    validate_no_content_fingerprints()
     validate_artifacts()
     print("[PASS] frozen live runtime has no learning/teacher/list dependency")
     print("[PASS] external model inputs are PC and cache-line address only")
@@ -248,6 +275,7 @@ def main():
     print("[PASS] versioned float32 export contains all recurrent/action heads")
     print("[PASS] parity reset and optional realistic warmup are separated")
     print("[PASS] Sacramento Python 3.6/legacy NumPy path needs no pandas")
+    print("[PASS] no content fingerprints or transfer sidecars remain")
     print("[PASS] generated data, logs, checkpoints, and weights are untracked")
     print("[PASS] completed offline 602 Stride reference remains present")
 

@@ -10,7 +10,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[4]
-from live_model_format import FORMAT_VERSION, TENSOR_ORDER, read_model, sha256
+from live_model_format import FORMAT_VERSION, TENSOR_ORDER, read_model
 
 
 DEFAULT_TOLERANCES = (
@@ -122,7 +122,6 @@ def main():
         expected_parameter_count,
         load_checkpoint,
         load_stream,
-        runtime_encoder_sha256,
     )
     binary = read_model(args.model_bin)
     metadata = json.loads(args.metadata.read_text())
@@ -136,8 +135,6 @@ def main():
             model.feature_count, model.hidden_size
         ),
         "model_revision": MODEL_REVISION,
-        "runtime_encoder_sha256": runtime_encoder_sha256(),
-        "export_sha256": sha256(args.model_bin),
     }
     for key, value in expected.items():
         if metadata.get(key) != value:

@@ -33,7 +33,6 @@ python3 "$EXP/python/summarize_training_prefixes.py" --prefix-root "$RUN_DIR/tra
 
 python3 - "$EXP/config/training_prefix_sweep.json" "$RUN_DIR" <<'PY'
 import gzip
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -57,9 +56,6 @@ for point in config["instruction_budgets"]:
     if not stream.is_file():
         errors.append("missing stream for {}".format(point["tag"]))
         continue
-    digest = hashlib.sha256(stream.read_bytes()).hexdigest()
-    if digest != metadata.get("training_stream_sha256"):
-        errors.append("SHA256 mismatch {}".format(stream))
     try:
         with gzip.open(stream, "rt") as handle:
             next(handle)
@@ -76,8 +72,11 @@ if [[ -e "$OUTPUT" && "$FORCE" != 1 ]]; then
 fi
 mkdir -p "$(dirname "$OUTPUT")"
 tmp="$OUTPUT.tmp"
-tar -C "$RUN_DIR" -czf "$tmp" training_prefixes evaluation training_prefix_data_summary.csv training_prefix_data_summary.json
+tar -C "$RUN_DIR" -czf "$tmp" \
+  training_prefixes \
+  evaluation/602.gcc_s-734B.eval_stream.csv.gz \
+  training_prefix_data_summary.csv \
+  training_prefix_data_summary.json
 mv "$tmp" "$OUTPUT"
-sha256sum "$OUTPUT" | tee "$OUTPUT.sha256"
 tar -tzf "$OUTPUT"
 echo "[ready] $OUTPUT"

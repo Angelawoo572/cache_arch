@@ -124,21 +124,13 @@ normal_list="$RUN_DIR/points/h$first_hidden/$first_budget/seed$first_seed/offlin
   exit 3
 }
 if [[ "$DRY_RUN" != 1 ]]; then
-  python3 - "$RUN_DIR" "$normal_list" <<'PY'
-import hashlib
-import sys
-from pathlib import Path
-root = Path(sys.argv[1])
-reference = Path(sys.argv[2])
-expected = hashlib.sha256(reference.read_bytes()).hexdigest()
-for path in root.glob("points/h*/*/seed*/offline/offline_stride.replay.csv"):
-    observed = hashlib.sha256(path.read_bytes()).hexdigest()
-    if observed != expected:
-        raise SystemExit(
-            "fixed evaluation teacher list differs: {}".format(path)
-        )
-print("PASS: one fixed offline Stride reference list is reusable")
-PY
+  while IFS= read -r candidate; do
+    cmp -s "$normal_list" "$candidate" || {
+      echo "[error] fixed evaluation teacher list differs: $candidate" >&2
+      exit 3
+    }
+  done < <(find "$RUN_DIR/points" -path '*/offline/offline_stride.replay.csv' -type f -print)
+  echo "PASS: one fixed offline Stride reference list is reusable"
 fi
 run_method no_pref none "" "$reference_root/logs/no_pref.log" "$reference_root/events/no_pref.events.csv"
 run_method live_stride stride "" "$reference_root/logs/live_stride.log" "$reference_root/events/live_stride.events.csv"

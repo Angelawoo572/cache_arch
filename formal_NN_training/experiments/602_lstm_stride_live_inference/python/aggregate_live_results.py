@@ -54,7 +54,6 @@ def main():
             row["failure_reason"] = str(exc)
         counters = parse_live_counters(log)
         row.update({
-            "live_model_sha256": export.get("export_sha256"),
             "live_model_format_version": export.get("format_version"),
             "live_inference_calls": counters.get(
                 "stride_lstm_live_inference_calls"

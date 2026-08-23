@@ -10,8 +10,7 @@ from pathlib import Path
 FIELDS = [
     "budget_tag", "instruction_budget", "decision_rows", "silent_rows",
     "positive_count_rows", "action_atoms", "unique_pcs",
-    "unique_positive_pcs", "k_histogram", "training_stream_sha256",
-    "raw_event_log_sha256", "status", "failure_reason",
+    "unique_positive_pcs", "k_histogram", "status", "failure_reason",
 ]
 
 

@@ -161,7 +161,6 @@ collect_evaluation_once() {
   [[ -s "$raw" ]] || { echo "[error] evaluation produced no callbacks" >&2; exit 5; }
   gzip -n "$raw"
   python3 "$OFFLINE/python/normalize_events.py" --events "$gz" --out "$stream"
-  sha256sum "$gz" "$stream" > "$EVAL_DIR/SHA256SUMS"
 }
 
 show_status() {

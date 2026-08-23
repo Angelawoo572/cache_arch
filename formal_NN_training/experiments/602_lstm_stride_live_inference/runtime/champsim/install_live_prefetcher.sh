@@ -52,76 +52,34 @@ sources=(
 )
 
 show_status() {
-  echo "ChampSim HEAD $(git -C "$CHAMP_DIR" rev-parse HEAD)"
   git -C "$CHAMP_DIR" status --short
   for target in "${targets[@]}"; do
     if [[ -f "$CHAMP_DIR/$target" ]]; then
-      echo "installed $(sha256sum "$CHAMP_DIR/$target")"
+      echo "present $target"
     else
       echo "absent $target"
     fi
   done
 }
 
-if [[ "$ACTION" == "status" ]]; then
-  show_status
-  exit 0
-fi
-
-if [[ "$ACTION" == "restore" ]]; then
-  if [[ ! -f "$MANIFEST" && "$FORCE" != 1 ]]; then
-    echo "[error] install manifest absent; refusing broad cleanup" >&2
-    exit 3
-  fi
-  python3 - "$CHAMP_DIR" "$MANIFEST" "$FORCE" "${targets[@]}" <<'PY'
-import hashlib
-import json
-import sys
-from pathlib import Path
-
-root = Path(sys.argv[1])
-manifest_path = Path(sys.argv[2])
-force = sys.argv[3] == "1"
-targets = sys.argv[4:]
-recorded = {}
-if manifest_path.is_file():
-    recorded = json.loads(manifest_path.read_text()).get("installed_sha256", {})
-for relative in targets:
-    path = root / relative
-    if not path.exists():
-        continue
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-    if not force and recorded.get(relative) != digest:
-        raise SystemExit("[error] modified installed file; inspect: {}".format(path))
-for relative in targets:
-    path = root / relative
-    if path.exists():
-        path.unlink()
-if manifest_path.exists():
-    manifest_path.unlink()
-print("[restored] removed only installer-owned live source files")
-PY
-  show_status
-  exit 0
-fi
-
-template="$CHAMP_DIR/prefetcher/multi.l2c_pref"
-[[ -f "$template" ]] || { echo "[error] missing $template" >&2; exit 3; }
-git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref |
-  grep -Fq '#include "stride.h"' || {
-    echo "[error] expected include context absent in committed template" >&2
-    exit 3
-  }
-git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref |
-  grep -Fq 'compare("stride")' || {
-    echo "[error] expected registry context absent in committed template" >&2
-    exit 3
-  }
-
-tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
-git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref > "$tmp/base.l2c_pref"
-python3 - "$tmp/base.l2c_pref" "$tmp/stride_lstm_live.l2c_pref" <<'PY'
+generate_registry() {
+  local output="$1"
+  local template="$CHAMP_DIR/prefetcher/multi.l2c_pref"
+  [[ -f "$template" ]] || { echo "[error] missing $template" >&2; exit 3; }
+  git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref |
+    grep -Fq '#include "stride.h"' || {
+      echo "[error] expected include context absent in committed template" >&2
+      exit 3
+    }
+  git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref |
+    grep -Fq 'compare("stride")' || {
+      echo "[error] expected registry context absent in committed template" >&2
+      exit 3
+    }
+  local base
+  base="$(mktemp)"
+  git -C "$CHAMP_DIR" show HEAD:prefetcher/multi.l2c_pref > "$base"
+  python3 - "$base" "$output" <<'PY'
 from pathlib import Path
 import sys
 
@@ -154,6 +112,62 @@ live = registry_anchor + '''\t\telse if(!knob::l2c_prefetcher_types[index].compa
 text = text.replace(registry_anchor, live, 1)
 output.write_text(text)
 PY
+  rm -f "$base"
+}
+
+if [[ "$ACTION" == "status" ]]; then
+  show_status
+  exit 0
+fi
+
+if [[ "$ACTION" == "restore" ]]; then
+  if [[ ! -f "$MANIFEST" && "$FORCE" != 1 ]]; then
+    echo "[error] install manifest absent; refusing broad cleanup" >&2
+    exit 3
+  fi
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' EXIT
+  generate_registry "$tmp/stride_lstm_live.l2c_pref"
+  if [[ "$FORCE" != 1 ]]; then
+    for index in "${!sources[@]}"; do
+      target="$CHAMP_DIR/${targets[$index]}"
+      [[ ! -e "$target" ]] || cmp -s "${sources[$index]}" "$target" || {
+        echo "[error] modified installed file; inspect or set FORCE=1: $target" >&2
+        exit 3
+      }
+    done
+    generated="$CHAMP_DIR/${targets[6]}"
+    [[ ! -e "$generated" ]] || cmp -s "$tmp/stride_lstm_live.l2c_pref" "$generated" || {
+      echo "[error] modified installed registry; inspect or set FORCE=1: $generated" >&2
+      exit 3
+    }
+  fi
+  python3 - "$CHAMP_DIR" "$MANIFEST" "${targets[@]}" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1])
+manifest_path = Path(sys.argv[2])
+targets = sys.argv[3:]
+recorded = json.loads(manifest_path.read_text()).get("installed_files", [])
+if sorted(recorded) != sorted(targets):
+    raise SystemExit("[error] install manifest target list changed")
+for relative in targets:
+    path = root / relative
+    if path.exists():
+        path.unlink()
+if manifest_path.exists():
+    manifest_path.unlink()
+print("[restored] removed only installer-owned live source files")
+PY
+  show_status
+  exit 0
+fi
+
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+generate_registry "$tmp/stride_lstm_live.l2c_pref"
 
 for index in "${!sources[@]}"; do
   source="${sources[$index]}"
@@ -172,9 +186,7 @@ fi
 install -m 0644 "$tmp/stride_lstm_live.l2c_pref" "$generated"
 
 python3 - "$CHAMP_DIR" "$MANIFEST" "${targets[@]}" <<'PY'
-import hashlib
 import json
-import subprocess
 import sys
 from pathlib import Path
 
@@ -183,14 +195,7 @@ manifest = Path(sys.argv[2])
 targets = sys.argv[3:]
 payload = {
     "schema_version": 1,
-    "champsim_head": subprocess.check_output(
-        ["git", "-C", str(root), "rev-parse", "HEAD"],
-        universal_newlines=True,
-    ).strip(),
-    "installed_sha256": {
-        relative: hashlib.sha256((root / relative).read_bytes()).hexdigest()
-        for relative in targets
-    },
+    "installed_files": targets,
 }
 manifest.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
 print("[installed] deterministic stride_lstm_live sources")

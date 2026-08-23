@@ -4,7 +4,6 @@
 import argparse
 import csv
 import gzip
-import hashlib
 import json
 import sys
 from collections import Counter, defaultdict
@@ -22,22 +21,6 @@ TRACE = "602.gcc_s-734B"
 STREAM_FIELDS = [
     "trace", "demand_idx", "cycle", "pc", "line", "pc_line_occ",
 ]
-
-
-def sha256(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
-
-
-def gzip_content_sha256(path):
-    digest = hashlib.sha256()
-    with gzip.open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def as_int(value):
@@ -151,10 +134,7 @@ def build_manifest(args):
             if positive_positions else None
         ),
         "raw_event_log": str(args.events),
-        "raw_event_log_sha256": sha256(args.events),
         "training_stream": str(args.stream),
-        "training_stream_sha256": sha256(args.stream),
-        "training_stream_content_sha256": gzip_content_sha256(args.stream),
         "status": status,
         "failure_reason": failure_reason,
     }

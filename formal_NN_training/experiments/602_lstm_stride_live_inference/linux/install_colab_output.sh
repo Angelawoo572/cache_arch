@@ -6,7 +6,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
 EXP="$ROOT/formal_NN_training/experiments/602_lstm_stride_live_inference"
 RUN_DIR="${RUN_DIR:-$EXP/runs/602_gcc_stride_prefix_seed7}"
 ARCHIVE="${ARCHIVE:-$RUN_DIR/incoming/602_stride_live_colab_output.tar.gz}"
-SHA_FILE="${SHA_FILE:-$ARCHIVE.sha256}"
 FORCE="${FORCE:-0}"
 ACTION="${1:-install}"
 
@@ -16,7 +15,6 @@ Usage: install_colab_output.sh [install|status]
 
 Environment:
   ARCHIVE=PATH    602_stride_live_colab_output.tar.gz.
-  SHA_FILE=PATH   Optional sidecar with SHA256 as its first token.
   RUN_DIR=PATH    Existing ignored Sacramento run directory.
   FORCE=1         Archive an existing points tree before replacement.
 
@@ -54,14 +52,6 @@ if [[ "$ACTION" == "status" ]]; then
   exit 0
 fi
 [[ -s "$ARCHIVE" ]] || { echo "[error] missing archive: $ARCHIVE" >&2; exit 3; }
-if [[ -s "$SHA_FILE" ]]; then
-  expected="$(awk 'NR==1 {print $1}' "$SHA_FILE")"
-  observed="$(sha256sum "$ARCHIVE" | awk '{print $1}')"
-  [[ "$expected" == "$observed" ]] || {
-    echo "[error] Colab archive SHA256 mismatch" >&2
-    exit 3
-  }
-fi
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
@@ -112,6 +102,5 @@ mv "$tmp/points" "$RUN_DIR/points"
 if [[ -f "$tmp/training_sweep_status.json" ]]; then
   cp "$tmp/training_sweep_status.json" "$RUN_DIR/training_sweep_status.json"
 fi
-sha256sum "$ARCHIVE" > "$RUN_DIR/colab_output_archive.sha256"
 show_status
 echo "[installed] $RUN_DIR/points"

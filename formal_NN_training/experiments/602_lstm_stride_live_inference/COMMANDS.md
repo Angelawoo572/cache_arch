@@ -17,7 +17,6 @@ Start at the Mac prompt:
 cd ~/cache
 git status --short
 git branch --show-current
-git rev-parse HEAD
 git submodule status
 df -h
 du -sh external/ChampSim
@@ -49,7 +48,6 @@ Verify:
 
 ~~~bash
 git branch --show-current
-git rev-parse HEAD
 git submodule status
 ~~~
 
@@ -170,7 +168,6 @@ jq '.points[] | {
   unique_positive_pcs,status,failure_reason
 }' "$RUN_DIR/training_prefix_data_summary.json"
 jq . "$RUN_DIR/training_prefixes/i20m/training_manifest.json"
-sha256sum "$RUN_DIR"/training_prefixes/i*/*.csv.gz
 python3 "$EXP/validation/validate_training_sweep.py" --run-dir "$RUN_DIR" --require-all
 ~~~
 
@@ -182,8 +179,6 @@ decision rows, Z positive-count rows, and W action atoms.
 ~~~bash
 RUN_DIR="$RUN_DIR" bash "$EXP/linux/package_colab_input.sh"
 INPUT_ARCHIVE=$RUN_DIR/602_stride_live_colab_input.tar.gz
-sha256sum "$INPUT_ARCHIVE"
-cat "$INPUT_ARCHIVE.sha256"
 tar -tzf "$INPUT_ARCHIVE" | less
 python3 "$EXP/validation/validate_training_sweep.py" --run-dir "$RUN_DIR" --require-all
 ~~~
@@ -194,13 +189,10 @@ Run these on the Mac:
 
 ~~~bash
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % mkdir -p ~/Documents/cache_arch_stride_live
-(base) angelawoo@Angelas-MacBook-Pro-5 ~ % scp qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/602_stride_live_colab_input.tar.gz* ~/Documents/cache_arch_stride_live/
+(base) angelawoo@Angelas-MacBook-Pro-5 ~ % scp qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/602_stride_live_colab_input.tar.gz ~/Documents/cache_arch_stride_live/
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % cd ~/Documents/cache_arch_stride_live
-(base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % shasum -a 256 602_stride_live_colab_input.tar.gz
 (base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % tar -tzf 602_stride_live_colab_input.tar.gz | less
 ~~~
-
-Compare the printed hash with the sidecar before uploading to Colab.
 
 ## I. Colab branch checkout
 
@@ -213,7 +205,7 @@ git clone \
   https://github.com/Angelawoo572/cache_arch.git \
   /content/cache_arch
 cd /content/cache_arch
-git rev-parse HEAD
+git branch --show-current
 ~~~
 
 For an existing Colab clone:
@@ -223,7 +215,7 @@ cd /content/cache_arch
 git fetch origin
 git switch experiment/602-stride-live-inference
 git pull --ff-only
-git rev-parse HEAD
+git branch --show-current
 ~~~
 
 Open colab/train_prefix_sweep.ipynb, restart the runtime, select a GPU, and run
@@ -231,23 +223,22 @@ all cells from top to bottom. Do not rely on variables from an earlier runtime.
 
 ## J. Colab training and export
 
-Upload both:
+Upload this single file:
 
 ~~~text
 602_stride_live_colab_input.tar.gz
-602_stride_live_colab_input.tar.gz.sha256
 ~~~
 
 The notebook then performs these reproducible stages:
 
-1. verifies the archive, all 17 prefix streams, and evaluation SHA256;
+1. validates the archive structure, all 17 prefix streams, and evaluation stream;
 2. extracts into /content/stride_run;
 3. runs h16 × i20m first;
 4. runs h8 × i20m second;
 5. resumes into the complete h8/h16 seed-7 matrix;
 6. records tiny untrainable points without future oversampling;
 7. exports every trained checkpoint to model.bin/model_metadata.json;
-8. packages points and prints the output SHA256.
+8. packages points into one output archive.
 
 Equivalent training commands inside Colab are:
 
@@ -276,8 +267,6 @@ POINT=$RUN_DIR/points/h16/i20m/seed7
 python3 "$EXP/python/export_live_model.py" \
   --checkpoint "$POINT/offline/model.pt" \
   --run-metadata "$POINT/offline/run_metadata.json" \
-  --training-manifest "$RUN_DIR/training_prefixes/i20m/training_manifest.json" \
-  --evaluation-stream "$EVAL" \
   --out-dir "$POINT/export" \
   --hidden-size 16 --instruction-budget 20000000 --seed 7
 ~~~
@@ -286,22 +275,19 @@ Expected downloaded files:
 
 ~~~text
 602_stride_live_colab_output.tar.gz
-602_stride_live_colab_output.tar.gz.sha256
 ~~~
 
 ## K. Colab output to Mac
 
 ~~~bash
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % cd ~/Documents/cache_arch_stride_live
-(base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % shasum -a 256 602_stride_live_colab_output.tar.gz
-(base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % cat 602_stride_live_colab_output.tar.gz.sha256
 (base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % tar -tzf 602_stride_live_colab_output.tar.gz | less
 ~~~
 
 ## L. Mac to Sacramento
 
 ~~~bash
-(base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % scp 602_stride_live_colab_output.tar.gz 602_stride_live_colab_output.tar.gz.sha256 qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/incoming/
+(base) angelawoo@Angelas-MacBook-Pro-5 cache_arch_stride_live % scp 602_stride_live_colab_output.tar.gz qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/incoming/
 ~~~
 
 ## M. Install and validate Colab output
@@ -313,7 +299,6 @@ cd ~/cache
 EXP=formal_NN_training/experiments/602_lstm_stride_live_inference
 RUN_DIR=$EXP/runs/602_gcc_stride_prefix_seed7
 ARCHIVE=$RUN_DIR/incoming/602_stride_live_colab_output.tar.gz \
-SHA_FILE=$RUN_DIR/incoming/602_stride_live_colab_output.tar.gz.sha256 \
 RUN_DIR="$RUN_DIR" \
   bash "$EXP/linux/install_colab_output.sh" install
 
@@ -373,8 +358,6 @@ POINT=$RUN_DIR/points/h16/i20m/seed7
 python3 "$EXP/python/export_live_model.py" \
   --checkpoint "$POINT/offline/model.pt" \
   --run-metadata "$POINT/offline/run_metadata.json" \
-  --training-manifest "$RUN_DIR/training_prefixes/i20m/training_manifest.json" \
-  --evaluation-stream "$RUN_DIR/evaluation/602.gcc_s-734B.eval_stream.csv.gz" \
   --out-dir "$POINT/export" \
   --hidden-size 16 --instruction-budget 20000000 --seed 7
 ~~~
@@ -386,8 +369,6 @@ POINT=$RUN_DIR/points/h8/i20m/seed7
 python3 "$EXP/python/export_live_model.py" \
   --checkpoint "$POINT/offline/model.pt" \
   --run-metadata "$POINT/offline/run_metadata.json" \
-  --training-manifest "$RUN_DIR/training_prefixes/i20m/training_manifest.json" \
-  --evaluation-stream "$RUN_DIR/evaluation/602.gcc_s-734B.eval_stream.csv.gz" \
   --out-dir "$POINT/export" \
   --hidden-size 8 --instruction-budget 20000000 --seed 7
 ~~~
@@ -451,7 +432,6 @@ CHAMP_DIR=external/ChampSim \
   bash "$EXP/runtime/champsim/install_live_prefetcher.sh" install
 RUN_DIR="$RUN_DIR" bash "$EXP/linux/build_live_champsim.sh"
 ls -lh "$RUN_DIR/bin/champsim.602_stride_lstm_live"
-sha256sum "$RUN_DIR/bin/champsim.602_stride_lstm_live"
 ~~~
 
 Rebuild explicitly:
@@ -469,7 +449,7 @@ CHAMP_DIR=external/ChampSim \
   bash "$EXP/runtime/champsim/install_live_prefetcher.sh" status
 ~~~
 
-The listed untracked live files must match installer SHA256 values. Any
+The listed live files must be exactly the installer-owned paths. Any
 unexpected tracked modification must be inspected. Restore only the named
 installed sources, without deleting binaries:
 
@@ -599,7 +579,7 @@ Compile into the ignored run directory:
 
 ~~~bash
 mkdir -p "$RUN_DIR/report"
-ROOT_DIR=$(git rev-parse --show-toplevel)
+ROOT_DIR=$PWD
 RUN_DIR_ABS=$ROOT_DIR/$RUN_DIR
 cd "$EXP/report"
 pdflatex -halt-on-error -output-directory "$RUN_DIR_ABS/report" \
@@ -653,7 +633,7 @@ git -C external/ChampSim status --short
 
 Generated runs may make git status quiet because they are ignored. The
 installer's untracked submodule files are expected only while installed;
-inspect their hashes or run the named restore command before source commits.
+inspect their paths or run the named restore command before source commits.
 
 ## V. Commit and push source only
 
@@ -687,6 +667,175 @@ git branch -d experiment/602-stride-live-inference
 ~~~
 
 Never delete the feature branch before its results and PR are accepted.
+
+## Complete nohup command index
+
+Run this setup once in the Sacramento shell. Do not start a foreground and a
+nohup copy of the same stage at the same time.
+
+~~~bash
+cd ~/cache
+EXP=formal_NN_training/experiments/602_lstm_stride_live_inference
+RUN_ID=602_gcc_stride_prefix_seed7
+RUN_DIR=$EXP/runs/$RUN_ID
+mkdir -p "$RUN_DIR/logs"
+export EXP RUN_DIR
+~~~
+
+Collect every prefix and the fixed evaluation stream:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" BUDGETS=all \
+  bash "$EXP/linux/collect_training_prefixes.sh" collect \
+  > "$RUN_DIR/logs/collect_all.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/collect_all.pid"
+tail -f "$RUN_DIR/logs/collect_all.nohup.log"
+~~~
+
+Collection subset, one point, or explicit rerun:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" BUILD=0 BUDGETS=i100,i250,i500,i1k \
+  bash "$EXP/linux/collect_training_prefixes.sh" collect \
+  > "$RUN_DIR/logs/collect_tiny.nohup.log" 2>&1 < /dev/null &
+
+nohup env RUN_DIR="$RUN_DIR" BUILD=0 BUDGETS=i1m \
+  bash "$EXP/linux/collect_training_prefixes.sh" collect \
+  > "$RUN_DIR/logs/collect_i1m.nohup.log" 2>&1 < /dev/null &
+
+nohup env RUN_DIR="$RUN_DIR" BUILD=0 BUDGETS=i1m FORCE=1 \
+  bash "$EXP/linux/collect_training_prefixes.sh" collect \
+  > "$RUN_DIR/logs/collect_i1m_force.nohup.log" 2>&1 < /dev/null &
+~~~
+
+Training is run by restart-and-run-all in the Colab notebook; it is not a
+Sacramento nohup stage. After installing the single Colab output archive, run
+the offline replay sweep:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8,16 BUDGETS=all \
+  bash "$EXP/linux/run_offline_sweep.sh" run \
+  > "$RUN_DIR/logs/offline_all.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/offline_all.pid"
+tail -f "$RUN_DIR/logs/offline_all.nohup.log"
+~~~
+
+Offline h8-only, h16-only, or one forced point:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=all \
+  bash "$EXP/linux/run_offline_sweep.sh" run \
+  > "$RUN_DIR/logs/offline_h8.nohup.log" 2>&1 < /dev/null &
+
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=16 BUDGETS=all \
+  bash "$EXP/linux/run_offline_sweep.sh" run \
+  > "$RUN_DIR/logs/offline_h16.nohup.log" 2>&1 < /dev/null &
+
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i1m FORCE=1 \
+  bash "$EXP/linux/run_offline_sweep.sh" run \
+  > "$RUN_DIR/logs/offline_h8_i1m_force.nohup.log" 2>&1 < /dev/null &
+~~~
+
+h16 anchor export/parity/build/live smoke, then h8 through the same stages:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" \
+  bash "$EXP/linux/launch_stage.sh" stage0 \
+  > "$RUN_DIR/logs/stage0_h16.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/stage0_h16.pid"
+tail -f "$RUN_DIR/logs/stage0_h16.nohup.log"
+
+nohup env RUN_DIR="$RUN_DIR" \
+  bash "$EXP/linux/launch_stage.sh" stage1 \
+  > "$RUN_DIR/logs/stage1_h8.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/stage1_h8.pid"
+tail -f "$RUN_DIR/logs/stage1_h8.nohup.log"
+~~~
+
+Standalone live ChampSim build by itself:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" \
+  bash "$EXP/linux/build_live_champsim.sh" \
+  > "$RUN_DIR/logs/build_live.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/build_live.pid"
+tail -f "$RUN_DIR/logs/build_live.nohup.log"
+~~~
+
+Small h16 and h8 live smokes:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=16 BUDGETS=i20m SEEDS=7 \
+  RUN_MODE=small_smoke STATE_MODE=parity \
+  WARMUP_INSTRUCTIONS=100000 SIMULATION_INSTRUCTIONS=100000 \
+  TRACE_FILE_OPENS=1 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_small_h16.nohup.log" 2>&1 < /dev/null &
+
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i20m SEEDS=7 \
+  RUN_MODE=small_smoke STATE_MODE=parity \
+  WARMUP_INSTRUCTIONS=100000 SIMULATION_INSTRUCTIONS=100000 \
+  TRACE_FILE_OPENS=1 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_small_h8.nohup.log" 2>&1 < /dev/null &
+~~~
+
+Recommended selected live sweep:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" STATE_MODE=parity RUN_MODE=live \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_selected.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/live_selected.pid"
+tail -f "$RUN_DIR/logs/live_selected.nohup.log"
+~~~
+
+One forced live point and the expensive all-valid override:
+
+~~~bash
+nohup env RUN_DIR="$RUN_DIR" HIDDEN_SIZES=8 BUDGETS=i1m SEEDS=7 \
+  STATE_MODE=parity RUN_MODE=live FORCE=1 \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_h8_i1m_force.nohup.log" 2>&1 < /dev/null &
+
+nohup env LIVE_ALL_VALID=1 RUN_DIR="$RUN_DIR" \
+  STATE_MODE=parity RUN_MODE=live \
+  bash "$EXP/linux/run_live_sweep.sh" run \
+  > "$RUN_DIR/logs/live_all_valid.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/live_all_valid.pid"
+tail -f "$RUN_DIR/logs/live_all_valid.nohup.log"
+~~~
+
+Final aggregation, plots, and report compilation:
+
+~~~bash
+nohup bash -c '
+set -e
+cd "$HOME/cache"
+python3 "$EXP/python/aggregate_offline_results.py" --run-dir "$RUN_DIR"
+python3 "$EXP/python/aggregate_live_results.py" --run-dir "$RUN_DIR"
+python3 "$EXP/python/compare_offline_live.py" --run-dir "$RUN_DIR"
+python3 "$EXP/python/plot_results.py" --run-dir "$RUN_DIR"
+python3 "$EXP/validation/validate_training_sweep.py" --run-dir "$RUN_DIR" --require-all
+RUN_DIR_ABS="$PWD/$RUN_DIR"
+mkdir -p "$RUN_DIR_ABS/report"
+cd "$EXP/report"
+pdflatex -halt-on-error -output-directory "$RUN_DIR_ABS/report" "\def\RunDir{$RUN_DIR_ABS}\input{602_stride_training_budget_live_inference.tex}"
+pdflatex -halt-on-error -output-directory "$RUN_DIR_ABS/report" "\def\RunDir{$RUN_DIR_ABS}\input{602_stride_training_budget_live_inference.tex}"
+' > "$RUN_DIR/logs/analysis_report.nohup.log" 2>&1 < /dev/null &
+echo $! > "$RUN_DIR/logs/analysis_report.pid"
+tail -f "$RUN_DIR/logs/analysis_report.nohup.log"
+~~~
+
+Status commands are safe to run while detached jobs are active:
+
+~~~bash
+RUN_DIR="$RUN_DIR" bash "$EXP/linux/collect_training_prefixes.sh" status
+RUN_DIR="$RUN_DIR" bash "$EXP/linux/install_colab_output.sh" status
+RUN_DIR="$RUN_DIR" bash "$EXP/linux/run_offline_sweep.sh" status
+RUN_DIR="$RUN_DIR" bash "$EXP/linux/run_live_sweep.sh" status
+jobs -l
+~~~
 
 ## Runtime and storage estimates
 
