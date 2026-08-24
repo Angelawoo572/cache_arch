@@ -203,133 +203,68 @@ not contain PNG/PDF files, raw JSON/CSV, logs, streams, replay lists,
 checkpoints, or binaries. Upload the ZIP as a new Overleaf project and keep
 `main.tex` as the main document. Overleaf supplies PGFPlots and builds the PDF.
 
-## 9. Run the four primary functional-live validation points
+## 9. Run the complete live curve in parallel and build the Overleaf ZIP
 
-Only run this after the offline report is complete and the four frozen exports
-exist. This is a real ChampSim stage, unlike steps 3-8.
+This is the recommended command for the requested final deliverable. One outer
+`nohup` workflow launches all exported h8 points and all exported h16 points as
+two disjoint concurrent workers. It waits for both, validates that every
+exported checkpoint has a real live log, aggregates the complete live curve,
+regenerates the analysis/PGFPlots LaTeX, and packages the Overleaf ZIP.
 
-```bash
-for H in 8 16; do
-  for B in i1m i20m; do
-    test -s "$NEW_RUN_DIR/points/h$H/$B/seed7/export/model.bin"
-  done
-done
-
-RUN_DIR="$NEW_RUN_DIR" \
-HIDDEN_SIZES=8,16 BUDGETS=i1m,i20m SEEDS=7 \
-STATE_MODE=parity RUN_MODE=live \
-WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
-  bash "$EXP_DIR/linux/run_live_sweep.sh" run
-```
-
-These four points answer whether i1m versus i20m remains close under
-functional live inference with zero modeled NN inference latency.
-
-## 10. Run the two aggressive live candidates
-
-Do not combine the selectors into a cross product.
-
-```bash
-RUN_DIR="$NEW_RUN_DIR" \
-HIDDEN_SIZES=8 BUDGETS=i250k SEEDS=7 \
-STATE_MODE=parity RUN_MODE=live \
-WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
-  bash "$EXP_DIR/linux/run_live_sweep.sh" run
-
-RUN_DIR="$NEW_RUN_DIR" \
-HIDDEN_SIZES=16 BUDGETS=i100k SEEDS=7 \
-STATE_MODE=parity RUN_MODE=live \
-WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
-  bash "$EXP_DIR/linux/run_live_sweep.sh" run
-```
-
-## 11. Optionally run every valid live point
-
-This is not required for the primary conclusion. Choose exactly one of the
-following two alternatives. The full curve uses every measured valid export;
-it does not interpolate or smooth missing points.
-
-### Alternative A: one sequential process
-
-```bash
-LIVE_ALL_VALID=1 RUN_DIR="$NEW_RUN_DIR" \
-STATE_MODE=parity RUN_MODE=live \
-WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
-  bash "$EXP_DIR/linux/run_live_sweep.sh" run
-```
-
-### Alternative B: h8 and h16 concurrently
-
-The two processes below select disjoint point directories, so they may run at
-the same time. Do not also start Alternative A.
+It never trains, never launches offline ChampSim, never overwrites a valid live
+log, and never interpolates or smooths a missing point. Existing completed live
+points are skipped. Do not start a second copy of this workflow.
 
 ```bash
 mkdir -p "$NEW_RUN_DIR/logs"
 
-nohup env LIVE_ALL_VALID=1 HIDDEN_SIZES=8 \
-  RUN_DIR="$NEW_RUN_DIR" STATE_MODE=parity RUN_MODE=live \
-  WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
-  bash "$EXP_DIR/linux/run_live_sweep.sh" run \
-  >"$NEW_RUN_DIR/logs/live_full_curve_h8.nohup.log" 2>&1 &
-LIVE_H8_PID=$!
+nohup env \
+  RUN_DIR="$NEW_RUN_DIR" \
+  OLD_RUN_DIR="$OLD_RUN_DIR" \
+  STATE_MODE=parity RUN_MODE=live \
+  WARMUP_INSTRUCTIONS=25000000 \
+  SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP_DIR/linux/run_complete_live_overleaf.sh" run \
+  >"$NEW_RUN_DIR/logs/complete_live_overleaf.nohup.log" 2>&1 < /dev/null &
 
-nohup env LIVE_ALL_VALID=1 HIDDEN_SIZES=16 \
-  RUN_DIR="$NEW_RUN_DIR" STATE_MODE=parity RUN_MODE=live \
-  WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
-  bash "$EXP_DIR/linux/run_live_sweep.sh" run \
-  >"$NEW_RUN_DIR/logs/live_full_curve_h16.nohup.log" 2>&1 &
-LIVE_H16_PID=$!
-
-printf 'h8 PID=%s\nh16 PID=%s\n' "$LIVE_H8_PID" "$LIVE_H16_PID"
-wait "$LIVE_H8_PID"; H8_STATUS=$?
-wait "$LIVE_H16_PID"; H16_STATUS=$?
-printf 'h8 status=%s\nh16 status=%s\n' "$H8_STATUS" "$H16_STATUS"
-test "$H8_STATUS" -eq 0
-test "$H16_STATUS" -eq 0
+echo $! > "$NEW_RUN_DIR/logs/complete_live_overleaf.pid"
+printf 'workflow PID=%s\n' \
+  "$(cat "$NEW_RUN_DIR/logs/complete_live_overleaf.pid")"
 ```
 
-From a second Sacramento login, monitor without changing results:
+## 10. Monitor and verify the complete workflow
+
+After reconnecting, reset the absolute paths with steps 1-2, then run:
 
 ```bash
-tail -n 30 -f \
-  "$NEW_RUN_DIR/logs/live_full_curve_h8.nohup.log" \
-  "$NEW_RUN_DIR/logs/live_full_curve_h16.nohup.log"
+ps -fp "$(cat "$NEW_RUN_DIR/logs/complete_live_overleaf.pid")" || true
+tail -n 80 -f "$NEW_RUN_DIR/logs/complete_live_overleaf.nohup.log"
 ```
 
-Existing valid runs are skipped. Never launch two processes for the same
-hidden size, never aggregate while either process is still running, and use
-`FORCE=1` only for a specifically approved rerun.
+`Ctrl-C` stops only `tail`; the nohup workflow continues. The outer log prints
+the job directory containing separate `h8.log`, `h16.log`, PID, and exit-status
+files. Do not aggregate or package manually while the workflow PID is alive.
 
-## 12. Aggregate live results and regenerate only the secondary appendix
+After it finishes, require all exported live points and the ZIP:
 
 ```bash
-python3 "$EXP_DIR/python/aggregate_live_results.py" \
-  --run-dir "$NEW_RUN_DIR"
+python3 "$EXP_DIR/validation/validate_complete_live.py" \
+  --run-dir "$NEW_RUN_DIR" --state-mode parity --run-mode live
 
-python3 "$EXP_DIR/python/compare_offline_live.py" \
-  --run-dir "$NEW_RUN_DIR"
+jq '{status, expected_exported_point_count, valid_live_point_count,
+     by_hidden_size, failures}' \
+  "$NEW_RUN_DIR/report/complete_live_report.json"
 
-python3 "$EXP_DIR/python/generate_overleaf_figures.py" \
-  --run-dir "$NEW_RUN_DIR"
-
-RUN_DIR="$NEW_RUN_DIR" FORCE=1 \
-  bash "$EXP_DIR/linux/package_overleaf_report.sh"
-
-jq '.points[] | {
-  hidden_size, budget_tag,
-  same_checkpoint_offline_ipc,
-  ipc,
-  live_minus_same_checkpoint_offline_ipc,
-  same_hidden_size_live_20m_ipc,
-  relative_live_ipc_difference_vs_same_h_live_20m
-}' "$NEW_RUN_DIR/live_validation_comparisons.json"
+test -s "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
+unzip -l "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 ```
 
-The live appendix is a generated table, so no additional image dependency is
-introduced. Live data remain secondary and cannot alter the offline fairness
-conclusion.
+The expected count is derived from existing exported checkpoints. With the
+current sweep it should be 28 total: 14 h8 plus 14 h16. The ZIP contains only
+`main.tex` and ten generated `report/*.tex` inputs. Live results remain a
+secondary section and cannot alter the primary offline conclusion.
 
-## 13. Copy the Overleaf ZIP to the Mac Documents directory
+## 11. Copy the Overleaf ZIP to the Mac Documents directory
 
 Run from the Mac Terminal, not Sacramento:
 
@@ -342,7 +277,7 @@ Run from the Mac Terminal, not Sacramento:
 Upload that ZIP to Overleaf. The PDF is intentionally built there, not on
 Sacramento.
 
-## 14. Check ignored/generated artifacts
+## 12. Check ignored/generated artifacts
 
 ```bash
 cd "$ROOT_DIR"
@@ -360,7 +295,7 @@ git ls-files | grep -E \
   || echo 'PASS: no forbidden generated artifact is tracked'
 ```
 
-## 15. Review source diff and status
+## 13. Review source diff and status
 
 ```bash
 cd "$ROOT_DIR"
@@ -385,7 +320,7 @@ python3 -m compileall -q "$EXP_DIR/python" "$EXP_DIR/validation"
 bash -n "$EXP_DIR/linux/package_overleaf_report.sh"
 ```
 
-## 16. Source-only commit and push to the same branch
+## 14. Source-only commit and push to the same branch
 
 Do not use `git add .`.
 
@@ -403,13 +338,16 @@ git add \
   "$EXP_REL/validation/validate_offline_fairness.py" \
   "$EXP_REL/validation/validate_20m_regression.py" \
   "$EXP_REL/validation/validate_20m_backward_regression.py" \
+  "$EXP_REL/validation/validate_complete_live.py" \
   "$EXP_REL/validation/validate_live_contract.py" \
   "$EXP_REL/validation/test_analysis_policy.py" \
   "$EXP_REL/validation/test_offline_audits.py" \
   "$EXP_REL/validation/test_offline_fairness_analysis.py" \
   "$EXP_REL/report/602_stride_training_budget_live_inference.tex" \
   "$EXP_REL/report/README.md" \
-  "$EXP_REL/linux/package_overleaf_report.sh"
+  "$EXP_REL/linux/package_overleaf_report.sh" \
+  "$EXP_REL/linux/run_live_sweep.sh" \
+  "$EXP_REL/linux/run_complete_live_overleaf.sh"
 
 git diff --cached --check
 git diff --cached --stat

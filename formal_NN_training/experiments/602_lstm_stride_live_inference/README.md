@@ -129,7 +129,11 @@ for live training-size sufficiency. Missing live points are never
 interpolated. `LIVE_ALL_VALID=1` remains available but is not required for the
 primary offline conclusion. A full optional curve may be split into one h8
 process and one h16 process because those selectors write disjoint point
-directories; see `COMMANDS.md` for the tested two-process form.
+directories. `linux/run_complete_live_overleaf.sh` is the supported outer
+workflow: it validates existing offline artifacts, runs both hidden-size curves
+concurrently, requires every exported checkpoint to have a valid measured live
+log, then generates and packages the LaTeX-only Overleaf report. See
+`COMMANDS.md` for the single-nohup invocation.
 
 See [COMMANDS.md](COMMANDS.md) for the analysis-only, LaTeX/Overleaf,
 live-validation, SCP, and source-only Git workflow. Completed training and

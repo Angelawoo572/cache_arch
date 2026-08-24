@@ -29,6 +29,7 @@ from validate_offline_fairness import (  # noqa: E402
     add_instruction_counter_check,
     equal_number,
 )
+from validate_complete_live import validate as validate_complete_live  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -138,7 +139,12 @@ class OfflineAuditTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             binary = root / "fake_champsim"
-            binary.write_text("#!/usr/bin/env bash\nexit 0\n")
+            binary.write_text(
+                "#!/usr/bin/env bash\n"
+                "echo 'adding L2C_PREFETCHER: stride_lstm_live'\n"
+                "echo 'stride_lstm_live_weights frozen'\n"
+                "echo 'stride_lstm_live_measured_callbacks 1'\n"
+            )
             binary.chmod(0o755)
             trace = root / "trace.xz"
             trace.write_bytes(b"synthetic")
@@ -171,7 +177,8 @@ class OfflineAuditTest(unittest.TestCase):
             })
             completed = subprocess.run(
                 ["bash", str(script), "run"], env=env, check=True,
-                text=True, capture_output=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
             )
             self.assertFalse(
                 (run_dir / "points/h8/i1m/seed7/live").exists()
@@ -179,6 +186,33 @@ class OfflineAuditTest(unittest.TestCase):
             self.assertFalse(
                 (run_dir / "points/h16/i1m/seed7/live").exists()
             )
+            status = subprocess.run(
+                ["bash", str(script), "status"], env=env, check=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                universal_newlines=True,
+            )
+            self.assertEqual(status.stderr, "")
+            incomplete = validate_complete_live(run_dir)
+            self.assertEqual(incomplete["expected_exported_point_count"], 2)
+            self.assertEqual(incomplete["valid_live_point_count"], 0)
+            workers = []
+            for hidden in (8, 16):
+                worker_env = env.copy()
+                worker_env.update({
+                    "HIDDEN_SIZES": str(hidden),
+                    "DRY_RUN": "0",
+                })
+                workers.append(subprocess.Popen(
+                    ["bash", str(script), "run"], env=worker_env,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    universal_newlines=True,
+                ))
+            for worker in workers:
+                stdout, stderr = worker.communicate()
+                self.assertEqual(worker.returncode, 0, (stdout, stderr))
+            complete = validate_complete_live(run_dir)
+            self.assertEqual(complete["status"], "PASS")
+            self.assertEqual(complete["valid_live_point_count"], 2)
         self.assertIn("points/h8/i1m/seed7", completed.stdout)
         self.assertNotIn("points/h16/i1m/seed7", completed.stdout)
 

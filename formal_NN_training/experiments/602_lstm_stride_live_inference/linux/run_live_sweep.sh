@@ -45,6 +45,12 @@ EOF
 [[ "$COMMAND" != "-h" && "$COMMAND" != "--help" ]] || { usage; exit 0; }
 [[ "$COMMAND" == "run" || "$COMMAND" == "status" ]] || { usage >&2; exit 2; }
 
+if [[ "$COMMAND" == "status" ]]; then
+  find "$RUN_DIR/points" -path '*/live/*/run.log' -type f -print \
+    2>/dev/null | sort || true
+  exit 0
+fi
+
 select_points() {
   python3 - "$RUN_DIR" "$SELECTION" "$HIDDEN_SIZES" "$BUDGETS" "$SEEDS" "$LIVE_ALL_VALID" <<'PY'
 import json
@@ -110,10 +116,6 @@ PY
 }
 
 mapfile -t POINTS < <(select_points)
-if [[ "$COMMAND" == "status" ]]; then
-  find "$RUN_DIR/points" -path '*/live/*/run.log' -type f -print 2>/dev/null | sort || true
-  exit 0
-fi
 [[ -x "$BIN" ]] || { echo "[error] missing live binary: $BIN" >&2; exit 3; }
 [[ -s "$TRACE_FILE" ]] || { echo "[error] missing trace: $TRACE_FILE" >&2; exit 3; }
 [[ "${#POINTS[@]}" -gt 0 ]] || { echo "[error] no live points selected" >&2; exit 3; }
