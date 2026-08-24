@@ -88,12 +88,19 @@ artifact parity.
 ChampSim revisions may print either a 25M measurement-only final instruction
 counter or a 50M cumulative warmup-plus-measurement counter. The fairness
 validator records that counter scope explicitly while independently checking
-the run-script contract of 25M warmup + 25M measured instructions. It never
-mislabels a cumulative 50M counter as the measured window.
+the run-script contract of 25M warmup + 25M measured instructions. A final
+superscalar retirement batch may overshoot either counter by at most four
+instructions; the observed 25,000,003 is therefore recorded as a +3 boundary
+overshoot rather than a protocol failure. It never mislabels a cumulative 50M
+counter as the measured window.
 
 The old-versus-new validator also keeps reference-log identity separate from
 metric regression. A tolerance-based offline-Stride cache-metric PASS does not
 establish exact log, replay-list, or artifact parity.
+Offline-Stride coverage uses the corresponding no-prefetch L2-load-miss count
+as its denominator. A genuinely unavailable old metric is reported as
+`UNAVAILABLE` and cannot by itself fail the regression; it also cannot be used
+to claim exact artifact parity.
 
 ## LaTeX-only Overleaf report
 
@@ -120,7 +127,9 @@ Every live row has two comparisons: live-`N` versus offline-`N` for
 same-checkpoint implementation parity, and live-`N` versus same-H live-i20m
 for live training-size sufficiency. Missing live points are never
 interpolated. `LIVE_ALL_VALID=1` remains available but is not required for the
-primary offline conclusion.
+primary offline conclusion. A full optional curve may be split into one h8
+process and one h16 process because those selectors write disjoint point
+directories; see `COMMANDS.md` for the tested two-process form.
 
 See [COMMANDS.md](COMMANDS.md) for the analysis-only, LaTeX/Overleaf,
 live-validation, SCP, and source-only Git workflow. Completed training and

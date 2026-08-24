@@ -29,6 +29,9 @@ Selectors:
   HIDDEN_SIZES=16 BUDGETS=i20m SEEDS=7
   HIDDEN_SIZES=8,16 BUDGETS=i1m,i20m
   LIVE_ALL_VALID=1       Expensive: all exported valid points.
+  LIVE_ALL_VALID=1 HIDDEN_SIZES=8
+                         All exported valid h8 points. A disjoint h16 process
+                         may run concurrently.
 
 Controls:
   WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000
@@ -53,13 +56,32 @@ selection_path = Path(sys.argv[2])
 hidden_csv, budget_csv, seed_csv, all_valid = sys.argv[3:]
 seeds = [int(item) for item in seed_csv.split(",") if item]
 if all_valid == "1":
+    hidden_filter = (
+        {int(item) for item in hidden_csv.split(",") if item}
+        if hidden_csv else None
+    )
+    budget_filter = (
+        {item for item in budget_csv.split(",") if item}
+        if budget_csv else None
+    )
     chosen = []
     for path in run_dir.glob("points/h*/*/seed*/point_metadata.json"):
         metadata = json.loads(path.read_text())
         model = path.parent / "export/model.bin"
-        if model.is_file() and metadata.get("status") not in {
-            "training_failed", "offline_replay_failed", "export_failed",
-        }:
+        if (
+            model.is_file()
+            and metadata.get("status") not in {
+                "training_failed", "offline_replay_failed", "export_failed",
+            }
+            and (
+                hidden_filter is None
+                or metadata["hidden_size"] in hidden_filter
+            )
+            and (
+                budget_filter is None
+                or metadata["budget_tag"] in budget_filter
+            )
+        ):
             chosen.append((
                 metadata["hidden_size"], metadata["budget_tag"],
                 metadata["seed"],

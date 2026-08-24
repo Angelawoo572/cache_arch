@@ -86,6 +86,10 @@ def metrics_from_log(path, baseline=None):
     return {
         "ipc": parsed["ipc"],
         "cycles": parsed["cycles"],
+        # Preserve the raw baseline denominator. Coverage for a prefetching
+        # method is useful_prefetches / no-prefetch L2-load misses.
+        "l2_loads": parsed["l2_loads"],
+        "l2_load_miss": parsed["l2_load_miss"],
         "coverage": coverage,
         "l2_load_miss_rate": parsed["l2_load_miss_rate"],
         "requests_per_l2_load": parsed["request_per_l2_load"],
@@ -464,8 +468,13 @@ def main():
     for name, comparisons in reference_metrics.items():
         failures.extend(
             "{} reference {}".format(name, item["field"])
-            for item in comparisons if item["status"] != "PASS"
+            for item in comparisons if item["status"] == "FAIL"
         )
+    unavailable_comparisons = [
+        "{} reference {}".format(name, item["field"])
+        for name, comparisons in reference_metrics.items()
+        for item in comparisons if item["status"] == "UNAVAILABLE"
+    ]
     if mode == "historical-metric regression only":
         exact_status = "NOT CLAIMED"
     else:
@@ -503,6 +512,7 @@ def main():
         },
         "points": points,
         "failures": failures,
+        "unavailable_comparisons": unavailable_comparisons,
         "interpretation": (
             "Artifact equality and metric regression are reported separately; "
             "a tolerance-based system-metric PASS never establishes exact "

@@ -245,7 +245,11 @@ WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
 
 ## 11. Optionally run every valid live point
 
-This is not required for the primary conclusion:
+This is not required for the primary conclusion. Choose exactly one of the
+following two alternatives. The full curve uses every measured valid export;
+it does not interpolate or smooth missing points.
+
+### Alternative A: one sequential process
 
 ```bash
 LIVE_ALL_VALID=1 RUN_DIR="$NEW_RUN_DIR" \
@@ -254,8 +258,47 @@ WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
   bash "$EXP_DIR/linux/run_live_sweep.sh" run
 ```
 
-Missing live points are never interpolated. Existing valid runs are skipped.
-Use `FORCE=1` only for a specifically approved rerun.
+### Alternative B: h8 and h16 concurrently
+
+The two processes below select disjoint point directories, so they may run at
+the same time. Do not also start Alternative A.
+
+```bash
+mkdir -p "$NEW_RUN_DIR/logs"
+
+nohup env LIVE_ALL_VALID=1 HIDDEN_SIZES=8 \
+  RUN_DIR="$NEW_RUN_DIR" STATE_MODE=parity RUN_MODE=live \
+  WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP_DIR/linux/run_live_sweep.sh" run \
+  >"$NEW_RUN_DIR/logs/live_full_curve_h8.nohup.log" 2>&1 &
+LIVE_H8_PID=$!
+
+nohup env LIVE_ALL_VALID=1 HIDDEN_SIZES=16 \
+  RUN_DIR="$NEW_RUN_DIR" STATE_MODE=parity RUN_MODE=live \
+  WARMUP_INSTRUCTIONS=25000000 SIMULATION_INSTRUCTIONS=25000000 \
+  bash "$EXP_DIR/linux/run_live_sweep.sh" run \
+  >"$NEW_RUN_DIR/logs/live_full_curve_h16.nohup.log" 2>&1 &
+LIVE_H16_PID=$!
+
+printf 'h8 PID=%s\nh16 PID=%s\n' "$LIVE_H8_PID" "$LIVE_H16_PID"
+wait "$LIVE_H8_PID"; H8_STATUS=$?
+wait "$LIVE_H16_PID"; H16_STATUS=$?
+printf 'h8 status=%s\nh16 status=%s\n' "$H8_STATUS" "$H16_STATUS"
+test "$H8_STATUS" -eq 0
+test "$H16_STATUS" -eq 0
+```
+
+From a second Sacramento login, monitor without changing results:
+
+```bash
+tail -n 30 -f \
+  "$NEW_RUN_DIR/logs/live_full_curve_h8.nohup.log" \
+  "$NEW_RUN_DIR/logs/live_full_curve_h16.nohup.log"
+```
+
+Existing valid runs are skipped. Never launch two processes for the same
+hidden size, never aggregate while either process is still running, and use
+`FORCE=1` only for a specifically approved rerun.
 
 ## 12. Aggregate live results and regenerate only the secondary appendix
 

@@ -36,6 +36,7 @@ from result_utils import parse_log  # noqa: E402
 
 
 REPLAY_HEADER = "pc,line,occ,prefetch_addr"
+MAX_RETIREMENT_BOUNDARY_OVERSHOOT = 4
 TERMINAL_UNTRAINABLE = {
     "no_callbacks", "single_class_no_act", "single_class_no_silent",
     "insufficient_rows", "training_failed",
@@ -75,25 +76,37 @@ def add_check(checks, name, observed, expected, evidence, required=True,
 
 def add_instruction_counter_check(checks, observed, warmup, measured,
                                   evidence, required=True):
-    """Accept either ChampSim's ROI counter or its cumulative counter.
+    """Classify ChampSim's ROI/cumulative final instruction counter.
 
     ChampSim revisions differ in whether the final instruction field is reset
-    after warmup.  The run-script contract establishes the 25M measured
-    window; this check records which counter scope the binary printed instead
-    of incorrectly calling a 50M cumulative value a 25M measurement value.
+    after warmup. A superscalar core can also cross the target by fewer than
+    one retirement batch at the terminal cycle. The run-script contract still
+    establishes the requested 25M measured window; this check records counter
+    scope and the bounded terminal overshoot instead of demanding a false
+    bit-exact final counter.
     """
-    allowed = {
-        int(measured): "measurement_window_only",
-        int(warmup) + int(measured): "cumulative_warmup_plus_measurement",
-    }
+    targets = (
+        (int(measured), "measurement_window_only"),
+        (
+            int(warmup) + int(measured),
+            "cumulative_warmup_plus_measurement",
+        ),
+    )
+    scope = None
+    boundary_overshoot = None
     if observed is None:
         status = "UNAVAILABLE" if required else "NOT_APPLICABLE"
-        scope = None
     else:
         try:
-            scope = allowed.get(int(observed))
+            counter = int(observed)
+            for target, candidate_scope in targets:
+                delta = counter - target
+                if 0 <= delta <= MAX_RETIREMENT_BOUNDARY_OVERSHOOT:
+                    scope = candidate_scope
+                    boundary_overshoot = delta
+                    break
         except (TypeError, ValueError):
-            scope = None
+            pass
         status = "PASS" if scope else "FAIL"
     checks.append({
         "name": "replay_log_instruction_counter_semantics",
@@ -101,11 +114,24 @@ def add_instruction_counter_check(checks, observed, warmup, measured,
         "observed": {
             "instruction_counter": observed,
             "counter_scope": scope,
+            "retirement_boundary_overshoot": boundary_overshoot,
         },
         "expected": {
             "warmup_instructions": int(warmup),
             "measured_instructions": int(measured),
-            "accepted_final_counter_values": sorted(allowed),
+            "maximum_retirement_boundary_overshoot": (
+                MAX_RETIREMENT_BOUNDARY_OVERSHOOT
+            ),
+            "accepted_final_counter_ranges": [
+                {
+                    "counter_scope": candidate_scope,
+                    "minimum": target,
+                    "maximum": (
+                        target + MAX_RETIREMENT_BOUNDARY_OVERSHOOT
+                    ),
+                }
+                for target, candidate_scope in targets
+            ],
         },
         "evidence": evidence,
         "required": bool(required),
@@ -591,9 +617,11 @@ def main():
             "run_script_defaults": run_defaults,
             "instruction_counter_interpretation": (
                 "the final ChampSim counter may be ROI-only (25M) or "
-                "cumulative warmup-plus-measurement (50M); the counter scope "
-                "is recorded per replay log and the measured window remains "
-                "the independently audited 25M run-script default"
+                "cumulative warmup-plus-measurement (50M), with at most four "
+                "extra instructions at a superscalar retirement boundary; "
+                "counter scope and overshoot are recorded per replay log and "
+                "the requested measured window remains the independently "
+                "audited 25M run-script default"
             ),
         },
         "source_identities": source_hashes,
