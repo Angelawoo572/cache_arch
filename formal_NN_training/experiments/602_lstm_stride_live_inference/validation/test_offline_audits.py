@@ -173,6 +173,12 @@ class OfflineAuditTest(unittest.TestCase):
                 ["bash", str(script), "run"], env=env, check=True,
                 text=True, capture_output=True,
             )
+            self.assertFalse(
+                (run_dir / "points/h8/i1m/seed7/live").exists()
+            )
+            self.assertFalse(
+                (run_dir / "points/h16/i1m/seed7/live").exists()
+            )
         self.assertIn("points/h8/i1m/seed7", completed.stdout)
         self.assertNotIn("points/h16/i1m/seed7", completed.stdout)
 

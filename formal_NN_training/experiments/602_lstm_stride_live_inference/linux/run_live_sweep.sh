@@ -155,12 +155,12 @@ PY
     mkdir -p "$(dirname "$archive")"
     mv "$live_dir" "$archive"
   fi
-  mkdir -p "$live_dir"
   command=("$BIN" "--l2c_prefetcher_types=stride_lstm_live" "--warmup_instructions=$WARMUP_INSTRUCTIONS" "--simulation_instructions=$SIMULATION_INSTRUCTIONS" "-traces" "$TRACE_FILE")
   if [[ "$DRY_RUN" == 1 ]]; then
     echo "[dry-run] STRIDE_LSTM_MODEL_BIN=$model STRIDE_LSTM_STATE_MODE=$STATE_MODE ${command[*]}"
     continue
   fi
+  mkdir -p "$live_dir"
   python3 - "$live_dir/run_identity.json" "$hidden" "$budget" "$seed" "$STATE_MODE" "$WARMUP_INSTRUCTIONS" "$SIMULATION_INSTRUCTIONS" <<'PY'
 import json
 import sys
