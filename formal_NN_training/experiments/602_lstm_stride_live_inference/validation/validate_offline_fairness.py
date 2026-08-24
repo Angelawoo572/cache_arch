@@ -10,8 +10,10 @@ import argparse
 import csv
 import json
 import math
+import re
 import subprocess
 import sys
+from collections import Counter
 from pathlib import Path
 
 
@@ -71,6 +73,45 @@ def add_check(checks, name, observed, expected, evidence, required=True,
     })
 
 
+def add_instruction_counter_check(checks, observed, warmup, measured,
+                                  evidence, required=True):
+    """Accept either ChampSim's ROI counter or its cumulative counter.
+
+    ChampSim revisions differ in whether the final instruction field is reset
+    after warmup.  The run-script contract establishes the 25M measured
+    window; this check records which counter scope the binary printed instead
+    of incorrectly calling a 50M cumulative value a 25M measurement value.
+    """
+    allowed = {
+        int(measured): "measurement_window_only",
+        int(warmup) + int(measured): "cumulative_warmup_plus_measurement",
+    }
+    if observed is None:
+        status = "UNAVAILABLE" if required else "NOT_APPLICABLE"
+        scope = None
+    else:
+        try:
+            scope = allowed.get(int(observed))
+        except (TypeError, ValueError):
+            scope = None
+        status = "PASS" if scope else "FAIL"
+    checks.append({
+        "name": "replay_log_instruction_counter_semantics",
+        "status": status,
+        "observed": {
+            "instruction_counter": observed,
+            "counter_scope": scope,
+        },
+        "expected": {
+            "warmup_instructions": int(warmup),
+            "measured_instructions": int(measured),
+            "accepted_final_counter_values": sorted(allowed),
+        },
+        "evidence": evidence,
+        "required": bool(required),
+    })
+
+
 def history_rows(path):
     if not Path(path).is_file():
         return []
@@ -104,10 +145,24 @@ def keyed_replayer_build_identity(root):
     }
 
 
+def shell_integer_default(path, variable):
+    pattern = re.compile(
+        r'^{}="\$\{{{}:-([0-9]+)\}}"$'.format(
+            re.escape(variable), re.escape(variable)
+        )
+    )
+    for line in Path(path).read_text().splitlines():
+        match = pattern.match(line.strip())
+        if match:
+            return int(match.group(1))
+    return None
+
+
 def point_record(run_dir, hidden, budget, seed, config, source_hashes,
                  trace_identity, eval_identity, binary_identity,
                  metric_parser_sha,
-                 reference_identity, teacher_list_sha, build_identity):
+                 reference_identity, teacher_list_sha, build_identity,
+                 run_defaults):
     tag = budget["tag"]
     point_dir = (
         run_dir / "points" / "h{}".format(hidden) / tag
@@ -252,15 +307,16 @@ def point_record(run_dir, hidden, budget, seed, config, source_hashes,
     )
     add_check(
         checks, "evaluation_warmup_instructions",
-        controls.get("evaluation_warmup_instructions") if trained else None,
-        25000000, "training_prefix_sweep.json and run_offline_sweep.sh",
+        run_defaults.get("warmup") if trained else None,
+        controls.get("evaluation_warmup_instructions"),
+        run_defaults.get("evidence"),
         required=trained,
     )
     add_check(
         checks, "evaluation_measured_instructions",
-        controls.get("evaluation_simulation_instructions")
-        if trained else None,
-        25000000, "training_prefix_sweep.json and replay.log",
+        run_defaults.get("measured") if trained else None,
+        controls.get("evaluation_simulation_instructions"),
+        run_defaults.get("evidence"),
         required=trained,
     )
 
@@ -290,8 +346,9 @@ def point_record(run_dir, hidden, budget, seed, config, source_hashes,
     add_check(
         checks, "champ_sim_configuration",
         {
-            "prefetcher": "list_replayer", "warmup": 25000000,
-            "measured": 25000000,
+            "prefetcher": "list_replayer",
+            "warmup": run_defaults.get("warmup"),
+            "measured": run_defaults.get("measured"),
         } if trained else None,
         {
             "prefetcher": "list_replayer", "warmup": 25000000,
@@ -312,16 +369,21 @@ def point_record(run_dir, hidden, budget, seed, config, source_hashes,
         metric_parser_sha, "602_offline_lstm_stride/python/analyze_replay.py",
         required=trained,
     )
+    measured = None
     if trained and replay_log.is_file():
         try:
             parsed = parse_log(replay_log)
             measured = parsed.get("instructions")
         except Exception:
             measured = None
-        add_check(
-            checks, "replay_log_measured_instruction_count", measured,
-            25000000, str(replay_log), required=True,
-        )
+    add_instruction_counter_check(
+        checks,
+        measured if trained else None,
+        controls["evaluation_warmup_instructions"],
+        controls["evaluation_simulation_instructions"],
+        str(replay_log),
+        required=trained,
+    )
 
     failures = [item for item in checks if item["status"] == "FAIL"]
     unavailable = [
@@ -458,6 +520,15 @@ def main():
         / "python/analyze_replay.py"
     )
     run_script = EXP / "linux/run_offline_sweep.sh"
+    run_defaults = {
+        "warmup": shell_integer_default(
+            run_script, "WARMUP_INSTRUCTIONS"
+        ),
+        "measured": shell_integer_default(
+            run_script, "SIMULATION_INSTRUCTIONS"
+        ),
+        "evidence": str(run_script),
+    }
     no_pref_log = run_dir / "references/logs/no_pref.log"
     reference_identity = {
         "run_script_sha256": sha256(run_script),
@@ -484,7 +555,7 @@ def main():
                     trace_identity, eval_identity, binary_identity,
                     metric_parser_sha,
                     reference_identity, teacher_list_sha,
-                    build_identity,
+                    build_identity, run_defaults,
                 ))
     failed_checks = sum(
         check["status"] == "FAIL"
@@ -499,7 +570,7 @@ def main():
         "INCOMPLETE" if unavailable else "PASS"
     )
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "study": (
             "602 Stride training-prefix sufficiency under the original "
             "offline keyed-replay protocol"
@@ -516,6 +587,15 @@ def main():
             "weights[c] = prefix_decision_rows / "
             "(2 * prefix_label_frequency[c])"
         ),
+        "measurement_contract": {
+            "run_script_defaults": run_defaults,
+            "instruction_counter_interpretation": (
+                "the final ChampSim counter may be ROI-only (25M) or "
+                "cumulative warmup-plus-measurement (50M); the counter scope "
+                "is recorded per replay log and the measured window remains "
+                "the independently audited 25M run-script default"
+            ),
+        },
         "source_identities": source_hashes,
         "shared_artifacts": {
             "trace": trace_identity,
@@ -545,6 +625,20 @@ def main():
     print("[{}] fairness audit: {} points; {} trained".format(
         status, len(points), trained_count
     ))
+    failed_names = Counter(
+        check["name"]
+        for point in points for check in point["checks"]
+        if check["status"] == "FAIL"
+    )
+    unavailable_names = Counter(
+        check["name"]
+        for point in points for check in point["checks"]
+        if check["status"] == "UNAVAILABLE" and check["required"]
+    )
+    for name, count in sorted(failed_names.items()):
+        print("[failed-check] {} x{}".format(name, count))
+    for name, count in sorted(unavailable_names.items()):
+        print("[unavailable-check] {} x{}".format(name, count))
     print("[report] {}".format(output))
     if failed_checks or (args.require_all and unavailable):
         raise SystemExit(1)

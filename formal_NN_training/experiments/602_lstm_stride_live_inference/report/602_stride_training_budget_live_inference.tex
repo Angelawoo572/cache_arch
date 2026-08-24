@@ -3,27 +3,23 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern,microtype}
 \usepackage{booktabs,longtable,array,tabularx}
-\usepackage{graphicx,float,pdflscape}
+\usepackage{float,pdflscape}
 \usepackage{xcolor,amsmath}
+\usepackage{pgfplots}
+\usepgfplotslibrary{groupplots,fillbetween}
+\pgfplotsset{compat=1.18}
 \usepackage[hidelinks]{hyperref}
 \providecommand{\RunDir}{../runs/602_gcc_stride_prefix_seed7}
 
 \definecolor{navy}{HTML}{17365D}
 \definecolor{teal}{HTML}{008B72}
 \definecolor{pale}{HTML}{F3F6FA}
+\definecolor{hEight}{HTML}{0072B2}
+\definecolor{hSixteen}{HTML}{D55E00}
+\definecolor{strideGreen}{HTML}{009E73}
 \setlength{\parindent}{0pt}
 \setlength{\parskip}{4pt}
 \renewcommand{\arraystretch}{1.08}
-
-\newcommand{\reportfigure}[3][0.90\linewidth]{%
-  \IfFileExists{\RunDir/report_plots/#2}{%
-    \begin{figure}[H]
-      \centering
-      \includegraphics[width=#1]{\RunDir/report_plots/#2}
-      \caption{#3}
-    \end{figure}
-  }{\textbf{Missing generated figure:} \texttt{#2}}%
-}
 
 \newcommand{\generatedinput}[1]{%
   \IfFileExists{\RunDir/report/#1}{%
@@ -93,15 +89,10 @@ separately. If old local artifacts are incomplete, the mode is explicitly
 ``historical-metric regression only'' and exact artifact parity is not claimed.
 
 \section{Training supervision versus instruction prefix}
-\reportfigure{03_training_supervision.png}{Decision rows, teacher-positive
-rows, and teacher action atoms. These are label statistics, not student act
-rates.}
+\generatedinput{generated_figure3_training_supervision.tex}
 
 \section{h8: N versus h8-i20m}
-\reportfigure{01_fair_offline_ipc_curve.png}{Primary offline keyed-replay IPC.
-Each curve has its own 20M reference and $\pm0.5\%$ band; stars mark
-data-derived aggressive high-performing candidates, not policy-equivalent
-points.}
+\generatedinput{generated_figure1_offline_ipc.tex}
 \begin{landscape}
 \generatedinput{generated_h8_key_budgets.tex}
 \end{landscape}
@@ -112,9 +103,7 @@ points.}
 \end{landscape}
 
 \section{System-performance equivalence versus policy behavior}
-\reportfigure[0.88\linewidth]{02_differences_from_same_h_20m.png}{Signed
-differences from the corresponding same-hidden-size 20M model. The IPC panel
-shows the $\pm0.5\%$ band; cache and policy/traffic dimensions remain separate.}
+\generatedinput{generated_figure2_same_h_differences.tex}
 \generatedinput{generated_behavior_differences.tex}
 
 ``Reaching at least'' is a one-sided performance-sufficiency test and can
@@ -138,12 +127,6 @@ latency-aware experiment would explicitly model inference cycles before
 issuing requests. Host wall-clock nanoseconds are not simulated CPU latency.
 
 \generatedinput{generated_live_validation.tex}
-\IfFileExists{\RunDir/report_plots/04_live_vs_offline_same_checkpoint.png}{%
-  \reportfigure{04_live_vs_offline_same_checkpoint.png}{Same-checkpoint
-  implementation parity: live-$N$ versus offline-$N$.}
-  \reportfigure{05_live_sufficiency_vs_same_h_20m.png}{Secondary live
-  training-size sufficiency: live-$N$ versus same-H live-i20m.}
-}{}
 
 Incomplete live results never establish or revise the primary offline
 training-size conclusion. Missing live points are not interpolated or smoothed.
@@ -161,7 +144,8 @@ They should be swept only in a separately named latency-aware experiment.
 All raw checkpoints, event streams, replay lists, logs, binaries, archives,
 and generated run directories remain ignored and unchanged. The report is
 regenerated only from completed artifacts. No retraining or ChampSim replay is
-performed by the validators, aggregators, plotting script, or TeX packaging
-step.
+performed by the validators, aggregators, PGFPlots-fragment generator, or TeX
+packaging step. Sacramento does not need matplotlib or a local TeX install;
+Overleaf renders the tracked report and generated TeX fragments.
 
 \end{document}

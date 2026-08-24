@@ -85,6 +85,25 @@ metric regression are separate. When the old run tree is incomplete, the
 output says `historical-metric regression only` and does not claim exact
 artifact parity.
 
+ChampSim revisions may print either a 25M measurement-only final instruction
+counter or a 50M cumulative warmup-plus-measurement counter. The fairness
+validator records that counter scope explicitly while independently checking
+the run-script contract of 25M warmup + 25M measured instructions. It never
+mislabels a cumulative 50M counter as the measured window.
+
+The old-versus-new validator also keeps reference-log identity separate from
+metric regression. A tolerance-based offline-Stride cache-metric PASS does not
+establish exact log, replay-list, or artifact parity.
+
+## LaTeX-only Overleaf report
+
+Sacramento does not need matplotlib or a local TeX installation. After the
+JSON analysis is regenerated, `python/generate_overleaf_figures.py` writes the
+three primary figures as PGFPlots `.tex` fragments. The packaging script
+creates a source-only Overleaf ZIP containing `main.tex` and generated TeX
+inputs; it excludes PNG/PDF files and every raw experiment artifact. Overleaf
+renders the figures and final PDF.
+
 ## Secondary functional live inference
 
 Live validation is secondary deployment evidence. Frozen C++ inference runs
@@ -103,6 +122,6 @@ for live training-size sufficiency. Missing live points are never
 interpolated. `LIVE_ALL_VALID=1` remains available but is not required for the
 primary offline conclusion.
 
-See [COMMANDS.md](COMMANDS.md) for the analysis-only, live-validation,
-report, SCP, and source-only Git workflow. Completed training and keyed replay
-are not rerun by those analysis commands.
+See [COMMANDS.md](COMMANDS.md) for the analysis-only, LaTeX/Overleaf,
+live-validation, SCP, and source-only Git workflow. Completed training and
+keyed replay are not rerun by those analysis commands.

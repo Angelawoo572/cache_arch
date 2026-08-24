@@ -9,7 +9,6 @@ OUTPUT="${OUTPUT:-$RUN_DIR/602_stride_offline_sufficiency_overleaf.zip}"
 FORCE="${FORCE:-0}"
 SOURCE_TEX="$EXP/report/602_stride_training_budget_live_inference.tex"
 REPORT_DIR="$RUN_DIR/report"
-PLOT_DIR="$RUN_DIR/report_plots"
 
 usage() {
   cat <<'EOF'
@@ -20,10 +19,10 @@ Environment:
   OUTPUT=PATH    Output Overleaf ZIP.
   FORCE=1        Replace an existing ZIP after validation.
 
-The ZIP contains main.tex, the generated report/*.tex inputs, three required
-offline-primary PNG figures, and up to two measured live-appendix figures. It
-excludes checkpoints, logs, event streams, replay lists, venvs, and all other
-run artifacts.
+The ZIP contains main.tex and the generated report/*.tex inputs, including
+three PGFPlots figure fragments. Overleaf renders the figures. Sacramento does
+not need matplotlib or pdflatex. The archive excludes checkpoints, logs, event
+streams, replay lists, venvs, binaries, and all other run artifacts.
 EOF
 }
 
@@ -37,32 +36,15 @@ REQUIRED_TEX=(
   generated_live_validation.tex
   offline_fairness_report.tex
   regression_20m_report.tex
+  generated_figure1_offline_ipc.tex
+  generated_figure2_same_h_differences.tex
+  generated_figure3_training_supervision.tex
 )
 for name in "${REQUIRED_TEX[@]}"; do
   [[ -s "$REPORT_DIR/$name" ]] || {
     echo "[error] missing generated report input: $REPORT_DIR/$name" >&2
     exit 2
   }
-done
-[[ -d "$PLOT_DIR" ]] || { echo "[error] missing plots directory: $PLOT_DIR" >&2; exit 2; }
-
-REQUIRED_PLOTS=(
-  01_fair_offline_ipc_curve.png
-  02_differences_from_same_h_20m.png
-  03_training_supervision.png
-)
-PLOTS=()
-for name in "${REQUIRED_PLOTS[@]}"; do
-  [[ -s "$PLOT_DIR/$name" ]] || {
-    echo "[error] missing required offline figure: $PLOT_DIR/$name" >&2
-    exit 2
-  }
-  PLOTS+=("$PLOT_DIR/$name")
-done
-for name in \
-  04_live_vs_offline_same_checkpoint.png \
-  05_live_sufficiency_vs_same_h_20m.png; do
-  [[ ! -s "$PLOT_DIR/$name" ]] || PLOTS+=("$PLOT_DIR/$name")
 done
 if [[ -e "$OUTPUT" && "$FORCE" != 1 ]]; then
   echo "[error] archive exists; inspect it or set FORCE=1: $OUTPUT" >&2
@@ -72,13 +54,10 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 project="$tmp/602_stride_offline_sufficiency_overleaf"
-mkdir -p "$project/report_plots" "$project/report"
+mkdir -p "$project/report"
 cp "$SOURCE_TEX" "$project/main.tex"
 for name in "${REQUIRED_TEX[@]}"; do
   cp "$REPORT_DIR/$name" "$project/report/$name"
-done
-for plot in "${PLOTS[@]}"; do
-  cp "$plot" "$project/report_plots/"
 done
 
 python3 - "$project/main.tex" <<'PY'
@@ -125,15 +104,18 @@ required = {
     "report/generated_live_validation.tex",
     "report/offline_fairness_report.tex",
     "report/regression_20m_report.tex",
-    "report_plots/01_fair_offline_ipc_curve.png",
-    "report_plots/02_differences_from_same_h_20m.png",
-    "report_plots/03_training_supervision.png",
+    "report/generated_figure1_offline_ipc.tex",
+    "report/generated_figure2_same_h_differences.tex",
+    "report/generated_figure3_training_supervision.tex",
 }
 missing = required.difference(names)
-plots = [name for name in names if name.startswith("report_plots/") and name.endswith(".png")]
-if missing or len(plots) not in (3, 5):
+forbidden_suffixes = (
+    ".png", ".pdf", ".log", ".csv", ".json", ".bin", ".pt", ".gz"
+)
+forbidden = [name for name in names if name.endswith(forbidden_suffixes)]
+if missing or forbidden:
     raise SystemExit("[error] invalid Overleaf archive")
-print("PASS: offline-primary Overleaf project has all required report inputs")
+print("PASS: LaTeX-only Overleaf project has all required report inputs")
 for name in names:
     print(name)
 PY

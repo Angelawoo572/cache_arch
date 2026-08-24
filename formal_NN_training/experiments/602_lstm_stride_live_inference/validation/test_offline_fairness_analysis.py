@@ -14,6 +14,11 @@ for directory in (HERE, PYTHON):
         sys.path.insert(0, str(directory))
 
 from offline_sufficiency import build_analysis  # noqa: E402
+from generate_overleaf_figures import (  # noqa: E402
+    write_figure_one,
+    write_figure_two,
+    write_figure_three,
+)
 from validate_20m_regression import compare_artifact  # noqa: E402
 from validate_offline_fairness import equal_number  # noqa: E402
 
@@ -93,6 +98,52 @@ class OfflineFairnessAnalysisTest(unittest.TestCase):
         expected = 1000.0 / (2.0 * 157.0)
         self.assertTrue(equal_number(expected, expected + 1e-9))
         self.assertFalse(equal_number(expected, expected + 0.1))
+
+    def test_primary_figures_are_latex_only_and_data_derived(self):
+        rows = [
+            self.row(8, 250000, "i250k", 1.08, 0.30, 0.50, 0.40),
+            self.row(8, 1000000, "i1m", 1.002, 0.20, 0.30, 0.25),
+            self.row(8, 20000000, "i20m", 1.0, 0.20, 0.30, 0.25),
+            self.row(16, 100000, "i100k", 2.10, 0.40, 0.60, 0.50),
+            self.row(16, 1000000, "i1m", 2.004, 0.22, 0.31, 0.26),
+            self.row(16, 20000000, "i20m", 2.0, 0.22, 0.31, 0.26),
+        ]
+        analysis = build_analysis(rows, [])
+        analysis["references"] = {
+            "offline": {
+                "no_pref": {"ipc": 0.8},
+                "offline_stride": {"ipc": 0.9},
+            }
+        }
+        summary = {
+            "points": [
+                {
+                    "instruction_budget": 100000,
+                    "decision_rows": 10,
+                    "positive_count_rows": 2,
+                    "action_atoms": 4,
+                },
+                {
+                    "instruction_budget": 20000000,
+                    "decision_rows": 1000,
+                    "positive_count_rows": 200,
+                    "action_atoms": 400,
+                },
+            ]
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            outputs = [root / "one.tex", root / "two.tex", root / "three.tex"]
+            write_figure_one(outputs[0], analysis)
+            write_figure_two(outputs[1], analysis)
+            write_figure_three(outputs[2], summary)
+            combined = "\n".join(path.read_text() for path in outputs)
+        self.assertIn(r"\begin{axis}", combined)
+        self.assertIn(r"\begin{groupplot}", combined)
+        self.assertIn("h8 aggressive: i250k", combined)
+        self.assertIn("h16 aggressive: i100k", combined)
+        self.assertNotIn(r"\includegraphics", combined)
+        self.assertNotIn(".png", combined)
 
 
 if __name__ == "__main__":

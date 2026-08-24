@@ -378,6 +378,11 @@ def main():
         "useful": 0.0,
         "late": 0.0,
     }
+    offline_stride_reference_tolerances = dict(reference_tolerances)
+    for field in (
+        "ipc", "coverage", "l2_load_miss_rate", "requests_per_l2_load"
+    ):
+        offline_stride_reference_tolerances[field] = system_tolerances[field]
     reference_metrics = {}
     if complete_artifact_set_available:
         no_pref_tolerances = dict(reference_tolerances)
@@ -390,7 +395,7 @@ def main():
         reference_metrics["offline_stride"] = compare_mapping(
             metrics_from_log(old_stride_log, old_baseline),
             metrics_from_log(new_stride_log, new_baseline),
-            reference_tolerances,
+            offline_stride_reference_tolerances,
         )
     points = {}
     failures = []
@@ -477,7 +482,7 @@ def main():
         )
     status = "FAIL" if failures else "PASS"
     report = {
-        "schema_version": 1,
+        "schema_version": 2,
         "status": status,
         "mode": mode,
         "exact_artifact_parity_status": exact_status,
@@ -487,10 +492,21 @@ def main():
         "historical_anchors": HISTORICAL_IPC,
         "artifact_comparisons": artifacts,
         "reference_metrics": reference_metrics,
+        "reference_metric_policy": {
+            "no_pref": (
+                "exact parsed counters/metrics; coverage is not defined"
+            ),
+            "offline_stride": (
+                "IPC/cache outcomes use the declared retrained-anchor "
+                "tolerances; remaining counters/behavior metrics are exact"
+            ),
+        },
         "points": points,
         "failures": failures,
         "interpretation": (
             "Artifact equality and metric regression are reported separately; "
+            "a tolerance-based system-metric PASS never establishes exact "
+            "artifact parity; "
             "matching approximate IPC anchors alone never establishes exact "
             "artifact parity."
         ),

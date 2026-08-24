@@ -1,9 +1,11 @@
 # 602 offline training-prefix sufficiency: Sacramento commands
 
 These commands operate on the existing branch and completed ignored run
-trees. The fairness, regression, aggregation, plotting, and report commands do
-**not** train a model or launch ChampSim. Do not set `FORCE=1` unless a specific
-rerun has been reviewed and approved.
+trees. The fairness, regression, aggregation, LaTeX generation, and Overleaf
+packaging commands do **not** train a model or launch ChampSim. They require
+only Python 3's standard library plus `zip` support; Sacramento does not need
+matplotlib, `pdflatex`, or another local TeX installation. Do not set `FORCE=1`
+unless a specific rerun has been reviewed and approved.
 
 ## 1. Switch to the existing branch
 
@@ -84,7 +86,16 @@ python3 "$EXP_DIR/validation/validate_offline_fairness.py" \
 
 jq '{status, summary, source_identities, shared_artifacts}' \
   "$NEW_RUN_DIR/report/offline_fairness_report.json"
+
+jq -r '.points[] as $point | $point.checks[] |
+  select(.status == "FAIL" or (.status == "UNAVAILABLE" and .required)) |
+  "h\($point.hidden_size) \($point.budget_tag) \(.status) \(.name)"' \
+  "$NEW_RUN_DIR/report/offline_fairness_report.json"
 ```
+
+The final `jq` command prints nothing on a complete PASS. The validator also
+prints each distinct failed/unavailable check name and its point count, so one
+shared counter-semantics problem is not mistaken for many scientific failures.
 
 Generated analysis artifacts:
 
@@ -138,13 +149,13 @@ python3 "$EXP_DIR/python/aggregate_offline_results.py" \
 
 No live aggregate is needed for the primary offline conclusion.
 
-## 7. Generate the offline-primary analysis and figures
+## 7. Generate the offline-primary analysis and LaTeX figures
 
 ```bash
 python3 "$EXP_DIR/python/compare_offline_live.py" \
   --run-dir "$NEW_RUN_DIR"
 
-python3 "$EXP_DIR/python/plot_results.py" \
+python3 "$EXP_DIR/python/generate_overleaf_figures.py" \
   --run-dir "$NEW_RUN_DIR"
 ```
 
@@ -158,55 +169,39 @@ jq '{scope, comparison_rule,
 
 column -s, -t < "$NEW_RUN_DIR/offline_sufficiency.csv" | less -S
 
-find "$NEW_RUN_DIR/report_plots" -maxdepth 1 \
-  -type f -name '*.png' -print | sort
+find "$NEW_RUN_DIR/report" -maxdepth 1 \
+  -type f -name 'generated_figure*.tex' -print | sort
 ```
 
-The three required primary figures are:
+The three required primary figure sources are:
 
 ```text
-01_fair_offline_ipc_curve.png
-02_differences_from_same_h_20m.png
-03_training_supervision.png
+generated_figure1_offline_ipc.tex
+generated_figure2_same_h_differences.tex
+generated_figure3_training_supervision.tex
 ```
 
-The existing older 14 plots in `plots/` are not deleted or overwritten.
+They contain measured PGFPlots coordinates and are rendered by Overleaf. The
+existing older PNG plots in `plots/` or `report_plots/` are not read, deleted,
+or overwritten.
 
-## 8. Compile the redesigned TeX/PDF
+## 8. Package the redesigned LaTeX for Overleaf
 
-Run twice for stable references:
-
-```bash
-REPORT_SOURCE="$EXP_DIR/report/602_stride_training_budget_live_inference.tex"
-PDF_DIR="$NEW_RUN_DIR/report_pdf"
-mkdir -p "$PDF_DIR"
-
-cd "$EXP_DIR/report"
-pdflatex -halt-on-error -interaction=nonstopmode \
-  -output-directory "$PDF_DIR" \
-  "\def\RunDir{$NEW_RUN_DIR}\input{602_stride_training_budget_live_inference.tex}"
-
-pdflatex -halt-on-error -interaction=nonstopmode \
-  -output-directory "$PDF_DIR" \
-  "\def\RunDir{$NEW_RUN_DIR}\input{602_stride_training_budget_live_inference.tex}"
-
-cp "$PDF_DIR/602_stride_training_budget_live_inference.pdf" \
-  "$PDF_DIR/602_stride_training_prefix_sufficiency.pdf"
-
-pdfinfo "$PDF_DIR/602_stride_training_prefix_sufficiency.pdf" | head
-ls -lh "$PDF_DIR/602_stride_training_prefix_sufficiency.pdf"
-cd "$ROOT_DIR"
-```
-
-If Sacramento's TeX installation is unavailable, package the same generated
-inputs for Overleaf without changing results:
+Do not run `plot_results.py`, install matplotlib, or run `pdflatex` on
+Sacramento. Package only `main.tex` plus generated `.tex` inputs:
 
 ```bash
-RUN_DIR="$NEW_RUN_DIR" \
+RUN_DIR="$NEW_RUN_DIR" FORCE=1 \
   bash "$EXP_DIR/linux/package_overleaf_report.sh"
 
+ls -lh "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 unzip -l "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 ```
+
+The ZIP must contain 11 files: `main.tex` and ten `report/*.tex` files. It must
+not contain PNG/PDF files, raw JSON/CSV, logs, streams, replay lists,
+checkpoints, or binaries. Upload the ZIP as a new Overleaf project and keep
+`main.tex` as the main document. Overleaf supplies PGFPlots and builds the PDF.
 
 ## 9. Run the four primary functional-live validation points
 
@@ -271,8 +266,11 @@ python3 "$EXP_DIR/python/aggregate_live_results.py" \
 python3 "$EXP_DIR/python/compare_offline_live.py" \
   --run-dir "$NEW_RUN_DIR"
 
-python3 "$EXP_DIR/python/plot_results.py" \
+python3 "$EXP_DIR/python/generate_overleaf_figures.py" \
   --run-dir "$NEW_RUN_DIR"
+
+RUN_DIR="$NEW_RUN_DIR" FORCE=1 \
+  bash "$EXP_DIR/linux/package_overleaf_report.sh"
 
 jq '.points[] | {
   hidden_size, budget_tag,
@@ -284,24 +282,22 @@ jq '.points[] | {
 }' "$NEW_RUN_DIR/live_validation_comparisons.json"
 ```
 
-Then repeat step 8. Live data remain secondary and cannot alter the offline
-fairness conclusion.
+The live appendix is a generated table, so no additional image dependency is
+introduced. Live data remain secondary and cannot alter the offline fairness
+conclusion.
 
-## 13. Copy the PDF to the Mac Documents directory
+## 13. Copy the Overleaf ZIP to the Mac Documents directory
 
 Run from the Mac Terminal, not Sacramento:
 
 ```bash
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % mkdir -p ~/Documents/cache_arch_stride_sufficiency
-(base) angelawoo@Angelas-MacBook-Pro-5 ~ % scp qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/report_pdf/602_stride_training_prefix_sufficiency.pdf ~/Documents/cache_arch_stride_sufficiency/
-(base) angelawoo@Angelas-MacBook-Pro-5 ~ % open ~/Documents/cache_arch_stride_sufficiency/602_stride_training_prefix_sufficiency.pdf
-```
-
-For the Overleaf fallback:
-
-```bash
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % scp qianruw@sacramento.ece.local.cmu.edu:~/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/602_stride_offline_sufficiency_overleaf.zip ~/Documents/cache_arch_stride_sufficiency/
+(base) angelawoo@Angelas-MacBook-Pro-5 ~ % unzip -l ~/Documents/cache_arch_stride_sufficiency/602_stride_offline_sufficiency_overleaf.zip
 ```
+
+Upload that ZIP to Overleaf. The PDF is intentionally built there, not on
+Sacramento.
 
 ## 14. Check ignored/generated artifacts
 
@@ -309,8 +305,8 @@ For the Overleaf fallback:
 cd "$ROOT_DIR"
 git check-ignore -v \
   "$NEW_RUN_DIR/offline_sufficiency.json" \
-  "$NEW_RUN_DIR/report_plots/01_fair_offline_ipc_curve.png" \
-  "$NEW_RUN_DIR/report_pdf/602_stride_training_prefix_sufficiency.pdf"
+  "$NEW_RUN_DIR/report/generated_figure1_offline_ipc.tex" \
+  "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 
 test -z "$(git ls-files "$EXP_REL/runs")" \
   && echo 'PASS: no generated run artifact is tracked'
@@ -358,7 +354,7 @@ git add \
   "$EXP_REL/python/analysis_policy.py" \
   "$EXP_REL/python/offline_sufficiency.py" \
   "$EXP_REL/python/compare_offline_live.py" \
-  "$EXP_REL/python/plot_results.py" \
+  "$EXP_REL/python/generate_overleaf_figures.py" \
   "$EXP_REL/python/select_live_budgets.py" \
   "$EXP_REL/validation/provenance_utils.py" \
   "$EXP_REL/validation/validate_offline_fairness.py" \

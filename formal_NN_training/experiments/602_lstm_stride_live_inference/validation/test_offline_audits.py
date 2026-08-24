@@ -16,8 +16,14 @@ from provenance_utils import (  # noqa: E402
     artifact,
     authoritative_source_hashes,
 )
-from validate_20m_regression import compare_artifact  # noqa: E402
-from validate_offline_fairness import equal_number  # noqa: E402
+from validate_20m_regression import (  # noqa: E402
+    compare_artifact,
+    compare_mapping,
+)
+from validate_offline_fairness import (  # noqa: E402
+    add_instruction_counter_check,
+    equal_number,
+)
 
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -60,6 +66,31 @@ class OfflineAuditTest(unittest.TestCase):
                 "stream", left, right, content=True, exact_required=True
             )
             self.assertEqual(comparison["status"], "PASS")
+
+    def test_champsim_roi_and_cumulative_instruction_counters_are_distinct(self):
+        for observed, scope in (
+            (25000000, "measurement_window_only"),
+            (50000000, "cumulative_warmup_plus_measurement"),
+        ):
+            checks = []
+            add_instruction_counter_check(
+                checks, observed, 25000000, 25000000, "replay.log"
+            )
+            self.assertEqual(checks[0]["status"], "PASS")
+            self.assertEqual(checks[0]["observed"]["counter_scope"], scope)
+        checks = []
+        add_instruction_counter_check(
+            checks, 49000000, 25000000, 25000000, "replay.log"
+        )
+        self.assertEqual(checks[0]["status"], "FAIL")
+
+    def test_reference_metric_tolerance_does_not_imply_artifact_identity(self):
+        rows = compare_mapping(
+            {"coverage": 0.40}, {"coverage": 0.401},
+            {"coverage": 0.02},
+        )
+        self.assertEqual(rows[0]["status"], "PASS")
+        self.assertAlmostEqual(rows[0]["delta_new_minus_old"], 0.001)
 
 
 if __name__ == "__main__":
