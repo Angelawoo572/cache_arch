@@ -1,0 +1,22 @@
+{
+  "source": "/home/qianruw/cache_online",
+  "simulator": "/home/qianruw/cache/external/ChampSim",
+  "simulator_base": "838be17e",
+  "trace": "/home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+  "checkpoints": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/points",
+  "python": "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+  "raw": "/home/qianruw/cache_online_runs",
+  "jobs": 2,
+  "batch_decisions": 64,
+  "learning_rate": 0.002,
+  "state_capacity": 64,
+  "input_queue": 16,
+  "output_queue": 32,
+  "decoder_limit": 32,
+  "nonlinear_cycles": 4,
+  "finite_macs_per_cycle": [4,16],
+  "development_skip": 20000000,
+  "pilot_instructions": 100000,
+  "final_skip": 25000000,
+  "final_instructions": 25000000
+}

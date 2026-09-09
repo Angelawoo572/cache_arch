@@ -1,0 +1,6 @@
+# Raw runs remain under the configured external run root.
+report/figures/*.png
+report/*.aux
+report/*.out
+report/*.toc
+report/compile.stdout
