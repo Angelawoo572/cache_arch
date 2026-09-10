@@ -1,0 +1,66 @@
+{
+  "status": "PASS",
+  "scope": "100000-instruction frozen regression; not a new final experiment",
+  "protocol": {
+    "arm": "frozen_i1m",
+    "h": 8,
+    "hidden_size": 8,
+    "seed": 7,
+    "state_capacity": 64,
+    "macs": 4,
+    "protocol": "cold",
+    "skip_records": 20000000,
+    "simulation_instructions": 100000,
+    "warmup_instructions": 0,
+    "trace": "/home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+    "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/points/h8/i1m/seed7/offline/model.pt"
+  },
+  "new_run": "/Users/angelawoo/Documents/Codex/2026-09-08/work-on-angelawoo572-cache-arch-implement/work/dynamic_pilot/development_frozen_h8_i1m_state64_mac4",
+  "reference_run": "/Users/angelawoo/Documents/Codex/2026-09-08/work-on-angelawoo572-cache-arch-implement/work/dynamic_pilot/reference_frozen_h8_i1m_state64_mac4",
+  "host": {
+    "new": {
+      "simulator_wall_seconds": 2.959443246945739,
+      "simulator_peak_rss_kib": 9772
+    },
+    "reference": {
+      "simulator_wall_seconds": 3.0700492784380913,
+      "simulator_peak_rss_kib": 9724
+    }
+  },
+  "checks": {
+    "original_parser_fields_exact": 30,
+    "timeline_records_exact": 6,
+    "snapshot_records": 5,
+    "cohort_records": 1,
+    "cache_service_cohort_field_comparisons_exact": 422,
+    "removed_reference_fields_verified_zero": 154,
+    "newly_initialized_fields_verified_zero": 8,
+    "event_input_layout_values_verified": 15,
+    "new_trainer_fields_absent": true,
+    "new_worker_metadata_and_artifacts_absent": true
+  },
+  "layout_change": "Event metadata: reference 56 bytes, new 24 bytes; input queue remains 16 entries.",
+  "counters": {
+    "instructions": 100000,
+    "cycles": 325790,
+    "NL": 1633,
+    "M": 1389,
+    "P": 410,
+    "Ipf": 410,
+    "Q": 0,
+    "U": 2,
+    "L": 0,
+    "eligible_l2_callbacks": 1633,
+    "nn_admitted": 424,
+    "nn_started": 409,
+    "nn_completed": 408,
+    "inference_dropped": 1209,
+    "occupancy_lines": 1395,
+    "fills_load": 1389,
+    "fills_rfo": 1,
+    "fills_prefetch": 5,
+    "fills_writeback": 0,
+    "replacements": 0
+  },
+  "ipc": 0.3069461923324841
+}
