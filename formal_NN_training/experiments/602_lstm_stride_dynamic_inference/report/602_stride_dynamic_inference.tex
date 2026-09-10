@@ -240,7 +240,7 @@ Cohorts use unique enqueue and first-demand lifecycle accounting. They are suppl
 
 \begin{center}\includegraphics[width=0.98\linewidth]{figures/finite_progress.pdf}\end{center}
 
-The frozen 4/16-MAC cases remain below matched Stride end to end. The same finite table at zero cost isolates the table capacity choice. Observed peak state entries and zero evictions show whether this trace actually pressures that capacity; timing congestion must not be attributed to h/c eviction when eviction is absent.
+The frozen 4/16-MAC cases remain below matched Stride end to end. The same finite table at zero cost isolates the table capacity choice. The timed MAC4/MAC16 cases have zero state evictions, so their losses cannot be attributed to h/c eviction. The finite zero-cost control records 30 evictions.
 
 \clearpage\subsection{Inference work, admission and completion}
 
