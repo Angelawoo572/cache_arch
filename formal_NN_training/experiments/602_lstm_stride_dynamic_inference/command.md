@@ -103,7 +103,7 @@ ChampSim processes. At most two simulator jobs run concurrently.
 ## Report generation and local copy
 
 The following local command was successfully used to regenerate the 13 retained
-rows, measured figures and the compiled 11-page PDF. It uses the available local
+rows, measured figures and the compiled PDF (17 pages after the observation supplement). It uses the available local
 plotting environment and Sacramento's existing `pdflatex`, with two TeX passes.
 No Colab, Overleaf, installation or cloud execution was used.
 
@@ -168,3 +168,42 @@ git -C work/cache_dynamic_inference push origin --delete experiment/602-stride-o
 ssh -S /tmp/cache602-dynamic-ssh qianruw@sacramento.ece.local.cmu.edu \
 'git -C /home/qianruw/cache_online switch --detach && git -C /home/qianruw/cache_dynamic_inference branch -d experiment/602-stride-online-learning'
 ```
+
+## Completed observation/quality supplement
+
+The supplementary entry point has ten fixed cases: historical NoPF, historical
+live Stride, four original checkpoint replays, original Stride replay, and h8-i1m
+history/latency measurements at the existing zero/4/16-MAC settings. It introduces
+no training, inference-window change, reset or threshold. All new raw outputs
+are separate under `/home/qianruw/cache_dynamic_inference_runs/observation_study`.
+The existing 13 compatible scientific outputs remain unchanged.
+
+Commands used on Sacramento (same authenticated SSH connection):
+
+```sh
+cd /home/qianruw/cache_dynamic_inference
+/home/qianruw/venvs/cache-few-nn-cpu/bin/python formal_NN_training/experiments/602_lstm_stride_dynamic_inference/run.py build
+/home/qianruw/venvs/cache-few-nn-cpu/bin/python formal_NN_training/experiments/602_lstm_stride_dynamic_inference/run.py test
+/home/qianruw/venvs/cache-few-nn-cpu/bin/python formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measure_observations.py run
+/home/qianruw/venvs/cache-few-nn-cpu/bin/python formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measure_observations.py status
+```
+
+`measure_observations.py resume` retries failed own cases while preserving their
+prior outputs and skips complete cases. The same scoped `run.py stop` check also
+recognizes this supplementary raw subtree. The build is isolated as `build_02`.
+
+Local measured analysis commands:
+
+```sh
+cd /Users/angelawoo/Documents/Codex/2026-09-08/work-on-angelawoo572-cache-arch-implement
+rsync -a -e 'ssh -S /tmp/cache602-dynamic-ssh' qianruw@sacramento.ece.local.cmu.edu:/home/qianruw/cache_dynamic_inference_runs/observation_study/ work/observation_raw/
+python3 work/cache_dynamic_inference/formal_NN_training/experiments/602_lstm_stride_dynamic_inference/python/compare_quality.py --run-dir work/raw_final --run-dir work/observation_raw --out-dir work/cache_dynamic_inference/formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results
+python3 work/cache_dynamic_inference/formal_NN_training/experiments/602_lstm_stride_dynamic_inference/python/history_summary.py --run-dir work/observation_raw --out-dir work/cache_dynamic_inference/formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results
+```
+
+The report entry above additionally consumes the quality/history CSVs when
+present. It preserves all maximal strict intervals and the full raw denominators
+in CSV; cumulative and 100k/1M interval results are distinct. Overleaf requires
+the user-approved project link/access; local/server PDF compilation does not.
+
+All ten supplementary runs completed. Thirty original end fields match for each of six reference repetitions and three instrumented NN repetitions (270 equal fields). The current suite has 36 focused tests: 11 metrics, 4 runner, 8 runtime/history, 2 measurement, 10 quality comparisons, and 1 original replay. A final logger flush fix preserves complete bounded records in future runs; the original truncated tail is explicitly excluded from the real excerpts.

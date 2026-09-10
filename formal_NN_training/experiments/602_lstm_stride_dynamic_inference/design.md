@@ -152,3 +152,35 @@ The report additionally shows existing cumulative snapshots at 100k, 1M and
 instruction NoPF denominators. Those descriptive sample points are not
 minimum-history requirements, optimized observation budgets, triggers or new
 measurements. They leave the continuous recurrent history untouched.
+
+## Actual input history and strict quality comparisons
+
+Each inference consumes one new eligible L2 LOAD: 64 PC bits and 64 aligned-byte
+address bits, shaped `(1,1,128)` in the authoritative Python forward. Continuous
+exact-PC h/c each have shape `(1,1,H)`. There is no fixed observation window,
+buffering requirement to accumulate history, reset schedule, or model switch.
+A measurement-only counter records successful completed h/c updates within each
+state lifetime; queued/dropped events do not increment it. This describes history
+experienced, not remembered content or a causal minimum-history requirement.
+
+Supplementary runs reuse the original ListReplayer and original action tapes.
+The original summer v9 seed-7 h8/h16 models and replay streams are byte-identical
+to the corresponding i20m prefix-sweep artifacts. Summer means this fixed same-H
+i20m reference. Each checkpoint's own offline replay is a separate comparison.
+Historical live Stride starts empty after the same no-prefetch warmup; original
+Stride replay is retained separately. Cold/summer comparisons are not mixed.
+
+At exact existing cumulative snapshot points and existing 100k/1M counter
+windows, all three of coverage, selected accuracy and legacy timeliness must be
+strictly greater than one fixed reference. Integer fractions distinguish ties;
+zero denominators are NA. Both-reference claims require the same NN run and
+same counter interval against each reference. CSVs retain all metric differences,
+raw denominators, maximal satisfying intervals, exits, N, eligible/admitted/
+completed D, IPC, cycle savings, request pressure, occupancy and storage.
+
+The first recorded strict point is descriptive, not an exact minimum history.
+No extra stability threshold is introduced. Issue-cohort follow-up remains
+separate from legacy counter-window ratios; unresolved requests are censored.
+Measurement-only arrival/start/completion timestamps expose actual modeled
+queue waiting and completion delay. Their storage and first-1,024-decision
+h/c logs are excluded from required inference deployment SRAM.

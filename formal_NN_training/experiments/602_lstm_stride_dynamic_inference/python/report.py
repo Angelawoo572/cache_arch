@@ -282,7 +282,11 @@ How does an offline-trained tiny neural prefetcher behave during a causal, live 
     text.append(r"The branch's active entry point is run.py; design.md defines the fixed-weight conditions, and command.md records build/test/run/status/resume/report commands and report compilation. Compact raw counters and figure inputs are committed. SPEC traces, checkpoints and full raw logs remain in their existing private trees. All plotted scientific rows are actual frozen or conventional baseline measurements; weight-changing scientific rows are excluded rather than renamed. The raw reference paths continue to identify their original measurements.")
     text.append(r"\end{document}")
     destination=out_dir/'602_stride_dynamic_inference.tex'
-    destination.write_text('\n\n'.join(text)+'\n')
+    document='\n\n'.join(text)+'\n'
+    if (results_dir/'quality_summary.csv').exists():
+        from observation_report import augment
+        document=augment(document,results_dir,out_dir)
+    destination.write_text(document)
     print(f'Wrote frozen report source {destination}')
     return destination
 

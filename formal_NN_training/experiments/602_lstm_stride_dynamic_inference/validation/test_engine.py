@@ -79,6 +79,7 @@ PROBE = r'''
 #include "stride_lstm_runtime.h"
 #include "stride.h"
 #include <deque>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <string>
@@ -94,6 +95,7 @@ PROBE = r'''
 #include <sstream>
 unsigned char warmup_complete[1]={1};
 uint64_t current_core_cycle[1]={0};
+uint64_t dynamic602_retired_instructions(unsigned) { return current_core_cycle[0]/2; }
 template<class T>void array(const std::vector<T>& values){std::cout<<'[';for(size_t i=0;i<values.size();++i){if(i)std::cout<<',';std::cout<<values[i];}std::cout<<']';}
 void result(const stride_lstm::InferenceResult& r){std::cout<<"{\"pc\":"<<r.pc<<",\"line\":"<<r.line<<",\"emit\":"<<r.emit<<",\"k\":"<<r.k<<",\"deltas\":";array(r.deltas);std::cout<<",\"addresses\":";array(r.addresses);std::cout<<",\"hidden\":";array(r.hidden);std::cout<<",\"cell\":";array(r.cell);std::cout<<'}';}
 std::vector<float> weights(const Dynamic602& engine) {
@@ -107,7 +109,7 @@ std::vector<float> weights(const Dynamic602& engine) {
 std::vector<float> initial_weights;
 void snapshot(Dynamic602& engine,CACHE& cache){
   std::cout<<"{\"stats\":{"<<engine.json()<<"},\"cycle\":"<<current_core_cycle[0]<<",\"active_due\":"<<engine.due_<<",\"weights_unchanged\":"<<(weights(engine)==initial_weights?"true":"false")<<",\"states\":[";
-  bool first=true;for(const auto& item:engine.entries_){if(!first)std::cout<<',';first=false;std::cout<<"{\"pc\":"<<item.first<<",\"life\":"<<item.second.life<<",\"hidden\":";array(item.second.state.hidden);std::cout<<",\"cell\":";array(item.second.state.cell);std::cout<<'}';}
+  bool first=true;for(const auto& item:engine.entries_){if(!first)std::cout<<',';first=false;std::cout<<"{\"pc\":"<<item.first<<",\"life\":"<<item.second.life<<",\"observed_updates\":"<<item.second.observed_updates<<",\"hidden\":";array(item.second.state.hidden);std::cout<<",\"cell\":";array(item.second.state.cell);std::cout<<'}';}
   std::cout<<"],\"issued\":[";first=true;for(const auto& item:cache.requests){if(!first)std::cout<<',';first=false;std::cout<<'['<<item.pc<<','<<item.base<<','<<item.address<<']';}
   std::cout<<"],\"active_result\":";result(engine.result_);std::cout<<"}"<<std::endl;
 }
@@ -208,6 +210,8 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(final[1]["life"], previous[1]["life"])
         self.assertGreater(final[2]["life"], previous[2]["life"])
         self.assertNotIn(3, final)
+        self.assertEqual(final[1]["observed_updates"], 2)
+        self.assertEqual(final[2]["observed_updates"], 1)
 
     def test_delayed_completion_without_new_demand_and_state_visibility(self):
         model, path = self.model(k=2)
@@ -272,8 +276,32 @@ class EngineTests(unittest.TestCase):
             self.assertEqual([item[2] for item in completed[-1]["issued"]], expected)
             self.assertGreater(len(set(expected)), 1)
             self.assertEqual(completed[-1]["stats"]["nn_completed"], 12)
+            self.assertEqual(completed[-1]["stats"]["history_log_rows"], 0)
             self.assertFalse(any(any(word in key for word in ("teacher", "train", "update", "publish", "version"))
                                  for key in completed[-1]["stats"]))
+
+    def test_history_counts_completed_lifetimes_and_bounded_log(self):
+        _, path = self.model(k=2)
+        log = self.directory / "history.jsonl"
+        environment = self.environment(path, macs=4, capacity=2)
+        environment.update(DYNAMIC602_HISTORY_LOG=str(log), DYNAMIC602_HISTORY_LOG_LIMIT="3")
+        initial = self.run_probe("D 0 11 1024\n", environment)[0]
+        due = initial["active_due"]
+        snapshots = self.run_probe("D 0 11 1024\n" + "D 0 11 1025\n" * 20 +
+                                   "T {}\nT {}\nT {}\nT {}\n".format(due, due*2, due*3, due*4), environment)
+        queued = snapshots[20]
+        self.assertEqual(queued["stats"]["inference_dropped"], 4)
+        self.assertEqual(queued["states"][0]["observed_updates"], 0)
+        records = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual(len(records), 3)
+        self.assertEqual([r["prior_updates"] for r in records], [0, 1, 2])
+        self.assertEqual([r["post_updates"] for r in records], [1, 2, 3])
+        for before, after in zip(records, records[1:]):
+            self.assertEqual(before["new_h"], after["old_h"])
+            self.assertEqual(before["new_c"], after["old_c"])
+        self.assertGreater(records[1]["start_cycle"] - records[1]["arrival_cycle"], 0)
+        self.assertGreater(snapshots[-1]["stats"]["inference_completion_cycles_max"], 0)
+        self.assertEqual(snapshots[-1]["stats"]["state_history_completed"], snapshots[-1]["stats"]["nn_completed"])
 
     def test_only_frozen_and_conventional_modes_are_available(self):
         _, path = self.model(k=2)

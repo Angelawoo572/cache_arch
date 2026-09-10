@@ -99,6 +99,12 @@ def install(sim):
 \t\t\tprefetchers.push_back(pref_dynamic602);
 \t\t}
 \t\telse if(!knob::l2c_prefetcher_types[index].compare("stride"))''', "dynamic registry")
+    # Reuse the original keyed replay class for measured summer references.
+    # Only the registry changes: its warmup gate and PC-line-occ behavior stay intact.
+    if '#include "list_replayer.h"' not in registry:
+        registry = replace_once(registry, '#include "stride.h"', '#include "stride.h"\n#include "list_replayer.h"', "original replay include")
+    if 'compare("list_replayer")' not in registry:
+        registry = replace_once(registry, '\t\telse if(!knob::l2c_prefetcher_types[index].compare("stride"))', '\t\telse if(!knob::l2c_prefetcher_types[index].compare("list_replayer"))\n\t\t{\n\t\t\tListReplayer *pref_list = new ListReplayer(knob::l2c_prefetcher_types[index], this);\n\t\t\tprefetchers.push_back(pref_list);\n\t\t}\n\t\telse if(!knob::l2c_prefetcher_types[index].compare("stride"))', "original replay registry")
     (sim / "prefetcher/dynamic602.l2c_pref").write_text(registry)
     print(f"Installed dynamic602 hooks and registry in {sim}")
 

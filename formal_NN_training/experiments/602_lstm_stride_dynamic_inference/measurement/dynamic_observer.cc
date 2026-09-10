@@ -184,3 +184,6 @@ void dynamic602_skip(FILE* file,bool cloudsuite,unsigned cpu) {
 bool dynamic602_read_allowed(unsigned cpu) { return !max_count() || records[cpu]<max_count(); }
 void dynamic602_record_read(unsigned cpu) { ++records[cpu]; }
 bool dynamic602_bounded_trace() { return max_count()!=0; }
+
+// Retired program progress for bounded measurement-only recurrent-state examples.
+uint64_t dynamic602_retired_instructions(unsigned cpu) { return instructions(cpu); }
