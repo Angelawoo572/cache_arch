@@ -1,99 +1,52 @@
-# Frozen Streamer student: real checkpoint to live inference
+# Frozen Streamer: checkpoint to live inference
 
-## Completed width/template supplement
+- **Results:** [current overview](../../../RESULTS_INDEX.md), [own latest subset](results/width_templates_20261017/README.md), [H8 archive](results/formal_20261017/README.md).
+- **Scope:** actual retained seed 7 H8 weights, global recurrent C++ inference and no retraining. MAC0 results establish functional behavior, not finite-resource IPC or PPA.
+- **Run/recovery:** [four-route guide](../602_four_prefetcher_formal/README.md), [latest supplement](../602_four_prefetcher_formal/width_templates/README.md).
 
-The [new complete results](results/width_templates_20261017/README.md) preserve this route's own frozen model and explicitly labeled compatible references. See the [three-question report](../../../docs/602_width_templates/REPORT.md) and [new run/recovery guide](../602_four_prefetcher_formal/width_templates/README.md).
+## Retained model
 
+| Item | Exact identity |
+| --- | --- |
+| Checkpoint | [models/original_checkpoint.pt](models/original_checkpoint.pt), 16,209 file bytes |
+| Provenance | [source_training_metadata.json](models/source_training_metadata.json), byte-identical to the source run |
+| Portable tensors | [models/model.bin](models/model.bin), 11,798 file bytes; 2,821 FP32 parameters / 11,284 weight bytes |
+| Encoder/state | Unprojected LSTM, 64 features, H8, 14 tensors; one global 64-byte FP32 h/c pair |
+| Revision | `source_input_variable_delta_free_running_v7`, policy `streamer` |
 
-## Retained real weights and current formal output
+- Original checkpoint, relative to cache: `formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt`; metadata is adjacent `run_metadata.json`.
+- Legacy checkpoint seed 7 is proven by external run metadata; export requires explicit `--seed 7 --allow-legacy-metadata`.
+- Old 545-parameter H8 sweep/v 2 models are different. Other widths are not additional seeds.
+- H8 formal copies are under `formal_study/archive/20261017/raw_v2/models/streamer/{model.bin,immutable_model.bin}`. Retained bytes can restore missing copies; preserve any conflicting file.
 
-This sibling carries the real small [original checkpoint](models/original_checkpoint.pt)
-(16,209 bytes), byte-identical [source training metadata](models/source_training_metadata.json),
-and [portable FP32 model](models/model.bin) (11,798 file bytes). The
-portable model contains 2,821 parameters, or 11,284 resident FP32
-weight bytes; file headers and tensor names account for the larger file size.
-These are trained weights, not placeholders, a random reinitialization, a trace,
-or a replay list. The retained checkpoint and metadata match the original
-source run byte for byte; the portable binary matches the previously verified
-export byte for byte. All copies are in cache.
+## Exact input, state and decoder contract
 
-The current formal destination is
-`/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/streamer/model.bin`,
-with an identical `immutable_model.bin` beside it. The copied model is frozen;
-v2 changes callback-log flushing only and does not retrain or select weights.
-Original source run paths above remain provenance. The retained files can be
-used directly as checkpoint/metadata inputs to this sibling's exporter and parity
-script, in a fresh output directory. Follow the
-[guarded model-restoration and run commands](../602_four_prefetcher_formal/README.md)
-before `build`: the builder does not automatically export or stage these files.
-That guide restores absent files, compares existing bytes, and never overwrites
-a different model. The final main table is `raw_v2/analysis_final`; v1 callback
-logs have a known unflushed tail and remain excluded historical evidence.
+- Each eligible LOAD supplies 64 LSB-first bits of the line-aligned **byte address** (`line << 6`). No PC, teacher output, private table, future event or per-PC state is added.
+- All chronological inputs share h/c. Per-PC h/c would change this model.
+- Count is `floor(float64 softplus(FP32 count affine))`; zero is valid. Decoder initialization is `tanh(initial_state(h))`.
+- Each slot selects the first argmax of four mixture logits and its corresponding signed-log-delta mean. Signed `expm1` plus nearest/ties-even rounding yields a delta relative to the **original** base line; addresses wrap modulo `2^58`, with the original `2^57` magnitude guard.
+- The GRU consumes its own **unrounded** selected coordinate after every slot, including the final slot. No learned fill head exists; requests target `FILL_L2=2`.
+- The backend evaluates mixture-scale outputs and counts that work even though scales do not select mode actions.
+- [Shared scalar backend](../../common/live602_runtime/): `InferState` computes without publishing h/c; `Infer` publishes a completed result.
+- Formal global inference is synchronous MAC0, with complete actions and no imposed FIFO, admission drops, per-PC capacity, output queue or decoder 32 truncation. Common page/request gates are separate controls.
 
-The portable files make this model's numerical reproduction self-contained in
-the checkout. Full formal IPC still needs the preserved 602 trace, consistent
-ChampSim/libbf dependency, recorded machine, and a fresh build/certificate;
-a standalone model or prefix parity is not a completed ROI experiment.
+## Training versus live history
 
-This sibling exports the actual address-only Streamer v7 student, not a Stride
-checkpoint or a replay lookup table. The shared C++ backend is
-`formal_NN_training/common/live602_runtime`; its source and ABI are owned
-separately. No shared source, branch or commit is changed by these scripts.
+| Evidence | Coordinates and state |
+| --- | --- |
+| Weight training | 0–20M; 325,389 LOAD rows; 8 epochs |
+| Old offline evaluation | 25–50M; 404,219 rows; independently zero-initialized, without guard initialization |
+| New validation | 20–25M, after 15–20M cache/state warmup |
+| Live test | 25–50M replication or 75–100M future ROI, each after its own 5M cache/state warmup |
 
-The main existing checkpoint is under the original cache root:
-`formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt`,
-with adjacent `run_metadata.json`. It has 2,821 finite FP32 parameters
-(11,284 resident weight bytes), 64 input features, H=8, a global 64-byte h/c,
-and 14 tensors. Its checkpoint declares policy=streamer and revision
-source_input_variable_delta_free_running_v7. The seed is proven only by its
-original external run metadata; exporting this legacy file requires the
-explicit `--allow-legacy-metadata` flag. The old 545-parameter h8 sweep/v2
-models are different models. Sizes h16/32/64/128 exist but are not a sweep
-requested in this study, and are not additional training seeds.
+- The old 5–10M Stride validation overlaps Streamer weight training and is not held-out validation here.
+- Live h/c starts at zero at cache warmup start, advances while prefetch output is blocked, and is retained at ROI start. ROI callback/update counters restart; training exposure is not live observation history.
+- [Evidence alignment](../602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) separates the old offline state history from new live results.
 
-The exact input is the LSB-first 64-bit encoding of the line-aligned byte
-address (line << 6), with no PC. All eligible inputs in the chronological
-stream share one h/c. Using per-PC states would change the trained model.
-The source has an unprojected LSTM, Poisson mode floor(softplus(count)), a
-tanh decoder initial state, and a four-component signed-log-delta mixture.
-At every slot, choose the first argmax mixture logit, transform its mean with
-signed expm1 and nearest/ties-even integer rounding, then add to the original
-base line modulo 2^58. The unrounded selected mean is fed into the GRU for
-the next action. The model has no learned fill head: its interface requests
-L2. A formal common page/request gate is outside these model semantics and
-must be reported separately.
+## Export and correctness recovery
 
-Training was the chronological 0..20M instruction prefix (325,389 eligible
-rows). The old evaluation was 25..50M (404,219 rows), independently zero
-initialized and already inspected. It is a replication ROI, not a newly
-unseen evaluation. The future75..100M ROI is distinct from training and the
-legacy evaluation. The prior Stride validation5..10M overlaps this training;
-it must not be reused as held-out validation for Streamer. Any proposed
-20..25M budget validation must be recorded by the parent protocol, including
-its overlap with cache warmup. This exporter does not select a budget, train
-weights, or choose a model using test outcomes.
-
-Run through the existing Sacramento Torch environment. All new artifacts go
-under /home/qianruw/cache/formal_study/archive/20261017/; set TMPDIR and Python cache
-paths inside its runtime directory. Local sources likewise remain inside
-the authorized cache directory; no /tmp output is created.
-
-```sh
-PYTHONDONTWRITEBYTECODE=1 \
-TMPDIR=/home/qianruw/cache/formal_study/archive/20261017/runtime_v2/tmp \
-/home/qianruw/venvs/cache-few-nn-cpu/bin/python \
-  python/export_live_model.py \
-  --checkpoint /home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt \
-  --run-metadata /home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/run_metadata.json \
-  --seed 7 --allow-legacy-metadata \
-  --out-dir /home/qianruw/cache/formal_study/archive/20261017/reproduction/exports/streamer
-```
-
-The export checks original policy, source revision, seed metadata, input
-contract, tensor shape/dtype/finite values and exact FP32 roundtrip through
-LV602R1. It preserves all requested model actions without a hidden degree
-cap. The backend operation counters, finite-service costs, actual output
-limits, callback admission and queue policy are separate from the literal
-network inventory. Model storage is not whole-process RSS or measured PPA.
-The training-only mixture-scale outputs do not select mode actions; any
-backend elimination of those unused computations must be stated explicitly.
+- [Exporter](python/export_live_model.py): `--checkpoint`, `--run-metadata`, `--seed`, `--allow-legacy-metadata`, `--out-dir`, optional `--runtime-dir`. It checks identity, seed, shape, finite FP32 tensors and exact LV602R1 roundtrip.
+- [Reference](python/streamer_reference.py) and [parity script](validation/compare_python_cpp.py): actual PyTorch checkpoint versus the compiled C++ probe, every h/c/count/ordered action, sequential real inputs, reset and address/numeric boundaries.
+- Use the existing Sacramento Torch environment `/home/qianruw/venvs/cache-few-nn-cpu/bin/python`; keep temporary/output files inside cache and use fresh output directories.
+- The standalone legacy Streamer scripts still restrict paths to the removed `formal_study_20261017` name. Do not recreate that alias or assume JSON path translation fixes this Python guard; preserve the accepted certificates and resolve this restriction before a fresh standalone export/parity run.
+- The [formal recovery guide](../602_four_prefetcher_formal/README.md) retains model restoration and stage commands. Model/parity artifacts alone do not establish full-ROI IPC; the original trace, matched ChampSim/libbf, machine and build-bound certificate are also required.

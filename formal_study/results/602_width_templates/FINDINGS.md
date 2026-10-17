@@ -1,8 +1,8 @@
 # Width and unconditional-template supplemental study
 
-Status: **PASS**. New complete runs: 24/24 (22 test + 2 validation required). Archived 64-row dataset is retained separately with its original protocol.
+- Status: **PASS**. New complete runs: 24/24 (22 test + 2 validation required). Archived 64-row dataset is retained separately with its original protocol.
 
-All measured IPC uses synchronous MAC0 inference. H16 uses retained real seed7 checkpoints, not retraining or extra seeds. H16 templates use only their own full20–25M validation outputs. H8 capped templates reuse the original validation-selected H8 tables. Cap16144 is inherited unchanged; it does not equalize realized traffic.
+- All measured IPC uses synchronous MAC0 inference. H16 uses retained real seed7 checkpoints, not retraining or extra seeds. H16 templates use only their own full20–25M validation outputs. H8 capped templates reuse the original validation-selected H8 tables. Cap16144 is inherited unchanged; it does not equalize realized traffic.
 
 | Policy | Width | ROI | Arm | Cap | IPC / NoPF | Actual requests/M | DRAM MiB | L2 LOAD accuracy | LLC LOAD accuracy |
 |---|---:|---:|---|---:|---:|---:|---:|---:|---:|
@@ -37,7 +37,7 @@ All measured IPC uses synchronous MAC0 inference. H16 uses retained real seed7 c
 | spp H16 | 26436 | 128 | 28656 | 1148 |
 | streamer H8 | 11284 | 64 | 13204 | 628 |
 
-Host persistent measurement already includes weights and h/c; do not add them again. H8 heap peaks cover its recorded4096 real callbacks; H16 covers4096 real callbacks plus8/16 documented boundaries. Neither is an all-degree worst-case bound. Outer Four602/controller/observer, stack, allocator metadata, RSS and hardware PPA are excluded.
+- Host persistent measurement already includes weights and h/c; do not add them again. H8 heap peaks cover its recorded4096 real callbacks; H16 covers4096 real callbacks plus8/16 documented boundaries. Neither is an all-degree worst-case bound. Outer Four602/controller/observer, stack, allocator metadata, RSS and hardware PPA are excluded.
 
 | Frozen table | Retained slots | Essential prediction fields B | Actual Action scalar fields + modalK B | Padded logical Action array + modalK B |
 |---|---:|---:|---:|---:|
@@ -47,23 +47,23 @@ Host persistent measurement already includes weights and h/c; do not add them ag
 | spp H16 | 5 | 68 | 148 | 168 |
 | streamer H8 | 2 | 32 | 64 | 72 |
 
-The essential payload is a semantic lower-level field inventory, not the current host allocation. Actual Action has address/delta/fill/fill_index/coordinate fields and32B ABI size. Vector descriptor/capacity/slack and outer control are unmeasured; no complete hardware table size is claimed.
+- The essential payload is a semantic lower-level field inventory, not the current host allocation. Actual Action has address/delta/fill/fill_index/coordinate fields and32B ABI size. Vector descriptor/capacity/slack and outer control are unmeasured; no complete hardware table size is claimed.
 
 
 | Claim | Evidence status | Evidence and limit |
 |---|---|---|
-| H16 uniformly improves over H8 | 数据支持（仅本矩阵） | 8 positive, 0 negative, 0 tied; all paired ROI/cap cases retained. Width comparisons use the same existing seed, not independent seed robustness. |
-| Learned payload/state is necessary for the observed benefit | 未支持 | Unconditional template vs full NN: 8 positive, 5 negative, 7 tied. A template near/better than NN is a negative result for necessity; failure to match does not itself establish stateful novelty. |
-| Gains survive finite compute | 待验证 | MAC0 IPC only. MAC4 aggregate dense work/window is a necessary throughput estimate, without queue, latency, nonlinear throughput or finite IPC simulation. |
-| Three independently trained seeds generalize | 待验证 | Existing seed7 only, one workload, two distinct complete25M ROIs. |
+| H16 improves over H8 in the measured pairs | Supported in this matrix | 8 positive, 0 negative, 0 tied; all paired ROI/cap cases retained. Width comparisons use the same existing seed, not independent seed robustness. |
+| Learned payload/state is necessary for the observed benefit | Not supported | Unconditional template vs full NN: 8 positive, 5 negative, 7 tied. A template near/better than NN is a negative result for necessity; failure to match does not itself establish stateful novelty. |
+| Gains survive finite compute | Unverified | MAC0 IPC only. ceil(counted dense MACs / 4) / measured MAC0 ROI cycles is a necessary throughput estimate, without queue, latency, nonlinear throughput or finite IPC simulation. |
+| Three independently trained seeds generalize | Unverified | Existing seed7 only, one workload, two distinct complete25M ROIs. |
 
-L2/LLC target cohorts remain separate. Accuracy is target LOAD-useful/enqueued; timeliness is timely LOAD-useful/all LOAD-useful. Useful/NoPF-misses is an opportunity ratio, not causal total coverage. LLC metrics become NA when tracking is incomplete. Pending/resident-unused and evicted-unused remain distinct; unused is not pollution. DRAM is actual completed controller bus bytes, never requests×64.
+- L2/LLC target cohorts remain separate. Accuracy is target LOAD-useful/enqueued; timeliness is timely LOAD-useful/all LOAD-useful. Useful/NoPF-misses is an opportunity ratio, not causal total coverage. LLC metrics become NA when tracking is incomplete. Pending/resident-unused and evicted-unused remain distinct; unused is not pollution. DRAM is actual completed controller bus bytes, never requests×64.
 
-Native SPP FILTER retains prefetch-fill-only feedback; student SPP consumes all raw L2 fill callbacks. Same effective input is not claimed. Full ROI25–50M was already inspected before this supplement;75–100M remains a distinct interval but the supplement is post-inspection analysis. No prefix stands for a whole ROI. The startup plots do not identify a minimum history by first baseline crossing.
+- Native SPP FILTER retains prefetch-fill-only feedback; student SPP consumes all raw L2 fill callbacks. Same effective input is not claimed. Full ROI25–50M was already inspected before this supplement;75–100M remains a distinct interval but the supplement is post-inspection analysis. No prefix stands for a whole ROI. The startup plots do not identify a minimum history by first baseline crossing.
 
-[New runs](per_run_new.csv), [all explicitly labeled rows](per_run.csv), [unaltered original64 CSV](reference_per_run_original.csv), [paired contrasts](paired_comparisons.csv), [audit](audit.json), [template selection checks](selection_verification.json), [callback checks](callback_verification.json), [storage/cost](storage_cost.csv).
+- [New runs](per_run_new.csv), [all explicitly labeled rows](per_run.csv), [unaltered original64 CSV](reference_per_run_original.csv), [paired contrasts](paired_comparisons.csv), [audit](audit.json), [template selection checks](selection_verification.json), [callback checks](callback_verification.json), [storage/cost](storage_cost.csv).
 
-[One-page paper story](PAPER_STORY.md)
+- [One-page paper story](PAPER_STORY.md)
 
 ![Actual NN and table routes](method.svg)
 

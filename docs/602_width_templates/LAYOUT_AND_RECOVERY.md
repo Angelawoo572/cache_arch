@@ -1,33 +1,30 @@
-> Current reading entry: [RESULTS_INDEX](../../RESULTS_INDEX.md). The shared checkout is now on `main`; branch names and paths in older migration records below remain historical evidence.
+# Canonical layout and recovery
 
-# Canonical study layout and recovery
-
-All local study activity stays below `/Users/angelawoo/Documents/CMU/ece/cache`.
-Sacramento uses `/home/qianruw/cache`. The root-relative layout is the same:
+- Read [RESULTS_INDEX](../../RESULTS_INDEX.md) first. The shared reading branch is `main`; branch/path strings in migration records remain historical evidence.
+- All local study activity stays under `/Users/angelawoo/Documents/CMU/ece/cache`. Sacramento uses `/home/qianruw/cache`, with the same root-relative layout.
 
 | Purpose | Canonical path |
 | --- | --- |
-| Healthy active checkout | `cache` root (`.`), same as GitHub root |
-| Shared lightweight result folder | `formal_study/results/602_width_templates` |
-| First formal, gate mechanism, recovery donor | `formal_study/archive/20261016` |
-| Four-route v1 and v2, independently preserved | `formal_study/archive/20261017` |
-| New H16 and capped-H8-template results | `formal_study/runs/602_width_templates_20261017` |
-| Rename evidence and restoration map | `formal_study/migration` |
-| Original offline training experiments | `formal_NN_training/experiments` (unchanged) |
-| Trace and simulator dependencies | `traces`, `external/ChampSim` (unchanged) |
+| Active checkout / GitHub repository root | `cache` root (`.`) |
+| Shared lightweight results | `formal_study/results/602_width_templates` |
+| First formal, gate study and local recovery donor | `formal_study/archive/20261016` |
+| Four-route v1/v2, separately preserved | `formal_study/archive/20261017` |
+| H16 and capped H8-template raw runs | `formal_study/runs/602_width_templates_20261017` |
+| Rename evidence and restoration maps | `formal_study/migration` |
+| Original offline training experiments | `formal_NN_training/experiments` |
+| Traces and matching simulator dependencies | `traces`, `external/ChampSim` |
 
-The visible date-root aliases `formal_study_20261016` and
-`formal_study_20261017` were removed after consolidation. The former
-`cache/docs/formal_study_20261016` report (334 files /25,950,182 bytes) now lives
-at `formal_study/archive/20261016/report`, with every file/inode preserved.
-Do not recreate these dated top-level names. The existing internal
-`archive/20261016/work/cache_gate_mechanism` pointer still resolves to the healthy
-checkout; Sacramento's same historical source-only location remains independent.
+## Retained paths and launcher
 
-Frozen JSON records retain original path strings. The
-[canonical-path launcher](canonical_paths.py) translates decoded paths only in
-memory before running retained scripts. It changes neither historical bytes nor
-model/protocol/control values. On Sacramento, prefix retained commands with:
+- Removed visible aliases `formal_study_20261016` and `formal_study_20261017` must not be recreated.
+- The former `cache/docs/formal_study_20261016` report now lives in `formal_study/archive/20261016/report`: **334 files / 25,950,182 bytes**, with every file/inode preserved.
+- `formal_study/work/cache_gate_mechanism -> ../..` points to the cache root and contains no second checkout. Retain/restore it for frozen source bindings that still use that path.
+- The existing internal `archive/20261016/work/cache_gate_mechanism` pointer also resolves to the active checkout locally. Sacramento's historical source-only location remains independent.
+- Frozen JSON keeps its original strings. The [canonical-path launcher](canonical_paths.py) translates decoded date paths only in memory; model, protocol, controls and historical bytes are unchanged.
+- Use the launcher for retained drivers reading old build/binding JSON, including `profile_cost.py`. Direct historical commands may reference removed date names.
+- The complete **24-row** local/Sacramento binding checks passed without the removed date-root aliases. The work compatibility pointer above is a separate requirement for the recorded source paths.
+
+- On Sacramento, run retained commands from the cache root through the existing CPU environment:
 
 ```sh
 study_python=/home/qianruw/venvs/cache-few-nn-cpu/bin/python
@@ -35,88 +32,47 @@ study_python=/home/qianruw/venvs/cache-few-nn-cpu/bin/python
   formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/driver.py status
 ```
 
-For a read-only local binding check, use `--local --check` before the script.
-The launcher is required for retained drivers that read historical build/binding
-JSON, including `profile_cost.py`; direct historical commands may contain removed
-names. The complete24-row local and Sacramento bindings passed without aliases.
+- For a read-only local source/model/build binding check, place `--local --check` before the script:
 
-The local active `.git` is a real main Git directory, not a linked worktree.
-Its object alternate is the retained recovery donor at
-`formal_study/archive/20261016/cache_recovered/.git/objects`; do not remove that
-donor. No external Git worktree pointer needs repair. Git connectivity and the
-branch `experiment/602-gate-mechanism` were checked before and after relocation.
-The original cache-root Git directories are preserved under
-`formal_study/archive/root_checkout_before_unification_20261017/` (local and
-Sacramento have their own retained metadata). The healthy main `.git` is now at
-the cache root. `formal_study/work/cache_gate_mechanism` is a compatibility link
-to `../..`; it contains no second checkout. Run Git commands from cache.
+```sh
+python3 -B docs/602_width_templates/canonical_paths.py --local --check \
+  formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/driver.py
+```
 
-Migration used same-filesystem directory renames, with per-file size/device/inode
-checks, rather than copying or deleting historical data. Local verification
-covered 15,314 files / 7,651,782,754 bytes; Sacramento covered 14,141 files /
-4,419,228,854 bytes (its source-only layout and donor differ). Historical JSON,
-commands, source snapshots, raw logs, builds, v1 and v2 remain unchanged. Their
-old absolute paths are provenance, resolved by the canonical-path launcher; they
-are not active destination settings. Full per-file rename evidence remains in
-`formal_study/migration`; lightweight maps are retained here. No hash ledger is
-required.
+## Git and migration evidence
 
-The active new configuration is
-`formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/config.json`.
-The parent `config.json` remains the archived H8 protocol's recoverable settings,
-with its original recorded paths preserved. Use the canonical-path launcher for recovery. Do not rerun that protocol into its old raw root.
-New runtime, temporary, matplotlib and Python cache files belong under the new
-`runs/602_width_templates_20261017/runtime` directory. The offline sibling layout
-is unchanged.
+- The active `.git` is a real main Git directory at the cache root, not a linked worktree. Run Git commands there.
+- The current local Git alternate requires `formal_study/archive/20261016/cache_recovered/.git/objects`; do not remove that donor. Sacramento has independent healthy objects, not an alternate to this local donor.
+- No external worktree pointer needs repair. Connectivity and `experiment/602-gate-mechanism` were checked before/after relocation; `main` is now the reading branch.
+- Original root Git directories remain under `formal_study/archive/root_checkout_before_unification_20261017/`, with independent local/Sacramento metadata.
+- Same-filesystem renames preserved per-file device/inode/size. The earlier consolidation checked **15,314 local files / 7,651,782,754 bytes** and **14,141 Sacramento files / 4,419,228,854 bytes**; their source/donor layouts differ.
+- Original JSON, commands, source snapshots, raw logs, builds and v1/v2 remain unchanged. Recorded absolute paths are provenance, not new destination settings.
+- Full machine-specific evidence stays in `formal_study/migration`; lightweight maps remain in this documentation. No hash ledger is required.
 
-To recover, check out this study branch directly as the cache root, then restore
-`formal_study/archive/`, `formal_study/runs/` and `formal_study/migration/` beneath
-it. Keep `formal_study/results/` from Git and recreate the optional
-`formal_study/work/cache_gate_mechanism -> ../..` compatibility link. Use the canonical-path launcher for recorded date paths; do not recreate the removed top-level aliases. Restore the internal archived checkout pointer if needed. If the cache root changes, update the active Git alternates
-path to the retained donor and run `git fsck --connectivity-only` in the healthy
-checkout. Update only the new active config; preserve archived metadata. Restore
-traces and the matching ChampSim base/dependencies described by the existing
-[forward/dependency guide](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md).
-The new driver reuses the archived actual binary only after byte checks of its
-compiled source, executable, controls and reference metadata, and compiles its
-parity probe from that actual core. It neither overwrites an old build nor
-relabels old rows as new measurements.
+## Restore or resume
 
-`consolidate_remote.py` documents and checks the one-time Sacramento rename. It
-is intentionally guarded against overwriting an existing canonical archive.
-The file-level evidence is not committed because it is bulky and machine-specific.
+- Check out the required code as the cache root: `main` for shared reading, or the retained experiment branch required for an exact historical reproduction.
+- Restore `formal_study/archive/`, `formal_study/runs/` and `formal_study/migration/` underneath it. Keep the Git version of `formal_study/results/`.
+- Restore original offline training runs, traces, and the matching ChampSim base/dependencies in the [forward/dependency guide](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md).
+- Restore `formal_study/work/cache_gate_mechanism -> ../..` and the historical internal archived-checkout pointer. Use the launcher for old date paths; do not recreate date-root aliases.
+- If the cache root changes, update only the active Git alternate to the retained donor, then run `git fsck --connectivity-only` in the healthy checkout. Preserve archived metadata.
+- For a genuinely new experiment, change only its new active destination settings; preserve completed config/source and archived metadata under their existing raw identity.
+- Active configuration is `formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/config.json`. The parent `config.json` retains the old H8 protocol and recorded paths; recover it through the launcher, never rerun into its completed raw root.
+- New runtime/temp/matplotlib/Python-cache files belong under `formal_study/runs/602_width_templates_20261017/runtime`. Original offline sibling paths stay unchanged.
+- The new driver reuses the archived actual binary only after checking executable, compiled source, controls and reference bytes. Its parity probe compiles from that actual core; old builds and row identities are not overwritten.
+- `consolidate_remote.py` records the guarded one-time Sacramento rename and refuses to overwrite an existing canonical archive. Bulky per-file evidence is local/server only.
 
+## Root unification: 2026-10-17
 
-## Root unification (2026-10-17)
+- Local, Sacramento and GitHub use the cache repository root and `formal_study/results/602_width_templates/` as the real results directory.
+- The root merge moved **84 original light-archive files / 15,496,846 bytes** intact. Old result/checkout locations are compatibility links. The merge checkpoint verified all **82 originally copied artifacts** against their sources; maintained reading-document edits are separate from that historical copy check and do not alter measurements.
+- The local merge checked **18,869 protected original files / 89,942,853,626 bytes** by device/inode/size, including offline runs, raw, models, traces, builds and recovery objects. Sacramento has its own equivalent record.
+- Divergent source versions and original root Git were preserved. Evidence and the guarded one-time tool remain under `formal_study/migration/unify_cache_root_20261017/`, local/server only.
+- Frozen source/model/build gates and all **24** completed run records were rechecked after consolidation.
+- Do not recreate a dated top-level `formal_study_2026...` directory. Internal `archive/20261016` and `archive/20261017` distinguish historical protocols, not active parallel projects.
 
-Local, Sacramento and GitHub now use the same repository root and real results
-folder: `formal_study/results/602_width_templates/`. All 84 original light-archive
-files moved intact (15,496,846 bytes); old result and checkout locations are only
-compatibility links, not duplicate datasets. The 82 manifest-bound files and all
-historical provenance remain byte-identical. The added root navigation does not
-change a model, protocol or measurement.
+## Reading assets
 
-Local merge verified 18,869 protected original files (89,942,853,626 bytes) by
-size/device/inode, including offline runs, raw, models, traces, builds and Git
-recovery objects. Sacramento has its own equivalent merge record. Divergent
-root source versions and the original root Git were preserved rather than
-replaced irrecoverably. Detailed evidence and the guarded one-time merge tool
-are under `formal_study/migration/unify_cache_root_20261017/`. These machine
-records are intentionally local/server only. Both frozen source/model/build
-gates and the complete 24-run status are rechecked after consolidation.
-
-Do not copy or recreate a dated top-level `formal_study_2026...` directory. The
-old `archive/20261016` and `archive/20261017` names distinguish historical
-protocols inside the common archive; they are not parallel active projects.
-
-
-## Current reading assets
-
-The compact `summary.csv` and the method SVG/PNG live under
-`formal_study/results/602_width_templates/`, alongside the current tables and
-figures. Public Markdown links directly to those real files. The former
-`docs/602_width_templates/{summary.csv,method.svg,method.png}` paths are ignored,
-local-only compatibility symlinks for retained provenance. Restore each link
-to `../../formal_study/results/602_width_templates/<filename>` if reconstructing
-a machine from Git plus the historical raw archive. These aliases are excluded
-from Git and the docs-only Pages checkout, whose original workflow is retained.
+- `summary.csv` and method SVG/PNG live in `formal_study/results/602_width_templates/`; public Markdown points directly to real files.
+- Former `docs/602_width_templates/{summary.csv,method.svg,method.png}` locations are ignored, local-only compatibility symlinks for retained provenance.
+- When restoring from Git plus raw archives, point each alias at `../../formal_study/results/602_width_templates/<filename>`. They are excluded from Git and the docs-only Pages checkout; the original Pages workflow remains intact.

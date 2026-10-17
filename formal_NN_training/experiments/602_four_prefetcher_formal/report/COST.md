@@ -1,6 +1,6 @@
 # Actual storage and cost fields
 
-The [machine-readable record](cost_fields.json) uses the three exported seed-7 H8 models and the actual compiled source/headers of `four602_frozen_live_20261017_v2`, build `build_1792211655617683046`, with `-O3 -ffp-contract=off`. The v2 probe artifacts are retained in `formal_study_20261017/cost/v2/`; the earlier v1 probe remains in `cost/`. It measures the scalar runtime alone. Predictor observers, distributions and raw logs are excluded.
+- The [machine-readable record](cost_fields.json) uses the three exported seed-7 H8 models and the actual compiled source/headers of `four602_frozen_live_20261017_v2`, build `build_1792211655617683046`, with `-O3 -ffp-contract=off`. The v2 probe artifacts are retained in `formal_study_20261017/cost/v2/`; the earlier v1 probe remains in `cost/`. It measures the scalar runtime alone. Predictor observers, distributions and raw logs are excluded.
 
 | Actual model | FP32 weights | Global h/c payload | Runtime object + persistent C++ requested heap | Observed extra heap peak during `Infer` |
 |---|---:|---:|---:|---:|
@@ -8,16 +8,32 @@ The [machine-readable record](cost_fields.json) uses the three exported seed-7 H
 | Streamer student | 11,284 B | 64 B | 13,204 B | 628 B |
 | SPP student | 11,460 B | 64 B | 13,616 B | 924 B |
 
-The persistent host figure already includes weights and h/c. Its global `new`/`new[]` tracking includes the runtime's map nodes, strings and vector payloads. All tracked allocations were released after destruction. The scratch peaks cover the listed first 4,096 consecutive real callbacks, with all learned actions retained; observed maximum K was 2, 2 and 5 respectively. These are observed heap peaks, not universal degree bounds.
+- The persistent host figure already includes weights and h/c. Its global `new`/`new[]` tracking includes the runtime's map nodes, strings and vector payloads. All tracked allocations were released after destruction. The scratch peaks cover the listed first 4,096 consecutive real callbacks, with all learned actions retained; observed maximum K was 2, 2 and 5 respectively. These are observed heap peaks, not universal degree bounds.
 
-These values exclude allocator metadata, alignment gaps, the probe's tracking headers, C-library internal allocations, automatic stack frames and the outer Four602 adapter/control/template objects. They are neither RSS nor synthesized hardware storage/area. Weights plus h/c alone are 11,348/11,348/11,524 B; those sums exclude decoder scratch, output and control and must not be presented as complete deployment totals.
+- These values exclude allocator metadata, alignment gaps, the probe's tracking headers, C-library internal allocations, automatic stack frames and the outer Four602 adapter/control/template objects. They are neither RSS nor synthesized hardware storage/area. Weights plus h/c alone are 11,348/11,348/11,524 B; those sums exclude decoder scratch, output and control and must not be presented as complete deployment totals.
 
-The measured 64-bit ABI gives `sizeof(Config)=72`, `State=48`, `Action=32`, `Result=136`, and `Live602Runtime=168` B. State and result sizes contain vector descriptors; their vector payloads are separate heap allocations.
+- The measured 64-bit ABI gives `sizeof(Config)=72`, `State=48`, `Action=32`, `Result=136`, and `Live602Runtime=168` B. State and result sizes contain vector descriptors; their vector payloads are separate heap allocations.
 
-Native source fields are also recorded separately. `Stream_Tracker` is 24 B; its four declared fields total 17 B before padding, giving 1,088 B for 64 tracker payloads. `AMPM_PB_Entry` is 16 B, giving 1,024 B for 64 page/bitmap payloads; its optional prefetch buffer is disabled. Native SPP's inline signature/pattern/filter/GHR helpers total 33,184 B at their declared source widths. These do not establish a hardware-optimized packed bit total. Full native object sizes include base objects, STL descriptors and diagnostic counters; their unmeasured dynamic deques/histograms prevent treating those object sizes as complete host footprints.
+- Native source fields are also recorded separately. `Stream_Tracker` is 24 B; its four declared fields total 17 B before padding, giving 1,088 B for 64 tracker payloads. `AMPM_PB_Entry` is 16 B, giving 1,024 B for 64 page/bitmap payloads; its optional prefetch buffer is disabled.
+- Native SPP's inline signature/pattern/filter/GHR helpers total 33,184 B at their declared source widths.
+- These do not establish a hardware-optimized packed bit total.
+- Full native object sizes include base objects, STL descriptors and diagnostic counters; their unmeasured dynamic deques/histograms prevent treating those object sizes as complete host footprints.
 
-The [instrument](../validation/storage_probe.cc) and [collector](../validation/collect_cost.py) do not start ChampSim. For H8 AMPM/Streamer the actual scalar work per demand is `2312 + 64·1[K>0] + 312K` dense MACs and `41 + 8·1[K>0] + 29K` nonlinear evaluations. For SPP, every callback uses 2,336 encoder MACs and 40 nonlinear evaluations; a demand adds 16 emit MACs, an active emit adds 8 count MACs and one exponential, and each action adds 376 MACs and 29 nonlinear evaluations. Fill callbacks execute only the encoder.
+- The [instrument](../validation/storage_probe.cc) and [collector](../validation/collect_cost.py) do not start ChampSim.
+- For H8 AMPM/Streamer the actual scalar work per demand is `2312 + 64·1[K>0] + 312K` dense MACs and `41 + 8·1[K>0] + 29K` nonlinear evaluations.
+- For SPP, every callback uses 2,336 encoder MACs and 40 nonlinear evaluations; a demand adds 16 emit MACs, an active emit adds 8 count MACs and one exponential, and each action adds 376 MACs and 29 nonlinear evaluations.
+- Fill callbacks execute only the encoder.
 
-Bias additions, bit extraction, argmax and controller work are outside the dense-MAC counter. Nonlinear evaluations are operation counts rather than calibrated cycle costs. Full learned K/delta/fill decoding runs before external request gates or fixed-payload replacement. The formal live arm is synchronous MAC0: it models no queue, bandwidth, nonlinear throughput, weight-transfer latency or energy. Resident model vectors generate no separately modeled simulated weight DRAM traffic; `MAC×4` would not be a measured weight-traffic statistic.
+- Bias additions, bit extraction, argmax and controller work are outside the dense-MAC counter.
+- Nonlinear evaluations are operation counts rather than calibrated cycle costs.
+- Full learned K/delta/fill decoding runs before external request gates or fixed-payload replacement.
+- The formal live arm is synchronous MAC0: it models no queue, bandwidth, nonlinear throughput, weight-transfer latency or energy.
+- Resident model vectors generate no separately modeled simulated weight DRAM traffic; `MAC×4` would not be a measured weight-traffic statistic.
 
-[plot_cost.py](plot_cost.py) joins complete `per_run.csv` and `storage_cost.csv` with this cost record to write `cost_effect.png/.svg`, `cost_derived.csv` and a plot manifest. It reports `r = ceil(counted dense MACs / 4) / measured MAC0 ROI cycles`. When `r > 1`, four MACs per core cycle cannot finish all counted ROI work inside the same measured MAC0 callback timeline/window even with perfect scheduling and no other costs. When `r <= 1`, latency, nonlinear throughput, dependencies and queues can still prevent service. Finite scheduling can change callback arrivals, dropped/pending work and IPC while the program trace remains the same, so this aggregate necessary condition is not a finite-cost IPC prediction or a proof about every finite execution. Native compute is NA rather than zero; Stride uses its existing recorded work definition if present. Storage on the plot includes FP32 weights and configured h/c payload only, with Stride metadata/FIFOs and all models' scratch/output/control excluded.
+- [plot_cost.py](plot_cost.py) joins complete `per_run.csv` and `storage_cost.csv` with this cost record to write `cost_effect.png/.svg`, `cost_derived.csv` and a plot manifest.
+- It reports `r = ceil(counted dense MACs / 4) / measured MAC0 ROI cycles`.
+- When `r > 1`, four MACs per core cycle cannot finish all counted ROI work inside the same measured MAC0 callback timeline/window even with perfect scheduling and no other costs.
+- When `r <= 1`, latency, nonlinear throughput, dependencies and queues can still prevent service.
+- Finite scheduling can change callback arrivals, dropped/pending work and IPC while the program trace remains the same, so this aggregate necessary condition is not a finite-cost IPC prediction or a proof about every finite execution.
+- Native compute is NA rather than zero; Stride uses its existing recorded work definition if present.
+- Storage on the plot includes FP32 weights and configured h/c payload only, with Stride metadata/FIFOs and all models' scratch/output/control excluded.

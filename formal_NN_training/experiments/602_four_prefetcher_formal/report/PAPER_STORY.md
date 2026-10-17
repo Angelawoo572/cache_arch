@@ -1,20 +1,22 @@
-# 602 paper story：先验证可部署语义，再检验收益机制
+# H8 paper story: frozen live inference and benefit mechanisms
 
-本页保留原64行 H8 协议故事。后续真实 H16 与 capped H8 模板的24个完整 run 已完成，见[新的 concise paper story](../../../../docs/602_width_templates/PAPER_STORY.md)与[正式结果](../../../../formal_study/results/602_width_templates/README.md)；不要把两个协议的行重新标记为同一轮。
+- This page preserves the original **64-row H8 protocol**. The later **24-run H16/capped-H8 supplement** is separate: [current paper story](../../../../docs/602_width_templates/PAPER_STORY.md), [results](../../../../formal_study/results/602_width_templates/README.md). Do not relabel their rows as one protocol.
+- **Finding:** retained teacher-action students improve on NoPF, but do not consistently beat native teachers; simple validation templates explain most observed gain.
+- Scope is existing seed7 weights, not a new algorithm, online weight training or a four-model ranking under equal training budgets.
+- Evidence covers **64 full runs, 8 validation + 56 test**, with two **25M** ROIs and **5M** cache warmup each. ROI **25–50M** repeats an observed interval; **75–100M** is a future interval relative to training.
+- Three actual global-state models execute full decoders; SPP sees live demand/raw-fill callbacks and preserves predicted fill targets. Stride keeps its per-PC deployment. Source/numerical checks preceded formal runs.
 
-**现有 teacher-action student 可以改善 NoPF，但本轮不支持普遍优于 teacher，也不支持把主要收益归因于复杂 learned payload。** 研究对象是保留的真实 seed7 checkpoint；不是新算法、在线训练或四模型等训练预算排名。
-
-证据来自新协议的 **64 个完整运行**：8 validation、两个各25M的正式 ROI（每次5M缓存 warmup）。25–50M 是已观察区间的复现，75–100M 是未来区间。三个新 student 使用各自真实权重、全局 h/c 和完整 decoder；SPP 接收实际 demand/raw-fill 回调并保留预测目标。Stride 保留原有 per-PC 部署。代码一致性与测量核对先于正式执行。
-
-| 可写的贡献／主张 | 状态 | 本轮证据与边界 |
+| Claim | Evidence status | Support and limit |
 |---|---|---|
-| 从 offline/replay 推进到真实冻结 C++ live inference | **数据支持** | 三条独立真实模型的同序列 Python/C++ 状态、动作核对通过；完整运行与原始日志在[结果表](../results/formal_20261017/per_run.csv)和[认证](../results/formal_20261017/metadata/correctness_gate.json)。这是实现与验证贡献，不自动构成算法创新。 |
-| Student 普遍优于传统 teacher | **未支持** | 同协议16组配对9胜7负；无 cap 为3胜5负。未来 ROI 的三个新 student 均输给各自无 cap teacher；见[配对结果](../results/formal_20261017/paired_comparisons.csv)。所有路线仍相对 NoPF 有收益。 |
-| 复杂 learned payload 是收益必要条件 | **未支持（限定这些权重和两个 ROI）** | Streamer 固定模板相同或更好；AMPM 固定 payload/无条件模板更好；SPP 模板与 full 的 IPC 差不超过0.003%。模板只由 validation 冻结，无 PC 或 test 拟合。见[实际机制消融](../results/formal_20261017/mechanisms/mechanism_plot_data.csv)。 |
-| 跨回调状态具有不可替代的独立收益 | **待验证；不能据此称为 stateful 创新** | reset 降低这些 NN 的 IPC，但无条件模板仍可复现主要收益。reset 同时改变输出 K、请求量及未来 cache 回调；累计曲线不提供最少历史量结论。 |
-| 小模型在4 MAC/CPU-cycle下可维持本轮完整输入流 | **未支持（相同 MAC0 到达时序）** | 三个新模型的 dense-MAC4 聚合工作/实测 MAC0 窗口为4.77–11.51倍；这是吞吐必要条件检查，不是有限成本 IPC 预测。权重约11.3–11.5KB、全局h/c各64B；完整存储与主机开销另列。见[成本](../results/formal_20261017/cost/cost_derived.csv)。 |
-| 有限成本 IPC 收益、跨程序与独立训练 seed 稳健性 | **待验证** | 本轮正式 IPC 仅为 MAC0、保留 seed7、602；605暂缓。不能把旧协议的有限成本或其他结果拼接成统一证据。 |
+| Independent frozen C++ live inference beyond offline/replay | Supported | Three real models pass same-sequence Python/C++ h/c/action checks; [full rows](../results/formal_20261017/per_run.csv), [actual-core certification](../results/formal_20261017/metadata/correctness_gate.json). Implementation/validation does not establish algorithmic novelty. |
+| Students uniformly beat native teachers | Not supported | 16 pairs: 9 wins / 7 losses; uncapped: 3 wins / 5 losses. All three new students lose to their uncapped native teacher in the future ROI. All routes still beat NoPF. [Pairs](../results/formal_20261017/paired_comparisons.csv) |
+| Complex learned payload is necessary | Not supported for these weights/ROIs | Streamer templates are equal or better; AMPM fixed payload/unconditional tables are better; SPP template IPC differs by at most 0.003%. Tables are frozen on validation, without PC/test fitting. [Interventions](../results/formal_20261017/mechanisms/mechanism_plot_data.csv) |
+| Recurrent state provides an irreplaceable independent advantage | Pending | Reset lowers these NN IPCs, but unconditional templates still reproduce most gain. Reset changes K, requests and future cache callbacks; neither it nor a cumulative crossing establishes stateful novelty or minimum history. |
+| Four MACs/cycle can sustain the same full callback stream | Not supported on this MAC0 timeline | Dense work/4 divided by measured MAC0 cycles is 4.77–11.51×. This is a necessary throughput check, not finite IPC. Weights are about 11.3–11.5 KB; one global h/c is 64 B. [Cost](../results/formal_20261017/cost/cost_derived.csv) |
+| Finite-cost IPC, cross-program and independent-seed robustness | Pending | Formal IPC here is MAC0/602/retained seed7; 605 is deferred in this protocol. Earlier finite-cost/other-protocol rows are not pooled. |
 
-比较报告实际 requests/M 与实际 DRAM controller bytes；共同 cap 不是同实际流量。L2/LLC accuracy、timeliness、coverage 按**首次 source-enqueue 意图目标**分别报告，保留 ROI 结束未决和 resident-unused，不解释为最终填充层级或全层 usefulness。SPP 的 native/student 有效 fill 输入及内在 page policy 也不同，详见[方法边界](METHOD_LIMITATIONS.md)。
-
-可讲的故事是：**动作监督可得到有用的冻结 student；在闭环测量中，简单的 validation 模板解释了大部分观察收益，而真实计算吞吐仍是部署障碍。** 保留这些负面结果，比预设 learned payload、循环状态或教师选择一定带来创新更有依据。
+- Report actual requests/M and DRAM controller bytes separately; the common ceiling does not equalize realized traffic.
+- L2/LLC accuracy, timeliness and coverage use separate first source-enqueue intent cohorts. Preserve boundary pending/resident-unused; intent is not final fill level or all-level usefulness.
+- Native/student SPP fill inputs and internal page rules differ. [Method limits](METHOD_LIMITATIONS.md).
+- **Supported story:** action supervision can yield useful frozen students; closed-loop template interventions explain most measured benefit, while counted compute remains a deployment obstacle.
+- Preserve losses and uncertainty. The evidence does not establish that learned payload, recurrent state or teacher choice is an innovation.

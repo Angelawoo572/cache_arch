@@ -1,130 +1,52 @@
-# Frozen SPP student: the retained checkpoint in live inference
+# Frozen SPP: checkpoint to live inference
 
-## Completed width/template supplement
+- **Results:** [current overview](../../../RESULTS_INDEX.md), [own latest subset](results/width_templates_20261017/README.md), [H8 archive](results/formal_20261017/README.md).
+- **Scope:** retained seed 7 H8/H16 empirical-prior students, frozen weights and global recurrent C++ inference. MAC0 results do not establish finite-resource IPC.
+- **Run/recovery:** [four-route guide](../602_four_prefetcher_formal/README.md), [H16/template guide](../602_four_prefetcher_formal/width_templates/README.md).
 
-The [new complete results](results/width_templates_20261017/README.md) preserve this route's own frozen model and explicitly labeled compatible references. See the [three-question report](../../../docs/602_width_templates/REPORT.md) and [new run/recovery guide](../602_four_prefetcher_formal/width_templates/README.md). The original seed7 [H16 checkpoint](models/h16/original_checkpoint.pt), [portable export](models/h16/model.bin) and [training metadata](models/h16/source_training_metadata.json) are retained independently of H8.
+## Retained models
 
+| Item | H8 | H16 |
+| --- | --- | --- |
+| Original checkpoint | [model.pt copy](models/original_checkpoint.pt), 16,790 file bytes | [model.pt copy](models/h16/original_checkpoint.pt), 31,638 file bytes |
+| Source metadata | [metadata](models/source_training_metadata.json) | [metadata](models/h16/source_training_metadata.json) |
+| Portable export | [model.bin](models/model.bin), 12,024 file bytes | [model.bin](models/h16/model.bin) |
+| FP32 parameters / weight bytes | 2,865 / 11,460 B | 6,609 / 26,436 B |
+| Global FP32 h/c payload | 64 B | 128 B |
 
-## Retained real weights and current formal output
+- Source, relative to cache: `formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_{h8,h16}/model.pt`; original metadata is adjacent.
+- Required identity: `compact_empirical_prior_hurdle_autoregressive_gmm_fill_v2`, LSTM, 65 features, 16 tensors, four mixture components and fill levels `[2,4]`. The same-sized balanced-v 1 checkpoint is a different model.
+- The gate was trained with empirical-prior **unweighted** categorical NLL. H16 is not a fallback to H8; each width has independent exports, checks and bindings.
 
-This sibling carries the real small [original checkpoint](models/original_checkpoint.pt)
-(16,790 bytes), byte-identical [source training metadata](models/source_training_metadata.json),
-and [portable FP32 model](models/model.bin) (12,024 file bytes). The
-portable model contains 2,865 parameters, or 11,460 resident FP32
-weight bytes; file headers and tensor names account for the larger file size.
-These are trained weights, not placeholders, a random reinitialization, a trace,
-or a replay list. The retained checkpoint and metadata match the original
-source run byte for byte; the portable binary matches the previously verified
-export byte for byte. All copies are in cache.
+## Exact input, state and actions
 
-The current formal destination is
-`/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/spp/model.bin`,
-with an identical `immutable_model.bin` beside it. The copied model is frozen;
-v2 changes callback-log flushing only and does not retrain or select weights.
-Original source run paths above remain provenance. The retained files can be
-used directly as checkpoint/metadata inputs to this sibling's exporter and parity
-script, in a fresh output directory. Follow the
-[guarded model-restoration and run commands](../602_four_prefetcher_formal/README.md)
-before `build`: the builder does not automatically export or stage these files.
-That guide restores absent files, compares existing bytes, and never overwrites
-a different model. The final main table is `raw_v2/analysis_final`; v1 callback
-logs have a known unflushed tail and remain excluded historical evidence.
+- Input: 64 LSB-first bits of the aligned **byte address** (`line << 6`) plus demand/fill kind. No PC, hit/miss, cycle, teacher action, private table or future event enters the feature vector.
+- Demand uses the eligible L2 LOAD address. Fill uses the **evicted address** of every raw CACHE L2-fill callback, including demand/writeback fills. Both advance one chronological global h/c pair; a fill emits no action.
+- Demand gate: two-class argmax, ties silent. Positive count: `max(1, rint(exp(log_count)))`, using nearest/ties-even rounding.
+- Decoder starts directly from LSTM context. Each slot selects the first-argmax mixture logit and its mean; signed `expm1` and ties-even rounding give a delta relative to the original base line, with `2^57` magnitude guard and modulo-`2^58` wrapping.
+- Learned fill is `FILL_L2=2` or `FILL_LLC=4`. The GRU feeds back its own unrounded coordinate and chosen fill one-hot after every slot, including the final one. Invalid domains are rejected, not silently clipped.
+- [Shared scalar backend](../../common/live602_runtime/): complete synchronous MAC0 forwards, h/c published on completion; no imposed input FIFO, admission loss, output queue, per-PC capacity, finite service latency or decoder 32 truncation. Stride retains a separate engine and limits.
 
-The portable files make this model's numerical reproduction self-contained in
-the checkout. Full formal IPC still needs the preserved 602 trace, consistent
-ChampSim/libbf dependency, recorded machine, and a fresh build/certificate;
-a standalone model or prefix parity is not a completed ROI experiment.
+## Native SPP and measurement boundaries
 
-This sibling exports and checks the actual SPP empirical-prior student from
-`602_offline_lstm_spp`. Its executable state is one chronological global h/c
-pair. It is not the Stride checkpoint, keyed replay, a per-PC state table, or
-online weight training. The common C++ implementation is
-`formal_NN_training/common/live602_runtime`.
+- **Effective inputs differ:** the student/training logger observes all raw L2 fills; the original native registry sends FILTER feedback only when `prefetch==1`. A native/student IPC difference cannot be attributed solely to payload under an identical-input claim.
+- Native internal same-page behavior and confidence-based L2/LLC destinations remain intact. The new protocol uses request threshold 40 and L2-fill threshold 90, matching teacher labels. The first formal study used request threshold 25 and is a different comparator protocol.
+- Common external `cross_page` or request gates do not remove native internal rules. The student retains its learned fill destinations and complete action list.
+- Teacher targets are canonicalized per target with minimum numeric fill (L2 priority); native generated counts are raw source calls. Their K distributions have different scopes.
+- L2 and LLC lifecycle cohorts follow **first source-enqueue intent**, not final physical fill or total all-level usefulness after upgrades. Report separately; unavailable complete tracking means NA. Requests are not DRAM bytes, and evicted-unused is not pollution.
+- Four 602 `teacher_category=3` means unclassified: no global shadow teacher was run. It is not teacher overlap or teacher-silent causality. See [measurement scope](../602_four_prefetcher_formal/MEASUREMENT_SCOPE.md) and [method limits](../602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md).
 
-The retained seed7/h8 checkpoint under the cache root is:
+## Training and live state history
 
-`formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h8/model.pt`
+- Weight training 0–20M: 489,880 events =325,389 demands + 164,491 fills; 8 epochs, chunk 1,024, accumulation 16.
+- Old offline inference: fresh state before train 0–20M → guard 20–25M (120,993 events) → evaluation 25–50M (607,877 events). That state is not loaded into new live runs.
+- New validation 20–25M follows 15–20M cache/state warmup. Tests 25–50M (previously inspected replication) and 75–100M (future ROI) each have their own 5M warmup.
+- Live h/c starts at warmup start, advances with output blocked, and survives the ROI boundary. ROI callback/update counters restart; training amount and live observation history are distinct.
 
-`python/export_and_validate.py` requires the known
-`compact_empirical_prior_hurdle_autoregressive_gmm_fill_v2` revision, LSTM model
-family, 65 runtime features, four mixture components and fill levels `[2,4]`.
-It rejects a different tensor set. `LV602R1` export preserves the actual FP32
-tensors and decoder schema; the scalar runtime validates finite parameters,
-shapes and the complete model size before use.
+## Export, parity and recovery
 
-## Inputs, state and complete actions
-
-An event encodes the aligned byte address (`line << 6`) as 64 LSB-first bits,
-plus demand/fill kind. There is no PC, hit/miss, cycle, teacher action or private
-teacher table in the neural feature vector. Demand events use the L2 LOAD
-address. Fill events use the **evicted address** from the actual raw CACHE
-L2-fill callback. Both raw fill call sites, including demand/writeback fills,
-advance the student's global recurrent state. A fill event emits no action.
-
-For a demand, the learned hurdle gate chooses emit/silent; the positive count
-uses the original exponentiation and rounding rule. The autoregressive GRU
-starts from the encoded context. Each slot chooses the first argmax mixture
-logit and its selected mean, applies signed `expm1` and ties-even rounding,
-then wraps the line address modulo `2^58`. Its learned fill head chooses
-`FILL_L2=2` or `FILL_LLC=4`. The unrounded selected coordinate and fill choice
-feed the next GRU step. Runtime guards reject invalid count/delta domains;
-they do not silently clip actions into another model.
-
-The new formal integration is MAC0 synchronous inference: each callback runs
-the complete forward and publishes h/c before the next callback. It adds no
-input FIFO, admission loss, output queue, per-PC state capacity, finite
-inference latency, or decoder32 truncation to this global student. That is a
-functional live-inference result; finite hardware service is not established.
-The Stride arm retains its separate older per-PC engine and limits.
-
-## Native SPP feedback is different
-
-The original training logger observes **all raw L2-fill callbacks**. The
-original native registry invokes SPP FILTER feedback only for prefetch fills.
-The formal adapter preserves both contracts: the student consumes all raw
-fill events, and native SPP receives `cache_fill` only when `prefetch==1`.
-They share actual callback opportunities, but their effective state-update
-inputs differ. A native/student IPC difference cannot be attributed solely to
-learned payload under an assertion of identical effective inputs.
-
-Native confidence-based L2/LLC fill destinations and its internal same-page
-rule remain intact. The new driver explicitly sets request threshold40 and
-L2-fill threshold90 to match the original teacher-label configuration. The
-first formal study used the dependency's request-threshold25 default; that
-old native SPP IPC must not be pooled as a new same-protocol reference. The student retains its learned fill output and complete
-action list. Any common external page/request control is a separate experiment
-intervention. In particular, an external `cross_page` setting does not remove
-native SPP's intrinsic same-page rule. L2-target and LLC-target lifecycle
-cohorts must be reported separately; see
-[measurement scope](../602_four_prefetcher_formal/MEASUREMENT_SCOPE.md).
-
-## Data coordinates and correctness
-
-The old training prefix is records0..20M. The existing guard20..25M becomes
-this study's budget/template validation split, with cache warmup15..20M.
-The prior25..50M evaluation was already inspected: ROI0 is a replication ROI,
-not a new unseen result. ROI1 measures75..100M after cache warmup70..75M and is
-separate from the original train/guard/evaluation coordinates. Coordinates
-are nominal trace records; retain actual retirement overshoot and the saved
-trace origin. No test output is used to select a cap or template.
-
-The parity script imports the real PyTorch source model and compares every
-h/c vector, count, ordered address and fill action for a chronological causal
-fixture, followed by explicit uint64 boundary inputs. Fill callbacks are
-included. Exact action equality and maximum h/c error below `2e-5` are
-required. This correctness fixture supplies no IPC or shortened formal ROI.
-Exported models belong under the current study's `raw_v2/models`; the actual
-fresh parity fixtures/reports and model/probe/C++ byte snapshots belong in
-unique `raw_v2/certifications/<id>/` directories. Each probe is compiled from the
-actual simulator runtime with the same `-O3 -ffp-contract=off` flags; each
-certificate reruns the real checkpoint fixture. SPP re-export occurs only in
-that certificate directory and must match the formal model bytes exactly.
-The build-bound accepted gate is `raw_v2/correctness_gate.json`. Preserve these
-alongside the actual binary and source evidence.
-
-Use the unified [formal run guide](../602_four_prefetcher_formal/README.md)
-for `build`, `certify`, `validation`, `select`, `test`, and `status`. Its
-certificate gate must pass before validation/test runs. All new sources,
-models, compiler fixtures and temporary files stay inside local/server cache;
-reuse the existing Sacramento authentication. No additional seed, workload,
-threshold sweep or online update is implied by exporting this one checkpoint.
+- [export_and_validate.py](python/export_and_validate.py): `--checkpoint`, `--model`, optional `--probe`, `--stream`, `--report`, `--events`. It verifies the known model revision, full finite FP32 tensor inventory and LV602R1 schema for H8/H16.
+- Parity uses the real PyTorch class, continuous demand/fill inputs, every h/c/count/ordered address/fill action, reset and uint 64 boundaries. Actions must match exactly; h/c maximum error must stay below `2e-5`.
+- Formal certification builds a probe from the **actual compiled simulator runtime** with `-O3 -ffp-contract=off`, re-exports only into a fresh certificate directory, and byte-compares that candidate with the formal model. Accepted evidence is build-bound; an old standalone PASS is not a substitute.
+- Use the existing Sacramento Torch environment. Keep sources, models, fixtures and temporary files inside cache; preserve conflicting files and restore missing files from retained originals.
+- Follow the [formal stage commands](../602_four_prefetcher_formal/README.md) after their correctness gates. Parity is a correctness fixture, not a simulator pilot or full-ROI IPC result.

@@ -1,66 +1,47 @@
-# Checkout, source and raw-data recovery
+# Mechanism-study files and recovery
 
-The original `/Users/angelawoo/Documents/CMU/ece/cache` directory and its earlier
-results were preserved. Its pre-existing Git index/refs were damaged. This study
-uses an independent healthy checkout on `experiment/602-gate-mechanism`, based on
-`experiment/602-stride-dynamic-inference`, with origin
-`https://github.com/Angelawoo572/cache_arch.git`.
+- [Canonical stage report](REPORT.md) · [shared project overview](../../RESULTS_INDEX.md) · [current cache layout](../602_width_templates/LAYOUT_AND_RECOVERY.md).
+- Current maintained source is the **cache root on main**, locally and on Sacramento. The original experiment branch remains historical evidence; it is not a separate current checkout.
+- Machine roots: local `/Users/angelawoo/Documents/CMU/ece/cache/`; Sacramento `/home/qianruw/cache/`. The paths below are relative to those roots. Large raw/build/model archives are local/Sacramento only.
 
-The starting source was the code that actually produced the completed
-`frozen_formal_20261016_v2` results, not an older script inferred from a branch
-name. The 21 archived active source files were compared byte for byte with that
-snapshot before bringing in the already validated, uncommitted correctness
-fixes. The recovered source retains independent seed loading, finite FIFO and
-nonlinear controls, full cache warmup, completion-only state publication,
-per-cycle service and arrival-time shadow-teacher snapshots. The separate
-canonical h/c-history supplement was not transplanted into this study.
+| Preserved material | Canonical cache-relative path |
+| --- | --- |
+| This stage's complete raw/logs/models/tables/builds | `formal_study/archive/20261016/gate_output/raw/` |
+| Original-v2 compatible references/checkpoints | `formal_study/archive/20261016/research_output/raw_v2/` |
+| Fitted PC tables | `pc_gate/seed{7,17,27}/pc_gate.tsv` beneath this stage's raw root |
+| Original balanced NN exports | `models/seed{7,17,27}/balanced/export/model.bin` beneath the reference raw root |
+| Actual build/source/binary snapshots | `builds/build_20261016_213702/` beneath this stage's raw root |
+| Local Git recovery object donor | `formal_study/archive/20261016/cache_recovered/.git/objects` |
 
-All new full formal executions use isolated build `build_20261016_213702` and
-ChampSim base `838be17e`, with its consistent dependency setup. New ChampSim
-instrumentation is installed by the existing dynamic experiment's
-[installer](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/patches/install.py).
-The runner checks actual frozen source/config/binary/table equality before
-resuming outputs. It preserves incompatible or unfinished attempts rather than
-declaring them complete. No source checksum ledger or performance pilot was
-introduced.
+## What is preserved
 
-## Server paths
+- Protocol `gate_mechanism_20261016_v1`; isolated build `build_20261016_213702`; ChampSim base `838be17e`.
+- Starting source is the actual completed `frozen_formal_20261016_v2` implementation: 21 active files were compared byte-for-byte before validated fixes were overlaid.
+- Retained controls include independent seed loading, FIFO/nonlinear configuration, common cache warmup, completion-only h/c publication, callback-independent cycle service and arrival-time shadow labels. The separate canonical h/c-history supplement is not transplanted.
+- The runner checks source/config/binary/scorer/model/table equality before reuse and preserves incompatible attempts. A completed process is not an independent validation result: all 71 logical rows also require [completion](completion_certificate.json), [audit](results/audit.json) and [reference compatibility](compatible_reference_manifest.json).
+- PC-fit provenance and loader verification are committed in [pc_gate_fit](pc_gate_fit/). The dynamic [installer](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/patches/install.py) and [retained run guide](../../formal_NN_training/experiments/602_gate_mechanism/RUN_GUIDE.md) describe the original implementation.
+- All older source/raw/model/build/log variants and damaged Git metadata remain archived. **Do not remove the local Git object donor.**
+- Frozen JSON preserves original absolute paths, including old `cache_gate_mechanism_20261016*`, `cache_formal_20261016_runs_v2` and application-workspace locations. These strings are historical provenance, **not active destinations**.
+- The general [canonical-path launcher](../602_width_templates/canonical_paths.py) translates the dated paths it supports in memory. It does not by itself map every old gate-root spelling; do not assume an unchanged historical pipeline command resumes at the canonical archive.
+- A fresh execution must explicitly bind canonical source/raw/reference paths in an isolated recovery setup and pass the original equality gates; do not edit frozen metadata or silently reuse incompatible outputs. No new simulation is requested by this documentation update.
 
-- Source: `/home/qianruw/cache_gate_mechanism_20261016`.
-- Full new raw results, logs, configurations, models used for fitting, snapshots,
-  isolated build and certificates:
-  `/home/qianruw/cache_gate_mechanism_20261016_runs`.
-- Existing compatible reference raw data and frozen checkpoints:
-  `/home/qianruw/cache_formal_20261016_runs_v2`.
-- Frozen NN models:
-  `models/seed{7,17,27}/balanced/export/model.bin` under that reference root.
-- Actual fitted tables:
-  `pc_gate/seed{7,17,27}/pc_gate.tsv` under the new root. Copies with provenance
-  are committed in [pc_gate_fit](pc_gate_fit/).
+## Reanalyze preserved outputs
 
-Authentication was reused through the already established Sacramento connection.
-No credential, permission, authentication, host-verification or security setting
-was changed. Raw traces, large raw logs, model binaries and build products are
-excluded from this commit.
+- From the cache root, use **unused output directories**. These commands read the complete canonical raw roots and regenerate tables; they do not train or run ChampSim.
 
-## Reproduce or resume
-
-Use the [run guide](../../formal_NN_training/experiments/602_gate_mechanism/RUN_GUIDE.md).
-`run_gate.py pipeline` resumes completed compatible outputs and limits execution
-to eight concurrent full simulations. `run.json`, `summary.json` and completion
-markers distinguish submitted/running/complete states. A complete runner result
-still requires the independent analysis/reference compatibility certificate.
-All 71 logical rows and their source protocols remain in the final audit.
-
-After copying the raw roots locally, generate a fresh analysis directory:
-
-```bash
+```sh
+source .runtime/project_env.sh
 EXP=formal_NN_training/experiments/602_gate_mechanism
-python3 "$EXP/analysis_gate.py" --raw NEW_RAW --prior-raw ORIGINAL_V2_RAW --out NEW_ANALYSIS
-python3 "$EXP/summarize_gate.py" --raw NEW_RAW --analysis NEW_ANALYSIS --out NEW_SUMMARY
+RAW=formal_study/archive/20261016/gate_output/raw
+PRIOR=formal_study/archive/20261016/research_output/raw_v2
+OUT=formal_study/migration/gate_reanalysis
+SUMMARY=formal_study/migration/gate_resummary
+python3 "$EXP/analysis_gate.py" --raw "$RAW" --prior-raw "$PRIOR" \
+  --out "$OUT" --no-plots
+python3 "$EXP/summarize_gate.py" --raw "$RAW" --analysis "$OUT" \
+  --out "$SUMMARY"
 ```
 
-Plotting requires Matplotlib. Every aggregate retains the individual seed rows;
-three training seeds are not interpreted as independent workload samples or as
-confidence intervals. Startup curves use saved snapshots, while mechanism
-histograms accumulate the entire ROI.
+- Plotting additionally needs Matplotlib. Retain each training-seed row; three seeds are not independent workload samples or confidence intervals.
+- Startup plots use complete saved snapshots; mechanism histograms accumulate the full ROI. No prefix log substitutes for either.
+- Reuse the existing Sacramento authentication/socket and host verification. No credential or security change is part of recovery.

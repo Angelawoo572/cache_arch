@@ -1,65 +1,42 @@
-# 602 matched-input offline LSTM prefetching
+# 602 teacher-supervised prefetchers
 
-This directory contains the completed `602.gcc_s-734B` study. It compares four
-offline LSTM prefetchers with matched conventional Stride, Streamer, AMPM, and
-SPP comparators in ChampSim.
+- **Current conclusions and reading order:** [RESULTS_INDEX](../RESULTS_INDEX.md).
+- **Latest results:** [H16 and capped-template study](../formal_study/results/602_width_templates/README.md). Gains are limited to retained seed 7 models, 602, two ROIs and MAC0; simple templates explain much of the benefit. Finite-resource neural benefit remains unproven.
+- Weights are frozen during live inference. Recurrent h/c changes with callbacks; no online weight training is used.
+- Offline replay, synchronous live inference and finite-cost live inference are separate protocols. Their IPC values are not interchangeable.
 
-## Start here
+## Experiments
 
-- [`experiments/602_offline_lstm_stride/`](experiments/602_offline_lstm_stride/)
-- [`experiments/602_offline_lstm_streamer/`](experiments/602_offline_lstm_streamer/)
-- [`experiments/602_offline_lstm_ampm/`](experiments/602_offline_lstm_ampm/)
-- [`experiments/602_offline_lstm_spp/`](experiments/602_offline_lstm_spp/)
-- [`experiments/602_lstm_stride_live_inference/`](experiments/602_lstm_stride_live_inference/)
-- [`experiments/602_deck_v7_15.pdf`](experiments/602_deck_v7_15.pdf)
-
-Each experiment keeps its collection, training, offline inference, replay,
-analysis, stream contract, and report files together. Shared 602 model and
-policy code lives in `common/`.
-
-## Fairness boundary
-
-For every primary comparison, the offline conventional prefetcher and offline
-LSTM consume the same chronological source-visible input stream. Their actions
-are replayed through the same keyed queue/cache path.
-
-Conventional actions may be used as supervised labels. Conventional
-candidates, request budgets, private state, and future labels are never neural
-runtime inputs. Teacher or decoded actions are not fed back into the decoder.
-This is a same-input comparison, not a copy of the conventional prefetcher's
-internal algorithm.
-
-## Track map
-
-| Comparator | Neural runtime input boundary | Experiment |
+| Route | Original offline/replay | Live implementation |
 | --- | --- | --- |
-| Stride | Current PC and cache-line address | [`602_offline_lstm_stride`](experiments/602_offline_lstm_stride/) |
-| Streamer | Cache-line address | [`602_offline_lstm_streamer`](experiments/602_offline_lstm_streamer/) |
-| AMPM | Cache-line address | [`602_offline_lstm_ampm`](experiments/602_offline_lstm_ampm/) |
-| SPP | Chronological demand and cache-fill address callbacks | [`602_offline_lstm_spp`](experiments/602_offline_lstm_spp/) |
+| Stride | [Offline](experiments/602_offline_lstm_stride/) | [Original live](experiments/602_lstm_stride_live_inference/), [finite dynamic engine](experiments/602_lstm_stride_dynamic_inference/) |
+| Streamer | [Offline](experiments/602_offline_lstm_streamer/) | [Global-state student](experiments/602_lstm_streamer_live_inference/README.md) |
+| AMPM | [Offline](experiments/602_offline_lstm_ampm/) | [Global-state student](experiments/602_lstm_ampm_live_inference/README.md) |
+| SPP | [Offline](experiments/602_offline_lstm_spp/) | [Demand/fill student](experiments/602_lstm_spp_live_inference/README.md) |
 
-## Shared code
+- [Four-route H8 protocol](experiments/602_four_prefetcher_formal/README.md): 64 completed rows, retained models, actual C++ inference and mechanism controls.
+- [H16/template supplement](experiments/602_four_prefetcher_formal/width_templates/README.md): 24 new rows plus explicitly bound H8 references; no retraining.
+- [Old slide/replay evidence](experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md): historical state histories, request matching and corrected denominators.
+- [Canonical layout and recovery](../docs/602_width_templates/LAYOUT_AND_RECOVERY.md): local/Sacramento cache roots, preserved archives and path translation.
 
-The retained `common/` modules are all used by the 602 tracks:
+## Input and fairness boundaries
 
-- `direct_action_lstm.py`: shared recurrent direct-action implementation;
-- `normal_policy_reference.py`: conventional-policy reference utilities;
-- `threshold_free_policy.py`: learned threshold-free policy components.
-- `stride_direct_action_model.py`: stable access to the completed Stride
-  model definition for prefix training, frozen export, and parity.
+- Teacher actions supply training labels only. Private teacher tables, future events and teacher actions are absent from neural inference inputs.
+- Free-running decoders feed back their **own** selected unrounded coordinate; SPP also feeds back its own fill choice. Teacher actions are not decoder inputs.
+- Streamer/AMPM encode 64 LSB-first bits of the aligned **byte address**, not line-address bits; each has one global chronological h/c pair and no PC feature.
+- SPP adds a callback-kind bit and uses demand addresses or raw L2-fill evicted addresses. Its student sees all raw fills; native SPP FILTER feedback sees prefetch fills only. Effective state-update streams differ.
+- The retained formal Stride model uses PC/address features and per-PC h/c. It was trained on 0–1M for 12 epochs; the three global models use 0–20M and 8 epochs. These routes are not a matched training-budget ranking.
+- Historical offline comparisons replay actions through keyed queues on a shared recorded input stream. Live runs instead receive cache callbacks affected by their own prefetches.
+- A common request ceiling limits output; it does not equalize realized requests or DRAM bytes. Report actual controller traffic and separate complete L2/LLC intent cohorts.
 
-The live Stride sibling preserves the completed offline experiment as its
-regression oracle while adding frozen-weight C++ inference in the measured L2
-callback path. It is a deployment-mode study, not a fifth matched comparator.
+## Shared code and static check
 
-## Static validation
+- [common/](common/): direct-action models, conventional references, feature encoders and the scalar `live602_runtime` backend.
+- Each experiment retains collection, training, inference, replay, contracts and reports together; original artifacts remain recoverable.
+- From the cache root, the static validator checks contracts, runtime input boundaries, free-running metadata, required files and Python/notebook syntax:
 
-From the repository root, run:
-
-```bash
+```sh
 python3 formal_NN_training/experiments/validate_direct_action_contracts.py
 ```
 
-The validator checks all four stream contracts, runtime fairness boundaries,
-free-running decoder metadata, required experiment files, Python syntax,
-notebook syntax, and the SPP source-input boundary.
+- Static validation or numerical parity does not replace full-ROI simulation evidence.

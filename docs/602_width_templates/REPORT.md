@@ -1,16 +1,16 @@
-# 602 H16 与 capped H8 模板：正式结果
+# 602 H16 and capped H8 templates
 
-**24/24 完整运行完成并验证：2 validation +16 H16 test +6 H8 capped-template test；9,748 项审计检查零失败。** 真实原始 seed7 H16 checkpoint 已找回；未重训、未改变公共 C++ 引擎。原 64 行 H8/native/NoPF 数据按兼容控制显式复用，保留原协议身份。
+- **Status: 24/24 full runs verified; 9,748 checks, zero failures.** This includes 2 validation, 16 H16 test and 6 capped H8-template test runs. The 64 H8/native/NoPF references retain their original protocol identities.
+- **Finding:** H16 retains an advantage over native at MAC0, but simple frozen templates explain almost all observed benefit. SPP matches IPC, cycles, requests and DRAM exactly in four ROI/cap cases; AMPM has small uncapped residuals and loses slightly to its capped template.
+- Original seed7 checkpoints were recovered without retraining or changes to the common C++ engine. Read the [project overview](../../RESULTS_INDEX.md) first.
+- Comparisons share the simulated machine, trace, L2 LOAD interface, external page/cap gate, warmup and ROI. Native SPP retains its internal same-page rule and prefetch-fill-only FILTER feedback; the student observes all raw fills. Equal effective inputs are not claimed. [Method limits](../../formal_NN_training/experiments/602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md).
 
-**结论：H16 保留了相对 native 的优势，但复杂 learned payload/循环状态不是这些收益的必要解释。** SPP H16 的简单模板在四个完整 ROI/cap 组合精确复现 IPC、cycles、请求和 DRAM；AMPM H16 仅在无 cap 下有很小残差，加 cap 后模板略好。H8 的 cap 下模板也几乎复现或超过 NN。
+## H16 versus native and H8
 
-模型、teacher 和模板都在相同模拟机器、trace、L2 LOAD、外部 page/cap、warmup 与 ROI 合同下比较。SPP native 的内在同页规则及 prefetch-fill-only FILTER 反馈与 student 的全部 raw fill 输入不同，这些原语义被保留，不能声称其有效输入完全相同。见[方法边界](../../formal_NN_training/experiments/602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md)。
+- H16 wins **8/8 against native and 8/8 against its H8 NN**, within this MAC0/602/seed7 matrix. Native-relative IPC gains are AMPM **0.5320%–2.2054%** and SPP **1.4146%–4.1512%**.
+- These are paired live results. Old replay IPC is not substituted into the comparison.
 
-## H16 是否保留旧报告优势
-
-**是，限定本轮 MAC0、602、原 seed7：两模型相对 native 共8/8胜，也在8/8组中高于各自 H8 NN。** 这里的结论来自新 live 配对，不是将旧 replay IPC 横比。AMPM H16/native 提升0.5320%–2.2054%；SPP 为1.4146%–4.1512%。
-
-| 模型 | ROI | cap | native IPC | H16 NN IPC | 自己的模板 IPC | NN/native | NN/模板 |
+| Model | ROI | Cap | Native IPC | H16 NN IPC | Own template IPC | NN/native | NN/template |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | AMPM | 0 | 0 | 0.430021 | 0.432309 | 0.432157 | +0.5320% | +0.0351% |
 | AMPM | 0 | 16144 | 0.418974 | 0.428215 | 0.428582 | +2.2054% | -0.0857% |
@@ -21,13 +21,15 @@
 | SPP | 1 | 0 | 0.387512 | 0.403598 | 0.403598 | +4.1512% | +0.0000% |
 | SPP | 1 | 16144 | 0.332809 | 0.337639 | 0.337639 | +1.4515% | +0.0000% |
 
-**是否超过自己的简单模板：不稳定。** SPP 四组完全相同；AMPM 无 cap 时 NN 仅高0.0351%／0.1248%，cap 时低0.0857%／0.0154%。这些小差异不能独立归因于循环状态。AMPM 的 H8 模板在 cap 下还高于 H16 模板，两种宽度并非对所有部署方案都更大更好。
+- SPP's template matches all four measured performance/traffic cases. AMPM NN is only **0.0351% / 0.1248%** better uncapped and **0.0857% / 0.0154%** worse capped. Those residuals do not isolate a recurrent-state contribution.
+- The capped AMPM H8 template also beats the H16 template; larger width is not uniformly better for every deployment.
 
-## H8 在 cap 下是否仍被模板复现
+## Capped H8 templates
 
-模板只有 address-relative K/delta/fill，不加入 PC；三个 H8 模板逐字复用已冻结 validation 选择。以下均为完整25M ROI，正号表示模板更好。
+- Tables contain address-relative K/delta/fill, without PC or NN state. All three H8 tables reuse the original frozen validation selection byte for byte.
+- Each row covers a full 25M ROI. Positive template/NN values favor the template.
 
-| 模型 | ROI | NN IPC | 模板 IPC | 模板/NN | 实际 requests/M：NN /模板 | DRAM MiB：NN /模板 |
+| Model | ROI | NN IPC | Template IPC | Template/NN | Actual requests/M: NN / template | DRAM MiB: NN / template |
 |---|---:|---:|---:|---:|---:|---:|
 | STREAMER | 0 | 0.431659 | 0.431661 | +0.0004% | 16143.96 /16143.96 | 11.028 /11.028 |
 | STREAMER | 1 | 0.337604 | 0.337587 | -0.0051% | 16143.96 /16143.96 | 21.646 /21.649 |
@@ -36,11 +38,12 @@
 | SPP | 0 | 0.417164 | 0.417164 | +0.0000% | 16143.96 /16143.96 | 12.661 /12.661 |
 | SPP | 1 | 0.325346 | 0.325345 | -0.0006% | 16143.96 /16143.96 | 21.916 /21.915 |
 
-**是，限这些模型和区间。** Streamer 的差不超过0.0052%，SPP 不超过0.0006%；AMPM 模板反而高0.8939%／0.9542%，且请求更少。这是无 NN 机制对照结果，不是“PC表失败所以有 stateful 创新”。原 H8 相对 native 的失败结果保留。
+- Streamer differs by at most **0.0052%** and SPP by **0.0006%**. AMPM templates improve IPC by **0.8939% / 0.9542%**, with fewer requests.
+- This is an actual no-NN intervention. Failure of a PC table or template to match every case would not establish stateful novelty. The H8 losses against native remain in the evidence.
 
-## 实际流量、动作与指标
+## Requests, DRAM and actions
 
-| H16 NN | ROI | cap | 实际 requests/M：NN /模板 | 实际 DRAM MiB：NN /模板 |
+| H16 NN | ROI | Cap | Actual requests/M: NN / template | Actual DRAM MiB: NN / template |
 |---|---:|---:|---:|---:|
 | AMPM | 0 | 0 | 32339.04 /32339.04 | 11.845 /11.834 |
 | AMPM | 0 | 16144 | 16143.96 /16143.96 | 11.474 /11.476 |
@@ -51,52 +54,67 @@
 | SPP | 1 | 0 | 106570.99 /106570.99 | 25.258 /25.258 |
 | SPP | 1 | 16144 | 16143.96 /16143.96 | 21.326 /21.326 |
 
-共同 cap 是上限，**不保证同实际请求、接受或 DRAM**。H8 AMPM 模板实际请求低于上限；即使请求数相同，DRAM 也可能不同。SPP H16 无 cap 相对 native 请求更少，但实际 DRAM 反而更多（ROI0 +4.74%，ROI1 +11.57%）。这不是流量节省。cap 也降低了 H16 未来 ROI 的绝对 IPC：AMPM −16.87%、SPP −16.34%，保留这一负面结果。
+- The common cap is an upper limit, not equal actual submissions, acceptance or DRAM. H8 AMPM tables do not always exhaust it; equal request counts can still produce different DRAM.
+- Uncapped SPP H16 submits fewer requests than native SPP but increases DRAM by **4.74% / 11.57%** in ROI0/ROI1.
+- Capping lowers H16's absolute future-ROI IPC by **16.87% for AMPM** and **16.34% for SPP**. These negative results are retained.
+- Full-validation H16 selections are AMPM **K2: (+9,L2), (+8,L2)** and SPP **K5: (+1,L2), (+2..+5,LLC)**.
+- Across all **404,238 ROI0** and **532,855 ROI1** uncapped SPP H16 demand events, emit/K and each slot's delta/fill equal that template. This is an empirical fact for the complete ROIs, not a guarantee for all inputs.
+- CSVs retain complete and phase-level K support, rare delta/fill, current-line/duplicate/slot classes, and allowed/redundant/useful counts.
 
-H16 全 validation 冻结模板：AMPM K2，slots(+9,L2),(+8,L2)；SPP K5，(+1,L2),(+2..+5,LLC)。SPP H16 在 ROI0 的404,238与 ROI1 的532,855个完整 demand 事件上，emit/K/各 slot delta/fill 均等于该模板；这是完整 ROI 的经验事实，不是所有输入上的数学保证。完整 K 支持、罕见 delta/fill、current-line、duplicate、slot、allowed/redundant/useful、完整与分阶段计数均保留于 CSV。
+## Metric definitions
 
-IPC=实际 retired/cycles；requests/M=实际 credit-allowed cache 调用/retired×10⁶。DRAM 使用控制器实际完成的 read/write bus bytes，并保存 started/completed、LLC↔DRAM 事务、结束未决；不使用 issued×64。
+- **IPC:** actual retired instructions / cycles. **Requests/M:** credit-allowed cache calls / actual retired instructions × 10⁶.
+- **DRAM:** actual completed controller read/write bus bytes, with started/completed transactions and boundary pending work retained. Requests × 64 is not used.
+- **Quality:** separate cohorts by first source-enqueue L2/LLC intent. Accuracy = LOAD-useful/enqueued; timeliness = timely/(timely + late); coverage = LOAD-useful / matched NoPF LOAD misses at that level.
+- A later merge may upgrade fill level, so intent is not final fill destination or all-level usefulness. Incomplete tracking gives NA; L2/LLC ratios are not pooled.
+- Pending/resident-unused requests remain censored. Evicted-unused is not pollution; coverage is not causal net miss elimination. Actual misses and MPKI are separate fields.
+- Startup and phase curves use complete saved snapshots and actual retired instructions, callbacks and completed updates. Training, warmup history and measurement progress remain distinct; first cumulative crossing of NoPF is not a minimum observation requirement.
 
-L2/LLC 指标分别按首次 source-enqueue 意图 cohort 报告：accuracy=LOAD-useful/enqueued，timeliness=timely/(timely+late)，coverage=LOAD-useful/相同 ROI NoPF 对应层 LOAD misses。后续 merge 可能升级 fill，故意图 cohort 不等于最终 fill 层级；不完整追踪范围标 NA，不混成全层 accuracy。ROI 结束 resident-unused/pending 被保留为 censored，evicted-unused 不称 pollution。coverage 也不是因果上的净 miss 消除；另存实际 miss/MPKI。
+## Cost and storage
 
-启动与阶段曲线来自完整 snapshots，分别用 retired instructions、实际 callback 和 completed inference update 作为横轴；训练量、warmup 历史和测量进度分开。首次超过 NoPF 的累计点不称最少观察量。
-
-## 代价与存储
-
-| 模型 | FP32 weights | 全局 h/c | 对象+持久堆（包含前两项） | fixture 临时堆峰值 |
+| Model | FP32 weights | Global h/c | Object + persistent heap, including weights/h/c | Observed fixture scratch peak |
 |---|---:|---:|---:|---:|
 | AMPM H16 | 26,612 B | 128 B | 28,596 B | 884 B |
 | SPP H16 | 26,436 B | 128 B | 28,656 B | 1,148 B |
 
-这是实际编译 ABI 与 C++ new/new[] requested payload，排除 outer adapter、观察器、日志、栈、allocator metadata；不是完整硬件 SRAM/PPA 或 RSS。权重与 h/c 已包含在持久堆内，不能重复相加。临时峰值只覆盖已通过的正确性 fixture，原 decoder 无统一 degree 上限，不能当成最坏情况界限。模板逻辑字段为 uint64 K 与每 slot int64 delta/int32 fill（AMPM32B、SPP68B）；实际 Action ABI 为32B/slot，容器容量、descriptor/control 另计，逻辑字段不是完整实现 footprint。
+- These are actual ABI and ordinary C++ new/new[] requested bytes. They exclude the outer adapter, observers, logs, stack and allocator metadata; they are not complete hardware SRAM/PPA or RSS.
+- Persistent heap already includes weights/h/c. Scratch peaks cover only the passed correctness fixtures; the decoder has no universal degree cap, so these are not worst-case bounds.
+- Essential table fields are uint64 K plus int64 delta/int32 fill per slot: **32 B AMPM / 68 B SPP**. Actual Action ABI is **32 B/slot**; vector capacity, descriptors and control are additional. Essential fields are not the complete implementation footprint.
+- IPC assumes synchronous **MAC0**: full forward completes before h/c and output publication, without modeled finite service/queue/bandwidth delay.
+- Resident weights and **zero simulated NN-weight DRAM** are explicit assumptions, not a hardware cost result.
+- Full-ROI **ceil(counted MACs/4) / measured MAC0 cycles** is **12.95 / 15.75 for AMPM** and **23.95 / 31.15 for SPP**. Four MACs/cycle cannot serve all counted work within those same MAC0 windows, even before other costs; this necessary throughput condition does not predict finite-resource IPC.
+- Nonlinear, bias/control, state and storage scopes remain explicit in the cost records.
 
-本轮 IPC 是同步 **MAC0**：完整 forward 后发布 h/c 与输出，没有有限队列/service/bandwidth 迟延模型；权重驻留，NN weight DRAM=0 是模型假设，单列记录，不声称实际硬件免费。按完整 ROI 实测运算，H16 的 ceil(MAC/4)/MAC0 cycles 为 AMPM12.95／15.75、SPP23.95／31.15；即使忽略所有其他开销，也不足以在相同 MAC0 callback 时间窗服务全量工作。这仅为吞吐必要条件，不能推断有限资源 IPC。非线性、bias/control、state 与存储范围均明列。
+## Replay versus live evidence
 
-## 旧 slides / replay 与 live 对齐
+- Recovered seed7 identities are AMPM v7 H16 **6,653 parameters** and SPP empirical-prior v2 H16 **6,609**. Both trained for **8 epochs**, but event counts, optimizer steps and compute differ; this is not matched-compute retraining.
+- Old AMPM inference started with fresh h/c at guard **20M**; SPP started at train **0M**. Old replay used **25M cache warmup**. New runs start fresh h/c for **5M NoPF cache/state warmup**, retain h/c, then measure validation **20–25M**, ROI0 **25–50M**, or ROI1 **75–100M**.
+- Old AMPM replay: **808,438 generated = loaded → 363,119 / 404,219 matched keys → 726,238 emitted**. SPP: **2,021,095 generated = loaded → 392,788 / 404,219 matched → 1,963,940 emitted**. Matching losses distinguish precomputed replay from independent online inference.
+- [Concise alignment](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) and [seven-row original metric table](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/old_replay_alignment.csv) retain source/log evidence.
+- [Slide corrections](SLIDE_ERRATA.md) distinguish **163,567 / 404,219 = 40.4649%** of all callbacks from **163,567 / 340,746 = 48.0026%** of teacher-silent callbacks. Requests are not DRAM; zero SPP H8 L2 coverage is not zero LLC benefit.
+- Original deck, v1/v2, source and old results remain unchanged. Alignment covers only the retained local **v7_15** deck; no newer cloud slides are asserted.
 
-原 seed7 AMPM v7 H16=6,653参数；SPP empirical-prior v2 H16=6,609参数。二者均8 epochs但训练算力和 event/optimizer 数不同，不能称等计算量重训。旧 AMPM 推理从 guard20M fresh state，SPP 从 train0M起；旧 replay cache warmup25M。本轮各 run fresh h/c 后5M NoPF cache/state warmup，保留 h/c 进入测量：validation20–25M，ROI025–50M，ROI175–100M。
+## Completed routes and limits
 
-旧 replay 数量链已核实：AMPM 808,438 generated=loaded →363,119/404,219 matched keys →726,238 emitted；SPP2,021,095 generated=loaded →392,788/404,219 matched →1,963,940 emitted。生成列表与 runtime 请求差异来自 keyed match，不能把 replay 称独立在线推理。旧动作/指标/原始日志链接见[证据对齐](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md)及[7行原始口径表](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/old_replay_alignment.csv)。
-
-[Slides 勘误](SLIDE_ERRATA.md)明确：Stride163,567 silent→act是全部404,219事件的40.4649%，或 teacher-silent340,746事件的48.0026%；请求不是 DRAM；SPP H8零 L2 coverage 不等于零 LLC/性能收益。原 deck、v1/v2、source 与所有旧结果不改写。仅对本地保留 v7_15 deck 做对齐，未声称已获取新版云 slides。
-
-## 可复核交付与剩余问题
-
-| 路线 | 本轮状态 | 保留历史 |
+| Route | New completed runs | Preserved history |
 |---|---|---|
-| Stride | 不新增run；原 per-PC frozen 参考保留 | offline / live / formal / gate，旧13行参考 |
-| Streamer H8 | 新增2个 capped-template test，完成且验证 | 原H8模型、NoPF/native/live与模板 |
-| AMPM H8/H16 | 新增11个完整run，完成且验证 | 原v7 H8/H16 checkpoint 与 replay |
-| SPP H8/H16 | 新增11个完整run，完成且验证 | 原empirical-prior H8/H16、fill-aware replay及v1/v2 |
+| Stride | 0; original per-PC frozen reference retained | Offline/live/formal/gate; 13 reference rows |
+| Streamer H8 | 2 capped-template tests | H8 model, NoPF/native/live/template |
+| AMPM H8/H16 | 11 full runs | Original v7 H8/H16 checkpoints and replay |
+| SPP H8/H16 | 11 full runs | Empirical-prior H8/H16, fill-aware replay, v1/v2 |
 
-仅有602、一个真实训练 seed7 和两个已定义区间；ROI0已观察，ROI1是独立未来区间但本轮续研时也已有H8结果，不称完全盲测。未检验有限引擎 IPC、额外 seeds 或跨 workload 泛化；未训练新权重。模板不能复现的少量 AMPM 残差仍需独立机制消融，不能归为 stateful 创新。
+- Scope is **602, one real training seed7 and two defined intervals**. ROI0 was observed; ROI1 is a distinct future interval but its H8 results were already known before this supplement. This is not a fully blind test.
+- Global-model finite-engine IPC, extra seeds and cross-workload generalization remain untested. No new weights were trained.
+- Small AMPM residuals need independent mechanism interventions; they do not establish stateful novelty.
 
-- [简表 CSV](../../formal_study/results/602_width_templates/summary.csv)；[全部24新增行](../../formal_study/results/602_width_templates/per_run_new.csv)；[88行来源标注总表](../../formal_study/results/602_width_templates/per_run.csv)；[配对比较](../../formal_study/results/602_width_templates/paired_comparisons.csv)。
-- [正式审计](../../formal_study/results/602_width_templates/audit.json)、[指标定义](../../formal_study/results/602_width_templates/metric_definitions.json)、[成本](../../formal_study/results/602_width_templates/storage_cost.csv)、[一页 story](PAPER_STORY.md)。
-- [H8/H16 IPC–请求–DRAM：ROI0 cap](../../formal_study/results/602_width_templates/widths_roi0_cap16144.svg)、[ROI1无cap](../../formal_study/results/602_width_templates/widths_roi1_cap0.svg)、[H8 cap](../../formal_study/results/602_width_templates/h8_template_cap.svg)、[成本](../../formal_study/results/602_width_templates/width_cost.svg)。
-- [完整动作分布](../../formal_study/results/602_width_templates/distributions_spp_roi1.svg)、[阶段](../../formal_study/results/602_width_templates/phases_spp_roi1.svg)、[完整图表索引](../../formal_study/results/602_width_templates/README.md)；[方法图](../../formal_study/results/602_width_templates/method.svg)。
-- [配置与恢复运行](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md)、[路径映射与恢复](LAYOUT_AND_RECOVERY.md)。
+## Evidence and recovery
 
-本地完整新 raw：`/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/`。Sacramento：`/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/`。新目录保留 checkpoints/models、actual binary snapshot、完整 run logs/callbacks/snapshots、source bindings、cost probes 与 analysis_final；复用的完整实际构建在各自 `formal_study/archive/20261017/raw_v2/builds/`。历史轮次在 `archive/20261016` 与 `archive/20261017`；健康 checkout 就是 `cache` 根，`work/cache_gate_mechanism` 仅为兼容链接。可见的日期兼容入口已经删除；历史元数据原样保留，恢复工具在内存中映射旧路径。
-
-新 raw 同步核对345个服务器文件、176,314,065字节，路径和大小全部一致；另有本地新增分析、图和算术核对将同步回服务器。无 SHA 台账。构建、traces 和大日志保留本地/服务器，不纳入 Git。
+- [Summary CSV](../../formal_study/results/602_width_templates/summary.csv) · [24 new rows](../../formal_study/results/602_width_templates/per_run_new.csv) · [88 labeled rows](../../formal_study/results/602_width_templates/per_run.csv) · [paired comparisons](../../formal_study/results/602_width_templates/paired_comparisons.csv).
+- [Audit](../../formal_study/results/602_width_templates/audit.json) · [definitions](../../formal_study/results/602_width_templates/metric_definitions.json) · [storage/cost](../../formal_study/results/602_width_templates/storage_cost.csv) · [short paper story](PAPER_STORY.md).
+- [ROI0 capped IPC/requests/DRAM](../../formal_study/results/602_width_templates/widths_roi0_cap16144.svg) · [ROI1 uncapped](../../formal_study/results/602_width_templates/widths_roi1_cap0.svg) · [capped H8](../../formal_study/results/602_width_templates/h8_template_cap.svg) · [cost figure](../../formal_study/results/602_width_templates/width_cost.svg).
+- [Full action distributions](../../formal_study/results/602_width_templates/distributions_spp_roi1.svg) · [phases](../../formal_study/results/602_width_templates/phases_spp_roi1.svg) · [figure index](../../formal_study/results/602_width_templates/README.md) · [method](../../formal_study/results/602_width_templates/method.svg).
+- [Configuration/run guide](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md) · [canonical paths and recovery](LAYOUT_AND_RECOVERY.md).
+- Full new raw roots: local `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/` and Sacramento `/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/`.
+- Raw retains checkpoints/models, actual binary snapshot, full logs/callbacks/snapshots, source bindings, cost probes and analysis_final. The reused actual build remains in `formal_study/archive/20261017/raw_v2/builds/`.
+- Historical rounds remain in `archive/20261016` and `archive/20261017`. The checkout is the cache root; `work/cache_gate_mechanism` is only a compatibility link. Removed date-root aliases are not recreated; historical JSON is translated only in memory.
+- The recorded raw sync checked **345 server files / 176,314,065 bytes**, with all paths/sizes equal. Later local analysis, figures and arithmetic checks are separate from that inventory. Builds, traces and large logs stay local/server; no hash ledger is introduced.

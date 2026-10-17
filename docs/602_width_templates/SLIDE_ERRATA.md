@@ -1,30 +1,29 @@
-# Corrections to the retained v7_15 slide claims
+# Corrections to retained v7_15 slides
 
-The original deck and offline logs remain unchanged reference material. These
-replacement statements apply to its old replay results; they do not relabel
-those results as new live measurements. Full evidence and paths are in
-[EVIDENCE_ALIGNMENT](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md).
+- The original deck and logs remain unchanged references. These corrections describe old keyed replay; they do not relabel it as new live inference.
+- [Concise alignment](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) links the full historical audit and completed live evidence. Use the [project overview](../../RESULTS_INDEX.md) for current conclusions.
 
-1. **Silent → act:** Stride H16 compact_hurdle_v9 produced student actions on
-   163,567 teacher-silent callbacks. This is **40.4649% of all 404,219 callbacks**,
-   or **48.0026% of 340,746 teacher-silent callbacks**. The slide's “40.5% of silent
-   events” mixes these denominators. Teacher-active → student-silent is 6,259 /
-   404,219 =1.5484% joint mass, or 6,259 /63,473 =9.8609% conditional rate.
-   These are generated-stream event counts, not an IPC causal ablation.
-2. **Requests and traffic:** the old requested/issued or requests/load columns
-   measure cache prefetch calls. They do not measure LLC↔DRAM bytes. Replace
-   “DRAM traffic reduction” with “prefetch request reduction” unless actual
-   controller transaction/byte counters support the former. The new live study
-   reports actual DRAM bus activity and requests separately; their ratio is
-   neither assumed constant nor inferred using requests×64.
-3. **SPP H8 coverage:** zero L2 useful/coverage refers to L2. The old H8 replay
-   emitted 1,897,395 LLC-target requests, with LLC filled216,298/useful198,675;
-   its IPC was0.42255 versus NoPF0.368 under the old protocol. It therefore
-   does not imply zero all-level benefit. Old aggregate useful counters are
-   distinct from new fully tracked L2/LLC first-intent cohort metrics.
+## Event denominators
 
-The old H16 points are AMPM v7 seed7 (6,653 parameters) and SPP empirical-prior
-v2 seed7 (6,609), not the smaller AMPM sweep or balanced SPP v1. The old model
-size sweep is one seed. Old replay used25M cache warmup; the new live protocol
-uses5M. Old primary teacher comparators are replayed teacher lists. Retain those
-labels, their keyed-match losses, and their state-initialization differences.
+- Stride H16 compact_hurdle_v9 acts on **163,567 teacher-silent callbacks**: **40.4649% of all 404,219 callbacks**, or **48.0026% of 340,746 teacher-silent callbacks**.
+- “40.5% of silent events” mixes those denominators.
+- Teacher-active → student-silent is **6,259 / 404,219 = 1.5484%** joint mass, or **6,259 / 63,473 = 9.8609%** conditional rate.
+- These are generated-stream event counts, not an IPC causal ablation.
+
+## Requests and DRAM
+
+- Requested/issued and requests/load count cache prefetch calls, not LLC↔DRAM bytes.
+- Call a change “prefetch request reduction” unless controller transaction/byte counters establish DRAM reduction.
+- New live results report requests and actual DRAM bus activity separately; neither their ratio nor requests × 64 supplies measured DRAM.
+
+## SPP H8 coverage
+
+- Zero L2 useful/coverage describes L2, not all-level benefit.
+- Old H8 replay emitted **1,897,395 LLC-target requests**; LLC filled **216,298** and useful **198,675**. IPC was **0.42255 versus NoPF 0.368** under that old protocol.
+- These aggregate counters are not the later fully tracked, separate L2/LLC first-intent cohort metrics.
+
+## Model and protocol identity
+
+- Old H16 points are **AMPM v7 seed7, 6,653 parameters**, and **SPP empirical-prior v2 seed7, 6,609**. The smaller AMPM sweep and balanced SPP v1 are different models.
+- The old size sweep is one seed, not independent-seed robustness.
+- Replay used **25M cache warmup**, versus **5M** in current live runs. Old primary teachers were replayed lists; retain their keyed-match losses and different state initialization.

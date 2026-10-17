@@ -1,18 +1,20 @@
-# Paper story：恢复模型优势，再验证是否需要神经机制
+# Paper story: retained H16 gains and simple mechanisms
 
-**保留的 H16 动作监督 student 在本轮 live MAC0 中恢复了相对 native 的优势；简单 validation 模板解释了几乎全部收益。** 这支持一项可复核的经验与部署机制研究，不自动构成新预取算法或 stateful 创新。
+- **Finding:** retained teacher-action H16 students beat native in this live MAC0 matrix, while simple validation templates explain almost all gain.
+- This supports a reproducible empirical mechanism study; it does not establish a new prefetch algorithm or necessary recurrent-state advantage.
+- Existing checkpoints passed actual-core Python/C++ state/action checks. **2 full validation + 22 full test runs** use **64 explicit compatible references**, preserving protocol identities and keeping old replay separate.
+- Weights remain frozen; only h/c changes during NN inference. Start with the [project overview](../../RESULTS_INDEX.md).
 
-从真实旧 checkpoint 出发，核对实际编译 Python/C++ 状态与动作，完成2个完整 validation +22个完整 test。原64行参考通过相同实际模拟器、warmup/ROI/page/native控制核对后显式复用，旧 replay 单列。所有权重冻结；运行时只有 h/c 更新。
-
-| 主张 | 状态 | 对应证据 |
+| Claim | Evidence status | Support and limit |
 |---|---|---|
-| 真实 SPP/AMPM H16 可恢复并独立 live 推理 | **数据支持** | [模型身份与旧日志](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md)，实际构建 parity 与[9748项正式审计](../../formal_study/results/602_width_templates/audit.json)；未以重训替代旧权重。 |
-| H16 保留 native 优势 | **数据支持，限定本矩阵** | [8组 H16 NN/native](../../formal_study/results/602_width_templates/summary.csv)全胜：AMPM+0.53%–2.21%，SPP+1.41%–4.15%。H16 NN也高于各自H8 NN；这不是跨协议复用旧IPC。 |
-| 收益必须依靠 learned payload / 循环状态 | **未支持** | [完整机制对照](REPORT.md)：SPP H16模板4组精确复现；AMPM无cap仅0.035%/0.125%残差，cap反输模板。不能将微小残差直接归因于状态。 |
-| H8 cap 排除了无 NN 模板解释 | **未支持** | [6组 capped H8 模板](../../formal_study/results/602_width_templates/summary.csv)：Streamer/SPP近乎复现，AMPM模板高0.89%/0.95%且请求更少。原失败结果保留。 |
-| 共同cap保证同流量、更少请求保证省DRAM | **未支持** | [实际请求与DRAM](REPORT.md)：cap只是上限；SPP H16无cap请求少于native，DRAM反增4.74%/11.57%。不使用请求×64。 |
-| 有限计算资源下仍获益、跨seed/程序泛化 | **待验证** | 本轮仅MAC0、602、seed7。H16 MAC4聚合工作/窗口约12.95–31.15倍，不是有限成本IPC预测；[实际存储与假设](REPORT.md)。 |
+| Real AMPM/SPP H16 weights support independent live inference | Supported | [Model/log identity](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md), actual-build parity and [9,748-check audit](../../formal_study/results/602_width_templates/audit.json); no substitute retraining |
+| H16 retains an advantage over native | Supported within this matrix | [8/8 native comparisons](../../formal_study/results/602_width_templates/summary.csv): AMPM +0.53%–2.21%, SPP +1.41%–4.15%; H16 also beats its H8 NN in 8/8 cases |
+| Learned payload or recurrent state is necessary for the gain | Not supported | [Actual template interventions](REPORT.md): SPP H16 matches IPC/cycles/requests/DRAM in 4 cases; AMPM NN has only 0.035%/0.125% uncapped residuals and loses capped; residuals do not isolate state |
+| Capping H8 eliminates a no-NN explanation | Not supported | [6 capped H8 template cases](../../formal_study/results/602_width_templates/summary.csv): Streamer/SPP nearly match; AMPM templates gain 0.89%/0.95% with fewer requests; failures remain |
+| A common cap equalizes traffic, or fewer requests guarantee less DRAM | Not supported | [Measured traffic](REPORT.md): uncapped SPP H16 submits fewer requests than native but raises DRAM 4.74%/11.57%; requests × 64 is not used |
+| Finite-resource gains or seed/workload generalization | Pending | This supplement is MAC0/602/seed7. H16 ceil(MACs/4)/measured MAC0 cycles is 12.95–31.15×, not finite IPC; [storage and assumptions](REPORT.md) |
 
-本轮保留：AMPM有小残差；cap降低未来区间绝对IPC；SPP/H8仍输native；简单模板也有不能逐cycle完全复现的情况。模板失败或累计IPC首次过线都不能证明状态创新或最少观察量。旧replay的匹配损失、25M缓存warmup与不同state初始化保留在[slides勘误](SLIDE_ERRATA.md)，与新5M warmup/live分开。
-
-[完整报告](REPORT.md) · [方法图](../../formal_study/results/602_width_templates/method.svg) · [图表与原始口径](../../formal_study/results/602_width_templates/README.md) · [原始数据和恢复路径](LAYOUT_AND_RECOVERY.md)
+- Negative results remain: small AMPM residuals, lower future-ROI absolute IPC under cap, H8 SPP losses to native, and templates that do not always match cycle for cycle.
+- Template failure and first cumulative crossing of NoPF do not establish stateful novelty or a minimum observation count.
+- Old keyed-match losses, **25M** replay warmup and distinct h/c initialization remain in [slide corrections](SLIDE_ERRATA.md); current live warmup is **5M**. Old IPC is not pooled with live IPC.
+- [Full report](REPORT.md) · [method](../../formal_study/results/602_width_templates/method.svg) · [figures and metric scope](../../formal_study/results/602_width_templates/README.md) · [raw paths/recovery](LAYOUT_AND_RECOVERY.md).

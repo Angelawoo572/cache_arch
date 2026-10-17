@@ -1,31 +1,48 @@
-# Gate mechanism storage boundaries
+# Storage and compute boundaries
 
-The implemented PC gate is a frozen, bounded `std::map<uint64_t,bool>`, not a 528B hardware table. The three fitted tables each contain 55 PCs. Capacity is 64; unseen PCs stay silent. `count` and `positives` validate the majority during loading and are not retained in the lookup state ([fields](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h#L43), [loader](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L119), [lookup](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L184)).
+- [Stage report](REPORT.md) · [shared project overview](../../RESULTS_INDEX.md).
+- Keep **declared source-field reservations**, measured C++ objects/allocations and whole-process RSS separate. None is synthesized SRAM/CAM area, energy or PPA.
+- [Full field/probe evidence](storage_fields.json), [original reference inventory](reference_storage_fields.json), [map probe](host_map_probe.cc), [engine-size probe](sizeof_engine_probe.cc). Probes do not change frozen source.
 
-| Quantity | Actual 55 entries | Reserved 64 entries |
-|---|---:|---:|
-| C++ map header |48B|48B|
-| Node allocation requests |2640B|3072B|
-| Header + requested nodes |2688B|3120B|
-| Header + node `malloc_usable_size` |3128B|3632B|
+## Actual C++ PC gate
 
-These values were measured with Sacramento GCC 8.5/libstdc++ 20210514: each pair is 16B, each tree-node allocation requests 48B and has 56B usable allocation. They exclude allocator metadata outside usable blocks and all other engine/observer memory. The unified `Dynamic602` object is 2344B and already contains the 48B map header. Thus object + 55 node requests is 4984B, still excluding deque blocks, streams, shadow teacher and other pointed-to allocations. Host RSS from each formal run remains a separate whole-process measurement.
+- Frozen `std::map<uint64_t,bool>`, capacity 64, actual 55 PCs per seed; absent PCs remain silent. File count/positive fields validate majority but are not retained in lookup state. [Fields](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h#L43), [loader](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L119), [lookup](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L184).
+- Sacramento GCC 8.5/libstdc++ 20210514: pair 16 B; each node requests 48 B and has 56 B usable allocation.
 
-The reported 528B field is a **hypothetical packed table payload**: 64×(64-bit PC+1 gate+1 valid)=4224bits. An explicit conservative architectural schema adds an 8B control-flags word and 24B immediate pc/line/address candidate reservation: 560B fixed, or 576B with the common 16B cap register/allowed-request counter. Actual valid entries 55 do not reduce the reserved 64-entry payload. The unconditional+2 arm uses the same 32B control/candidate reservation without the table, or 48B including the common budget controls. These are declared storage assumptions; no CAM/SRAM, PC-match comparator, adder, area, energy or lookup-latency synthesis was performed. Both cheap controls execute immediately in the traditional callback path, as legacy Stride does.
+| Host quantity | Actual 55 entries | Reserved 64 entries |
+| --- | ---: | ---: |
+| Map header | 48 B | 48 B |
+| Node allocation requests | 2640 B | 3072 B |
+| Header + requested nodes | 2688 B | 3120 B |
+| Header + node malloc-usable bytes | 3128 B | 3632 B |
 
-The NN fixed-payload arm retains the complete learned forward, decoder work, h/c update, serial engine and original raw K cost. It replaces the completed payload with one line+2 request if `result.emit` is true, even if a learned list is empty ([replacement](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L239), [state completion](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L274)). The established NN source-field reservation remains 16808B core arrays/events/scratch +112B explicit controller=16920B, or 16936B with common budget controls. The new payload/method/current-filter selector bits fit in the existing 64-bit flags reserve. The one-address fixed candidate can reuse the existing forward/result scratch after completion; this is an explicit architectural buffer-reuse assumption, not a claim that the C++ implementation performs in-place reuse. Software constructs a temporary vector with an 8B address and a second 8B diagnostic delta element.
+- Unified `Dynamic602` object 2344 B already includes the 48 B header. Object + 55 requested nodes is 4984 B, excluding other pointed-to allocations, deque blocks, streams, shadow teacher and allocator metadata outside usable blocks.
+- Formal-run RSS measures the whole simulator, including diagnostics; it is not predictor deployment storage.
 
-The new software object grows 192B: 32B payload-selector string +48B empty gate-map header +16B phase/ROI words +96B histogram/class-map headers. The map header is present in NN's unified C++ class even when that arm never uses a PC table. The added phase words, exact maps, class labels and temporary duplicate-counting sets are diagnostic storage. `Output` grows from 32B to 48B because of phase/slot/current/duplicate annotations; its modeled deployment payload remains the existing 24B pc/line/address. The current annotation is checked against actual line/address equality before filtering, so it contains no independent decision feature. Both original and new diagnostic labels, shadow teacher, counters and logs are excluded from the architecture budgets and remain visible in host RSS ([fields](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h#L35), [profile maps](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h#L63), [gate](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc#L355)).
+## Declared architectural reservations
 
-Current-line filtering runs after payload generation and before page/budget credits ([gate order](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc#L371)). Same-list duplicates are counted in all slots and are not deduplicated. Full-ROI five-phase aggregate distributions and request classes are independent of the bounded example log. No canonical h/c supplemental initialization was transplanted into this mechanism family.
+| Fixed-design source-field schema | Uncapped | With common cap controls |
+| --- | ---: | ---: |
+| PC gate + fixed +2 | 560 B | 576 B |
+| Unconditional +2 | 32 B | 48 B |
+| Full NN, learned or fixed payload | 16920 B | 16936 B |
+| Forward Stride reference | 2136 B | 2152 B |
+| Native SPP reference | 5938 B | 5954 B |
 
-`storage_fields.json` retains the full component/controller inventory and exact probe results. `host_map_probe.cc` accepts 55 or 64 as its argument. `sizeof_engine_probe.cc` compiles against the isolated simulator's `inc/`; neither probe modifies frozen source. Dense NN read accounting remains `MAC*4`, excluding bias reads by the existing cost-model assumption. Resident NN weights generate zero modeled DRAM bytes; physical DRAM transactions are measured independently.
+- **PC gate:** hypothetical packed table payload 528 B = 64 × (64-bit PC + 1-bit gate + 1-bit valid). Add 8 B control flags and 24 B pc/line/address candidate reservation; common programmable cap/allowed-count controls add 16 B. Actual 55 entries do not shrink reserved capacity 64.
+- **Unconditional +2:** the same 32 B control/candidate reserve, without a table. Cheap controls execute immediately; comparator/adder/lookup latency, area and energy are not synthesized or modeled.
+- **NN:** 16808 B core arrays/events/scratch +112 B explicit controller =16920 B; cap controls add 16 B. The older raw counter's “deployment bytes” label omits that controller and is not a physical total.
+- New method/payload/filter selectors fit the existing 64-bit flag reserve. A one-address candidate may reuse forward/result scratch after completion; this is an **architectural reuse assumption**, not C++ in-place reuse.
+- Fixed NN payload retains full learned forward, decoder, h/c, serial engine and raw-K cost; raw emit may yield a fixed request even with an empty learned list. [Replacement](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L239), [completion](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc#L274).
+- Actual software creates temporary one-element address/delta vectors with 8 B payload each; their descriptors and allocation overhead are separate.
+- Stride/SPP reservations include the original explicit scratch/control inventory. SPP includes signature/pattern/filter/GHR/global-feedback fields and candidate arrays. Neither baseline receives a new finite compute model.
 
-The unchanged conventional reference inventories are retained in
-[reference_storage_fields.json](reference_storage_fields.json), with the original
-main-v2 audit identity. At that same source-field reservation level, forward
-Stride is 2,136B and native SPP is 5,938B, plus 16B for the common programmable
-cap. SPP includes all ST/PT/filter/GHR/global-feedback fields, native candidate
-arrays and explicit scalar/control reservations. Neither baseline has a new
-finite computation model. Those budgets, the measured C++ objects and whole
-simulator RSS remain distinct quantities.
+## Diagnostics and exclusions
+
+- Unified object growth is 192 B: payload-selector string 32 +empty map header 48 +phase/ROI words 16 +two profile-map headers 96. The unused gate header remains present in NN software.
+- Phase words, exact histogram/class maps, request labels and duplicate-counting sets are diagnostics. `Output` grows 32 → 48 B for annotations; modeled pc/line/address payload remains 24 B.
+- Current-line annotation is checked against actual line equality before filtering; it adds no independent predictor feature. Shadow teacher, labels, counters, logs and allocator overhead are excluded from architectural budgets, while their host cost remains in RSS.
+- Source references: [output/fields](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h#L35), [profile maps](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h#L63), [observer](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc#L355).
+- Filtering occurs after payload generation and before page/budget credits; same-list duplicates are counted without deduplication. [Gate order](../../formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc#L371).
+- Full-ROI/five-phase aggregates do not derive from bounded example logs. No canonical h/c-history supplement is transplanted into this family.
+- Dense read accounting is `MAC × 4`, excluding bias reads by the retained model assumption. Resident weights generate zero modeled DRAM bytes; actual DRAM transactions are measured separately.

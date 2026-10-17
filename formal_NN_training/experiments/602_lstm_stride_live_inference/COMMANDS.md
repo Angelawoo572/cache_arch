@@ -1,11 +1,6 @@
 # 602 offline training-prefix sufficiency: Sacramento commands
 
-These commands operate on the existing branch and completed ignored run
-trees. The fairness, regression, aggregation, LaTeX generation, and Overleaf
-packaging commands do **not** train a model or launch ChampSim. They require
-only Python 3's standard library plus `zip` support; Sacramento does not need
-matplotlib, `pdflatex`, or another local TeX installation. Do not set `FORCE=1`
-unless a specific rerun has been reviewed and approved.
+- These commands operate on the existing branch and completed ignored run trees. The fairness, regression, aggregation, LaTeX generation, and Overleaf packaging commands do **not** train a model or launch ChampSim. They require only Python 3's standard library plus `zip` support; Sacramento does not need matplotlib, `pdflatex`, or another local TeX installation. Do not set `FORCE=1` unless a specific rerun has been reviewed and approved.
 
 ## 1. Switch to the existing branch
 
@@ -17,14 +12,13 @@ git pull --ff-only origin experiment/602-stride-live-inference
 git branch --show-current
 ```
 
-The last command must print:
+- The last command must print:
 
 ```text
 experiment/602-stride-live-inference
 ```
 
-Set absolute paths once. This avoids the empty-variable `/report` failure from
-an earlier shell session.
+- Set absolute paths once. This avoids the empty-variable `/report` failure from an earlier shell session.
 
 ```bash
 ROOT_DIR=$(pwd -P)
@@ -39,7 +33,7 @@ printf 'NEW_RUN_DIR=%s\n' "$NEW_RUN_DIR"
 
 ## 2. Locate the old default 20M run
 
-List candidates without changing them:
+- List candidates without changing them:
 
 ```bash
 find "$ROOT_DIR/formal_NN_training/experiments/602_offline_lstm_stride/runs" \
@@ -47,7 +41,7 @@ find "$ROOT_DIR/formal_NN_training/experiments/602_offline_lstm_stride/runs" \
   -name '602_offline_lstm_stride_compact_hurdle_v9_seed7' -print
 ```
 
-Set the exact old directory explicitly:
+- Set the exact old directory explicitly:
 
 ```bash
 OLD_RUN_DIR="$ROOT_DIR/formal_NN_training/experiments/602_offline_lstm_stride/runs/602_offline_lstm_stride_compact_hurdle_v9_seed7"
@@ -55,8 +49,7 @@ export OLD_RUN_DIR
 printf 'OLD_RUN_DIR=%s\nNEW_RUN_DIR=%s\n' "$OLD_RUN_DIR" "$NEW_RUN_DIR"
 ```
 
-Missing old files are allowed, but the regression validator will then report
-`historical-metric regression only` and will not claim exact artifact parity.
+- Missing old files are allowed, but the regression validator will then report `historical-metric regression only` and will not claim exact artifact parity.
 
 ## 3. Confirm the completed new sweep
 
@@ -73,7 +66,7 @@ test -s "$NEW_RUN_DIR/points/h16/i1m/seed7/offline/replay.log"
 test -s "$NEW_RUN_DIR/points/h16/i20m/seed7/offline/replay.log"
 ```
 
-These checks read completed artifacts only.
+- These checks read completed artifacts only.
 
 ## 4. Run the machine-readable fairness validator
 
@@ -93,11 +86,9 @@ jq -r '.points[] as $point | $point.checks[] |
   "$NEW_RUN_DIR/report/offline_fairness_report.json"
 ```
 
-The final `jq` command prints nothing on a complete PASS. The validator also
-prints each distinct failed/unavailable check name and its point count, so one
-shared counter-semantics problem is not mistaken for many scientific failures.
+- The final `jq` command prints nothing on a complete PASS. The validator also prints each distinct failed/unavailable check name and its point count, so one shared counter-semantics problem is not mistaken for many scientific failures.
 
-Generated analysis artifacts:
+- Generated analysis artifacts:
 
 ```text
 report/offline_fairness_report.json
@@ -105,13 +96,11 @@ report/offline_fairness_report.csv
 report/offline_fairness_report.tex
 ```
 
-The JSON contains a check row for every configured h8/h16 budget. It verifies
-that prefix-local class weights equal
-`decision_rows / (2 * prefix_label_frequency)`.
+- The JSON contains a check row for every configured h8/h16 budget. It verifies that prefix-local class weights equal `decision_rows / (2 * prefix_label_frequency)`.
 
 ## 5. Run the old-versus-new i20m regression validator
 
-The command accepts explicit old/new paths as required:
+- The command accepts explicit old/new paths as required:
 
 ```bash
 python3 "$EXP_DIR/validation/validate_20m_regression.py" \
@@ -124,11 +113,9 @@ jq '{status, mode, exact_artifact_parity_status, failures,
   "$NEW_RUN_DIR/report/regression_20m_report.json"
 ```
 
-Expected historical anchors are approximately h8 IPC 0.40924 and h16 IPC
-0.40994. The validator does not pass exact artifact parity from those IPC
-numbers alone.
+- Expected historical anchors are approximately h8 IPC 0.40924 and h16 IPC 0.40994. The validator does not pass exact artifact parity from those IPC numbers alone.
 
-Generated outputs:
+- Generated outputs:
 
 ```text
 report/regression_20m_report.json
@@ -147,7 +134,7 @@ python3 "$EXP_DIR/python/aggregate_offline_results.py" \
   --run-dir "$NEW_RUN_DIR"
 ```
 
-No live aggregate is needed for the primary offline conclusion.
+- No live aggregate is needed for the primary offline conclusion.
 
 ## 7. Generate the offline-primary analysis and LaTeX figures
 
@@ -159,7 +146,7 @@ python3 "$EXP_DIR/python/generate_overleaf_figures.py" \
   --run-dir "$NEW_RUN_DIR"
 ```
 
-Inspect the same-hidden-size conclusion:
+- Inspect the same-hidden-size conclusion:
 
 ```bash
 jq '{scope, comparison_rule,
@@ -173,7 +160,7 @@ find "$NEW_RUN_DIR/report" -maxdepth 1 \
   -type f -name 'generated_figure*.tex' -print | sort
 ```
 
-The three required primary figure sources are:
+- The three required primary figure sources are:
 
 ```text
 generated_figure1_offline_ipc.tex
@@ -181,14 +168,11 @@ generated_figure2_same_h_differences.tex
 generated_figure3_training_supervision.tex
 ```
 
-They contain measured PGFPlots coordinates and are rendered by Overleaf. The
-existing older PNG plots in `plots/` or `report_plots/` are not read, deleted,
-or overwritten.
+- They contain measured PGFPlots coordinates and are rendered by Overleaf. The existing older PNG plots in `plots/` or `report_plots/` are not read, deleted, or overwritten.
 
 ## 8. Package the redesigned LaTeX for Overleaf
 
-Do not run `plot_results.py`, install matplotlib, or run `pdflatex` on
-Sacramento. Package only `main.tex` plus generated `.tex` inputs:
+- Do not run `plot_results.py`, install matplotlib, or run `pdflatex` on Sacramento. Package only `main.tex` plus generated `.tex` inputs:
 
 ```bash
 RUN_DIR="$NEW_RUN_DIR" FORCE=1 \
@@ -198,22 +182,13 @@ ls -lh "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 unzip -l "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 ```
 
-The ZIP must contain 11 files: `main.tex` and ten `report/*.tex` files. It must
-not contain PNG/PDF files, raw JSON/CSV, logs, streams, replay lists,
-checkpoints, or binaries. Upload the ZIP as a new Overleaf project and keep
-`main.tex` as the main document. Overleaf supplies PGFPlots and builds the PDF.
+- The ZIP must contain 11 files: `main.tex` and ten `report/*.tex` files. It must not contain PNG/PDF files, raw JSON/CSV, logs, streams, replay lists, checkpoints, or binaries. Upload the ZIP as a new Overleaf project and keep `main.tex` as the main document. Overleaf supplies PGFPlots and builds the PDF.
 
 ## 9. Run the complete live curve in parallel and build the Overleaf ZIP
 
-This is the recommended command for the requested final deliverable. One outer
-`nohup` workflow launches all exported h8 points and all exported h16 points as
-two disjoint concurrent workers. It waits for both, validates that every
-exported checkpoint has a real live log, aggregates the complete live curve,
-regenerates the analysis/PGFPlots LaTeX, and packages the Overleaf ZIP.
+- This is the recommended command for the requested final deliverable. One outer `nohup` workflow launches all exported h8 points and all exported h16 points as two disjoint concurrent workers. It waits for both, validates that every exported checkpoint has a real live log, aggregates the complete live curve, regenerates the analysis/PGFPlots LaTeX, and packages the Overleaf ZIP.
 
-It never trains, never launches offline ChampSim, never overwrites a valid live
-log, and never interpolates or smooths a missing point. Existing completed live
-points are skipped. Do not start a second copy of this workflow.
+- It never trains, never launches offline ChampSim, never overwrites a valid live log, and never interpolates or smooths a missing point. Existing completed live points are skipped. Do not start a second copy of this workflow.
 
 ```bash
 mkdir -p "$NEW_RUN_DIR/logs"
@@ -234,18 +209,16 @@ printf 'workflow PID=%s\n' \
 
 ## 10. Monitor and verify the complete workflow
 
-After reconnecting, reset the absolute paths with steps 1-2, then run:
+- After reconnecting, reset the absolute paths with steps 1-2, then run:
 
 ```bash
 ps -fp "$(cat "$NEW_RUN_DIR/logs/complete_live_overleaf.pid")" || true
 tail -n 80 -f "$NEW_RUN_DIR/logs/complete_live_overleaf.nohup.log"
 ```
 
-`Ctrl-C` stops only `tail`; the nohup workflow continues. The outer log prints
-the job directory containing separate `h8.log`, `h16.log`, PID, and exit-status
-files. Do not aggregate or package manually while the workflow PID is alive.
+- `Ctrl-C` stops only `tail`; the nohup workflow continues. The outer log prints the job directory containing separate `h8.log`, `h16.log`, PID, and exit-status files. Do not aggregate or package manually while the workflow PID is alive.
 
-After it finishes, require all exported live points and the ZIP:
+- After it finishes, require all exported live points and the ZIP:
 
 ```bash
 python3 "$EXP_DIR/validation/validate_complete_live.py" \
@@ -259,14 +232,11 @@ test -s "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 unzip -l "$NEW_RUN_DIR/602_stride_offline_sufficiency_overleaf.zip"
 ```
 
-The expected count is derived from existing exported checkpoints. With the
-current sweep it should be 28 total: 14 h8 plus 14 h16. The ZIP contains only
-`main.tex` and ten generated `report/*.tex` inputs. Live results remain a
-secondary section and cannot alter the primary offline conclusion.
+- The expected count is derived from existing exported checkpoints. With the current sweep it should be 28 total: 14 h8 plus 14 h16. The ZIP contains only `main.tex` and ten generated `report/*.tex` inputs. Live results remain a secondary section and cannot alter the primary offline conclusion.
 
 ## 11. Copy the Overleaf ZIP to the Mac Documents directory
 
-Run from the Mac Terminal, not Sacramento:
+- Run from the Mac Terminal, not Sacramento:
 
 ```bash
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % mkdir -p ~/Documents/cache_arch_stride_sufficiency
@@ -274,8 +244,7 @@ Run from the Mac Terminal, not Sacramento:
 (base) angelawoo@Angelas-MacBook-Pro-5 ~ % unzip -l ~/Documents/cache_arch_stride_sufficiency/602_stride_offline_sufficiency_overleaf.zip
 ```
 
-Upload that ZIP to Overleaf. The PDF is intentionally built there, not on
-Sacramento.
+- Upload that ZIP to Overleaf. The PDF is intentionally built there, not on Sacramento.
 
 ## 12. Check ignored/generated artifacts
 
@@ -311,7 +280,7 @@ git diff -- \
   "$EXP_REL/linux/package_overleaf_report.sh"
 ```
 
-Also run source tests:
+- Also run source tests:
 
 ```bash
 python3 -m unittest discover -s "$EXP_DIR/validation" -p 'test_*.py'
@@ -322,7 +291,7 @@ bash -n "$EXP_DIR/linux/package_overleaf_report.sh"
 
 ## 14. Source-only commit and push to the same branch
 
-Do not use `git add .`.
+- Do not use `git add .`.
 
 ```bash
 cd "$ROOT_DIR"
@@ -356,4 +325,4 @@ git commit -m "Make 602 prefix sufficiency offline-keyed-replay primary"
 git push origin experiment/602-stride-live-inference
 ```
 
-Do not merge to `main` in this workflow.
+- Do not merge to `main` in this workflow.

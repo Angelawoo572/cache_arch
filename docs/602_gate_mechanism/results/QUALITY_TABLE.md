@@ -1,4 +1,4 @@
-Observed LOAD usefulness only. Accuracy = (timely_LOAD + late_LOAD) / tracked L2-target PQ insertions; timely coverage = timely_LOAD / matched NoPF L2 LOAD misses; timeliness = timely_LOAD / (timely_LOAD + late_LOAD). Pending and resident-unused remain right-censored. SPP rows describe its L2-target subset; LLC-only accuracy/timeliness are NA. Means/ranges retain individual training seeds; they are not confidence intervals.
+- Observed LOAD usefulness only. Accuracy = (timely_LOAD + late_LOAD) / tracked L2-target PQ insertions; timely coverage = timely_LOAD / matched NoPF L2 LOAD misses; timeliness = timely_LOAD / (timely_LOAD + late_LOAD). Pending and resident-unused remain right-censored. SPP rows describe its L2-target subset; LLC-only accuracy/timeliness are NA. Means/ranges retain individual training seeds; they are not confidence intervals.
 
 | ROI | cap/M | arm | MAC | filter | timely coverage (%) | observed LOAD accuracy (%) | LOAD timeliness (%) |
 |---|---:|---|---:|---:|---|---|---|
