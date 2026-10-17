@@ -1,0 +1,47 @@
+{
+  "source": "full_validation_only; no test fitting",
+  "cap_source": "archived_validation_NoPF",
+  "common_cap": 16144,
+  "templates": {
+    "ampm_h16": {
+      "modal_count": 2,
+      "slots": [
+        [
+          9,
+          2
+        ],
+        [
+          8,
+          2
+        ]
+      ],
+      "source_run": "validation_r0_ampm_h16_student_full_cap0"
+    },
+    "spp_h16": {
+      "modal_count": 5,
+      "slots": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          5,
+          4
+        ]
+      ],
+      "source_run": "validation_r0_spp_h16_student_full_cap0"
+    }
+  }
+}

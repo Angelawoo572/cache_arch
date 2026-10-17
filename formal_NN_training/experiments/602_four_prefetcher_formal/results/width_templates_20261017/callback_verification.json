@@ -1,0 +1,170 @@
+[
+  {
+    "run_id": "test_r0_ampm_h16_student_full_cap0",
+    "available": true,
+    "path": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/runs/test_r0_ampm_h16_student_full_cap0/callbacks.csv.gz",
+    "rows": 404238,
+    "demand_rows": 404238,
+    "fill_rows": 0,
+    "recorded_prefix_valid": true,
+    "complete_log": true,
+    "expected_updates": 404238,
+    "missing_complete_rows": 0,
+    "malformed_rows": []
+  },
+  {
+    "run_id": "test_r0_ampm_h16_student_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_ampm_h16_template_full_cap0",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_ampm_h16_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_ampm_h8_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_spp_h16_student_full_cap0",
+    "available": true,
+    "path": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/runs/test_r0_spp_h16_student_full_cap0/callbacks.csv.gz",
+    "rows": 611571,
+    "demand_rows": 404238,
+    "fill_rows": 207333,
+    "recorded_prefix_valid": true,
+    "complete_log": true,
+    "expected_updates": 611571,
+    "missing_complete_rows": 0,
+    "malformed_rows": []
+  },
+  {
+    "run_id": "test_r0_spp_h16_student_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_spp_h16_template_full_cap0",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_spp_h16_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_spp_h8_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r0_streamer_h8_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_ampm_h16_student_full_cap0",
+    "available": true,
+    "path": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/runs/test_r1_ampm_h16_student_full_cap0/callbacks.csv.gz",
+    "rows": 532858,
+    "demand_rows": 532858,
+    "fill_rows": 0,
+    "recorded_prefix_valid": true,
+    "complete_log": true,
+    "expected_updates": 532858,
+    "missing_complete_rows": 0,
+    "malformed_rows": []
+  },
+  {
+    "run_id": "test_r1_ampm_h16_student_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_ampm_h16_template_full_cap0",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_ampm_h16_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_ampm_h8_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_spp_h16_student_full_cap0",
+    "available": true,
+    "path": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/runs/test_r1_spp_h16_student_full_cap0/callbacks.csv.gz",
+    "rows": 900031,
+    "demand_rows": 532855,
+    "fill_rows": 367176,
+    "recorded_prefix_valid": true,
+    "complete_log": true,
+    "expected_updates": 900031,
+    "missing_complete_rows": 0,
+    "malformed_rows": []
+  },
+  {
+    "run_id": "test_r1_spp_h16_student_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_spp_h16_template_full_cap0",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_spp_h16_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_spp_h8_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "test_r1_streamer_h8_template_full_cap16144",
+    "available": false,
+    "required": false
+  },
+  {
+    "run_id": "validation_r0_ampm_h16_student_full_cap0",
+    "available": true,
+    "path": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/runs/validation_r0_ampm_h16_student_full_cap0/callbacks.csv.gz",
+    "rows": 80724,
+    "demand_rows": 80724,
+    "fill_rows": 0,
+    "recorded_prefix_valid": true,
+    "complete_log": true,
+    "expected_updates": 80724,
+    "missing_complete_rows": 0,
+    "malformed_rows": []
+  },
+  {
+    "run_id": "validation_r0_spp_h16_student_full_cap0",
+    "available": true,
+    "path": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/runs/validation_r0_spp_h16_student_full_cap0/callbacks.csv.gz",
+    "rows": 121521,
+    "demand_rows": 80724,
+    "fill_rows": 40797,
+    "recorded_prefix_valid": true,
+    "complete_log": true,
+    "expected_updates": 121521,
+    "missing_complete_rows": 0,
+    "malformed_rows": []
+  }
+]

@@ -1,0 +1,38 @@
+{
+  "status": "PASS",
+  "new_complete_runs": 24,
+  "reference_complete_runs": 64,
+  "figures": [
+    "widths_roi0_cap0",
+    "widths_roi0_cap16144",
+    "widths_roi1_cap0",
+    "widths_roi1_cap16144",
+    "h8_template_cap",
+    "width_cost",
+    "startup_ampm_roi0",
+    "startup_spp_roi0",
+    "startup_ampm_roi1",
+    "startup_spp_roi1",
+    "distributions_ampm_roi0",
+    "phases_ampm_roi0",
+    "distributions_spp_roi0",
+    "phases_spp_roi0",
+    "distributions_ampm_roi1",
+    "phases_ampm_roi1",
+    "distributions_spp_roi1",
+    "phases_spp_roi1"
+  ],
+  "no_prefix_extrapolation": true,
+  "raw_inputs_modified": false,
+  "source_reference": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2/analysis_final",
+  "limits": [
+    "Existing seed7 only; H16 is a width intervention, not a second seed.",
+    "Full original protocols and origins are retained; only explicitly compatible live controls are joined.",
+    "Same configured Sacramento and exact actual simulator binary; historical per-run hardware telemetry absent.",
+    "No replay/offline IPC enters live comparison figures.",
+    "Measured IPC is MAC0; counted-work MAC4 ratios do not predict finite IPC.",
+    "Templates were fit on full own-model validation only; same ceiling is not equal actual traffic.",
+    "Template failure is not direct evidence of stateful novelty; negative/mixed outcomes retained.",
+    "Full distributions and actual saved startup coordinates retained; no first crossing history claim."
+  ]
+}

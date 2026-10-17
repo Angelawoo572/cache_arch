@@ -1,5 +1,7 @@
 # 602 paper story：先验证可部署语义，再检验收益机制
 
+本页保留原64行 H8 协议故事。后续真实 H16 与 capped H8 模板的24个完整 run 已完成，见[新的 concise paper story](../../../../docs/602_width_templates/PAPER_STORY.md)与[正式结果](../results/width_templates_20261017/README.md)；不要把两个协议的行重新标记为同一轮。
+
 **现有 teacher-action student 可以改善 NoPF，但本轮不支持普遍优于 teacher，也不支持把主要收益归因于复杂 learned payload。** 研究对象是保留的真实 seed7 checkpoint；不是新算法、在线训练或四模型等训练预算排名。
 
 证据来自新协议的 **64 个完整运行**：8 validation、两个各25M的正式 ROI（每次5M缓存 warmup）。25–50M 是已观察区间的复现，75–100M 是未来区间。三个新 student 使用各自真实权重、全局 h/c 和完整 decoder；SPP 接收实际 demand/raw-fill 回调并保留预测目标。Stride 保留原有 per-PC 部署。代码一致性与测量核对先于正式执行。

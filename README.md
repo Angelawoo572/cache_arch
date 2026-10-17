@@ -1,10 +1,12 @@
 # cache_arch
 
-A matched-input, trace-driven study of offline LSTM cache prefetchers in
-ChampSim for `602.gcc_s-734B`, evaluated against Stride, Streamer, AMPM, and
-SPP.
+Teacher-action LSTM prefetcher studies in ChampSim for `602.gcc_s-734B`: original offline training and keyed replay, followed by frozen stateful C++ live inference. Stride, Streamer, AMPM and SPP keep their own model and measurement contracts. Measured MAC0 IPC and earlier finite-engine experiments remain separate protocols.
 
 ## Start here
+
+- [H16 recovery and capped H8-template supplement](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md)
+- [Canonical cache layout and recovery](docs/602_width_templates/LAYOUT_AND_RECOVERY.md)
+- [Corrections to retained replay slides](docs/602_width_templates/SLIDE_ERRATA.md)
 
 - [2026-10-16 formal current-line / gate / payload results](docs/602_gate_mechanism/REPORT.md)
 - [Full-ROI mechanism run and recovery guide](formal_NN_training/experiments/602_gate_mechanism/RUN_GUIDE.md)
@@ -53,7 +55,7 @@ Each experiment directory is self-contained: begin with its README, then use
 its track-specific collection, training, offline inference, replay, analysis,
 contract, and report files.
 
-## Comparison boundary
+## Historical replay comparison boundary
 
 For every primary comparison, the offline conventional prefetcher and offline
 LSTM consume the same chronological source-visible input stream and their

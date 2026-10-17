@@ -1,0 +1,13 @@
+# STREAMER width/template formal subset
+
+Complete policy rows plus three exact matched NoPF references: **21 rows**. Original protocols and result identities are retained; references are not new runs.
+
+[Aggregate findings](../../../602_four_prefetcher_formal/results/width_templates_20261017/FINDINGS.md), [one-page story](../../../602_four_prefetcher_formal/results/width_templates_20261017/PAPER_STORY.md), [all88 labeled rows](../../../602_four_prefetcher_formal/results/width_templates_20261017/per_run.csv), [strict audit](../../../602_four_prefetcher_formal/results/width_templates_20261017/audit.json), [method](../../../602_four_prefetcher_formal/results/width_templates_20261017/method.svg).
+
+[This policy + matched NoPF](per_run.csv), [paired contrasts](paired_comparisons.csv), [entire-ROI action histograms](action_histograms_full_roi.csv), [phase histograms](action_histograms.csv), [classified request outcomes](classified_requests.csv), [actual startup snapshots](progress_snapshots.csv), [phase progress](phase_progress.csv), [storage/cost](storage_cost.csv).
+
+[Retained real H8 checkpoint](../../models/original_checkpoint.pt) is the source model asset; no online training or new seed is implied.
+
+CSV profiles join the unmodified original64-source tables and supplemental24-source tables, filter actual run_ids, and add protocol/origin/result labels plus source_table. This is a transparent subset, not a new measurement or an average. All rows use actual complete ROIs; no prefixes are extrapolated.
+
+MAC0 synchronous inference only. Same ceiling does not imply equal realized requests/DRAM. L2/LLC target cohorts remain separate; unused is not pollution. SPP native keeps prefetch-fill FILTER feedback while the NN sees all raw L2 fills. Exact actual binary/configured Sacramento controls are reused; independent historical hardware telemetry is absent.

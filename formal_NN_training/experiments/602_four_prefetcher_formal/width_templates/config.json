@@ -1,0 +1,45 @@
+{
+  "protocol": "four602_width_templates_20261017_v1",
+  "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism",
+  "raw": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017",
+  "reference_raw": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2",
+  "reference_source": "/home/qianruw/cache/formal_study/archive/20261017/source_v2",
+  "python": "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+  "model_root": "/home/qianruw/cache/formal_NN_training/experiments",
+  "trace": "/home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+  "base": "838be17e",
+  "seed": 7,
+  "jobs": 8,
+  "macs": 0,
+  "common_cap": 16144,
+  "page_policy": "cross_page",
+  "validation_records": [
+    20000000,
+    25000000
+  ],
+  "test_records": [
+    [
+      25000000,
+      50000000
+    ],
+    [
+      75000000,
+      100000000
+    ]
+  ],
+  "warmup_instructions": 5000000,
+  "phase_instructions": 5000000,
+  "models": {
+    "ampm": {
+      "hidden_size": 16,
+      "parameters": 6653,
+      "checkpoint": "602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h16/model.pt"
+    },
+    "spp": {
+      "hidden_size": 16,
+      "parameters": 6609,
+      "checkpoint": "602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h16/model.pt"
+    }
+  },
+  "notes": "Independent supplemental protocol; frozen retained H16 checkpoints, no retraining/pilot/605. H16 templates fit only H16 full-validation raw output; cap16144 fixed from archived H8 protocol. H8 template-cap rows bind archived H8 template. Same actual binary/compiled-source; old references remain original protocol with explicit compatible-control manifest."
+}

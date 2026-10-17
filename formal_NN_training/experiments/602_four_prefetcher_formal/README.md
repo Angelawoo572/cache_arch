@@ -25,6 +25,10 @@ are unchanged. It reruns the full 64-row matrix under a separate immutable build
 certificates and output root. The launcher obtains raw/runtime/analysis/lock
 paths from config and never writes new results into the old v1 root.
 
+## Supplemental H16 and capped-template round
+
+The new active protocol is [width_templates/config.json](width_templates/config.json), with its own validation, raw root, width-specific exports, certificates and result tables. It recovers the original AMPM/SPP H16 seed7 checkpoints and adds capped H8 frozen templates. The H8 protocol and archived v1/v2 metadata remain independent. See [canonical layout and recovery](../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md). Canonical local checkout: `cache/formal_study/work/cache_gate_mechanism`; Sacramento uses the same relative location. Canonical prior raw root: `cache/formal_study/archive/20261017/raw_v2`. Old absolute paths below remain compatibility aliases for recovery.
+
 ## Completed results
 
 The full v2 matrix is complete: 64 full rows passed the analysis and strict

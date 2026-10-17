@@ -1,5 +1,10 @@
 # Frozen Streamer student: real checkpoint to live inference
 
+## Completed width/template supplement
+
+The [new complete results](results/width_templates_20261017/README.md) preserve this route's own frozen model and explicitly labeled compatible references. See the [three-question report](../../../docs/602_width_templates/REPORT.md) and [new run/recovery guide](../602_four_prefetcher_formal/width_templates/README.md).
+
+
 ## Retained real weights and current formal output
 
 This sibling carries the real small [original checkpoint](models/original_checkpoint.pt)

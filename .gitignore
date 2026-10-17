@@ -224,3 +224,9 @@ formal_NN_training/experiments/602_lstm_stride_live_inference/**/*.tar.gz
 **/output_transfer_parts/
 formal_NN_training/experiments/**/colab_input/
 formal_NN_training/experiments/**/colab_output/
+
+# Retained original seed7 H16 models for the width/template study (about 31 KB each).
+!formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/
+!formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/
+!formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/original_checkpoint.pt

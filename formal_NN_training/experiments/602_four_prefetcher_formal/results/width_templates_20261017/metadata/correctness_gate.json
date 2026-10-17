@@ -1,0 +1,49 @@
+{
+  "status": "PASS",
+  "protocol": "four602_width_templates_20261017_v1",
+  "build_id": "build_1792211655617683046",
+  "reports": {
+    "ampm": {
+      "status": "PASS",
+      "policy": "ampm",
+      "hidden_size": 16,
+      "seed": 7,
+      "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h16/model.pt",
+      "model": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/model.bin",
+      "source_stream": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.guard_stream.csv.gz",
+      "real_contiguous_callbacks": 4096,
+      "boundary_callbacks": 8,
+      "callbacks": 4104,
+      "actions": 8207,
+      "exact_counts_actions": true,
+      "all_hidden_cell_compared": true,
+      "max_hidden_abs_error": 1.7930566409418702e-07,
+      "max_cell_abs_error": 8.6196289057483e-06,
+      "max_coordinate_abs_error": 4.817254639633006e-07,
+      "absolute_tolerance": 2e-05,
+      "reset_verified": true,
+      "actual_operation_counts_verified": true,
+      "torch_mkldnn": false,
+      "scope": "causal correctness fixture and address boundaries only, no simulator pilot, no training"
+    },
+    "spp": {
+      "status": "PASS",
+      "policy": "spp",
+      "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h16/model.pt",
+      "model": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/correctness/spp_h16/model.bin",
+      "sequence_source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_input/602.gcc_s-734B.spp.train_stream.csv.gz",
+      "callback_count": 4112,
+      "demand_callbacks": 2349,
+      "fill_callbacks": 1763,
+      "actions_compared": 11741,
+      "max_abs_hidden_error": 1.7909191896148258e-07,
+      "max_abs_cell_error": 4.293009033595752e-06,
+      "absolute_tolerance": 2e-05,
+      "exact_action_sequence_equal": true,
+      "mismatches": [],
+      "scope": "complete states and all ordered address/fill actions for a chronological correctness fixture plus uint64 boundary inputs; not an IPC sample"
+    }
+  },
+  "probe": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/correctness/probe",
+  "scope": "actual compiled generic runtime; real H16 checkpoint states/counts/all actions on causal correctness fixtures and boundaries; no simulator pilot"
+}

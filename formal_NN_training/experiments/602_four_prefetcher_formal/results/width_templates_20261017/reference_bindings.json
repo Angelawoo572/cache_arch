@@ -1,0 +1,1632 @@
+{
+  "protocol": "four602_width_templates_20261017_v1",
+  "reference_protocol": "four602_frozen_live_20261017_v2",
+  "common_controls": {
+    "trace": "/home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+    "seed": 7,
+    "macs": 0,
+    "page_policy": "cross_page",
+    "validation_records": [
+      20000000,
+      25000000
+    ],
+    "test_records": [
+      [
+        25000000,
+        50000000
+      ],
+      [
+        75000000,
+        100000000
+      ]
+    ],
+    "warmup_instructions": 5000000,
+    "phase_instructions": 5000000,
+    "common_cap": 16144
+  },
+  "actual_build_id": "build_1792211655617683046",
+  "actual_binary_byte_equal": true,
+  "references": [
+    {
+      "old_run_id": "test_r0_ampm_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_ampm_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_ampm_student_fixed_payload_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_fixed_payload_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "fixed_payload",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_ampm_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_ampm_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_ampm_student_reset_state_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_reset_state_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "reset_state",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_ampm_template_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_template_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "template",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_none_none_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_none_none_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "none",
+        "method": "none",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_student_fixed_payload_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_fixed_payload_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "student",
+        "mode": "fixed_payload",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_student_reset_state_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_reset_state_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "student",
+        "mode": "reset_state",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_spp_template_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_template_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "spp",
+        "method": "template",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_student_fixed_payload_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_fixed_payload_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "fixed_payload",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_student_reset_state_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_reset_state_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "reset_state",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_streamer_template_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_template_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "template",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_stride_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "stride",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_stride_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "stride",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_stride_stride_forward1_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_forward1_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "stride",
+        "method": "stride_forward1",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_stride_stride_forward2_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_forward2_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "stride",
+        "method": "stride_forward2",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_stride_stride_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "stride",
+        "method": "stride_student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r0_stride_stride_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 0,
+        "policy": "stride",
+        "method": "stride_student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 20000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          25000000,
+          50000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_student_fixed_payload_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_fixed_payload_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "fixed_payload",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_student_reset_state_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_reset_state_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "reset_state",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_ampm_template_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_template_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "ampm",
+        "method": "template",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_none_none_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_none_none_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "none",
+        "method": "none",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_student_fixed_payload_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_fixed_payload_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "student",
+        "mode": "fixed_payload",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_student_reset_state_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_reset_state_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "student",
+        "mode": "reset_state",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_spp_template_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_template_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "spp",
+        "method": "template",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_student_fixed_payload_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_fixed_payload_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "fixed_payload",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_student_reset_state_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_reset_state_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "reset_state",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_streamer_template_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_template_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "streamer",
+        "method": "template",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_stride_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "stride",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_stride_native_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_native_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "stride",
+        "method": "native",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_stride_stride_forward1_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_forward1_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "stride",
+        "method": "stride_forward1",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_stride_stride_forward2_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_forward2_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "stride",
+        "method": "stride_forward2",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_stride_stride_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "stride",
+        "method": "stride_student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "test_r1_stride_stride_student_full_cap16144",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_student_full_cap16144",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "test",
+        "roi": 1,
+        "policy": "stride",
+        "method": "stride_student",
+        "mode": "full",
+        "budget": 16144,
+        "seed": 7,
+        "skip": 70000000,
+        "warmup": 5000000,
+        "instructions": 25000000,
+        "measurement_records": [
+          75000000,
+          100000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_ampm_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_ampm_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_ampm_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_ampm_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "ampm",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_none_none_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_none_none_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "none",
+        "method": "none",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_spp_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_spp_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "spp",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_spp_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_spp_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "spp",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_streamer_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_streamer_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_streamer_student_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_streamer_student_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "streamer",
+        "method": "student",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    },
+    {
+      "old_run_id": "validation_r0_stride_native_full_cap0",
+      "raw_run_directory": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_stride_native_full_cap0",
+      "original_protocol": "four602_frozen_live_20261017_v2",
+      "fields": {
+        "stage": "validation",
+        "roi": 0,
+        "policy": "stride",
+        "method": "native",
+        "mode": "full",
+        "budget": 0,
+        "seed": 7,
+        "skip": 15000000,
+        "warmup": 5000000,
+        "instructions": 5000000,
+        "measurement_records": [
+          20000000,
+          25000000
+        ],
+        "page_policy": "cross_page",
+        "build_id": "build_1792211655617683046"
+      },
+      "compatibility": "same actual binary and common machine/trace/cache/ROI/page/native-knob controls; new supplemental protocol remains distinct",
+      "machine_evidence": "same configured Sacramento host; old per-run records have no separate hardware identity telemetry"
+    }
+  ],
+  "scope": "explicit reference join only; reference rows not relabeled as new runs"
+}

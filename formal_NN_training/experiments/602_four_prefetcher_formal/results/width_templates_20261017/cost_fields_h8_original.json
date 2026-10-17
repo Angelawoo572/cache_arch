@@ -1,0 +1,325 @@
+{
+  "schema": "four602_actual_source_memory_cost_v1",
+  "status": "verified",
+  "build_headers": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/inc",
+  "compiler": "server c++ -std=c++11 -O3 -ffp-contract=off; 64-bit libstdc++ ABI",
+  "byte_interpretation": "sizeof includes descriptors/padding; allocation counters are requested C++ heap payload bytes, excluding malloc metadata, probe tracking headers and automatic stack frames; not RSS, synthesized hardware area, or complete deployment SRAM",
+  "nn_models": {
+    "ampm": {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 2821,
+        "fp32_weight_bytes": 11284,
+        "global_hc_bytes": 64,
+        "hidden_size": 8,
+        "features": 64,
+        "fill_classes": 0,
+        "weight_plus_global_hc_payload_bytes": 11348,
+        "payload_qualifier": "FP32 weights plus one h/c pair only; excludes decoder scratch/output/control, not a complete deployment total"
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 13036,
+        "object_plus_persistent_requested_bytes": 13204,
+        "constructor_peak_requested_bytes": 22516,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 628,
+        "max_returned_result_requested_bytes": 128,
+        "max_actions_vector_capacity": 2,
+        "inference_allocation_calls": 69816,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4096,
+        "demand_callbacks": 4096,
+        "fill_callbacks": 0,
+        "actions": 4142,
+        "max_count": 2,
+        "macs": 11024400,
+        "nonlinears": 320822,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 596,
+          "returned_result_requested_bytes": 96,
+          "count": 1,
+          "macs": 2688,
+          "nonlinears": 78
+        },
+        "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.guard_stream.csv.gz",
+        "rows": [
+          0,
+          4096
+        ]
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "model_path": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/ampm/model.bin"
+    },
+    "streamer": {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 2821,
+        "fp32_weight_bytes": 11284,
+        "global_hc_bytes": 64,
+        "hidden_size": 8,
+        "features": 64,
+        "fill_classes": 0,
+        "weight_plus_global_hc_payload_bytes": 11348,
+        "payload_qualifier": "FP32 weights plus one h/c pair only; excludes decoder scratch/output/control, not a complete deployment total"
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 13036,
+        "object_plus_persistent_requested_bytes": 13204,
+        "constructor_peak_requested_bytes": 22516,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 628,
+        "max_returned_result_requested_bytes": 128,
+        "max_actions_vector_capacity": 2,
+        "inference_allocation_calls": 86008,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4096,
+        "demand_callbacks": 4096,
+        "fill_callbacks": 0,
+        "actions": 8190,
+        "max_count": 2,
+        "macs": 12287376,
+        "nonlinears": 438214,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 596,
+          "returned_result_requested_bytes": 96,
+          "count": 1,
+          "macs": 2688,
+          "nonlinears": 78
+        },
+        "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.train_stream.csv.gz",
+        "rows": [
+          0,
+          4096
+        ]
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "model_path": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/streamer/model.bin"
+    },
+    "spp": {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 2865,
+        "fp32_weight_bytes": 11460,
+        "global_hc_bytes": 64,
+        "hidden_size": 8,
+        "features": 65,
+        "fill_classes": 2,
+        "weight_plus_global_hc_payload_bytes": 11524,
+        "payload_qualifier": "FP32 weights plus one h/c pair only; excludes decoder scratch/output/control, not a complete deployment total"
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 13448,
+        "object_plus_persistent_requested_bytes": 13616,
+        "constructor_peak_requested_bytes": 23116,
+        "constructor_allocation_calls": 123,
+        "max_infer_incremental_peak_requested_bytes": 924,
+        "max_returned_result_requested_bytes": 328,
+        "max_actions_vector_capacity": 8,
+        "inference_allocation_calls": 104143,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4096,
+        "demand_callbacks": 2341,
+        "fill_callbacks": 1755,
+        "actions": 11700,
+        "max_count": 5,
+        "macs": 14023640,
+        "nonlinears": 505481,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 732,
+          "returned_result_requested_bytes": 200,
+          "count": 3,
+          "macs": 3488,
+          "nonlinears": 128
+        },
+        "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_input/602.gcc_s-734B.spp.train_stream.csv.gz",
+        "rows": [
+          0,
+          4096
+        ]
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "model_path": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/spp/model.bin"
+    }
+  },
+  "native": {
+    "streamer": {
+      "capacity": 64,
+      "declared_payload_bits_per_tracker": 136,
+      "declared_payload_bytes_at_capacity": 1088,
+      "cpp_tracker_bytes": 24,
+      "known_object_entries_pointer_bytes_at_capacity_lower_bound": 2248,
+      "field_inventory": {
+        "page": "uint64_t",
+        "last_offset": "uint32_t",
+        "last_dir": "int32_t",
+        "conf": "uint8_t"
+      },
+      "qualifier": "source-width fields; deque blocks/map allocation and allocator overhead not fully measured; class sizeof includes diagnostic counters/base object"
+    },
+    "ampm": {
+      "capacity": 64,
+      "bitmap_bits": 64,
+      "declared_payload_bytes_per_page": 16,
+      "declared_payload_bytes_at_capacity": 1024,
+      "cpp_page_entry_bytes": 16,
+      "known_object_entries_pointer_bytes_at_capacity_lower_bound": 2856,
+      "prefetch_buffer_enabled": false,
+      "prefetch_buffer_configured_capacity": 256,
+      "field_inventory": {
+        "page_id": "uint64_t",
+        "bitmap": "std::bitset<64>"
+      },
+      "qualifier": "disabled optional request buffer is not a 256-entry architectural allocation; empty std::deque may still allocate in host implementation; constructor allocations not measured"
+    },
+    "spp": {
+      "signature_entries": 256,
+      "pattern_sets": 512,
+      "pattern_ways": 4,
+      "filter_entries": 1024,
+      "ghr_entries": 8,
+      "cpp_inline_helper_bytes": 33184,
+      "cpp_inline_components": {
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160
+      },
+      "declared_source_width_payload_bytes": {
+        "signature_table": 4352,
+        "pattern_table": 18432,
+        "prefetch_filter": 10240,
+        "global_register": 160
+      },
+      "qualifier": "helper arrays inline in SPP_dev2; native histograms are diagnostics and dynamically unbounded host allocations, excluded from deployment claims; sizeof SPP_dev2 retains their empty descriptors"
+    }
+  },
+  "cost_model": {
+    "encoder_macs": "4*H*(F+H) for every callback",
+    "encoder_nonlinears": "5*H for every callback",
+    "poisson_demand_macs": "H count + (H*H initial if K>0) + K*(3*M*H + 3*H*(1+H))",
+    "poisson_demand_nonlinears": "1 count softplus + (H initial if K>0) + K*(M scale-softplus + 1 delta-expm1 + 3*H GRU)",
+    "spp_demand_macs": "2*H emit; if emit positive add H count; then K*(3*M*H + 2*H fill + 3*H*(3+H)); no initial affine",
+    "spp_demand_nonlinears": "if emit positive add 1 count-exp; then K*(M scale-softplus + 1 delta-expm1 + 3*H GRU)",
+    "spp_fill": "encoder only; no count/emit/delta/fill head or decoder",
+    "mac_definition": "dense FP32 multiply-accumulate pairs; bias additions, argmax, bit extraction, queue/control work excluded",
+    "nonlinear_definition": "number of primitive sigmoid/tanh/softplus/exp/expm1 evaluations, not calibrated cycles",
+    "measured_runtime": "synchronous MAC0: no modeled service delay, resource queue, memory bandwidth, weight transfer, nonlinear unit throughput or hardware energy",
+    "weight_traffic": "weights resident in host vectors; no simulated weight DRAM traffic; 4*MAC is not measured weight traffic and omits biases/reuse/cache behavior",
+    "raw_payload": "full K/delta/fill decoder runs before external page/current/request gates or fixed-payload replacement; these gates do not reduce counted inference operations"
+  },
+  "exclusions": [
+    "outer Four602 adapter object/control/template allocation (scalar-runtime scope only)",
+    "measurement observers and counters",
+    "input fixture/raw logs",
+    "automatic stack frames/scalar register spills",
+    "C-library malloc internal storage",
+    "allocator metadata/alignment gaps/tracking headers",
+    "native histogram dynamic memory"
+  ],
+  "scope": "persistent scalar runtime tracking captures ordinary new/new[] map nodes/string/vector allocations; direct malloc internals and baseline constructor heaps are not claimed complete. Peak scratch is observed for the listed 4096-callback correctness fixture, not an all-input upper bound. Global NN state payload is exactly 64B for H8; host allocation overhead is reported separately.",
+  "formal_build": {
+    "protocol": "four602_frozen_live_20261017_v2",
+    "build_id": "build_1792211655617683046",
+    "binary": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/bin/perceptron-no-four602-no-ship-1core",
+    "binary_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/binary_snapshot",
+    "simulator": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator",
+    "source_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/source_snapshot",
+    "compiled_source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/compiled_source",
+    "compiled_source_files": 100,
+    "compiled_source_byte_equal": true,
+    "generated_forward_verification": {
+      "status": "PASS",
+      "protocol": "dynamic602_forward_generation_v1",
+      "marker_present": true,
+      "artifacts": [
+        {
+          "path": "inc/stride_lstm_runtime.h",
+          "bytes": 1944,
+          "byte_equal": true
+        },
+        {
+          "path": "prefetcher/stride_lstm_runtime.cc",
+          "bytes": 10680,
+          "byte_equal": true
+        },
+        {
+          "path": "inc/stride_lstm_model_loader.h",
+          "bytes": 964,
+          "byte_equal": true
+        },
+        {
+          "path": "prefetcher/stride_lstm_model_loader.cc",
+          "bytes": 6790,
+          "byte_equal": true
+        }
+      ]
+    },
+    "compiler": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-28)",
+    "cxx": "g++",
+    "compiler_flags": "-O3 -ffp-contract=off",
+    "base": "838be17e"
+  }
+}

@@ -1,0 +1,820 @@
+{
+  "status": "prepared",
+  "protocol": "four602_width_templates_20261017_v1",
+  "build_id": "build_1792211655617683046",
+  "actual_build": {
+    "protocol": "four602_frozen_live_20261017_v2",
+    "build_id": "build_1792211655617683046",
+    "binary": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/bin/perceptron-no-four602-no-ship-1core",
+    "binary_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/binary_snapshot",
+    "simulator": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator",
+    "source_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/source_snapshot",
+    "compiled_source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/compiled_source",
+    "compiled_source_files": 100,
+    "compiled_source_byte_equal": true,
+    "generated_forward_verification": {
+      "status": "PASS",
+      "protocol": "dynamic602_forward_generation_v1",
+      "marker_present": true,
+      "artifacts": [
+        {
+          "path": "inc/stride_lstm_runtime.h",
+          "bytes": 1944,
+          "byte_equal": true
+        },
+        {
+          "path": "prefetcher/stride_lstm_runtime.cc",
+          "bytes": 10680,
+          "byte_equal": true
+        },
+        {
+          "path": "inc/stride_lstm_model_loader.h",
+          "bytes": 964,
+          "byte_equal": true
+        },
+        {
+          "path": "prefetcher/stride_lstm_model_loader.cc",
+          "bytes": 6790,
+          "byte_equal": true
+        }
+      ]
+    },
+    "compiler": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-28)",
+    "cxx": "g++",
+    "compiler_flags": "-O3 -ffp-contract=off",
+    "base": "838be17e"
+  },
+  "host": "sacramento.ece.local.cmu.edu",
+  "bindings": [
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/analysis_final/audit.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/audit.json",
+      "bytes": 4296967
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/selection.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/selection.json",
+      "bytes": 1490
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/config.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/protocol_source/config.json",
+      "bytes": 1765
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/driver.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/protocol_source/driver.py",
+      "bytes": 22056
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/ampm_h16.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/protocol_source/ampm_h16.py",
+      "bytes": 8756
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/live602_runtime.cc",
+      "bytes": 10625
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/live602_runtime.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/live602_runtime.h",
+      "bytes": 1690
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/common/live602_runtime/probe.cc",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/probe.cc",
+      "bytes": 2088
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/common/live602_runtime/model_format.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/model_format.py",
+      "bytes": 5101
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_ampm_live_inference/python/export_model.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/export_model.py",
+      "bytes": 5040
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_spp_live_inference/python/export_and_validate.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/export_and_validate.py",
+      "bytes": 7482
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_offline_lstm_spp/python/train_and_offline_infer.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/train_and_offline_infer.py",
+      "bytes": 44780
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/common/threshold_free_policy.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/source_bindings/threshold_free_policy.py",
+      "bytes": 32596
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/bin/perceptron-no-four602-no-ship-1core",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/actual_binary_snapshot",
+      "bytes": 25959048
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_native_full_cap0/run.json",
+      "bytes": 4518
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_native_full_cap0/summary.json",
+      "bytes": 80631
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_native_full_cap16144/run.json",
+      "bytes": 4536
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_native_full_cap16144/summary.json",
+      "bytes": 80635
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_fixed_payload_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_fixed_payload_cap0/run.json",
+      "bytes": 4897
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_fixed_payload_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_fixed_payload_cap0/summary.json",
+      "bytes": 25633
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_full_cap0/run.json",
+      "bytes": 4832
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_full_cap0/summary.json",
+      "bytes": 26190
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_full_cap16144/run.json",
+      "bytes": 4725
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_full_cap16144/summary.json",
+      "bytes": 26189
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_reset_state_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_reset_state_cap0/run.json",
+      "bytes": 4740
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_student_reset_state_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_student_reset_state_cap0/summary.json",
+      "bytes": 18762
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_template_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_template_full_cap0/run.json",
+      "bytes": 4676
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_ampm_template_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_ampm_template_full_cap0/summary.json",
+      "bytes": 15774
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_none_none_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_none_none_full_cap0/run.json",
+      "bytes": 4508
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_none_none_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_none_none_full_cap0/summary.json",
+      "bytes": 6615
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_native_full_cap0/run.json",
+      "bytes": 4513
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_native_full_cap0/summary.json",
+      "bytes": 161790
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_native_full_cap16144/run.json",
+      "bytes": 4533
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_native_full_cap16144/summary.json",
+      "bytes": 147341
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_fixed_payload_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_fixed_payload_cap0/run.json",
+      "bytes": 4904
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_fixed_payload_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_fixed_payload_cap0/summary.json",
+      "bytes": 52342
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_full_cap0/run.json",
+      "bytes": 4824
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_full_cap0/summary.json",
+      "bytes": 51883
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_full_cap16144/run.json",
+      "bytes": 4718
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_full_cap16144/summary.json",
+      "bytes": 51840
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_reset_state_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_reset_state_cap0/run.json",
+      "bytes": 4733
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_student_reset_state_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_student_reset_state_cap0/summary.json",
+      "bytes": 62049
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_template_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_template_full_cap0/run.json",
+      "bytes": 4684
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_spp_template_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_spp_template_full_cap0/summary.json",
+      "bytes": 51165
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_native_full_cap0/run.json",
+      "bytes": 4538
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_native_full_cap0/summary.json",
+      "bytes": 51594
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_native_full_cap16144/run.json",
+      "bytes": 4558
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_native_full_cap16144/summary.json",
+      "bytes": 51568
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_fixed_payload_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_fixed_payload_cap0/run.json",
+      "bytes": 4929
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_fixed_payload_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_fixed_payload_cap0/summary.json",
+      "bytes": 25002
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_full_cap0/run.json",
+      "bytes": 4864
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_full_cap0/summary.json",
+      "bytes": 24903
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_full_cap16144/run.json",
+      "bytes": 4753
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_full_cap16144/summary.json",
+      "bytes": 25008
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_reset_state_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_reset_state_cap0/run.json",
+      "bytes": 4768
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_student_reset_state_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_student_reset_state_cap0/summary.json",
+      "bytes": 17214
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_template_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_template_full_cap0/run.json",
+      "bytes": 4699
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_streamer_template_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_streamer_template_full_cap0/summary.json",
+      "bytes": 24006
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_native_full_cap0/run.json",
+      "bytes": 4527
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_native_full_cap0/summary.json",
+      "bytes": 27257
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_native_full_cap16144/run.json",
+      "bytes": 4548
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_native_full_cap16144/summary.json",
+      "bytes": 27297
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_forward1_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_forward1_full_cap0/run.json",
+      "bytes": 4650
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_forward1_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_forward1_full_cap0/summary.json",
+      "bytes": 24863
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_forward2_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_forward2_full_cap0/run.json",
+      "bytes": 4649
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_forward2_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_forward2_full_cap0/summary.json",
+      "bytes": 32136
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_student_full_cap0/run.json",
+      "bytes": 4988
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_student_full_cap0/summary.json",
+      "bytes": 63371
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_student_full_cap16144/run.json",
+      "bytes": 5007
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r0_stride_stride_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r0_stride_stride_student_full_cap16144/summary.json",
+      "bytes": 63471
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_native_full_cap0/run.json",
+      "bytes": 4519
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_native_full_cap0/summary.json",
+      "bytes": 80530
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_native_full_cap16144/run.json",
+      "bytes": 4539
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_native_full_cap16144/summary.json",
+      "bytes": 80488
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_fixed_payload_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_fixed_payload_cap0/run.json",
+      "bytes": 4898
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_fixed_payload_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_fixed_payload_cap0/summary.json",
+      "bytes": 26126
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_full_cap0/run.json",
+      "bytes": 4833
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_full_cap0/summary.json",
+      "bytes": 26983
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_full_cap16144/run.json",
+      "bytes": 4725
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_full_cap16144/summary.json",
+      "bytes": 26977
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_reset_state_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_reset_state_cap0/run.json",
+      "bytes": 4741
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_student_reset_state_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_student_reset_state_cap0/summary.json",
+      "bytes": 19002
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_template_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_template_full_cap0/run.json",
+      "bytes": 4677
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_ampm_template_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_ampm_template_full_cap0/summary.json",
+      "bytes": 15870
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_none_none_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_none_none_full_cap0/run.json",
+      "bytes": 4509
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_none_none_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_none_none_full_cap0/summary.json",
+      "bytes": 6643
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_native_full_cap0/run.json",
+      "bytes": 4513
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_native_full_cap0/summary.json",
+      "bytes": 163149
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_native_full_cap16144/run.json",
+      "bytes": 4534
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_native_full_cap16144/summary.json",
+      "bytes": 158238
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_fixed_payload_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_fixed_payload_cap0/run.json",
+      "bytes": 4905
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_fixed_payload_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_fixed_payload_cap0/summary.json",
+      "bytes": 54296
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_full_cap0/run.json",
+      "bytes": 4825
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_full_cap0/summary.json",
+      "bytes": 59570
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_full_cap16144/run.json",
+      "bytes": 4719
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_full_cap16144/summary.json",
+      "bytes": 58886
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_reset_state_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_reset_state_cap0/run.json",
+      "bytes": 4733
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_student_reset_state_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_student_reset_state_cap0/summary.json",
+      "bytes": 64692
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_template_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_template_full_cap0/run.json",
+      "bytes": 4683
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_spp_template_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_spp_template_full_cap0/summary.json",
+      "bytes": 51370
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_native_full_cap0/run.json",
+      "bytes": 4538
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_native_full_cap0/summary.json",
+      "bytes": 51945
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_native_full_cap16144/run.json",
+      "bytes": 4558
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_native_full_cap16144/summary.json",
+      "bytes": 51849
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_fixed_payload_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_fixed_payload_cap0/run.json",
+      "bytes": 4930
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_fixed_payload_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_fixed_payload_cap0/summary.json",
+      "bytes": 25219
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_full_cap0/run.json",
+      "bytes": 4865
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_full_cap0/summary.json",
+      "bytes": 25238
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_full_cap16144/run.json",
+      "bytes": 4754
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_full_cap16144/summary.json",
+      "bytes": 25287
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_reset_state_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_reset_state_cap0/run.json",
+      "bytes": 4769
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_student_reset_state_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_student_reset_state_cap0/summary.json",
+      "bytes": 17212
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_template_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_template_full_cap0/run.json",
+      "bytes": 4699
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_streamer_template_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_streamer_template_full_cap0/summary.json",
+      "bytes": 24124
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_native_full_cap0/run.json",
+      "bytes": 4529
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_native_full_cap0/summary.json",
+      "bytes": 28887
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_native_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_native_full_cap16144/run.json",
+      "bytes": 4549
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_native_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_native_full_cap16144/summary.json",
+      "bytes": 28936
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_forward1_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_forward1_full_cap0/run.json",
+      "bytes": 4651
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_forward1_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_forward1_full_cap0/summary.json",
+      "bytes": 25439
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_forward2_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_forward2_full_cap0/run.json",
+      "bytes": 4651
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_forward2_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_forward2_full_cap0/summary.json",
+      "bytes": 33202
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_student_full_cap0/run.json",
+      "bytes": 4989
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_student_full_cap0/summary.json",
+      "bytes": 90485
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_student_full_cap16144/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_student_full_cap16144/run.json",
+      "bytes": 5009
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/test_r1_stride_stride_student_full_cap16144/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/test_r1_stride_stride_student_full_cap16144/summary.json",
+      "bytes": 90586
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_ampm_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_ampm_native_full_cap0/run.json",
+      "bytes": 4537
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_ampm_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_ampm_native_full_cap0/summary.json",
+      "bytes": 20906
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_ampm_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_ampm_student_full_cap0/run.json",
+      "bytes": 4858
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_ampm_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_ampm_student_full_cap0/summary.json",
+      "bytes": 9984
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_none_none_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_none_none_full_cap0/run.json",
+      "bytes": 4528
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_none_none_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_none_none_full_cap0/summary.json",
+      "bytes": 5778
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_spp_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_spp_native_full_cap0/run.json",
+      "bytes": 4533
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_spp_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_spp_native_full_cap0/summary.json",
+      "bytes": 36653
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_spp_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_spp_student_full_cap0/run.json",
+      "bytes": 4850
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_spp_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_spp_student_full_cap0/summary.json",
+      "bytes": 15227
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_streamer_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_streamer_native_full_cap0/run.json",
+      "bytes": 4558
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_streamer_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_streamer_native_full_cap0/summary.json",
+      "bytes": 14966
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_streamer_student_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_streamer_student_full_cap0/run.json",
+      "bytes": 4891
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_streamer_student_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_streamer_student_full_cap0/summary.json",
+      "bytes": 9759
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_stride_native_full_cap0/run.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_stride_native_full_cap0/run.json",
+      "bytes": 4549
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/runs/validation_r0_stride_native_full_cap0/summary.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_snapshot/validation_r0_stride_native_full_cap0/summary.json",
+      "bytes": 9960
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/streamer/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_models/streamer_h8/model.bin",
+      "bytes": 11798
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/templates/streamer.txt",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/templates/streamer_h8.txt",
+      "bytes": 22
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/ampm/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_models/ampm_h8/model.bin",
+      "bytes": 11798
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/templates/ampm.txt",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/templates/ampm_h8.txt",
+      "bytes": 23
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/spp/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/reference_models/spp_h8/model.bin",
+      "bytes": 12024
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/templates/spp.txt",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/templates/spp_h8.txt",
+      "bytes": 34
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h16/model.pt",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/checkpoints/ampm_h16/model.pt",
+      "bytes": 31377
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h16/run_metadata.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/checkpoints/ampm_h16/run_metadata.json",
+      "bytes": 4552
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/immutable_model.bin",
+      "bytes": 27126
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h16/model.pt",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/checkpoints/spp_h16/model.pt",
+      "bytes": 31638
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h16/run_metadata.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/checkpoints/spp_h16/run_metadata.json",
+      "bytes": 13865
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/spp_h16/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/spp_h16/immutable_model.bin",
+      "bytes": 27000
+    }
+  ]
+}
