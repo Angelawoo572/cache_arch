@@ -10,9 +10,9 @@ simulator rows total)**; no 605 workload is included.
 
 The source contract is [config.json](config.json). The new protocol and raw
 root are `four602_frozen_live_20261017_v2` and
-`/home/qianruw/cache/formal_study_20261017/raw_v2`. The healthy local checkout is
-inside `cache/formal_study_20261016/work/cache_gate_mechanism`; the synchronized
-Sacramento source is `/home/qianruw/cache/formal_study_20261017/source_v2`. Existing
+`/home/qianruw/cache/formal_study/archive/20261017/raw_v2`. The healthy local checkout is
+inside `cache/formal_study/work/cache_gate_mechanism`; the synchronized
+Sacramento source is `/home/qianruw/cache/formal_study/archive/20261017/source_v2`. Existing
 first-formal and gate/payload results remain separate protocol archives.
 
 The final canonical output is `raw_v2/analysis_final`. The superseded v1 source,
@@ -27,7 +27,7 @@ paths from config and never writes new results into the old v1 root.
 
 ## Supplemental H16 and capped-template round
 
-The new active protocol is [width_templates/config.json](width_templates/config.json), with its own validation, raw root, width-specific exports, certificates and result tables. It recovers the original AMPM/SPP H16 seed7 checkpoints and adds capped H8 frozen templates. The H8 protocol and archived v1/v2 metadata remain independent. See [canonical layout and recovery](../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md). Canonical local checkout: `cache/formal_study/work/cache_gate_mechanism`; Sacramento uses the same relative location. Canonical prior raw root: `cache/formal_study/archive/20261017/raw_v2`. Old absolute paths below remain compatibility aliases for recovery.
+The new active protocol is [width_templates/config.json](width_templates/config.json), with its own validation, raw root, width-specific exports, certificates and result tables. It recovers the original AMPM/SPP H16 seed7 checkpoints and adds capped H8 frozen templates. The H8 protocol and archived v1/v2 metadata remain independent. See [canonical layout and recovery](../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md). Canonical local checkout: `cache/formal_study/work/cache_gate_mechanism`; Sacramento uses the same relative location. Canonical prior raw root: `cache/formal_study/archive/20261017/raw_v2`. Old absolute paths in historical JSON are translated in memory by the canonical-path launcher; removed dated names are not recreated.
 
 ## Completed results
 
@@ -179,10 +179,10 @@ From the synchronized source root, select the recorded Torch environment and
 keep process temporaries inside the current study:
 
 ```sh
-cd /home/qianruw/cache/formal_study_20261017/source_v2
-export TMPDIR=/home/qianruw/cache/formal_study_20261017/runtime_v2/tmp
-export PYTHONPYCACHEPREFIX=/home/qianruw/cache/formal_study_20261017/runtime_v2/pycache
-export MPLCONFIGDIR=/home/qianruw/cache/formal_study_20261017/runtime_v2/mpl
+cd /home/qianruw/cache/formal_study/archive/20261017/source_v2
+export TMPDIR=/home/qianruw/cache/formal_study/archive/20261017/runtime_v2/tmp
+export PYTHONPYCACHEPREFIX=/home/qianruw/cache/formal_study/archive/20261017/runtime_v2/pycache
+export MPLCONFIGDIR=/home/qianruw/cache/formal_study/archive/20261017/runtime_v2/mpl
 study_python=/home/qianruw/venvs/cache-few-nn-cpu/bin/python
 study_driver=formal_NN_training/experiments/602_four_prefetcher_formal/formal.py
 # Stage exact retained model bytes before build; do not overwrite a model.
@@ -190,7 +190,10 @@ study_driver=formal_NN_training/experiments/602_four_prefetcher_formal/formal.py
 import json,shutil
 from pathlib import Path
 experiment=Path('formal_NN_training/experiments/602_four_prefetcher_formal')
-config=json.loads((experiment/'config.json').read_text())
+config_text=(experiment/'config.json').read_text()
+for day in ('20261016','20261017'):
+    config_text=config_text.replace('/cache/formal_study_'+day,'/cache/formal_study/archive/'+day)
+config=json.loads(config_text)
 raw=Path(config['raw'])
 def restore(source,target):
     if not source.is_file():raise RuntimeError('Missing retained source: '+str(source))
@@ -215,12 +218,12 @@ if not stride.is_file():raise RuntimeError('Restore the preserved original Strid
 if stride.read_bytes()!=stride.with_name('immutable_model.bin').read_bytes():
     raise RuntimeError('Original Stride immutable weights differ')
 MODEL_SETUP
-"$study_python" "$study_driver" build
-"$study_python" "$study_driver" certify
-"$study_python" "$study_driver" validation
-"$study_python" "$study_driver" select
-"$study_python" "$study_driver" test
-"$study_python" "$study_driver" status
+"$study_python" docs/602_width_templates/canonical_paths.py "$study_driver" build
+"$study_python" docs/602_width_templates/canonical_paths.py "$study_driver" certify
+"$study_python" docs/602_width_templates/canonical_paths.py "$study_driver" validation
+"$study_python" docs/602_width_templates/canonical_paths.py "$study_driver" select
+"$study_python" docs/602_width_templates/canonical_paths.py "$study_driver" test
+"$study_python" docs/602_width_templates/canonical_paths.py "$study_driver" status
 ```
 
 The preparation block can recover an empty `raw_v2/models` from the three

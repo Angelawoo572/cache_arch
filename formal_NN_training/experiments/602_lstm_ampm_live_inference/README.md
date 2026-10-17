@@ -18,7 +18,7 @@ source run byte for byte; the portable binary matches the previously verified
 export byte for byte. All copies are in cache.
 
 The current formal destination is
-`/home/qianruw/cache/formal_study_20261017/raw_v2/models/ampm/model.bin`,
+`/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/ampm/model.bin`,
 with an identical `immutable_model.bin` beside it. The copied model is frozen;
 v2 changes callback-log flushing only and does not retrain or select weights.
 Original source run paths above remain provenance. The retained files can be

@@ -5,10 +5,10 @@
 The current four-route formal study uses the actual balanced seed7/h8 checkpoint
 from the completed first formal run, not a keyed replay file or a new model.
 Its local checkpoint is
-`/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/research_output/raw_v2/models/seed7/balanced/offline/model.pt`
+`/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261016/research_output/raw_v2/models/seed7/balanced/offline/model.pt`
 (25,134 bytes). The actual portable file is the adjacent `export/model.bin`
 (8,372 bytes), with `export/model_metadata.json`; the Sacramento prefix is
-`/home/qianruw/cache/formal_study_20261016/research_output/raw_v2`.
+`/home/qianruw/cache/formal_study/archive/20261016/research_output/raw_v2`.
 The formal binary stays at that existing Stride model path. It is not copied
 from a Streamer/AMPM/SPP model, and the three newer sibling checkpoint copies
 do not replace it. Preserve this original raw model directory for reproduction.

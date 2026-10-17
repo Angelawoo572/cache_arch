@@ -13,12 +13,29 @@ Sacramento uses `/home/qianruw/cache`. The root-relative layout is the same:
 | Original offline training experiments | `formal_NN_training/experiments` (unchanged) |
 | Trace and simulator dependencies | `traces`, `external/ChampSim` (unchanged) |
 
-The old date-root names are relative compatibility symlinks to `archive/`.
-Local `archive/20261016/work/cache_gate_mechanism` additionally points to the
-active checkout. Sacramento's historical source-only directory at that old
-location stays an independent archive: it was never a Git worktree. The new
-Sacramento checkout is independent. Never synchronize the old compatibility
-path onto that preserved historical source directory.
+The visible date-root aliases `formal_study_20261016` and
+`formal_study_20261017` were removed after consolidation. The former
+`cache/docs/formal_study_20261016` report (334 files /25,950,182 bytes) now lives
+at `formal_study/archive/20261016/report`, with every file/inode preserved.
+Do not recreate these dated top-level names. The existing internal
+`archive/20261016/work/cache_gate_mechanism` pointer still resolves to the healthy
+checkout; Sacramento's same historical source-only location remains independent.
+
+Frozen JSON records retain original path strings. The
+[canonical-path launcher](canonical_paths.py) translates decoded paths only in
+memory before running retained scripts. It changes neither historical bytes nor
+model/protocol/control values. On Sacramento, prefix retained commands with:
+
+```sh
+study_python=/home/qianruw/venvs/cache-few-nn-cpu/bin/python
+"$study_python" docs/602_width_templates/canonical_paths.py \
+  formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/driver.py status
+```
+
+For a read-only local binding check, use `--local --check` before the script.
+The launcher is required for retained drivers that read historical build/binding
+JSON, including `profile_cost.py`; direct historical commands may contain removed
+names. The complete24-row local and Sacramento bindings passed without aliases.
 
 The local active `.git` is a real main Git directory, not a linked worktree.
 Its object alternate is the retained recovery donor at
@@ -33,7 +50,7 @@ checks, rather than copying or deleting historical data. Local verification
 covered 15,314 files / 7,651,782,754 bytes; Sacramento covered 14,141 files /
 4,419,228,854 bytes (its source-only layout and donor differ). Historical JSON,
 commands, source snapshots, raw logs, builds, v1 and v2 remain unchanged. Their
-old absolute paths are provenance, resolved by the compatibility links; they
+old absolute paths are provenance, resolved by the canonical-path launcher; they
 are not active destination settings. Full per-file rename evidence remains in
 `formal_study/migration`; lightweight maps are retained here. No hash ledger is
 required.
@@ -41,14 +58,13 @@ required.
 The active new configuration is
 `formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/config.json`.
 The parent `config.json` remains the archived H8 protocol's recoverable settings,
-with old path aliases working. Do not rerun that protocol into its old raw root.
+with its original recorded paths preserved. Use the canonical-path launcher for recovery. Do not rerun that protocol into its old raw root.
 New runtime, temporary, matplotlib and Python cache files belong under the new
 `runs/602_width_templates_20261017/runtime` directory. The offline sibling layout
 is unchanged.
 
 To recover, restore `archive/`, `work/`, `runs/` and `migration/` under the same
-cache root. Restore the relative date aliases and, on the local machine, the
-old checkout alias. If the cache root changes, update the active Git alternates
+cache root. Use the canonical-path launcher for recorded date paths; do not recreate the removed top-level aliases. Restore the internal archived checkout pointer if needed. If the cache root changes, update the active Git alternates
 path to the retained donor and run `git fsck --connectivity-only` in the healthy
 checkout. Update only the new active config; preserve archived metadata. Restore
 traces and the matching ChampSim base/dependencies described by the existing

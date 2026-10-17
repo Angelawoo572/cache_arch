@@ -18,7 +18,7 @@ AMPM H16 has 26612 B of FP32 weights and 128 B of global h/c payload. SPP H16 ha
 
 From the canonical checkout:
 
-    /home/qianruw/venvs/cache-few-nn-cpu/bin/python formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/driver.py all
+    /home/qianruw/venvs/cache-few-nn-cpu/bin/python docs/602_width_templates/canonical_paths.py formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/driver.py all
 
 Resumable stages are prepare, certify, validation, select, test. Status reads current states and matrix prints the exact expected rows. All writes pipeline_result.json. Do not edit config.json, driver.py or ampm_h16.py after prepare: their source bytes are bound. A changed implementation requires a new protocol/run root. Failed attempts are preserved before resuming.
 
@@ -71,3 +71,7 @@ The measured GCC8.5 64-bit host evidence is:
 Each runtime object is 168 B. Persistent heap is 28,428 B /28,488 B respectively and already contains the weights/state. The peak column is an inference increment above persistent requested bytes on the documented correctness fixture, not a full-program peak or deployment upper bound. Construction peaks are recorded separately in the raw JSON.
 
 For H16, the [actual core counters](../../../common/live602_runtime/live602_runtime.cc#L42) yield AMPM demand MAC=5136+256·1[K>0]+1008K and nonlinear=81+16·1[K>0]+53K. SPP fill uses 5184 MAC/80 nonlinear; SPP demand uses 5216+16·emit+1136K MAC and 80+emit+53K nonlinear. Here emit is the empirical-prior positive class; K is the raw learned degree before outer gates. On the existing fixtures these reproduce all 30,401,424 /34,767,136 MACs and 833,059 /953,582 nonlinear counts exactly, including the first individual callback. The separate cost/operation_formula_audit.json records this arithmetic consistency check; it is not another performance experiment.
+
+## Removed dated folder names
+
+The two top-level dated aliases have been removed. Old source/build/binding JSON stays byte-identical. Run retained drivers and profile_cost.py through `docs/602_width_templates/canonical_paths.py`, which translates only decoded path values inside the current process. For local inspection add `--local`; add `--check` before the driver path for the read-only frozen source/model/build gate. Completed local and Sacramento gates both pass without the old folder names. See [layout/recovery](../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md).

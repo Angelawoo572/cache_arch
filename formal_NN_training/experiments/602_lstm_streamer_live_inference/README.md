@@ -18,7 +18,7 @@ source run byte for byte; the portable binary matches the previously verified
 export byte for byte. All copies are in cache.
 
 The current formal destination is
-`/home/qianruw/cache/formal_study_20261017/raw_v2/models/streamer/model.bin`,
+`/home/qianruw/cache/formal_study/archive/20261017/raw_v2/models/streamer/model.bin`,
 with an identical `immutable_model.bin` beside it. The copied model is frozen;
 v2 changes callback-log flushing only and does not retrain or select weights.
 Original source run paths above remain provenance. The retained files can be
@@ -74,19 +74,19 @@ its overlap with cache warmup. This exporter does not select a budget, train
 weights, or choose a model using test outcomes.
 
 Run through the existing Sacramento Torch environment. All new artifacts go
-under /home/qianruw/cache/formal_study_20261017/; set TMPDIR and Python cache
+under /home/qianruw/cache/formal_study/archive/20261017/; set TMPDIR and Python cache
 paths inside its runtime directory. Local sources likewise remain inside
 the authorized cache directory; no /tmp output is created.
 
 ```sh
 PYTHONDONTWRITEBYTECODE=1 \
-TMPDIR=/home/qianruw/cache/formal_study_20261017/runtime_v2/tmp \
+TMPDIR=/home/qianruw/cache/formal_study/archive/20261017/runtime_v2/tmp \
 /home/qianruw/venvs/cache-few-nn-cpu/bin/python \
   python/export_live_model.py \
   --checkpoint /home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt \
   --run-metadata /home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/run_metadata.json \
   --seed 7 --allow-legacy-metadata \
-  --out-dir /home/qianruw/cache/formal_study_20261017/reproduction/exports/streamer
+  --out-dir /home/qianruw/cache/formal_study/archive/20261017/reproduction/exports/streamer
 ```
 
 The export checks original policy, source revision, seed metadata, input
