@@ -6,10 +6,18 @@ SPP.
 
 ## Start here
 
+- [2026-10-16 formal current-line / gate / payload results](docs/602_gate_mechanism/REPORT.md)
+- [Full-ROI mechanism run and recovery guide](formal_NN_training/experiments/602_gate_mechanism/RUN_GUIDE.md)
 - [Project website](https://angelawoo572.github.io/cache_arch/)
 - [Quick presentation: `602_deck_v7_15.pdf`](https://angelawoo572.github.io/cache_arch/602_deck_v7_15.pdf)
 - [All 602 experiments](formal_NN_training/experiments/)
 - [Shared implementation](formal_NN_training/common/)
+
+The new mechanism follow-up uses frozen live inference on two future ROIs,
+three existing training seeds and a validation-selected request ceiling. Its
+MAC4 subset models a serial finite inference engine; MAC0 is a functional
+comparison. Historical replay results below retain their own protocol and are
+not pooled with these formal results.
 
 The primary project artifacts are intentionally concentrated in two places:
 

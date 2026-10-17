@@ -1,0 +1,1032 @@
+{
+  "status": "verified",
+  "scope": "real C++ Dynamic602 constructor and every frozen table gate; no performance simulation",
+  "results": [
+    {
+      "table": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/seed7/pc_gate.tsv",
+      "entries": 55,
+      "gate1": 24,
+      "gate0": 31,
+      "unknown_pc": 0,
+      "unknown_silent": true,
+      "all_loaded_gates_equal": true,
+      "file_bytes_unchanged": true,
+      "rows": [
+        {
+          "pc": 4257721,
+          "gate": 1,
+          "count": 28134,
+          "positives": 28134
+        },
+        {
+          "pc": 4257546,
+          "gate": 0,
+          "count": 18334,
+          "positives": 0
+        },
+        {
+          "pc": 4257551,
+          "gate": 0,
+          "count": 17662,
+          "positives": 0
+        },
+        {
+          "pc": 4257728,
+          "gate": 1,
+          "count": 17053,
+          "positives": 17051
+        },
+        {
+          "pc": 4257076,
+          "gate": 1,
+          "count": 11543,
+          "positives": 11543
+        },
+        {
+          "pc": 10822177,
+          "gate": 0,
+          "count": 781,
+          "positives": 320
+        },
+        {
+          "pc": 10798147,
+          "gate": 0,
+          "count": 391,
+          "positives": 0
+        },
+        {
+          "pc": 10822172,
+          "gate": 0,
+          "count": 297,
+          "positives": 68
+        },
+        {
+          "pc": 4257712,
+          "gate": 1,
+          "count": 171,
+          "positives": 171
+        },
+        {
+          "pc": 4248724,
+          "gate": 1,
+          "count": 153,
+          "positives": 153
+        },
+        {
+          "pc": 10822386,
+          "gate": 1,
+          "count": 153,
+          "positives": 153
+        },
+        {
+          "pc": 4248575,
+          "gate": 1,
+          "count": 152,
+          "positives": 149
+        },
+        {
+          "pc": 10822331,
+          "gate": 1,
+          "count": 152,
+          "positives": 111
+        },
+        {
+          "pc": 10822326,
+          "gate": 0,
+          "count": 138,
+          "positives": 29
+        },
+        {
+          "pc": 10822190,
+          "gate": 0,
+          "count": 123,
+          "positives": 0
+        },
+        {
+          "pc": 10822040,
+          "gate": 1,
+          "count": 103,
+          "positives": 103
+        },
+        {
+          "pc": 10822000,
+          "gate": 1,
+          "count": 86,
+          "positives": 86
+        },
+        {
+          "pc": 4257687,
+          "gate": 0,
+          "count": 85,
+          "positives": 4
+        },
+        {
+          "pc": 4257946,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 4257996,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 4258016,
+          "gate": 1,
+          "count": 85,
+          "positives": 85
+        },
+        {
+          "pc": 10822163,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 10822452,
+          "gate": 1,
+          "count": 85,
+          "positives": 82
+        },
+        {
+          "pc": 10822504,
+          "gate": 1,
+          "count": 85,
+          "positives": 51
+        },
+        {
+          "pc": 10822480,
+          "gate": 1,
+          "count": 75,
+          "positives": 73
+        },
+        {
+          "pc": 10798143,
+          "gate": 0,
+          "count": 72,
+          "positives": 0
+        },
+        {
+          "pc": 4257926,
+          "gate": 0,
+          "count": 66,
+          "positives": 0
+        },
+        {
+          "pc": 10822099,
+          "gate": 1,
+          "count": 53,
+          "positives": 53
+        },
+        {
+          "pc": 10822070,
+          "gate": 1,
+          "count": 33,
+          "positives": 18
+        },
+        {
+          "pc": 4248588,
+          "gate": 0,
+          "count": 21,
+          "positives": 0
+        },
+        {
+          "pc": 10798109,
+          "gate": 0,
+          "count": 13,
+          "positives": 0
+        },
+        {
+          "pc": 4248560,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4248579,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4248706,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4248939,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257008,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257090,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257105,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257519,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257536,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257634,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257638,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257639,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257771,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257930,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257991,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10798096,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822016,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822109,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822160,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822256,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822308,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822341,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822426,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822494,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        }
+      ]
+    },
+    {
+      "table": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/seed17/pc_gate.tsv",
+      "entries": 55,
+      "gate1": 29,
+      "gate0": 26,
+      "unknown_pc": 0,
+      "unknown_silent": true,
+      "all_loaded_gates_equal": true,
+      "file_bytes_unchanged": true,
+      "rows": [
+        {
+          "pc": 4257721,
+          "gate": 1,
+          "count": 28134,
+          "positives": 28134
+        },
+        {
+          "pc": 4257546,
+          "gate": 0,
+          "count": 18334,
+          "positives": 0
+        },
+        {
+          "pc": 4257551,
+          "gate": 0,
+          "count": 17662,
+          "positives": 0
+        },
+        {
+          "pc": 4257728,
+          "gate": 1,
+          "count": 17053,
+          "positives": 17053
+        },
+        {
+          "pc": 4257076,
+          "gate": 1,
+          "count": 11543,
+          "positives": 11543
+        },
+        {
+          "pc": 10822177,
+          "gate": 0,
+          "count": 781,
+          "positives": 182
+        },
+        {
+          "pc": 10798147,
+          "gate": 0,
+          "count": 391,
+          "positives": 0
+        },
+        {
+          "pc": 10822172,
+          "gate": 0,
+          "count": 297,
+          "positives": 0
+        },
+        {
+          "pc": 4257712,
+          "gate": 1,
+          "count": 171,
+          "positives": 171
+        },
+        {
+          "pc": 4248724,
+          "gate": 1,
+          "count": 153,
+          "positives": 153
+        },
+        {
+          "pc": 10822386,
+          "gate": 1,
+          "count": 153,
+          "positives": 101
+        },
+        {
+          "pc": 4248575,
+          "gate": 1,
+          "count": 152,
+          "positives": 123
+        },
+        {
+          "pc": 10822331,
+          "gate": 0,
+          "count": 152,
+          "positives": 8
+        },
+        {
+          "pc": 10822326,
+          "gate": 0,
+          "count": 138,
+          "positives": 3
+        },
+        {
+          "pc": 10822190,
+          "gate": 0,
+          "count": 123,
+          "positives": 0
+        },
+        {
+          "pc": 10822040,
+          "gate": 0,
+          "count": 103,
+          "positives": 50
+        },
+        {
+          "pc": 10822000,
+          "gate": 1,
+          "count": 86,
+          "positives": 86
+        },
+        {
+          "pc": 4257687,
+          "gate": 0,
+          "count": 85,
+          "positives": 26
+        },
+        {
+          "pc": 4257946,
+          "gate": 0,
+          "count": 85,
+          "positives": 2
+        },
+        {
+          "pc": 4257996,
+          "gate": 0,
+          "count": 85,
+          "positives": 5
+        },
+        {
+          "pc": 4258016,
+          "gate": 1,
+          "count": 85,
+          "positives": 85
+        },
+        {
+          "pc": 10822163,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 10822452,
+          "gate": 0,
+          "count": 85,
+          "positives": 10
+        },
+        {
+          "pc": 10822504,
+          "gate": 0,
+          "count": 85,
+          "positives": 21
+        },
+        {
+          "pc": 10822480,
+          "gate": 1,
+          "count": 75,
+          "positives": 51
+        },
+        {
+          "pc": 10798143,
+          "gate": 0,
+          "count": 72,
+          "positives": 0
+        },
+        {
+          "pc": 4257926,
+          "gate": 0,
+          "count": 66,
+          "positives": 0
+        },
+        {
+          "pc": 10822099,
+          "gate": 1,
+          "count": 53,
+          "positives": 29
+        },
+        {
+          "pc": 10822070,
+          "gate": 0,
+          "count": 33,
+          "positives": 7
+        },
+        {
+          "pc": 4248588,
+          "gate": 0,
+          "count": 21,
+          "positives": 1
+        },
+        {
+          "pc": 10798109,
+          "gate": 0,
+          "count": 13,
+          "positives": 4
+        },
+        {
+          "pc": 4248560,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4248579,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4248706,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4248939,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257008,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257090,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257105,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257519,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257536,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257634,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257638,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257639,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257771,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257930,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257991,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10798096,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822016,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822109,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822160,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822256,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822308,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822341,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 10822426,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822494,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        }
+      ]
+    },
+    {
+      "table": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/seed27/pc_gate.tsv",
+      "entries": 55,
+      "gate1": 20,
+      "gate0": 35,
+      "unknown_pc": 0,
+      "unknown_silent": true,
+      "all_loaded_gates_equal": true,
+      "file_bytes_unchanged": true,
+      "rows": [
+        {
+          "pc": 4257721,
+          "gate": 1,
+          "count": 28134,
+          "positives": 28132
+        },
+        {
+          "pc": 4257546,
+          "gate": 0,
+          "count": 18334,
+          "positives": 0
+        },
+        {
+          "pc": 4257551,
+          "gate": 0,
+          "count": 17662,
+          "positives": 0
+        },
+        {
+          "pc": 4257728,
+          "gate": 1,
+          "count": 17053,
+          "positives": 17051
+        },
+        {
+          "pc": 4257076,
+          "gate": 1,
+          "count": 11543,
+          "positives": 11541
+        },
+        {
+          "pc": 10822177,
+          "gate": 1,
+          "count": 781,
+          "positives": 742
+        },
+        {
+          "pc": 10798147,
+          "gate": 0,
+          "count": 391,
+          "positives": 45
+        },
+        {
+          "pc": 10822172,
+          "gate": 0,
+          "count": 297,
+          "positives": 9
+        },
+        {
+          "pc": 4257712,
+          "gate": 1,
+          "count": 171,
+          "positives": 170
+        },
+        {
+          "pc": 4248724,
+          "gate": 1,
+          "count": 153,
+          "positives": 151
+        },
+        {
+          "pc": 10822386,
+          "gate": 1,
+          "count": 153,
+          "positives": 151
+        },
+        {
+          "pc": 4248575,
+          "gate": 1,
+          "count": 152,
+          "positives": 149
+        },
+        {
+          "pc": 10822331,
+          "gate": 1,
+          "count": 152,
+          "positives": 122
+        },
+        {
+          "pc": 10822326,
+          "gate": 1,
+          "count": 138,
+          "positives": 82
+        },
+        {
+          "pc": 10822190,
+          "gate": 0,
+          "count": 123,
+          "positives": 0
+        },
+        {
+          "pc": 10822040,
+          "gate": 1,
+          "count": 103,
+          "positives": 100
+        },
+        {
+          "pc": 10822000,
+          "gate": 1,
+          "count": 86,
+          "positives": 84
+        },
+        {
+          "pc": 4257687,
+          "gate": 1,
+          "count": 85,
+          "positives": 67
+        },
+        {
+          "pc": 4257946,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 4257996,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 4258016,
+          "gate": 1,
+          "count": 85,
+          "positives": 83
+        },
+        {
+          "pc": 10822163,
+          "gate": 0,
+          "count": 85,
+          "positives": 0
+        },
+        {
+          "pc": 10822452,
+          "gate": 1,
+          "count": 85,
+          "positives": 68
+        },
+        {
+          "pc": 10822504,
+          "gate": 1,
+          "count": 85,
+          "positives": 65
+        },
+        {
+          "pc": 10822480,
+          "gate": 1,
+          "count": 75,
+          "positives": 73
+        },
+        {
+          "pc": 10798143,
+          "gate": 0,
+          "count": 72,
+          "positives": 0
+        },
+        {
+          "pc": 4257926,
+          "gate": 0,
+          "count": 66,
+          "positives": 0
+        },
+        {
+          "pc": 10822099,
+          "gate": 1,
+          "count": 53,
+          "positives": 51
+        },
+        {
+          "pc": 10822070,
+          "gate": 1,
+          "count": 33,
+          "positives": 28
+        },
+        {
+          "pc": 4248588,
+          "gate": 0,
+          "count": 21,
+          "positives": 0
+        },
+        {
+          "pc": 10798109,
+          "gate": 0,
+          "count": 13,
+          "positives": 2
+        },
+        {
+          "pc": 4248560,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4248579,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4248706,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4248939,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257008,
+          "gate": 1,
+          "count": 1,
+          "positives": 1
+        },
+        {
+          "pc": 4257090,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257105,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257519,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257536,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257634,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257638,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257639,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257771,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257930,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 4257991,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10798096,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822016,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822109,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822160,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822256,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822308,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822341,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822426,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        },
+        {
+          "pc": 10822494,
+          "gate": 0,
+          "count": 1,
+          "positives": 0
+        }
+      ]
+    }
+  ]
+}

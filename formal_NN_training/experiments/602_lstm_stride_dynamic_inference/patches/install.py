@@ -9,6 +9,7 @@ import argparse
 import shutil
 
 EXP = Path(__file__).resolve().parents[1]
+HOOKS_VERSION = "dynamic602 isolated simulator hooks gate-mechanism v2\n"
 
 
 def replace_once(text, old, new, name):
@@ -20,14 +21,16 @@ def replace_once(text, old, new, name):
 def patch_sim(sim):
     marker = sim / ".dynamic602_hooks_installed"
     if marker.exists():
+        if marker.read_text() != HOOKS_VERSION:
+            raise RuntimeError("existing simulator has a different measurement hook protocol; build a fresh isolated simulator")
         return
     texts = {p: (sim / p).read_text() for p in (
         "src/main.cc", "src/cache.cc", "src/ooo_cpu.cc", "inc/block.h",
-        "inc/stride.h", "prefetcher/stride.cc")}
+        "inc/stride.h", "prefetcher/stride.cc", "src/dram_controller.cc")}
     main = texts["src/main.cc"]
     main = '#include "dynamic602_hooks.h"\n' + main
     main = replace_once(main, "            count_traces++;", "            dynamic602_skip(ooo_cpu[count_traces].trace_file, knob::knob_cloudsuite, count_traces);\n\n            count_traces++;", "reader skip")
-    main = replace_once(main, "    uncore.LLC.LATENCY = LLC_LATENCY;", "    uncore.LLC.LATENCY = LLC_LATENCY;\n    for (unsigned dynamic602_cpu=0; dynamic602_cpu<NUM_CPUS; ++dynamic602_cpu)\n        dynamic602_begin(dynamic602_cpu);", "measurement start")
+    main = replace_once(main, "    uncore.LLC.LATENCY = LLC_LATENCY;", "    uncore.LLC.LATENCY = LLC_LATENCY;\n    for (unsigned dynamic602_cpu=0; dynamic602_cpu<NUM_CPUS; ++dynamic602_cpu)\n    {\n        dynamic602_roi(&ooo_cpu[dynamic602_cpu].L2C);\n        dynamic602_begin(dynamic602_cpu);\n    }", "measurement start")
     main = replace_once(main, "    uint8_t run_simulation = 1;", """    // Cold suffix mode starts with real latencies and all startup costs included.
     // No instruction, cache operation, or predictor callback has executed yet.
     if (knob::warmup_instructions == 0) {
@@ -56,12 +59,28 @@ def patch_sim(sim):
     cache = '#include "dynamic602_hooks.h"\n' + texts["src/cache.cc"]
     cache = replace_once(cache, "void CACHE::fill_cache(uint32_t set, uint32_t way, PACKET *packet)\n{", "void CACHE::fill_cache(uint32_t set, uint32_t way, PACKET *packet)\n{\n    dynamic602_fill(this, set, way, packet);", "valid line fill")
     cache = replace_once(cache, "            block[set][way].valid = 0;", "            dynamic602_invalidate(this, set, way);\n            block[set][way].valid = 0;", "valid line invalidation")
-    cache = replace_once(cache, "                // update prefetch stats and reset prefetch bit", "                dynamic602_demand_hit(this, set, way);\n                // update prefetch stats and reset prefetch bit", "first demand")
-    cache = replace_once(cache, "                            // RBERA: add late prefetch stats here", "                            dynamic602_late(this, &MSHR.entry[mshr_index]);\n                            // RBERA: add late prefetch stats here", "late demand")
+    cache = replace_once(cache, "                // update prefetch stats and reset prefetch bit", "                dynamic602_demand_hit(this, set, way, RQ.entry[index].type);\n                // update prefetch stats and reset prefetch bit", "first demand")
+    cache = replace_once(cache, "                            // RBERA: add late prefetch stats here", "                            dynamic602_late(this, &MSHR.entry[mshr_index], RQ.entry[index].type);\n                            // RBERA: add late prefetch stats here", "late demand")
     cache = replace_once(cache, "            if (way >= 0) // prefetch hit\n            {", "            if (way >= 0) // prefetch hit\n            {\n                dynamic602_redundant(this, &PQ.entry[index], true);", "prefetch resident duplicate")
     cache = replace_once(cache, "                        MSHR_MERGED[PQ.entry[index].type]++;", "                        dynamic602_redundant(this, &PQ.entry[index], false);\n                        MSHR_MERGED[PQ.entry[index].type]++;", "prefetch inflight duplicate")
     cache = replace_once(cache, "    PQ.entry[index] = *packet;", "    dynamic602_enqueue(this, packet);\n    PQ.entry[index] = *packet;", "prefetch enqueue identity")
+    # Every LOAD reaches prefetcher state during cache warmup, but the shared
+    # request gate discards all warmup outputs before any cache/PQ mutation.
+    cache = replace_once(cache,
+        "int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, int pf_fill_level, uint32_t prefetch_metadata)\n{",
+        "int CACHE::prefetch_line(uint64_t ip, uint64_t base_addr, uint64_t pf_addr, int pf_fill_level, uint32_t prefetch_metadata)\n{\n    if (!dynamic602_allow_request(this, ip, base_addr, pf_addr, pf_fill_level)) return 0;", "shared request gate")
+    cache = replace_once(cache, "        int pq_result = add_pq(&pf_packet);", "        int pq_result = add_pq(&pf_packet);\n        dynamic602_cache_request_result(this, pq_result);", "cache acceptance result")
+    cache = replace_once(cache, "        pf_dropped++;", "        dynamic602_cache_request_result(this, -2);\n        pf_dropped++;", "cache rejection result")
     texts["src/cache.cc"] = cache
+
+    dram = '#include "dynamic602_hooks.h"\n' + texts["src/dram_controller.cc"]
+    dram = replace_once(dram, "        WQ[channel].FORWARD++;", "        dynamic602_dram_event(packet->cpu, 4, packet->type);\n        WQ[channel].FORWARD++;", "write-forwarded read")
+    dram = replace_once(dram, "    int index = check_dram_queue(&RQ[channel], packet);\n    if (index != -1)\n        return index; // merged index", "    int index = check_dram_queue(&RQ[channel], packet);\n    if (index != -1) { dynamic602_dram_event(packet->cpu, 2, packet->type); return index; }", "DRAM read merge")
+    dram = replace_once(dram, "    int index = check_dram_queue(&WQ[channel], packet);\n    if (index != -1)\n        return index; // merged index", "    int index = check_dram_queue(&WQ[channel], packet);\n    if (index != -1) { dynamic602_dram_event(packet->cpu, 3, packet->type); return index; }", "DRAM write merge")
+    dram = replace_once(dram, "            RQ[channel].entry[index] = *packet;", "            dynamic602_dram_event(packet->cpu, 0, packet->type);\n            RQ[channel].entry[index] = *packet;", "DRAM read enqueue")
+    dram = replace_once(dram, "            WQ[channel].entry[index] = *packet;", "            dynamic602_dram_event(packet->cpu, 1, packet->type);\n            WQ[channel].entry[index] = *packet;", "DRAM write enqueue")
+    dram = replace_once(dram, "            // remove the oldest entry\n            queue->remove_queue", "            dynamic602_dram_bus_start(op_cpu, queue->is_WQ, queue->entry[request_index].type, dbus_cycle_available[op_channel]);\n            // remove the oldest entry\n            queue->remove_queue", "actual DRAM bus transfer")
+    texts["src/dram_controller.cc"] = dram
 
     block = texts["inc/block.h"]
     block = replace_once(block, "    uint32_t pf_metadata;", "    uint32_t pf_metadata;\n    uint64_t dynamic602_measurement_id; // measurement-only identity; not a predictor feature", "packet identity")
@@ -70,11 +89,16 @@ def patch_sim(sim):
     stride = texts["prefetcher/stride.cc"]
     stride = replace_once(stride, "StridePrefetcher::StridePrefetcher(string type) : Prefetcher(type)\n{\n\n}", "StridePrefetcher::StridePrefetcher(string type) : Prefetcher(type)\n{\n   init_stats(); // Initialize reporting counters; prediction algorithm is unchanged.\n}", "Stride counter initialization")
     texts["prefetcher/stride.cc"] = stride
+    spp_path=sim / "prefetcher/spp_dev2.cc"
+    if spp_path.is_file():
+        spp=spp_path.read_text()
+        spp=replace_once(spp, "SPP_dev2::SPP_dev2(std::string type, CACHE *cache) : Prefetcher(type), m_parent_cache(cache)\n{", "SPP_dev2::SPP_dev2(std::string type, CACHE *cache) : Prefetcher(type), m_parent_cache(cache)\n{\n    init_stats();", "SPP counter initialization")
+        texts["prefetcher/spp_dev2.cc"]=spp
     texts["inc/stride.h"] = replace_once(texts["inc/stride.h"], "   ~StridePrefetcher();", "   ~StridePrefetcher();\n   size_t dynamic602_tracker_count() const { return trackers.size(); }", "Stride storage observation")
     # Validate every anchor before writing any simulator source.
     for path, text in texts.items():
         (sim / path).write_text(text)
-    marker.write_text("dynamic602 isolated simulator hooks v1\n")
+    marker.write_text(HOOKS_VERSION)
 
 
 def install(sim):

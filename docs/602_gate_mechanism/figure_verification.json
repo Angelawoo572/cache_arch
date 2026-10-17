@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "audited_formal_rows": 71,
+  "phase_rows_independently_recomputed": 30,
+  "phase_fraction_values_independently_recomputed": 120,
+  "capped_credit_rows_independently_recomputed": 12,
+  "phase_svg_marker_values_verified": 120,
+  "credit_svg_marker_values_verified": 12,
+  "independent_numeric_checks": 668,
+  "all71_load_only_accuracy_timeliness_submission_denominators_verified": true,
+  "original_and_filtered_capped_all12_realized_allowed_requests": 59074,
+  "visual_qa": "PASS after layout-only rerender: phase legend and x labels separated; credit legend moved away from near-100% data; all seeds retained; explicit percent units and full disjoint phases.",
+  "layout_only_rerender_csv_bytes_unchanged": true,
+  "previous_figures_preserved": "gate_output/figures_final_before_layout",
+  "phase_ranges": {
+    "raw_emit_fraction": {
+      "min": 0.559807683522909,
+      "max": 0.8705171670455436
+    },
+    "k2_fraction_of_emit": {
+      "min": 0.9960015504192252,
+      "max": 1.0
+    },
+    "slot0_current_fraction": {
+      "min": 1.0,
+      "max": 1.0
+    },
+    "slot1_plus2_fraction": {
+      "min": 0.9968867132294206,
+      "max": 1.0
+    }
+  },
+  "original_current_credit_fraction_range": {
+    "min": 0.981667061651488,
+    "max": 0.9992382435589261
+  },
+  "filtered_current_credit_fraction": 0.0,
+  "interpretation": "K=2 and slot1+2 are nearly universal, not literally universal. Current-line slot0 is universal in these six observed full runs; original capped current-line credit shares range98.17\u201399.92%. Timeliness excludes late LOAD from its numerator and includes it in the LOAD-only useful denominator. SPP metrics remain a tracked L2-target subset; LLC-only lifecycle metrics are unavailable."
+}

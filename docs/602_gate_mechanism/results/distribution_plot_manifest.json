@@ -1,0 +1,30 @@
+{
+  "status": "PASS",
+  "analysis": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/gate_output/analysis_final",
+  "summary": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/gate_output/summary_final",
+  "audited_matrix_rows": 71,
+  "learned_runs": 6,
+  "independent_seeds": [
+    7,
+    17,
+    27
+  ],
+  "phase_rows": 30,
+  "capped_credit_rows": 12,
+  "files": [
+    "learned_payload_phase_mechanism.png",
+    "learned_payload_phase_mechanism.svg",
+    "current_line_budget_fraction.png",
+    "current_line_budget_fraction.svg",
+    "phase_mechanism_values.csv",
+    "current_line_budget_values.csv"
+  ],
+  "definitions": {
+    "raw_emit_fraction": "raw emit-positive completions / all completed NN updates in each disjoint retirement phase",
+    "k2_fraction_of_emit": "raw K=2 completions / raw emit-positive completions; positive K is produced only on emit by this runtime",
+    "slot0_current_fraction": "engine-generated slot0 current-line addresses / all decoded slot0 addresses; selected raw and payload outputs are identical",
+    "slot1_plus2_fraction": "raw slot1 predicted cache-line delta +2 / all decoded slot1 addresses",
+    "current_credit_fraction": "actual allowed current-line cache calls / all actual allowed calls, at the common ceiling; distinct from generated fraction",
+    "scope": "Frozen balanced checkpoints, zero-cost NN; two full future ROIs. No prefix extrapolation, averaged seed replacement, causal per-request claim, or minimum-observation threshold. Undefined denominators leave gaps."
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "status": "complete_verified",
+  "protocol": "gate_mechanism_20261016_v1",
+  "build_id": "build_20261016_213702",
+  "fresh_submitted": 64,
+  "fresh_complete": 64,
+  "fresh_running": 0,
+  "fresh_failed": 0,
+  "compatible_references": 7,
+  "audited_logical_rows": 71,
+  "compatibility": {
+    "NoPF": 2,
+    "unfiltered_NN": 11,
+    "native_SPP_functional_only": 4
+  },
+  "exact_common_fields": 790,
+  "old_missing_unfiltered_mac0_capped_roi1_seeds": [
+    7,
+    17,
+    27
+  ],
+  "old_missing_policy": "These are newly executed full formal controls, not fabricated compatibility matches.",
+  "source_check": "frozen source/config/binary/scorer and model/table byte equality checked at every run; diagnostics-only postprocessing excluded",
+  "raw_remote": "/home/qianruw/cache_gate_mechanism_20261016_runs",
+  "raw_local": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/gate_output/raw",
+  "reference_raw_remote": "/home/qianruw/cache_formal_20261016_runs_v2",
+  "reference_raw_local": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/research_output/raw_v2",
+  "tests": {
+    "dynamic_discovery": {
+      "run": 54,
+      "skipped": 2,
+      "skips": [
+        "actual-table optional entry separately passed on all three fitted tables",
+        "historical storage artifact unavailable at that source-checkout path; independently reaudited actual new storage fields"
+      ],
+      "suite_status": "OK"
+    },
+    "runner_protocol": 6,
+    "actual_tables_cpp_loader": "PASS: 3 seed tables, every PC, absent PC silent, unchanged files",
+    "independent_fitting": "PASS: six complete scalar rescoring comparisons; no test data"
+  },
+  "scientific_boundary": "Two future ROIs of one workload, three frozen pre-existing training seeds. No equivalence test, online training, pilot, threshold sweep, cross-workload retraining or engine redesign."
+}

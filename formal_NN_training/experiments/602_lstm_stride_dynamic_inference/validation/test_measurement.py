@@ -54,6 +54,14 @@ class MeasurementTests(unittest.TestCase):
                 raise RuntimeError("actual Stride header anchor changed")
             text = text.replace(anchor, anchor + "\n   size_t dynamic602_tracker_count() const { return trackers.size(); }", 1)
         header.write_text(text)
+        packet = cls.stage / 'inc/block.h'
+        text = packet.read_text()
+        if 'dynamic602_measurement_id' not in text:
+            anchor = '    uint32_t pf_metadata;'
+            if text.count(anchor) != 1:
+                raise RuntimeError('actual PACKET identity anchor changed')
+            text = text.replace(anchor, anchor + '\n    uint64_t dynamic602_measurement_id;', 1)
+        packet.write_text(text)
         cls.compiler = os.environ.get("CXX") or shutil.which("c++") or "g++"
 
     @classmethod
@@ -80,6 +88,13 @@ class MeasurementTests(unittest.TestCase):
 
     def test_preserved_conventional_stride(self):
         self.compile_and_run("test_stride", (self.stage / "stride.cc",))
+
+    def test_observer_compiles_against_actual_simulator_types(self):
+        result = subprocess.run([self.compiler, '-std=c++11', '-O2',
+            '-I' + str(self.stage / 'inc'), '-I' + str(EXP / 'measurement'),
+            '-c', str(EXP / 'measurement/dynamic_observer.cc'),
+            '-o', str(self.stage / 'dynamic_observer.o')], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

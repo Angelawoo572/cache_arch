@@ -1,0 +1,17 @@
+{
+  "status": "PASS",
+  "protocol": "gate_mechanism_20261016_v1",
+  "build_id": "build_20261016_213702",
+  "checks": [
+    "54 unit tests completed; 2 skips: optional actual tables separately PASS, historical storage artifact audited separately",
+    "6 runner/protocol unit checks PASS",
+    "FP32 Python/C++ h8/h16 parity PASS in engine suite",
+    "measurement actual ChampSim type compile and current/page/credit/cohort conservation PASS",
+    "all three fitted actual PC tables C++ constructor / emit / unknown silent / unchanged bytes PASS"
+  ],
+  "evidence": [
+    "correctness_units.log",
+    "correctness_runner.log",
+    "pc_gate/engine_loader_verification.json"
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "status": "PASS",
+  "protocol": "gate_mechanism_20261016_v1",
+  "build_id": "build_20261016_213702",
+  "independent_audit": true,
+  "test_inputs_used": false,
+  "source_records": {
+    "train": 16172,
+    "validation": 80206
+  },
+  "combined_events": 96378,
+  "three_distinct_original_models": true,
+  "seeds": [
+    {
+      "seed": 7,
+      "table_entries": 55,
+      "positive_table_entries": 24,
+      "agreement": {
+        "train": {
+          "events": 16172,
+          "correct": 16078,
+          "agreement": 0.9941874845411823,
+          "table_miss_events": 0,
+          "unique_pcs": 55
+        },
+        "validation": {
+          "events": 80206,
+          "correct": 79779,
+          "agreement": 0.9946762087624367,
+          "table_miss_events": 0,
+          "unique_pcs": 31
+        },
+        "combined": {
+          "events": 96378,
+          "correct": 95857,
+          "agreement": 0.9945942019963062,
+          "table_miss_events": 0,
+          "unique_pcs": 55
+        }
+      },
+      "recomputed_full_splits": [
+        "train",
+        "validation"
+      ]
+    },
+    {
+      "seed": 17,
+      "table_entries": 55,
+      "positive_table_entries": 29,
+      "agreement": {
+        "train": {
+          "events": 16172,
+          "correct": 16122,
+          "agreement": 0.9969082364580757,
+          "table_miss_events": 0,
+          "unique_pcs": 55
+        },
+        "validation": {
+          "events": 80206,
+          "correct": 79808,
+          "agreement": 0.9950377777223649,
+          "table_miss_events": 0,
+          "unique_pcs": 31
+        },
+        "combined": {
+          "events": 96378,
+          "correct": 95930,
+          "agreement": 0.9953516362655378,
+          "table_miss_events": 0,
+          "unique_pcs": 55
+        }
+      },
+      "recomputed_full_splits": [
+        "train",
+        "validation"
+      ]
+    },
+    {
+      "seed": 27,
+      "table_entries": 55,
+      "positive_table_entries": 20,
+      "agreement": {
+        "train": {
+          "events": 16172,
+          "correct": 16051,
+          "agreement": 0.9925179322285431,
+          "table_miss_events": 0,
+          "unique_pcs": 55
+        },
+        "validation": {
+          "events": 80206,
+          "correct": 80061,
+          "agreement": 0.9981921552003591,
+          "table_miss_events": 0,
+          "unique_pcs": 31
+        },
+        "combined": {
+          "events": 96378,
+          "correct": 96112,
+          "agreement": 0.997240034032663,
+          "table_miss_events": 0,
+          "unique_pcs": 55
+        }
+      },
+      "recomputed_full_splits": [
+        "train",
+        "validation"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "protocol": "gate_mechanism_20261016_v1",
+  "build_id": "build_20261016_213702",
+  "original_raw": "/home/qianruw/cache_gate_mechanism_20261016_runs",
+  "original_fit_root": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate",
+  "original_model_root": "/home/qianruw/cache_formal_20261016_runs_v2/models",
+  "notes": [
+    "Three actual pc_gate.tsv files are byte-preserved copies.",
+    "Per-PC count CSVs were converted losslessly to tab-separated columns for this light evidence package.",
+    "fit.json/input_records preserve original absolute provenance paths; no model, log or input stream is bundled.",
+    "Fullstream independent recomputation and actual C++ loader checks passed before formal launch."
+  ]
+}

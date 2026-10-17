@@ -1,6 +1,7 @@
 #include "stride_lstm_model_loader.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -129,6 +130,10 @@ void FrozenModel::Load(const std::string& path) {
                static_cast<std::streamsize>(count * sizeof(float)));
     if (!input || tensors_.count(name) != 0) {
       throw std::runtime_error("truncated or duplicate tensor");
+    }
+    if (!std::all_of(tensor.data.begin(), tensor.data.end(),
+                     [](float value) { return std::isfinite(value); })) {
+      throw std::runtime_error("non-finite model tensor: " + name);
     }
     tensors_.emplace(name, std::move(tensor));
     observed_parameters += count;

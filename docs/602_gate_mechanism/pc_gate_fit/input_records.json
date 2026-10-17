@@ -1,0 +1,28 @@
+[
+  {
+    "name": "train",
+    "source": "/home/qianruw/cache_formal_20261016_runs_v2/models/train_inputs.csv.gz",
+    "snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/train/source.csv.gz",
+    "canonical": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/train/pc_line.csv",
+    "events": 16172,
+    "initial_state": "independent_zero",
+    "state_capacity": 64,
+    "source_records": [
+      0,
+      1000000
+    ]
+  },
+  {
+    "name": "validation",
+    "source": "/home/qianruw/cache_formal_20261016_runs_v2/models/validation_inputs.csv.gz",
+    "snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/validation/source.csv.gz",
+    "canonical": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/validation/pc_line.csv",
+    "events": 80206,
+    "initial_state": "independent_zero",
+    "state_capacity": 64,
+    "source_records": [
+      5000000,
+      10000000
+    ]
+  }
+]

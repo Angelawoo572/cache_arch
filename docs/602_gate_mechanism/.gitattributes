@@ -1,0 +1,4 @@
+results/*.csv text eol=lf linguist-generated=true
+results/*.svg text eol=lf whitespace=-blank-at-eol linguist-generated=true
+results/*.png binary linguist-generated=true
+pc_gate_fit/**/*.tsv text eol=lf

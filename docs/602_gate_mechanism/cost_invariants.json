@@ -1,0 +1,118 @@
+{
+  "protocol": "gate_mechanism_20261016_v1",
+  "status": "verified_source_and_engine_units",
+  "source_comparison": {
+    "uint64_t Dynamic602::latency": true,
+    "void Dynamic602::begin": true,
+    "service_equal_after_removing_diagnostic_context_call": true,
+    "start_roi_equal_after_removing_diagnostic_map_resets": true,
+    "serial_single_active": true,
+    "completes_before_next_begin": true,
+    "hc_publish_at_completion": true,
+    "request_context_after_output_pop": true,
+    "current_before_budget": true,
+    "no_canonical_initialization": true
+  },
+  "source_invariants": [
+    {
+      "name": "original full learned forward and cost",
+      "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+      "line": 220,
+      "explanation": "begin and latency match v2 bytes exactly. k is original decoded address count after the original decoder cap; it is never replaced by final filtered/fixed payload count."
+    },
+    {
+      "name": "completion-only h/c publish; serial initiation",
+      "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+      "line": 267,
+      "explanation": "Exactly one active result. Publish h/c on now>=due before starting next queued event. Input queue can begin next event at that same completion cycle, giving saturated II=service."
+    },
+    {
+      "name": "fixed payload after fullforward",
+      "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+      "line": 239,
+      "explanation": "All decoder computations and scheduled service are retained; append_result alone chooses learned vs one+2 gated by result.emit. Raw result/K/delta diagnostics remain available."
+    },
+    {
+      "name": "current filter after output queue before credits",
+      "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc",
+      "line": 355,
+      "explanation": "Engine pops output and calls cache prefetch_line; common gate suppresses current-line before page/budget accounting. The output_next cycle still advances for suppressed requests; this intervention does not reclaim serial compute or output-drain cycles."
+    },
+    {
+      "name": "service without callbacks",
+      "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/patches/install.py",
+      "line": 40,
+      "explanation": "Outer CPU cycle loop calls dynamic602_service, including stalls and absence of new eligible LOAD callbacks."
+    }
+  ],
+  "formula": {
+    "MAC": "128H+8H^2+2H+emit*H+k*(3H^2+4H)",
+    "nonlinears": "6H+emit+k*(3H+1)",
+    "scratch_traffic_bytes": "4*(128+4H)+24k",
+    "service_cycles": "max(ceil(MAC/M),ceil(4MAC/B))+nonlinear_cycles*nonlinears+8+ceil(state_entries/4)+4k+ceil(scratch_traffic_bytes/B)",
+    "zero_cost": "M=0 gives0 service; no online weight training",
+    "k": "original actually decoded learned k after cap32, before payload change/filter"
+  },
+  "example": {
+    "H": 8,
+    "k": 2,
+    "emit": 1,
+    "state_entries": 64,
+    "MACS": 4,
+    "bandwidth_bytes_per_cycle": 16,
+    "nonlinear_cycles": 4,
+    "MAC": 2008,
+    "nonlinears": 99,
+    "scratch_traffic_bytes": 688,
+    "service_cycles": 973,
+    "scope": "illustrative source formula, not substituted for measured per-event distributions"
+  },
+  "unit_evidence": {
+    "passed": 18,
+    "optional_actual_table_test": "passed after fitting all3 actual55-PC tables",
+    "source_test": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/validation/test_engine.py",
+    "remote_log": "/tmp/cache-gate-engine-unit-20261016/unit_results.log",
+    "table_certificate": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/engine_loader_verification.json"
+  },
+  "accounting": {
+    "dense_weight_reads": "MAC*4 excludes biases by existing model assumption",
+    "resident_weight_DRAM_bytes": 0,
+    "physical_DRAM": "actual LLC/DRAM bus events measured independently, not inferred from issued*64"
+  },
+  "interpretation": "Equal per-event cost formula does not imply equal aggregate work across fullsim arms: cache feedback changes future eligible callbacks/admission/h/c paths. The formal finite original/filtered pair must supply actual cycles, request outcomes, drop fraction and all-event timing histograms.",
+  "four_finite_formal_pair_controls": {
+    "0": {
+      "commands_equal": true,
+      "only_functional_environment_difference": {
+        "DYNAMIC602_FILTER_CURRENT": [
+          "0",
+          "1"
+        ]
+      },
+      "warmup_evidence_equal": {
+        "warmup_completed_updates": true,
+        "warmup_state_evictions": true,
+        "warmup_discarded_work": true,
+        "warmup_discarded_outputs": true,
+        "pc_warmup_updates": true
+      }
+    },
+    "1": {
+      "commands_equal": true,
+      "only_functional_environment_difference": {
+        "DYNAMIC602_FILTER_CURRENT": [
+          "0",
+          "1"
+        ]
+      },
+      "warmup_evidence_equal": {
+        "warmup_completed_updates": true,
+        "warmup_state_evictions": true,
+        "warmup_discarded_work": true,
+        "warmup_discarded_outputs": true,
+        "pc_warmup_updates": true
+      }
+    }
+  },
+  "four_finite_formal_scope": "seed7 only; both independentROIs; cap2363; full25M each; currentfilter0/1"
+}

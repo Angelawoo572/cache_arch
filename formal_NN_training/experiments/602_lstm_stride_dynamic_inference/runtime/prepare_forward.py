@@ -25,6 +25,19 @@ void StrideLSTMRuntime::Reset()''').replace(
         'slot < count;', 'slot < count && (output_limit_ == 0 || slot < output_limit_);').replace(
         '  timings_ns_.push_back(result.nanoseconds);',
         '  // Per-callback host timing vectors are not needed by the dynamic inference engine.')
+    texts['stride_lstm_runtime.h'] = texts['stride_lstm_runtime.h'].replace(
+        '  int emit = 0;', '  int emit = 0;\n  float emit_margin = 0.0F;')
+    texts['stride_lstm_runtime.cc'] = texts['stride_lstm_runtime.cc'].replace(
+        '  result.emit = emit;', '  result.emit = emit;\n  result.emit_margin = emit_logits[1] - emit_logits[0];')
+    # Match the Python int64 count domain, checking the rounded boundary before
+    # casting (double cannot represent int64 max exactly).
+    texts['stride_lstm_runtime.cc'] = texts['stride_lstm_runtime.cc'].replace(
+        'raw_count > static_cast<double>(\n            std::numeric_limits<std::uint64_t>::max())',
+        'std::nearbyint(raw_count) >= 9223372036854775808.0')
+    texts['stride_lstm_model_loader.cc'] = texts['stride_lstm_model_loader.cc'].replace(
+        '#include <algorithm>', '#include <algorithm>\n#include <cmath>').replace(
+        '    tensors_.emplace(name, std::move(tensor));',
+        '    for (float value : tensor.data) if (!std::isfinite(value)) throw std::runtime_error("nonfinite model tensor");\n    tensors_.emplace(name, std::move(tensor));')
     for name, contents in texts.items():
         target = destination / ('inc' if name.endswith('.h') else 'prefetcher') / name
         target.write_text(contents)

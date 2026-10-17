@@ -48,7 +48,7 @@ std::int64_t CoordinateToDelta(float coordinate) {
   }
   const double magnitude = std::expm1(std::fabs(static_cast<double>(coordinate)));
   if (!std::isfinite(magnitude) ||
-      magnitude > static_cast<double>(std::numeric_limits<std::int64_t>::max())) {
+      magnitude >= std::ldexp(1.0, 63)) {
     throw std::runtime_error("neural delta exceeds address domain");
   }
   const std::int64_t rounded =
@@ -142,13 +142,15 @@ InferenceResult StrideLSTMRuntime::Infer(std::uint64_t pc,
     const std::vector<float> log_mean = Linear(
         model_.tensor("log_count_mean.weight"),
         model_.tensor("log_count_mean.bias"), current.hidden);
+    if (!std::isfinite(log_mean[0])) {
+      throw std::runtime_error("positive-count prediction is not finite");
+    }
     const double raw_count = std::exp(static_cast<double>(log_mean[0]));
-    if (!std::isfinite(raw_count) ||
-        raw_count > static_cast<double>(
-            std::numeric_limits<std::uint64_t>::max())) {
+    const double rounded_count = std::nearbyint(raw_count);
+    if (!std::isfinite(rounded_count) || rounded_count >= std::ldexp(1.0, 63)) {
       throw std::runtime_error("positive-count prediction exceeds host domain");
     }
-    count = static_cast<std::uint64_t>(std::nearbyint(raw_count));
+    count = static_cast<std::uint64_t>(rounded_count);
     if (count < 1U) {
       count = 1U;
     }

@@ -1,0 +1,23 @@
+{
+  "binary": "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/simulator/bin/perceptron-no-dynamic602-no-ship-1core",
+  "simulator": "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/simulator",
+  "source_snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/source_snapshot",
+  "binary_snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/simulator_binary_snapshot",
+  "build_id": "build_20261016_213702",
+  "protocol": "gate_mechanism_20261016_v1",
+  "base": "838be17e",
+  "scorer": "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/score_pc",
+  "scorer_snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/score_pc_snapshot",
+  "scorer_command": [
+    "g++",
+    "-std=c++14",
+    "-O2",
+    "-ffp-contract=off",
+    "-I/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/simulator/inc",
+    "/home/qianruw/cache_gate_mechanism_20261016/formal_NN_training/experiments/602_gate_mechanism/score_pc.cc",
+    "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/simulator/prefetcher/stride_lstm_runtime.cc",
+    "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/simulator/prefetcher/stride_lstm_model_loader.cc",
+    "-o",
+    "/home/qianruw/cache_gate_mechanism_20261016_runs/builds/build_20261016_213702/score_pc"
+  ]
+}

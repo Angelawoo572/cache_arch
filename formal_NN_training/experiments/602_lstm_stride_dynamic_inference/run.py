@@ -83,10 +83,12 @@ def execution_spec(spec, pilot=False):
     result = dict(spec, skip_records=skip,
                   simulation_instructions=CONFIG['pilot_instructions'] if pilot else CONFIG['final_instructions'],
                   warmup_instructions=25000000 if historical else 0,
-                  trace=CONFIG['trace'], output_limit=0 if historical else CONFIG['decoder_limit'])
+                  trace=CONFIG['trace'], output_limit=0 if historical else CONFIG['decoder_limit'],
+                  input_queue=CONFIG['input_queue'], output_queue=CONFIG['output_queue'],
+                  nonlinear_cycles=CONFIG['nonlinear_cycles'])
     if spec['h']:
         budget = 'i20m' if spec['arm']=='frozen_i20m' else 'i1m'
-        point = Path(CONFIG['checkpoints'])/('h'+str(spec['h']))/budget/'seed7'
+        point = Path(CONFIG['checkpoints'])/('h'+str(spec['h']))/budget/('seed'+str(spec['seed']))
         result['checkpoint'] = str(point/'offline/model.pt')
         result['model_binary'] = str(point/'export/model.bin')
     return result
@@ -102,7 +104,8 @@ def completed_compatible(path, expected):
     if prior.get('status')!='complete' or prior.get('exit_code')!=0:
         return False
     fields = ('run_id','arm','protocol','skip_records','warmup_instructions','simulation_instructions',
-              'h','hidden_size','seed','state_capacity','macs','trace','checkpoint')
+              'h','hidden_size','seed','state_capacity','macs','trace','checkpoint',
+              'input_queue','output_queue','nonlinear_cycles')
     if any(prior.get(key)!=expected.get(key) for key in fields):
         return False
     if prior.get('worker_pid') is not None:
@@ -177,6 +180,9 @@ def run_one(spec, pilot=False):
     env.update(DYNAMIC602_METHOD='frozen' if spec['arm'].startswith('frozen') else spec['arm'],
         DYNAMIC602_MACS=str(spec['macs']),DYNAMIC602_STATE_CAPACITY=str(spec['state_capacity']),
         DYNAMIC602_OUTPUT_LIMIT=str(spec['output_limit']),
+        DYNAMIC602_INPUT_QUEUE=str(spec['input_queue']),
+        DYNAMIC602_OUTPUT_QUEUE=str(spec['output_queue']),
+        DYNAMIC602_NONLINEAR_CYCLES=str(spec['nonlinear_cycles']),
         DYNAMIC602_SKIP_RECORDS=str(skip),DYNAMIC602_MAX_RECORDS='0' if historical else str(instructions),
         DYNAMIC602_STATS=str(path/'snapshots.jsonl'))
     if spec['h']:env['STRIDE_LSTM_MODEL_BIN']=spec['model_binary']

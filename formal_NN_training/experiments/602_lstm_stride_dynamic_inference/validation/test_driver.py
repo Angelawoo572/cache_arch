@@ -102,6 +102,16 @@ class DriverTests(unittest.TestCase):
         self.assertEqual(json.loads((saved[0]/'run.json').read_text())['status'],'failed')
         self.assertTrue((Path(self.config['reference_runs'])/spec['run_id']/'run.log').is_file())
 
+    def test_checkpoint_seed_and_engine_controls_are_part_of_identity(self):
+        spec=next(s for s in driver.specs() if s['h']==8)
+        spec=dict(spec,seed=17)
+        expected=driver.execution_spec(spec)
+        self.assertIn('/seed17/',expected['model_binary'])
+        path,expected=self.completed(spec)
+        for key in ('input_queue','output_queue','nonlinear_cycles'):
+            changed=dict(expected);changed[key]+=1
+            self.assertFalse(driver.completed_compatible(path,changed),key)
+
 
 if __name__=='__main__':
     unittest.main(verbosity=2)
