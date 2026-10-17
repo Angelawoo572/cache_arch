@@ -17,6 +17,17 @@ NORMAL_POLICY_DEGREE = {"stride": 2, "streamer": 5, "ampm": 4}
 POLICY_USES_PC = {"stride": True, "streamer": False, "ampm": False}
 
 
+def _signed_int32(value):
+    """Match the legacy source's two's-complement int32 arithmetic.
+
+    Stride's line addresses are uint64, but its computed stride and prefetch
+    offset are int32. Explicit wrapping also preserves its early zero-stride
+    return (which does not touch the tracker or LRU).
+    """
+    value = int(value) & 0xffffffff
+    return value - (1 << 32) if value & (1 << 31) else value
+
+
 def stride_actions(rows, state=None):
     trackers = OrderedDict() if state is None else state
     actions = [[] for _ in rows]
@@ -28,14 +39,14 @@ def stride_actions(rows, state=None):
             trackers.move_to_end(pc, last=False)
             continue
         last_line, last_stride = trackers[pc]
-        stride = line - last_line
+        stride = _signed_int32(int(line) - int(last_line))
         if stride == 0:
             continue
         if stride == last_stride:
             page = line // PAGE_LINES
             offset = line % PAGE_LINES
             for degree in range(NORMAL_POLICY_DEGREE["stride"]):
-                target_offset = offset + stride * degree
+                target_offset = _signed_int32(offset + stride * degree)
                 if target_offset < 0 or target_offset >= PAGE_LINES:
                     break
                 actions[index].append(page * PAGE_LINES + target_offset)
@@ -130,6 +141,16 @@ def policy_self_test():
     stride_rows = [(1, base + 10, 0), (1, base + 12, 0), (1, base + 14, 0)]
     actions, _ = stride_actions(stride_rows)
     assert actions[2] == [base + 14, base + 16]
+    # A 2**32-line alias narrows to zero and must leave both last address and
+    # last stride unchanged, as the source's early return does.
+    alias = 1 << 32
+    _, state = stride_actions([(1, 100, 0), (1, 100 + alias, 0)])
+    assert state[1] == (100, 0)
+    wrapped_rows = [(1, 100, 0), (1, 101 + alias, 0), (1, 102 + 2 * alias, 0)]
+    wrapped_actions, _ = stride_actions(wrapped_rows)
+    assert wrapped_actions[2] == [102 + 2 * alias, 103 + 2 * alias]
+    assert _signed_int32((1 << 31) + 5) == -(1 << 31) + 5
+    assert _signed_int32(-(1 << 32) - 1) == -1
     stream_rows = [(1, base + 10, 0), (2, base + 12, 0), (3, base + 13, 0)]
     actions, _ = streamer_actions(stream_rows)
     assert actions[2] == [base + x for x in (14, 15, 16, 17, 18)]

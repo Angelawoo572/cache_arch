@@ -1,0 +1,371 @@
+{
+  "roi": 1,
+  "test_records": [
+    75000000,
+    100000000
+  ],
+  "rows": [
+    {
+      "instructions": 25000002,
+      "cycles": 87367878,
+      "P": 59074,
+      "request_gate_generated": 125437,
+      "request_gate_allowed": 59074,
+      "request_gate_current_suppressed": 0,
+      "request_gate_budget_suppressed": 66363,
+      "request_cache_enqueued": 59074,
+      "request_cache_merged": 0,
+      "request_cache_rejected": 0,
+      "eligible_l2_callbacks": 532856,
+      "nn_admitted": 103495,
+      "nn_started": 103479,
+      "nn_completed": 103478,
+      "inference_dropped": 429361,
+      "state_evictions": 128,
+      "warmup_state_evictions": 0,
+      "input_queue": 16,
+      "inference_inflight": 1,
+      "state_entries": 64,
+      "peak_state_entries": 64,
+      "peak_input_queue": 16,
+      "output_queue": 0,
+      "peak_output_queue": 2,
+      "output_dropped_addresses": 0,
+      "inference_macs": 189666720,
+      "inference_weight_read_bytes": 758666880,
+      "generated_addresses": 127485,
+      "mechanism_raw_generated_addresses": 127485,
+      "mechanism_payload_generated_addresses": 127485,
+      "cohort_timely": 223,
+      "cohort_late": 2,
+      "cohort_unused": 569,
+      "cohort_redundant_cache": 58271,
+      "cohort_redundant_inflight": 2,
+      "dram_total_bus_bytes": 21630144,
+      "actual_engine_configuration": {
+        "h": 8,
+        "macs_per_cycle": 4,
+        "weight_bandwidth_bytes_per_cycle": 16,
+        "nonlinear_cycles_per_operation": 4,
+        "nonlinear_units": 1,
+        "state_capacity": 64,
+        "input_queue_capacity": 16,
+        "output_queue_capacity": 32,
+        "history_instructions": 5000000,
+        "warmup_instructions": 5000000,
+        "weight_bytes": 7632,
+        "nn_weight_dram_bytes": 0,
+        "service_architecture": "serial_II_equals_service",
+        "queue_policy": "fifo",
+        "page_policy": "same_page",
+        "engine_method": "frozen",
+        "engine_payload_mode": "learned",
+        "decoded_result_bytes_configured": 512,
+        "keep_ppm": 1000000,
+        "max_requests_per_event": 0,
+        "silent_suppress": 0,
+        "min_emit_margin": 0
+      },
+      "roi": 1,
+      "seed": 7,
+      "filtered": 0,
+      "summary": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/gate_output/raw/test/test_602_r1_nn_s7_m4_b2363_f0_sil0/summary.json",
+      "IPC": 0.2861463797941848,
+      "drop_fraction": 0.8057730418724759,
+      "completed_service_busy_fraction_lower_bound": 0.999049215776993,
+      "queue_wait_cycles": {
+        "count": 103479,
+        "denominator_field": "nn_started",
+        "mean": 13364.411871007644,
+        "histogram_upper_bounds": {
+          "0": 41,
+          "127": 1,
+          "255": 2,
+          "511": 43,
+          "1023": 22,
+          "2047": 22,
+          "4095": 13,
+          "8191": 23,
+          "16383": 103312
+        },
+        "maximum": 15568,
+        "p50_bounds": [
+          8192,
+          16383
+        ],
+        "p95_bounds": [
+          8192,
+          16383
+        ],
+        "p99_bounds": [
+          8192,
+          16383
+        ]
+      },
+      "scheduled_service_cycles": {
+        "count": 103479,
+        "denominator_field": "nn_started",
+        "mean": 843.512045922361,
+        "histogram_upper_bounds": {
+          "1023": 103479
+        },
+        "p50_bounds": [
+          0,
+          1023
+        ],
+        "p95_bounds": [
+          0,
+          1023
+        ],
+        "p99_bounds": [
+          0,
+          1023
+        ]
+      },
+      "completed_service_cycles": {
+        "count": 103478,
+        "denominator_field": "nn_completed",
+        "mean": 843.5107945650283,
+        "histogram_upper_bounds": {
+          "1023": 103478
+        },
+        "maximum": 973,
+        "p50_bounds": [
+          0,
+          1023
+        ],
+        "p95_bounds": [
+          0,
+          1023
+        ],
+        "p99_bounds": [
+          0,
+          1023
+        ]
+      },
+      "completion_age_cycles": {
+        "count": 103478,
+        "denominator_field": "nn_completed",
+        "mean": 14207.924921239297,
+        "histogram_upper_bounds": {
+          "1023": 57,
+          "2047": 69,
+          "4095": 11,
+          "8191": 25,
+          "16383": 89938,
+          "32767": 13378
+        },
+        "maximum": 16541,
+        "p50_bounds": [
+          8192,
+          16383
+        ],
+        "p95_bounds": [
+          16384,
+          32767
+        ],
+        "p99_bounds": [
+          16384,
+          32767
+        ]
+      }
+    },
+    {
+      "instructions": 25000002,
+      "cycles": 87437388,
+      "P": 56676,
+      "request_gate_generated": 125414,
+      "request_gate_allowed": 56676,
+      "request_gate_current_suppressed": 63749,
+      "request_gate_budget_suppressed": 4989,
+      "request_cache_enqueued": 56676,
+      "request_cache_merged": 0,
+      "request_cache_rejected": 0,
+      "eligible_l2_callbacks": 532856,
+      "nn_admitted": 103581,
+      "nn_started": 103565,
+      "nn_completed": 103564,
+      "inference_dropped": 429275,
+      "state_evictions": 125,
+      "warmup_state_evictions": 0,
+      "input_queue": 16,
+      "inference_inflight": 1,
+      "state_entries": 64,
+      "peak_state_entries": 64,
+      "peak_input_queue": 16,
+      "output_queue": 0,
+      "peak_output_queue": 2,
+      "output_dropped_addresses": 0,
+      "inference_macs": 189787192,
+      "inference_weight_read_bytes": 759148768,
+      "generated_addresses": 127430,
+      "mechanism_raw_generated_addresses": 127430,
+      "mechanism_payload_generated_addresses": 127430,
+      "cohort_timely": 615,
+      "cohort_late": 6,
+      "cohort_unused": 2306,
+      "cohort_redundant_cache": 53728,
+      "cohort_redundant_inflight": 7,
+      "dram_total_bus_bytes": 21767616,
+      "actual_engine_configuration": {
+        "h": 8,
+        "macs_per_cycle": 4,
+        "weight_bandwidth_bytes_per_cycle": 16,
+        "nonlinear_cycles_per_operation": 4,
+        "nonlinear_units": 1,
+        "state_capacity": 64,
+        "input_queue_capacity": 16,
+        "output_queue_capacity": 32,
+        "history_instructions": 5000000,
+        "warmup_instructions": 5000000,
+        "weight_bytes": 7632,
+        "nn_weight_dram_bytes": 0,
+        "service_architecture": "serial_II_equals_service",
+        "queue_policy": "fifo",
+        "page_policy": "same_page",
+        "engine_method": "frozen",
+        "engine_payload_mode": "learned",
+        "decoded_result_bytes_configured": 512,
+        "keep_ppm": 1000000,
+        "max_requests_per_event": 0,
+        "silent_suppress": 0,
+        "min_emit_margin": 0
+      },
+      "roi": 1,
+      "seed": 7,
+      "filtered": 1,
+      "summary": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/gate_output/raw/test/test_602_r1_nn_s7_m4_b2363_f1_sil0/summary.json",
+      "IPC": 0.2859189023350057,
+      "drop_fraction": 0.8056116474244449,
+      "completed_service_busy_fraction_lower_bound": 0.9990522704086265,
+      "queue_wait_cycles": {
+        "count": 103565,
+        "denominator_field": "nn_started",
+        "mean": 13364.173070052624,
+        "histogram_upper_bounds": {
+          "0": 41,
+          "127": 1,
+          "255": 2,
+          "511": 43,
+          "1023": 22,
+          "2047": 23,
+          "4095": 14,
+          "8191": 18,
+          "16383": 103401
+        },
+        "maximum": 15568,
+        "p50_bounds": [
+          8192,
+          16383
+        ],
+        "p95_bounds": [
+          8192,
+          16383
+        ],
+        "p99_bounds": [
+          8192,
+          16383
+        ]
+      },
+      "scheduled_service_cycles": {
+        "count": 103565,
+        "denominator_field": "nn_started",
+        "mean": 843.4815333365519,
+        "histogram_upper_bounds": {
+          "1023": 103565
+        },
+        "p50_bounds": [
+          0,
+          1023
+        ],
+        "p95_bounds": [
+          0,
+          1023
+        ],
+        "p99_bounds": [
+          0,
+          1023
+        ]
+      },
+      "completed_service_cycles": {
+        "count": 103564,
+        "denominator_field": "nn_completed",
+        "mean": 843.4834595033024,
+        "histogram_upper_bounds": {
+          "1023": 103564
+        },
+        "maximum": 973,
+        "p50_bounds": [
+          0,
+          1023
+        ],
+        "p95_bounds": [
+          0,
+          1023
+        ],
+        "p99_bounds": [
+          0,
+          1023
+        ]
+      },
+      "completion_age_cycles": {
+        "count": 103564,
+        "denominator_field": "nn_completed",
+        "mean": 14207.659399018965,
+        "histogram_upper_bounds": {
+          "1023": 57,
+          "2047": 69,
+          "4095": 11,
+          "8191": 24,
+          "16383": 89858,
+          "32767": 13545
+        },
+        "maximum": 16541,
+        "p50_bounds": [
+          8192,
+          16383
+        ],
+        "p95_bounds": [
+          16384,
+          32767
+        ],
+        "p99_bounds": [
+          16384,
+          32767
+        ]
+      }
+    }
+  ],
+  "NoPF": {
+    "summary": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/gate_output/raw/test/test_602_r1_none_s7_m0_b0_f0_sil0/summary.json",
+    "instructions": 25000002,
+    "cycles": 87367590,
+    "IPC": 0.2861473230519464
+  },
+  "delta_filtered_vs_original": {
+    "IPC_fraction": -0.0007949688524547804,
+    "allowed_request_fraction": -0.040593154348782856,
+    "allowed_requests": -2398,
+    "cycles": 69510
+  },
+  "speedup_vs_NoPF": {
+    "0": -3.29640603158321e-06,
+    "1": -0.0007982626379461344
+  },
+  "pair_control_checks": {
+    "commands_equal": true,
+    "only_functional_environment_difference": {
+      "DYNAMIC602_FILTER_CURRENT": [
+        "0",
+        "1"
+      ]
+    },
+    "warmup_evidence_equal": {
+      "warmup_completed_updates": true,
+      "warmup_state_evictions": true,
+      "warmup_discarded_work": true,
+      "warmup_discarded_outputs": true,
+      "pc_warmup_updates": true
+    }
+  }
+}

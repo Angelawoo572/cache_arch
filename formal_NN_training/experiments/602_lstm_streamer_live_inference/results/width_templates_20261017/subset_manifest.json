@@ -1,0 +1,49 @@
+{
+  "status": "PASS",
+  "policy": "streamer",
+  "source_analysis": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final",
+  "raw_root": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017",
+  "aggregate_archive": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/results/width_templates_20261017",
+  "selected_rows": 21,
+  "selected_run_ids": [
+    "test_r0_none_none_full_cap0",
+    "test_r0_streamer_h8_template_full_cap16144",
+    "test_r0_streamer_native_full_cap0",
+    "test_r0_streamer_native_full_cap16144",
+    "test_r0_streamer_student_fixed_payload_cap0",
+    "test_r0_streamer_student_full_cap0",
+    "test_r0_streamer_student_full_cap16144",
+    "test_r0_streamer_student_reset_state_cap0",
+    "test_r0_streamer_template_full_cap0",
+    "test_r1_none_none_full_cap0",
+    "test_r1_streamer_h8_template_full_cap16144",
+    "test_r1_streamer_native_full_cap0",
+    "test_r1_streamer_native_full_cap16144",
+    "test_r1_streamer_student_fixed_payload_cap0",
+    "test_r1_streamer_student_full_cap0",
+    "test_r1_streamer_student_full_cap16144",
+    "test_r1_streamer_student_reset_state_cap0",
+    "test_r1_streamer_template_full_cap0",
+    "validation_r0_none_none_full_cap0",
+    "validation_r0_streamer_native_full_cap0",
+    "validation_r0_streamer_student_full_cap0"
+  ],
+  "matched_NoPF_rows": 3,
+  "source_protocols": [
+    "four602_frozen_live_20261017_v2",
+    "four602_width_templates_20261017_v1"
+  ],
+  "outputs": {
+    "per_run.csv": 21,
+    "action_histograms.csv": 3408,
+    "action_histograms_full_roi.csv": 804,
+    "classified_requests.csv": 217,
+    "progress_snapshots.csv": 4734,
+    "phase_progress.csv": 93,
+    "storage_cost.csv": 40,
+    "paired_comparisons.csv": 12
+  },
+  "raw_inputs_modified": false,
+  "original_values_preserved": true,
+  "added_fields": "explicit protocol/origin/result_id and source_table where applicable"
+}

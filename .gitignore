@@ -194,12 +194,23 @@ accuracy_compare_all_traces.csv
 # Isolated experiment run bundles and Colab outputs remain local.
 formal_NN_training/experiments/*/runs/
 
+# Extra guardrails for the 602 live sibling if generated files are accidentally
+# placed outside its runs/ directory.
+formal_NN_training/experiments/602_lstm_stride_live_inference/**/*.bin
+formal_NN_training/experiments/602_lstm_stride_live_inference/**/*.tar.gz
+
 # Colab/PyTorch checkpoints and generated model artifacts.
 *.pt
 *.pth
 *.ckpt
 *.model.txt
 *.build_info.txt
+
+# Tiny retained seed7/H8 checkpoints for the three verified 602 live siblings.
+# All training runs, traces and other generated checkpoints remain local.
+!formal_NN_training/experiments/602_lstm_streamer_live_inference/models/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_ampm_live_inference/models/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_spp_live_inference/models/original_checkpoint.pt
 
 # Colab transfer archives and extracted payloads move only via SCP/browser.
 # Source notebooks remain tracked; generated inputs, outputs, and models do not.
@@ -213,3 +224,21 @@ formal_NN_training/experiments/*/runs/
 **/output_transfer_parts/
 formal_NN_training/experiments/**/colab_input/
 formal_NN_training/experiments/**/colab_output/
+
+# Retained original seed7 H16 models for the width/template study (about 31 KB each).
+!formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/
+!formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/
+!formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/original_checkpoint.pt
+
+# Canonical local/server workspace: retain raw data and recovery material locally.
+/.runtime/
+/formal_study/archive/
+/formal_study/runs/
+/formal_study/work/
+/formal_study/migration/
+# Curated formal_study/results/ is tracked and shared with GitHub.
+
+# Pre-existing offline report containers retained locally, outside current sources.
+/docs/602_stride_dynamic_inference/
+/formal_NN_training/formal_research_20261016/

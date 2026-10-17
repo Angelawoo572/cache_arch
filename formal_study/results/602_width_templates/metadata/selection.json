@@ -1,0 +1,60 @@
+{
+  "protocol": "four602_width_templates_20261017_v1",
+  "common_cap": 16144,
+  "cap_source": {
+    "path": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/selection.json",
+    "rule": "fixed archived cap; no reselection"
+  },
+  "validation_records": [
+    20000000,
+    25000000
+  ],
+  "templates": {
+    "ampm_h16": {
+      "policy": "ampm",
+      "hidden_size": 16,
+      "modal_count": 2,
+      "slots": [
+        [
+          9,
+          2
+        ],
+        [
+          8,
+          2
+        ]
+      ],
+      "source_run": "validation_r0_ampm_h16_student_full_cap0",
+      "selector": "joint per-slot modal delta/fill; ties numeric ascending; overflow repeats final slot; no PC"
+    },
+    "spp_h16": {
+      "policy": "spp",
+      "hidden_size": 16,
+      "modal_count": 5,
+      "slots": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          4
+        ],
+        [
+          3,
+          4
+        ],
+        [
+          4,
+          4
+        ],
+        [
+          5,
+          4
+        ]
+      ],
+      "source_run": "validation_r0_spp_h16_student_full_cap0",
+      "selector": "joint per-slot modal delta/fill; ties numeric ascending; overflow repeats final slot; no PC"
+    }
+  }
+}

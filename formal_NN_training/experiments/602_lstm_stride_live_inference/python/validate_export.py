@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Validate model.bin and optionally compare two checkpoints event by event."""
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+import numpy as np
+
+
+ROOT = Path(__file__).resolve().parents[4]
+from live_model_format import (
+    FORMAT_VERSION,
+    TENSOR_ORDER,
+    expected_tensor_shapes,
+    read_model,
+)
+
+
+DEFAULT_TOLERANCES = (
+    ROOT
+    / "formal_NN_training/experiments/602_lstm_stride_live_inference"
+    / "config/regression_tolerances.json"
+)
+RUNTIME_CONTRACT = (
+    ROOT
+    / "formal_NN_training/experiments/602_lstm_stride_live_inference"
+    / "config/runtime_contract.json"
+)
+
+
+def dotted(payload, path):
+    value = payload
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            return None
+        value = value[part]
+    return value
+
+
+def compare_metadata(candidate_path, reference_path, tolerances_path):
+    candidate = json.loads(Path(candidate_path).read_text())
+    reference = json.loads(Path(reference_path).read_text())
+    config = json.loads(Path(tolerances_path).read_text())
+    errors = []
+    for field in config["exact_metadata_fields"]:
+        left = dotted(candidate, field)
+        right = dotted(reference, field)
+        if left != right:
+            errors.append(
+                "exact metadata {}: candidate={!r} reference={!r}".format(
+                    field, left, right
+                )
+            )
+    for field, tolerance in config[
+        "absolute_metric_tolerances"
+    ].items():
+        left = dotted(candidate, field)
+        right = dotted(reference, field)
+        if left is None or right is None:
+            errors.append(
+                "metric {} unavailable: candidate={!r} reference={!r}".format(
+                    field, left, right
+                )
+            )
+        elif abs(float(left) - float(right)) > float(tolerance):
+            errors.append(
+                "metric {} differs by {} > {}".format(
+                    field, abs(float(left) - float(right)), tolerance
+                )
+            )
+    if errors:
+        raise RuntimeError("metadata regression mismatch\n" + "\n".join(errors))
+    return {
+        "exact_fields": len(config["exact_metadata_fields"]),
+        "metric_fields": len(config["absolute_metric_tolerances"]),
+    }
+
+
+def compare_checkpoint_actions(
+    first_path, second_path, stream, max_events,
+    frozen_model_type, load_checkpoint, load_stream,
+):
+    first_model, _ = load_checkpoint(first_path)
+    second_model, _ = load_checkpoint(second_path)
+    if first_model.hidden_size != second_model.hidden_size:
+        raise RuntimeError("checkpoint hidden sizes differ")
+    first = frozen_model_type(first_model)
+    second = frozen_model_type(second_model)
+    rows = load_stream(stream)
+    limit = min(len(rows), max_events or len(rows))
+    for index, (pc, line, _) in enumerate(rows[:limit]):
+        left = first.infer(pc, line)
+        right = second.infer(pc, line)
+        if (
+            left["emit"], left["k"], left["deltas"], left["addresses"]
+        ) != (
+            right["emit"], right["k"], right["deltas"], right["addresses"]
+        ):
+            raise RuntimeError(
+                "checkpoint action mismatch at event {}: {} != {}".format(
+                    index, left, right
+                )
+            )
+    return limit
+
+
+def build_parser():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--model-bin", required=True, type=Path)
+    parser.add_argument("--metadata", required=True, type=Path)
+    parser.add_argument(
+        "--checkpoint", type=Path,
+        help=(
+            "optional PyTorch checkpoint for exact tensor validation; "
+            "omit on a torch-free Sacramento host"
+        ),
+    )
+    parser.add_argument("--reference-checkpoint", type=Path)
+    parser.add_argument("--candidate-run-metadata", type=Path)
+    parser.add_argument("--reference-run-metadata", type=Path)
+    parser.add_argument(
+        "--metric-tolerances", type=Path, default=DEFAULT_TOLERANCES
+    )
+    parser.add_argument("--evaluation-stream", type=Path)
+    parser.add_argument("--max-events", type=int)
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
+    binary = read_model(args.model_bin)
+    metadata = json.loads(args.metadata.read_text())
+    contract = json.loads(RUNTIME_CONTRACT.read_text())
+    hidden_size = int(binary["hidden_size"])
+    feature_width = int(binary["feature_width"])
+    shapes = expected_tensor_shapes(hidden_size, feature_width)
+    parameter_count = sum(
+        int(np.prod(shape)) for shape in shapes.values()
+    )
+    errors = []
+    expected = {
+        "format_version": FORMAT_VERSION,
+        "hidden_size": hidden_size,
+        "feature_width": int(contract["feature_width"]),
+        "parameter_count": int(
+            contract["parameter_counts"].get("h{}".format(hidden_size), -1)
+        ),
+        "model_revision": contract["model_revision"],
+    }
+    for key, value in expected.items():
+        if metadata.get(key) != value:
+            errors.append(
+                "{}: metadata={!r} expected={!r}".format(
+                    key, metadata.get(key), value
+                )
+            )
+    for key in ("hidden_size", "feature_width", "parameter_count"):
+        if binary[key] != expected[key]:
+            errors.append(
+                "{}: model.bin={!r} expected={!r}".format(
+                    key, binary[key], expected[key]
+                )
+            )
+    if list(binary["tensors"]) != TENSOR_ORDER:
+        errors.append("tensor order differs")
+    for name in TENSOR_ORDER:
+        observed = binary["tensors"].get(name)
+        if observed is None or tuple(observed.shape) != shapes[name]:
+            errors.append(
+                "tensor shape mismatch {}: observed={} expected={}".format(
+                    name,
+                    None if observed is None else tuple(observed.shape),
+                    shapes[name],
+                )
+            )
+        elif not np.isfinite(observed).all():
+            errors.append("non-finite tensor: {}".format(name))
+    if parameter_count != expected["parameter_count"]:
+        errors.append(
+            "tensor-contract parameter count {} != {}".format(
+                parameter_count, expected["parameter_count"]
+            )
+        )
+    if metadata.get("tensor_names") != TENSOR_ORDER:
+        errors.append("metadata tensor_names differs")
+    if metadata.get("tensor_order") != TENSOR_ORDER:
+        errors.append("metadata tensor_order differs")
+    metadata_shapes = metadata.get("tensor_shapes", {})
+    for name in TENSOR_ORDER:
+        if metadata_shapes.get(name) != list(shapes[name]):
+            errors.append("metadata tensor shape mismatch: {}".format(name))
+    required_metadata = {
+        "weights_frozen": True,
+        "online_learning": False,
+        "optimizer_in_live_runtime": False,
+        "backpropagation_in_live_runtime": False,
+    }
+    for key, value in required_metadata.items():
+        if metadata.get(key) is not value:
+            errors.append(
+                "{}: metadata={!r} expected={!r}".format(
+                    key, metadata.get(key), value
+                )
+            )
+
+    checkpoint = None
+    exact_tensor_parity = None
+    if args.checkpoint:
+        if str(ROOT) not in sys.path:
+            sys.path.insert(0, str(ROOT))
+        from formal_NN_training.common.stride_direct_action_model import (
+            FrozenStrideLiveModel,
+            load_checkpoint,
+            load_stream,
+        )
+        model, checkpoint = load_checkpoint(args.checkpoint)
+        if model.hidden_size != hidden_size:
+            errors.append("checkpoint hidden size differs")
+        state = model.state_dict()
+        for name in TENSOR_ORDER:
+            expected_tensor = state[name].detach().cpu().numpy()
+            observed = binary["tensors"].get(name)
+            if observed is None or not np.array_equal(
+                observed, expected_tensor
+            ):
+                errors.append("checkpoint tensor mismatch: {}".format(name))
+        if int(checkpoint["parameter_count"]) != expected["parameter_count"]:
+            errors.append("checkpoint parameter count differs")
+        exact_tensor_parity = True
+    if errors:
+        raise SystemExit("EXPORT FAIL\n" + "\n".join(errors))
+    compared = 0
+    metadata_comparison = None
+    if bool(args.candidate_run_metadata) != bool(
+        args.reference_run_metadata
+    ):
+        raise RuntimeError(
+            "candidate/reference run metadata must be supplied together"
+        )
+    if args.candidate_run_metadata:
+        metadata_comparison = compare_metadata(
+            args.candidate_run_metadata,
+            args.reference_run_metadata,
+            args.metric_tolerances,
+        )
+    if args.reference_checkpoint:
+        if not args.checkpoint:
+            raise RuntimeError(
+                "--reference-checkpoint also requires --checkpoint"
+            )
+        if not args.evaluation_stream:
+            raise RuntimeError(
+                "--evaluation-stream is required for checkpoint comparison"
+            )
+        compared = compare_checkpoint_actions(
+            args.reference_checkpoint,
+            args.checkpoint,
+            args.evaluation_stream,
+            args.max_events,
+            FrozenStrideLiveModel,
+            load_checkpoint,
+            load_stream,
+        )
+    print(json.dumps({
+        "status": "PASS",
+        "validation_mode": (
+            "checkpoint_exact" if args.checkpoint else "torch_free_structural"
+        ),
+        "exact_tensor_parity": exact_tensor_parity,
+        "checkpoint_action_events_compared": compared,
+        "parameter_count": expected["parameter_count"],
+        "metadata_comparison": metadata_comparison,
+    }, sort_keys=True))
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,363 @@
+{
+  "schema": "four602_width_actual_source_memory_cost_v1",
+  "status": "PASS",
+  "protocol": "four602_width_templates_20261017_v1",
+  "actual_build": {
+    "protocol": "four602_frozen_live_20261017_v2",
+    "build_id": "build_1792211655617683046",
+    "binary": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/bin/perceptron-no-four602-no-ship-1core",
+    "binary_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/binary_snapshot",
+    "simulator": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator",
+    "source_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/source_snapshot",
+    "compiled_source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/compiled_source",
+    "compiled_source_files": 100,
+    "compiled_source_byte_equal": true,
+    "generated_forward_verification": {
+      "status": "PASS",
+      "protocol": "dynamic602_forward_generation_v1",
+      "marker_present": true,
+      "artifacts": [
+        {
+          "path": "inc/stride_lstm_runtime.h",
+          "bytes": 1944,
+          "byte_equal": true
+        },
+        {
+          "path": "prefetcher/stride_lstm_runtime.cc",
+          "bytes": 10680,
+          "byte_equal": true
+        },
+        {
+          "path": "inc/stride_lstm_model_loader.h",
+          "bytes": 964,
+          "byte_equal": true
+        },
+        {
+          "path": "prefetcher/stride_lstm_model_loader.cc",
+          "bytes": 6790,
+          "byte_equal": true
+        }
+      ]
+    },
+    "compiler": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-28)",
+    "cxx": "g++",
+    "compiler_flags": "-O3 -ffp-contract=off",
+    "base": "838be17e"
+  },
+  "host": "sacramento.ece.local.cmu.edu",
+  "compiler": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-28)",
+  "compile_command": [
+    "g++",
+    "-std=c++11",
+    "-O3",
+    "-ffp-contract=off",
+    "-I/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/inc",
+    "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+    "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/validation/storage_probe.cc",
+    "-o",
+    "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/runtime/storage_probe"
+  ],
+  "binding_method": "source/model/fixture byte comparison and preserved copies; no new hash ledger",
+  "bindings": [
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/profile_cost.py",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/profile_cost.py",
+      "bytes": 12713
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/validation/storage_probe.cc",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/storage_probe.cc",
+      "bytes": 6309
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/live602_runtime.cc",
+      "bytes": 10625
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/live602_runtime.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/live602_runtime.h",
+      "bytes": 1690
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/build.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/actual_build.json",
+      "bytes": 1575
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/correctness_gate.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/correctness_gate.json",
+      "bytes": 2729
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/streamer.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/streamer.h",
+      "bytes": 1292
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/ampm.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/ampm.h",
+      "bytes": 1537
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/bitmap.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/bitmap.h",
+      "bytes": 1148
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/prefetcher.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/prefetcher.h",
+      "bytes": 472
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/spp_dev2.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/spp_dev2.h",
+      "bytes": 1244
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/spp_dev2_helper.h",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/native_headers/spp_dev2_helper.h",
+      "bytes": 4180
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/models/ampm_h16/model.bin",
+      "bytes": 27126
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/immutable_model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/models/ampm_h16/immutable_model.bin",
+      "bytes": 27126
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/correctness/ampm_h16/parity.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/ampm_h16_parity.json",
+      "bytes": 1120
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/correctness/ampm_h16/commands.txt",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/ampm_h16_commands.txt",
+      "bytes": 69732
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/spp_h16/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/models/spp_h16/model.bin",
+      "bytes": 27000
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/spp_h16/immutable_model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/models/spp_h16/immutable_model.bin",
+      "bytes": 27000
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/correctness/spp_h16/parity.json",
+      "snapshot": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/source/spp_h16_parity.json",
+      "bytes": 1036
+    }
+  ],
+  "nn_models": {
+    "ampm_h16": {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 6653,
+        "fp32_weight_bytes": 26612,
+        "global_hc_bytes": 128,
+        "hidden_size": 16,
+        "features": 64,
+        "fill_classes": 0,
+        "weight_plus_global_hc_payload_bytes": 26740,
+        "payload_qualifier": "FP32 weights plus one global h/c pair only; excludes scratch/output/control; not a full architectural storage or hardware PPA total"
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 28428,
+        "object_plus_persistent_requested_bytes": 28596,
+        "constructor_peak_requested_bytes": 37844,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 884,
+        "max_returned_result_requested_bytes": 192,
+        "max_actions_vector_capacity": 2,
+        "inference_allocation_calls": 86180,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4104,
+        "demand_callbacks": 4104,
+        "fill_callbacks": 0,
+        "actions": 8207,
+        "max_count": 2,
+        "macs": 30401424,
+        "nonlinears": 833059,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 852,
+          "returned_result_requested_bytes": 160,
+          "count": 1,
+          "macs": 6400,
+          "nonlinears": 150
+        },
+        "source_stream": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.guard_stream.csv.gz",
+        "commands": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/ampm_h16_commands.txt",
+        "real_contiguous_callbacks": 4096,
+        "boundary_callbacks": 8,
+        "bound_to_passed_correctness_sequence": true
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "model_path": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/model.bin",
+      "model_header": {
+        "version": 1,
+        "endian": 16909060,
+        "float_type": 1,
+        "tensor_count": 14,
+        "hidden_size": 16,
+        "feature_count": 64,
+        "mixture_components": 4,
+        "fill_classes": 0,
+        "count_mode": 0,
+        "decoder_initial": 0,
+        "kind_feature": 0,
+        "demand_kind": 0,
+        "delta_limit_bits": 57,
+        "fill_level0": 2,
+        "fill_level1": 4,
+        "delta_mode": 0,
+        "parameter_count": 6653
+      }
+    },
+    "spp_h16": {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 6609,
+        "fp32_weight_bytes": 26436,
+        "global_hc_bytes": 128,
+        "hidden_size": 16,
+        "features": 65,
+        "fill_classes": 2,
+        "weight_plus_global_hc_payload_bytes": 26564,
+        "payload_qualifier": "FP32 weights plus one global h/c pair only; excludes scratch/output/control; not a full architectural storage or hardware PPA total"
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 28488,
+        "object_plus_persistent_requested_bytes": 28656,
+        "constructor_peak_requested_bytes": 38092,
+        "constructor_allocation_calls": 123,
+        "max_infer_incremental_peak_requested_bytes": 1148,
+        "max_returned_result_requested_bytes": 392,
+        "max_actions_vector_capacity": 8,
+        "inference_allocation_calls": 104524,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4112,
+        "demand_callbacks": 2349,
+        "fill_callbacks": 1763,
+        "actions": 11741,
+        "max_count": 5,
+        "macs": 34767136,
+        "nonlinears": 953582,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 968,
+          "returned_result_requested_bytes": 264,
+          "count": 3,
+          "macs": 8640,
+          "nonlinears": 240
+        },
+        "source_stream": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_input/602.gcc_s-734B.spp.train_stream.csv.gz",
+        "commands": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/cost/spp_h16_commands.txt",
+        "real_contiguous_callbacks": 4096,
+        "boundary_callbacks": 16,
+        "bound_to_passed_correctness_sequence": true
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "model_path": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/spp_h16/model.bin",
+      "model_header": {
+        "version": 1,
+        "endian": 16909060,
+        "float_type": 1,
+        "tensor_count": 16,
+        "hidden_size": 16,
+        "feature_count": 65,
+        "mixture_components": 4,
+        "fill_classes": 2,
+        "count_mode": 1,
+        "decoder_initial": 1,
+        "kind_feature": 1,
+        "demand_kind": 1,
+        "delta_limit_bits": 57,
+        "fill_level0": 2,
+        "fill_level1": 4,
+        "delta_mode": 0,
+        "parameter_count": 6609
+      }
+    }
+  },
+  "native_cpp_sizeof": {
+    "Prefetcher": 40,
+    "Stream_Tracker": 24,
+    "Streamer": 200,
+    "Bitmap": 8,
+    "AMPM_PB_Entry": 16,
+    "AMPM": 1320,
+    "SIGNATURE_TABLE": 4352,
+    "PATTERN_TABLE": 18432,
+    "PREFETCH_FILTER": 10240,
+    "GLOBAL_REGISTER": 160,
+    "SPP_dev2": 33432
+  },
+  "native_sizeof_scope": "actual archived native class/helper layouts, including descriptors and padding; not complete native constructor heap allocation or synthesized storage. Native histograms/diagnostic descriptors are present in class sizeof.",
+  "cost_model": {
+    "encoder_macs": "4*H*(F+H) per callback",
+    "encoder_nonlinears": "5*H per callback",
+    "ampm_h16_demand_macs": "5136 + 256*(K>0) + 1008*K",
+    "ampm_h16_demand_nonlinears": "81 + 16*(K>0) + 53*K",
+    "spp_h16_fill_macs": 5184,
+    "spp_h16_fill_nonlinears": 80,
+    "spp_h16_demand_macs": "5216 + 16*emit + 1136*K",
+    "spp_h16_demand_nonlinears": "80 + emit + 53*K",
+    "mac_definition": "dense FP32 multiply-accumulate pairs; bias adds, argmax, bit extraction and control excluded",
+    "nonlinear_definition": "primitive sigmoid/tanh/softplus/exp/expm1 counts, not calibrated cycles",
+    "full_forward": "raw learned K/delta/fill decode completes before external gates or payload replacement",
+    "measurement": "synchronous MAC0; no modeled resource queue/service/bandwidth/weight transfer/energy",
+    "mac4_ratio": "ceil(counted_MACs/4)/measured_MAC0_ROI_cycles is only an aggregate throughput necessary condition on that MAC0 callback timeline/window, not finite-resource IPC",
+    "weights": "resident host vectors; no simulated NN-weight DRAM traffic; 4*MAC is not measured weight traffic"
+  },
+  "byte_interpretation": "scalar runtime object sizeof plus ordinary new/new[] requested persistent payload includes its weights/global h/c/container overhead; do not add weight+h/c again. Automatic stack frames, allocator metadata/alignment/tracking headers, C-library malloc internals, Four602 outer adapter, measurement observers, logs and fixture buffers excluded; neither RSS nor synthesized hardware/PPA.",
+  "scratch_scope": "temporary requested-heap high-water mark observed only on the exact passed 4096-real-callback-plus-boundary fixtures. Global decoder has no model degree cap; observed K/peak is not a universal worst-case resource bound.",
+  "no_simulator_executed": true
+}

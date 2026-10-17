@@ -1,0 +1,61 @@
+{
+  "model_family": "real_ampm_v7_global_lstm_poisson_mixture",
+  "matched_normal_prefetcher": "ampm",
+  "seed": 7,
+  "checkpoint": "/Users/angelawoo/Documents/CMU/ece/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+  "source_metadata": "/Users/angelawoo/Documents/CMU/ece/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h8/run_metadata.json",
+  "model": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_ampm_live_inference/models/ampm_h8_seed7.bin",
+  "checkpoint_identity": {
+    "hidden_size": 8,
+    "feature_count": 64,
+    "parameters": 2821,
+    "matched_normal_prefetcher": "ampm",
+    "experiment_revision": "source_input_variable_delta_free_running_v7"
+  },
+  "binary_config": {
+    "version": 1,
+    "endian": 16909060,
+    "float_type": 1,
+    "hidden_size": 8,
+    "feature_count": 64,
+    "mixture_components": 4,
+    "fill_classes": 0,
+    "count_mode": 0,
+    "decoder_initial": 0,
+    "kind_feature": 0,
+    "demand_kind": 0,
+    "delta_limit_bits": 57,
+    "fill_level0": 2,
+    "fill_level1": 4,
+    "delta_mode": 0,
+    "tensor_count": 14,
+    "parameter_count": 2821,
+    "weight_bytes": 11284
+  },
+  "all_tensors_exact_roundtrip": true,
+  "original_training_instruction_records": [
+    0,
+    20000000
+  ],
+  "original_guard_instruction_records": [
+    20000000,
+    25000000
+  ],
+  "original_evaluation_instruction_records": [
+    25000000,
+    50000000
+  ],
+  "new_validation_instruction_records": [
+    20000000,
+    25000000
+  ],
+  "source_train_rows": 325389,
+  "source_guard_rows": 80725,
+  "source_eval_rows": 404219,
+  "state": "one global chronological FP32 hidden/cell pair; decoder reset from context per event; noPC state",
+  "runtime_input": "64 LSB-first bits of aligned uint64 byte address (line<<6), low6 bits naturallyzero",
+  "count": "floor(float64 softplus(FP32 count affine)), permits0; reject>=2**63",
+  "delta": "4-mixture logits argmax first; selected mean; signed expm1 then ties-even round; modulo2**58 line domain",
+  "fill": "no learned fill head; fill_level0=FILL_L2(2) at external adapter",
+  "old_results": "keyed address-list replay; not live recurrent or finite-cost inference evidence"
+}

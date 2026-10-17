@@ -1,0 +1,99 @@
+{
+  "protocol": "four602_frozen_live_20261017_v2",
+  "policy": "spp",
+  "own_run_ids": [
+    "test_r0_spp_native_full_cap0",
+    "test_r0_spp_native_full_cap16144",
+    "test_r0_spp_student_fixed_payload_cap0",
+    "test_r0_spp_student_full_cap0",
+    "test_r0_spp_student_full_cap16144",
+    "test_r0_spp_student_reset_state_cap0",
+    "test_r0_spp_template_full_cap0",
+    "test_r1_spp_native_full_cap0",
+    "test_r1_spp_native_full_cap16144",
+    "test_r1_spp_student_fixed_payload_cap0",
+    "test_r1_spp_student_full_cap0",
+    "test_r1_spp_student_full_cap16144",
+    "test_r1_spp_student_reset_state_cap0",
+    "test_r1_spp_template_full_cap0",
+    "validation_r0_spp_native_full_cap0",
+    "validation_r0_spp_student_full_cap0"
+  ],
+  "matched_NoPF_run_ids": [
+    "test_r0_none_none_full_cap0",
+    "test_r1_none_none_full_cap0",
+    "validation_r0_none_none_full_cap0"
+  ],
+  "run_ids": [
+    "test_r0_none_none_full_cap0",
+    "test_r0_spp_native_full_cap0",
+    "test_r0_spp_native_full_cap16144",
+    "test_r0_spp_student_fixed_payload_cap0",
+    "test_r0_spp_student_full_cap0",
+    "test_r0_spp_student_full_cap16144",
+    "test_r0_spp_student_reset_state_cap0",
+    "test_r0_spp_template_full_cap0",
+    "test_r1_none_none_full_cap0",
+    "test_r1_spp_native_full_cap0",
+    "test_r1_spp_native_full_cap16144",
+    "test_r1_spp_student_fixed_payload_cap0",
+    "test_r1_spp_student_full_cap0",
+    "test_r1_spp_student_full_cap16144",
+    "test_r1_spp_student_reset_state_cap0",
+    "test_r1_spp_template_full_cap0",
+    "validation_r0_none_none_full_cap0",
+    "validation_r0_spp_native_full_cap0",
+    "validation_r0_spp_student_full_cap0"
+  ],
+  "own_rows": 16,
+  "matched_NoPF_rows": 3,
+  "rows": 19,
+  "source_full_archive": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017",
+  "source_raw": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2",
+  "tables": [
+    {
+      "path": "per_run.csv",
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/per_run.csv",
+      "source_rows": 64,
+      "retained_rows": 19,
+      "fields_and_values_exact": true
+    },
+    {
+      "path": "action_histograms.csv",
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/action_histograms.csv",
+      "source_rows": 29005,
+      "retained_rows": 10348,
+      "fields_and_values_exact": true
+    },
+    {
+      "path": "action_histograms_full_roi.csv",
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/action_histograms_full_roi.csv",
+      "source_rows": 7749,
+      "retained_rows": 2784,
+      "fields_and_values_exact": true
+    },
+    {
+      "path": "phase_progress.csv",
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/phase_progress.csv",
+      "source_rows": 288,
+      "retained_rows": 83,
+      "fields_and_values_exact": true
+    },
+    {
+      "path": "progress_snapshots.csv",
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/progress_snapshots.csv",
+      "source_rows": 14656,
+      "retained_rows": 4226,
+      "fields_and_values_exact": true
+    },
+    {
+      "path": "classified_requests.csv",
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/classified_requests.csv",
+      "source_rows": 1245,
+      "retained_rows": 690,
+      "fields_and_values_exact": true
+    }
+  ],
+  "no_old_protocol_rows": true,
+  "no_metric_recomputation": true
+}

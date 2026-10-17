@@ -1,0 +1,35 @@
+{
+  "action_atoms": 4875,
+  "budget_tag": "i1m",
+  "collection_command": "/home/qianruw/cache/external/ChampSim/bin/champsim.602_offline_replay --l2c_prefetcher_types=none --warmup_instructions=0 --simulation_instructions=1000000 -traces /home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+  "collection_semantics": "trace_start_to_exact_retired_instruction_budget",
+  "decision_rows": 16172,
+  "failure_reason": null,
+  "first_callback_position": {
+    "cycle": 50,
+    "decision_row": 0,
+    "raw_event_id": 0
+  },
+  "first_positive_label_position": {
+    "decision_row": 26,
+    "line": 702778646962,
+    "pc": 4257721
+  },
+  "instruction_budget": 1000000,
+  "k_histogram": {
+    "0": 13686,
+    "1": 97,
+    "2": 2389
+  },
+  "positive_count_rows": 2486,
+  "raw_event_log": "formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/training_events/602.gcc_s-734B.i1m.events.csv.gz",
+  "schema_version": 1,
+  "silent_rows": 13686,
+  "status": "trainable",
+  "trace": "602.gcc_s-734B",
+  "training_simulation_instructions": 1000000,
+  "training_stream": "formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/training_prefixes/i1m/602.gcc_s-734B.i1m.train_stream.csv.gz",
+  "training_warmup_instructions": 0,
+  "unique_pcs": 55,
+  "unique_positive_pcs": 9
+}

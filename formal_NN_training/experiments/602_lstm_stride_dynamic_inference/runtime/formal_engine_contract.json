@@ -1,0 +1,74 @@
+{
+  "schema_version": 2,
+  "weights": "frozen",
+  "features": [
+    "pc64_lsb_first",
+    "aligned_byte_address64_lsb_first"
+  ],
+  "state": "last completed exact-PC h/c",
+  "engine": "one serial engine; II=actual scheduled service duration; unconditional per-core-cycle service",
+  "resource_environment": {
+    "DYNAMIC602_MACS": "dense MAC/cycle, 0 means modeled zero cost",
+    "DYNAMIC602_BANDWIDTH_BYTES_PER_CYCLE": "resident weight and scratch bandwidth, default4*MACS",
+    "DYNAMIC602_NONLINEAR_CYCLES": "one nonlinear unit cycles/operation",
+    "DYNAMIC602_INPUT_QUEUE": "waiting events, excludes1active",
+    "DYNAMIC602_OUTPUT_QUEUE": "waiting addresses",
+    "DYNAMIC602_OUTPUT_LIMIT": "decoder resource cap;0historical uncapped",
+    "DYNAMIC602_STATE_CAPACITY": "exact-PC LRU h/c;0unbounded"
+  },
+  "history_environment": {
+    "DYNAMIC602_WARMUP_INSTRUCTIONS": "warmup target",
+    "DYNAMIC602_HISTORY_INSTRUCTIONS": "NN observes only final chosen instruction interval of common noPF cache warmup;0empty h/c at ROI"
+  },
+  "boundary": "Discard NN active inference and input/output work at ROI; retain only completed selected-history NN h/c; reset measurement counters. Conventional Stride, shadow teacher and nativeSPP retain the same full common warmup history in every history arm.",
+  "controls": {
+    "DYNAMIC602_STRIDE_MODE": [
+      "legacy",
+      "remove_current",
+      "forward1",
+      "forward2"
+    ],
+    "DYNAMIC602_PAGE_POLICY": [
+      "same_page",
+      "cross_page"
+    ],
+    "DYNAMIC602_QUEUE_POLICY": [
+      "fifo (drop incoming when full)",
+      "drop_oldest (one optional improvement)"
+    ],
+    "DYNAMIC602_SILENT_SUPPRESS": "suppress only outputs from events whose teacher was silent at arrival; forward compute/admission/h-c unchanged",
+    "DYNAMIC602_REQUESTS_PER_MILLION_INSTRUCTIONS": "global strict cumulative request credits at prefetch_line for every L2 policy;0unlimited;chosen only on validation",
+    "DYNAMIC602_KEEP_PPM": "optional deterministic request thinning after full compute, default1000000",
+    "DYNAMIC602_MAX_REQUESTS_PER_EVENT": "optional postcompute request cap,0uncapped",
+    "DYNAMIC602_MIN_EMIT_MARGIN": "optional postcompute suppression threshold>=0,default0"
+  },
+  "teacher": "Measurement-only original Stride sees every eligible LOAD during common warmup and ROI. Retain common teacher state at ROI. Save each event action snapshot before NN admission including inputs later dropped; never query teacher at completion.",
+  "input_log": {
+    "DYNAMIC602_INPUT_LOG": "optional all-ROI-LOAD CSV",
+    "schema": [
+      "trace",
+      "demand_idx",
+      "cycle",
+      "pc",
+      "line",
+      "pc_line_occ"
+    ],
+    "indices": "both demand_idx and pc_line_occ zero-based",
+    "DYNAMIC602_TRACE_NAME": "trace identifier"
+  },
+  "measurements": {
+    "distributions": "all-event log2 upper-bound histograms for queue-wait,service,completion-age,prior completed history,state-eviction histories",
+    "per_pc": "all ROI completions/evictions plus resident lifetime update totals",
+    "dram": "accepted actual RQ/WQ enqueues/merges, write-forwarding, actual bus starts, timestamped bus completions and real completed bytes, initial/end queue occupancy and initial busy channels",
+    "weights": "one resident FP32 copy; analytical dense weight reads separate; modeled weight DRAM bytes0",
+    "requests": "gate generation/budget suppression/page suppression; cache new-enqueue/merge/rejection; cohort first-demand timely/late by LOAD/RFO, eviction-unused, pending and resident-unused"
+  },
+  "limitations": [
+    "same_page control assumes4KiB pages and64-byte lines, matching fixed ChampSim machine",
+    "warmup inherited controller uses dummy zero-cost DRAM; NN history is controlled separately but not a model of realistic warmup memory latency",
+    "legacy selected-accuracy metric remains useful/(issued-PQmerged); report actual cache outcome metrics separately",
+    "queue throughput formula is an architectural assumption, not synthesized hardware",
+    "unused is not direct pollution",
+    "category labels are descriptive; silent-output ablation supplies causal IPC comparison"
+  ]
+}

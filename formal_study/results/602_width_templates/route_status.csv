@@ -1,0 +1,5 @@
+policy,new_complete_runs,new_test_runs,new_validation_runs,original_reference_rows,width_scope,original_protocol,new_protocol
+streamer,2,2,0,16,H8 capped template only,four602_frozen_live_20261017_v2,four602_width_templates_20261017_v1
+ampm,11,10,1,16,retained H16 plus H8 capped template,four602_frozen_live_20261017_v2,four602_width_templates_20261017_v1
+spp,11,10,1,16,retained H16 plus H8 capped template,four602_frozen_live_20261017_v2,four602_width_templates_20261017_v1
+stride,0,0,0,13,reference only; no new Stride run or width claim,four602_frozen_live_20261017_v2,four602_width_templates_20261017_v1

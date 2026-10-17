@@ -32,7 +32,9 @@ import math
 import platform
 import random
 import sys
+import time
 from collections import Counter, OrderedDict, deque
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import numpy as np
@@ -80,10 +82,23 @@ def gzip_content_sha256(path):
 
 def as_int(value):
     text = str(value).strip()
-    return int(text, 16) if text.lower().startswith("0x") else int(float(text))
+    if text.lower().startswith("0x"):
+        return int(text, 16)
+    try:
+        return int(text, 10)
+    except ValueError:
+        # Retain old integral scientific-notation CSVs without a lossy float
+        # conversion of uint64 PCs or addresses.
+        try:
+            decimal = Decimal(text)
+        except InvalidOperation:
+            raise ValueError("invalid integer: {}".format(text))
+        if not decimal.is_finite() or decimal != decimal.to_integral_value():
+            raise ValueError("non-integral value: {}".format(text))
+        return int(decimal)
 
 
-def load_stream(path):
+def load_stream(path, expected_trace=TRACE):
     rows = []
     occurrences = {}
     with gzip.open(path, "rt", newline="") as handle:
@@ -100,7 +115,7 @@ def load_stream(path):
             occurrence = as_int(row["pc_line_occ"])
             occurrences[pair] = expected + 1
             if (
-                row["trace"] != TRACE
+                row["trace"] != expected_trace
                 or as_int(row["demand_idx"]) != index
                 or occurrence != expected
             ):
@@ -183,7 +198,7 @@ def _delta_to_integer(coordinate):
         magnitude = math.expm1(abs(coordinate))
     except OverflowError as exc:
         raise RuntimeError("neural delta exceeds address domain") from exc
-    if not math.isfinite(magnitude):
+    if not math.isfinite(magnitude) or magnitude >= float(1 << 63):
         raise RuntimeError("neural delta exceeds address domain")
     integer = int(round(magnitude))
     return -integer if coordinate < 0 else integer
@@ -193,10 +208,13 @@ def _positive_counts_from_log_mean(log_means):
     values = np.asarray(log_means, dtype=np.float64)
     if not np.all(np.isfinite(values)):
         raise RuntimeError("positive-count prediction is not finite")
-    limit = math.log(float(np.iinfo(np.int64).max))
-    if np.any(values > limit):
+    # 2**63 is exactly representable; float(int64.max) rounds up to it.
+    # Check the rounded result before conversion to avoid undefined overflow.
+    with np.errstate(over="ignore", invalid="ignore"):
+        rounded = np.rint(np.exp(values))
+    if np.any(~np.isfinite(rounded)) or np.any(rounded >= float(1 << 63)):
         raise RuntimeError("positive-count prediction exceeds host domain")
-    counts = np.rint(np.exp(values)).astype(np.int64)
+    counts = rounded.astype(np.int64)
     counts[counts < 1] = 1
     return counts
 
@@ -398,10 +416,15 @@ def _compact_hurdle_direct_delta_loss(
 
 def train_model(
     model, rows, runtime, counts, deltas, device, epochs, chunk_len,
-    pc_batch_size, learning_rate,
+    pc_batch_size, learning_rate, emit_loss="balanced",
 ):
     grouped = _group_indices_by_pc(rows)
-    gate_class_weights_numpy = _data_derived_gate_class_weights(counts)
+    if emit_loss not in ("balanced", "unweighted"):
+        raise ValueError("unknown emit loss: {}".format(emit_loss))
+    gate_class_weights_numpy = (
+        _data_derived_gate_class_weights(counts)
+        if emit_loss == "balanced" else np.ones(2, dtype=np.float32)
+    )
     gate_class_weights = torch.from_numpy(
         gate_class_weights_numpy
     ).to(device)
@@ -699,7 +722,10 @@ def self_test_data_derived_gate_balance():
     labels = counts > 0
     negative_mass = float(weights[0] * np.count_nonzero(~labels))
     positive_mass = float(weights[1] * np.count_nonzero(labels))
-    if not math.isclose(negative_mass, positive_mass):
+    # The loss receives FP32 weights. Their aggregate masses agree to FP32
+    # rounding; NumPy versions differ in scalar product promotion semantics.
+    if not math.isclose(negative_mass, positive_mass,
+                        rel_tol=float(np.finfo(np.float32).eps)):
         raise RuntimeError("data-derived hurdle classes are not balanced")
 
 
@@ -719,6 +745,14 @@ def build_parser():
     parser.add_argument("--eval-stream", required=True, type=Path)
     parser.add_argument("--out-dir", required=True, type=Path)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--trace", default=TRACE)
+    parser.add_argument(
+        "--eval-trace", default=None,
+        help="evaluation workload identity; defaults to --trace",
+    )
+    parser.add_argument(
+        "--emit-loss", choices=["balanced", "unweighted"], default="balanced",
+    )
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--chunk-len", type=int, default=256)
     parser.add_argument(
@@ -730,6 +764,13 @@ def build_parser():
         "--device", choices=["auto", "cpu", "cuda"], default="auto"
     )
     parser.add_argument("--hidden-size", type=int, default=16)
+    parser.add_argument(
+        "--omit-content-fingerprints", action="store_true",
+        help=(
+            "omit content fingerprint fields from generated metadata; "
+            "used by the 602 live-inference Colab transfer workflow"
+        ),
+    )
     return parser
 
 
@@ -737,7 +778,7 @@ def main():
     args = build_parser().parse_args()
     if (
         args.hidden_size < 1 or args.chunk_len < 1
-        or args.pc_batch_size < 1
+        or args.pc_batch_size < 1 or args.epochs < 1
     ):
         raise RuntimeError("model and batching dimensions must be positive")
     policy_self_test()
@@ -764,10 +805,15 @@ def main():
     )
     if device.type == "cuda" and not torch.cuda.is_available():
         raise RuntimeError("CUDA requested but unavailable")
+    if args.train_stream.resolve() == args.eval_stream.resolve():
+        raise RuntimeError("training and evaluation must be separate streams")
     args.out_dir.mkdir(parents=True, exist_ok=True)
+    if (args.out_dir / "model.pt").exists():
+        raise RuntimeError("checkpoint already exists; use a fresh output directory")
 
-    train_rows = load_stream(args.train_stream)
-    eval_rows = load_stream(args.eval_stream)
+    eval_trace = args.eval_trace or args.trace
+    train_rows = load_stream(args.train_stream, expected_trace=args.trace)
+    eval_rows = load_stream(args.eval_stream, expected_trace=eval_trace)
     train_runtime = runtime_features(train_rows)
     eval_runtime = runtime_features(eval_rows)
     if train_runtime.shape[1] != ADDRESS_BITS * 2:
@@ -798,14 +844,20 @@ def main():
                 parameter_count, expected_parameters
             )
         )
+    initial_state_dict = {
+        name: tensor.detach().cpu().clone()
+        for name, tensor in model.state_dict().items()
+    }
     train_unique_pc_count = len(_group_indices_by_pc(train_rows))
     eval_unique_pc_count = len(_group_indices_by_pc(eval_rows))
     recurrent_state_bytes_per_pc = 2 * args.hidden_size * 4
+    training_started = time.monotonic()
     history, gate_class_weights = train_model(
         model, train_rows, train_runtime, train_counts, train_deltas,
         device, args.epochs, args.chunk_len, args.pc_batch_size,
-        args.learning_rate,
+        args.learning_rate, emit_loss=args.emit_loss,
     )
+    training_wall_clock_seconds = time.monotonic() - training_started
     encoded = score_model(
         model, eval_rows, eval_runtime, device,
         args.chunk_len, args.pc_batch_size,
@@ -827,22 +879,43 @@ def main():
         nn_path, eval_rows, predicted_lines
     )
 
+    training_config = {
+        "seed": args.seed,
+        "emit_loss": args.emit_loss,
+        "train_trace": args.trace,
+        "eval_trace": eval_trace,
+        "train_stream": str(args.train_stream.resolve()),
+        "eval_stream": str(args.eval_stream.resolve()),
+        "train_rows": len(train_rows),
+        "epochs": args.epochs,
+        "chunk_length": args.chunk_len,
+        "pc_batch_size": args.pc_batch_size,
+        "optimizer": "Adam",
+        "learning_rate": args.learning_rate,
+        "optimizer_steps": sum(row["optimizer_steps"] for row in history),
+        "initialization": "fresh_torch_seed_before_model_constructor",
+        "initial_state_saved": True,
+    }
     torch.save({
         "state_dict": model.cpu().state_dict(),
+        "initial_state_dict": initial_state_dict,
+        "seed": args.seed,
+        "emit_loss": args.emit_loss,
+        "training_config": training_config,
         "parameter_count": parameter_count,
         "hidden_size": args.hidden_size,
         "feature_count": train_runtime.shape[1],
-        "trace": TRACE,
+        "trace": args.trace,
+        "eval_trace": eval_trace,
         "matched_normal_prefetcher": "stride",
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
     }, args.out_dir / "model.pt")
     write_table(args.out_dir / "training_history.csv", history)
 
-    encoder_hash = runtime_encoder_sha256()
-    router_hash = state_router_sha256()
     metadata = {
-        "trace": TRACE,
+        "trace": args.trace,
+        "eval_trace": eval_trace,
         "matched_normal_prefetcher": "stride",
         "experiment_revision": EXPERIMENT_REVISION,
         "model_revision": MODEL_REVISION,
@@ -869,15 +942,16 @@ def main():
         "runtime_feature_count": train_runtime.shape[1],
         "runtime_encoding": "lossless_lsb_first_binary_uint64_source_values",
         "seed": args.seed,
+        "emit_loss": args.emit_loss,
+        "training_config": training_config,
+        "epochs": args.epochs,
+        "optimizer_steps": training_config["optimizer_steps"],
         "same_external_input_contract": True,
         "training_inference_input_encoder_identical": True,
         "runtime_encoder_entrypoint": (
             "602_offline_lstm_stride.train_and_offline_infer."
             "runtime_features"
         ),
-        "runtime_encoder_sha256": encoder_hash,
-        "training_runtime_encoder_sha256": encoder_hash,
-        "inference_runtime_encoder_sha256": encoder_hash,
         "effective_external_inputs": ["pc", "cache_line_address"],
         "training_runtime_fields": ["pc", "cache_line_address"],
         "inference_runtime_fields": ["pc", "cache_line_address"],
@@ -886,9 +960,6 @@ def main():
         "state_routing": (
             "dynamic_exact_pc_keyed_recurrent_state_no_fixed_capacity"
         ),
-        "state_router_sha256": router_hash,
-        "training_state_router_sha256": router_hash,
-        "inference_state_router_sha256": router_hash,
         "pc_state_capacity": None,
         "persistent_recurrent_state_floats_per_observed_pc": (
             2 * args.hidden_size
@@ -918,8 +989,9 @@ def main():
         ),
         "gate_imbalance_handling": (
             "inverse_observed_training_class_frequency_equal_aggregate_mass"
+            if args.emit_loss == "balanced" else "empirical_prior_unweighted"
         ),
-        "data_derived_class_balancing_used": True,
+        "data_derived_class_balancing_used": args.emit_loss == "balanced",
         "gate_class_weights": {
             "zero": float(gate_class_weights[0]),
             "positive": float(gate_class_weights[1]),
@@ -948,7 +1020,8 @@ def main():
         "handcrafted_semantic_features_used": False,
         "manual_loss_weights_used": False,
         "loss_design": (
-            "one shared recurrent context; data-balanced gate mean plus "
+            "one shared recurrent context; {} gate mean plus ".format(args.emit_loss)
+            +
             "positive log-count mean plus direct signed-log-delta mean; "
             "unit sum with no manually tuned coefficients"
         ),
@@ -983,22 +1056,36 @@ def main():
         "offline_lstm_entries": nn_entries,
         "offline_lstm_triggers": nn_triggers,
         "degenerate_empty_prediction": nn_entries == 0,
-        "offline_stride_list_sha256": sha256(normal_path),
-        "offline_lstm_list_sha256": sha256(nn_path),
         "heldout_behavior_metrics": behavior,
         "train_rows": len(train_rows),
+        "training_wall_clock_seconds": training_wall_clock_seconds,
         "eval_rows": len(eval_rows),
         "device": str(device),
         "python": platform.python_version(),
         "numpy": np.__version__,
         "torch": torch.__version__,
-        "train_stream_sha256": sha256(args.train_stream),
-        "eval_stream_sha256": sha256(args.eval_stream),
-        "train_stream_content_sha256": gzip_content_sha256(
-            args.train_stream
-        ),
-        "eval_stream_content_sha256": gzip_content_sha256(args.eval_stream),
     }
+    if not args.omit_content_fingerprints:
+        encoder_hash = runtime_encoder_sha256()
+        router_hash = state_router_sha256()
+        metadata.update({
+            "runtime_encoder_sha256": encoder_hash,
+            "training_runtime_encoder_sha256": encoder_hash,
+            "inference_runtime_encoder_sha256": encoder_hash,
+            "state_router_sha256": router_hash,
+            "training_state_router_sha256": router_hash,
+            "inference_state_router_sha256": router_hash,
+            "offline_stride_list_sha256": sha256(normal_path),
+            "offline_lstm_list_sha256": sha256(nn_path),
+            "train_stream_sha256": sha256(args.train_stream),
+            "eval_stream_sha256": sha256(args.eval_stream),
+            "train_stream_content_sha256": gzip_content_sha256(
+                args.train_stream
+            ),
+            "eval_stream_content_sha256": gzip_content_sha256(
+                args.eval_stream
+            ),
+        })
     (args.out_dir / "run_metadata.json").write_text(
         json.dumps(metadata, indent=2, sort_keys=True) + "\n"
     )

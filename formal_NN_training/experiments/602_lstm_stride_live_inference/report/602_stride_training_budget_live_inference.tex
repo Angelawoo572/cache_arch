@@ -1,0 +1,151 @@
+\documentclass[10pt]{article}
+\usepackage[margin=0.72in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern,microtype}
+\usepackage{booktabs,longtable,array,tabularx}
+\usepackage{float,pdflscape}
+\usepackage{xcolor,amsmath}
+\usepackage{pgfplots}
+\usepgfplotslibrary{groupplots,fillbetween}
+\pgfplotsset{compat=1.18}
+\usepackage[hidelinks]{hyperref}
+\providecommand{\RunDir}{../runs/602_gcc_stride_prefix_seed7}
+
+\definecolor{navy}{HTML}{17365D}
+\definecolor{teal}{HTML}{008B72}
+\definecolor{pale}{HTML}{F3F6FA}
+\definecolor{hEight}{HTML}{0072B2}
+\definecolor{hSixteen}{HTML}{D55E00}
+\definecolor{strideGreen}{HTML}{009E73}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{4pt}
+\renewcommand{\arraystretch}{1.08}
+
+\newcommand{\generatedinput}[1]{%
+  \IfFileExists{\RunDir/report/#1}{%
+    \input{\RunDir/report/#1}
+  }{%
+    \textbf{NA---run the corresponding analysis-only command to generate
+    \texttt{#1}. No result is inferred from a missing artifact.}
+  }%
+}
+
+\begin{document}
+\begin{center}
+{\LARGE\bfseries\color{navy} 602 Stride Training-Prefix Sufficiency}\\[2pt]
+{\large under the Original Offline Keyed-Replay Protocol}\\[5pt]
+{\small 602.gcc\_s-734B \quad $\vert$ \quad seed 7 \quad $\vert$ \quad
+25M warmup + 25M measured instructions}
+\end{center}
+
+\section{Question}
+Holding the existing h8/h16 model, fixed training recipe, held-out evaluation
+stream, Python offline causal inference, keyed replay transport, ChampSim
+binary/configuration, measurement window, and metric definitions constant,
+what is the smallest trace-start training prefix $N$ whose offline keyed-replay
+system result is equivalent to the corresponding 20M model?
+
+The primary comparisons are strictly
+\[
+\text{h8-}N\ \text{versus h8-i20m},\qquad
+\text{h16-}N\ \text{versus h16-i20m}.
+\]
+No cross-hidden-size reference is used to decide training-size sufficiency.
+
+\section{Original 602 offline keyed-replay protocol}
+The unchanged authority is
+\texttt{formal\_NN\_training/experiments/602\_offline\_lstm\_stride/}.
+Training uses the trace start from 0 to 20M retired instructions with zero
+training warmup. Evaluation is one fixed held-out stream collected with 25M
+warmup and 25M measured instructions. Python performs causal offline inference
+and writes one keyed replay list per model. The same list-replayer ChampSim
+binary/configuration and the same no-prefetch reference measure every point.
+Teacher actions are labels only; the only external NN inputs are PC and
+cache-line address.
+
+\section{What is fixed and what changes}
+Only the trace-start training prefix changes. Hidden size is analyzed as two
+predeclared curves rather than as a changing control within a curve. Seed,
+model revision, runtime encoder, PC-keyed state router, 12 epochs, TBPTT length
+256, PC batch size 128, Adam, learning rate 0.002, Stride teacher, class-balance
+formula, evaluation stream, inference semantics, replay format, simulator,
+references, and metric parser remain fixed.
+
+Class weights are recomputed from each prefix's own labels:
+\[
+w_c=\frac{N_{\mathrm{decision}}}{2N_c}.
+\]
+The 20M label frequencies are never reused for a smaller prefix. Since epochs
+remain fixed, larger datasets receive more optimizer steps. This experiment
+therefore answers how much trace and training work are needed under the current
+fixed recipe; it does not isolate unique-data diversity from optimizer-step
+count.
+
+\section{20M backward-regression result}
+\generatedinput{regression_20m_report.tex}
+Matching historical IPC anchors alone is insufficient. The validator reports
+stream/list/log/metadata identity, system metrics, and act/silent behavior
+separately. If old local artifacts are incomplete, the mode is explicitly
+``historical-metric regression only'' and exact artifact parity is not claimed.
+
+\section{Training supervision versus instruction prefix}
+\generatedinput{generated_figure3_training_supervision.tex}
+
+\section{h8: N versus h8-i20m}
+\generatedinput{generated_figure1_offline_ipc.tex}
+\begin{landscape}
+\generatedinput{generated_h8_key_budgets.tex}
+\end{landscape}
+
+\begin{landscape}
+\section{h16: N versus h16-i20m}
+\generatedinput{generated_h16_key_budgets.tex}
+\end{landscape}
+
+\section{System-performance equivalence versus policy behavior}
+\generatedinput{generated_figure2_same_h_differences.tex}
+\generatedinput{generated_behavior_differences.tex}
+
+``Reaching at least'' is a one-sided performance-sufficiency test and can
+include a point above 20M. ``Within'' is two-sided IPC closeness. A stable
+0.5\%-IPC plateau requires the candidate and every subsequent observed larger
+budget through 20M to remain within the band. Close IPC/cache outcomes may be
+called \emph{system-performance equivalent}. The stronger term
+\emph{policy equivalent} is not used unless act rate, request pressure, replay
+actions, and action behavior are also explicitly close.
+
+\section{Seed-7 conclusion and limitations}
+\generatedinput{generated_conclusions.tex}
+
+\section{Secondary live-deployment validation}
+Offline training means weights are learned before simulation. Offline keyed
+replay means Python precomputes actions and ChampSim replays them. Functional
+live inference means frozen C++ inference executes inside the ChampSim
+callback, with no replay list, teacher, optimizer, gradient, or weight update.
+Current live results use \textbf{zero modeled NN inference latency}. A future
+latency-aware experiment would explicitly model inference cycles before
+issuing requests. Host wall-clock nanoseconds are not simulated CPU latency.
+
+\generatedinput{generated_live_validation.tex}
+
+Incomplete live results never establish or revise the primary offline
+training-size conclusion. Missing live points are not interpolated or smoothed.
+
+\section{Future latency-aware evaluation}
+No simulated NN latency is added in this task. Representative future latency
+candidates are h8-i1m, h8-i20m, h16-i1m, h16-i20m, h8-i250k, and h16-i100k.
+They should be swept only in a separately named latency-aware experiment.
+
+\appendix
+\section{Fairness audit}
+\generatedinput{offline_fairness_report.tex}
+
+\section{Reproducibility boundary}
+All raw checkpoints, event streams, replay lists, logs, binaries, archives,
+and generated run directories remain ignored and unchanged. The report is
+regenerated only from completed artifacts. No retraining or ChampSim replay is
+performed by the validators, aggregators, PGFPlots-fragment generator, or TeX
+packaging step. Sacramento does not need matplotlib or a local TeX install;
+Overleaf renders the tracked report and generated TeX fragments.
+
+\end{document}

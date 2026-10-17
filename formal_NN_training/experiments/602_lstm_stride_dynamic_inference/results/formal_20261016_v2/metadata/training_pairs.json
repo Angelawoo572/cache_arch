@@ -1,0 +1,49 @@
+{
+  "distinct_training_seeds_per_workload": [
+    {
+      "hidden_size": 8,
+      "seeds": [
+        7,
+        17,
+        27
+      ],
+      "trace": "602.gcc_s-734B"
+    }
+  ],
+  "pairs": [
+    {
+      "balanced": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed7/balanced/offline/model.pt",
+      "final_weights_differ": true,
+      "hidden_size": 8,
+      "optimizer_steps_per_arm": 228,
+      "paired_data_and_training_budget_exact": true,
+      "paired_initialization_exact": true,
+      "seed": 7,
+      "trace": "602.gcc_s-734B",
+      "unweighted": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed7/unweighted/offline/model.pt"
+    },
+    {
+      "balanced": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed17/balanced/offline/model.pt",
+      "final_weights_differ": true,
+      "hidden_size": 8,
+      "optimizer_steps_per_arm": 228,
+      "paired_data_and_training_budget_exact": true,
+      "paired_initialization_exact": true,
+      "seed": 17,
+      "trace": "602.gcc_s-734B",
+      "unweighted": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed17/unweighted/offline/model.pt"
+    },
+    {
+      "balanced": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed27/balanced/offline/model.pt",
+      "final_weights_differ": true,
+      "hidden_size": 8,
+      "optimizer_steps_per_arm": 228,
+      "paired_data_and_training_budget_exact": true,
+      "paired_initialization_exact": true,
+      "seed": 27,
+      "trace": "602.gcc_s-734B",
+      "unweighted": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed27/unweighted/offline/model.pt"
+    }
+  ],
+  "status": "PASS"
+}

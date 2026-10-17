@@ -1,0 +1,26 @@
+{
+  "protocol": "frozen_formal_20261016_v2",
+  "recorded_utc": "2026-10-16T23:28:52.159790+00:00",
+  "system": "Linux-4.18.0-553.126.1.el8_10.x86_64-x86_64-with-redhat-8.10-Ootpa",
+  "cpu_models": [
+    "Intel(R) Xeon(R) Silver 4116 CPU @ 2.10GHz"
+  ],
+  "logical_cpus": 48,
+  "affinity_cpus": 48,
+  "memory_kib": {
+    "MemTotal": 96891224,
+    "MemAvailable": 89342536
+  },
+  "formal_jobs_limit": 8,
+  "independent_spp_guard_jobs_limit": 1,
+  "nn_training_compute": "CPU; OMP/MKL/OPENBLAS/NUMEXPR threads=1",
+  "scheduler": "No Slurm/PBS/LSF executable found during launch audit",
+  "decision": "8 main simulator processes plus at most1 separate full formal SPP guard repeat on the same shared host; do not expand Cartesian grid",
+  "/sys/fs/cgroup/cpuacct/cpu.cfs_quota_us": "-1",
+  "/sys/fs/cgroup/cpu/cpu.cfs_quota_us": "-1",
+  "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_quota_us": "-1",
+  "/sys/fs/cgroup/cpuacct/cpu.cfs_period_us": "100000",
+  "/sys/fs/cgroup/cpu/cpu.cfs_period_us": "100000",
+  "/sys/fs/cgroup/cpu,cpuacct/cpu.cfs_period_us": "100000",
+  "/sys/fs/cgroup/memory/memory.limit_in_bytes": "9223372036854771712"
+}

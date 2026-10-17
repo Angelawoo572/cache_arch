@@ -1,0 +1,238 @@
+diff --git a/src/cache.cc b/src/cache.cc
+index eb806459..770cc11f 100644
+--- a/src/cache.cc
++++ b/src/cache.cc
+@@ -6,13 +6,20 @@
+ 
+ uint64_t l2pf_access = 0;
+ 
++// DEMAND_EVENT_LOG_SCHEMA_623_V6
+ // -----------------------------------------------------------------------------
+-// Raw demand-event logger for standalone NN datasets.
+-// Enabled only when DEMAND_EVENT_LOG is set.
++// Causally keyed raw L2 demand/PF logger for the split 623 experiments.
++// Enabled only when DEMAND_EVENT_LOG is set.  Single-core experiment only.
+ // -----------------------------------------------------------------------------
+ static std::ofstream demand_event_log;
+ static bool demand_event_log_ready = false;
+ static uint64_t demand_event_id = 0;
++static const uint64_t demand_event_no_trigger = uint64_t(-1);
++static const char demand_event_logger_schema[] = "623_causal_trigger_fill_v6";
++static uint64_t demand_event_active_trigger_id = demand_event_no_trigger;
++static uint32_t demand_event_active_trigger_cpu = 0;
++static uint64_t demand_event_active_trigger_ip = 0;
++static uint64_t demand_event_active_trigger_line = 0;
+ 
+ static void demand_event_open_once()
+ {
+@@ -23,24 +30,63 @@ static void demand_event_open_once()
+     if (path && path[0] != 0) {
+         demand_event_log.open(path);
+         if (demand_event_log.is_open())
+-            demand_event_log << "event,event_id,cpu,cycle,cache,op,type,ip,addr,line,hit,was_prefetch,late,accepted,duplicate,base_addr,pf_addr,pf_line,fill_level,pq_occ,pq_size,mshr_occ,mshr_size" << std::endl;
++            demand_event_log << "event,event_id,cpu,cycle,cache,op,type,ip,addr,line,hit,was_prefetch,late,accepted,duplicate,base_addr,pf_addr,pf_line,fill_level,pq_occ,pq_size,mshr_occ,mshr_size,trigger_event_id,trigger_cpu,trigger_ip,trigger_line,logger_schema" << std::endl;
+     }
+ }
+ 
+-static void demand_event_log_demand(const CACHE* cache, uint32_t cpu, uint64_t cycle, const char* op, uint32_t type,
+-                                    uint64_t ip, uint64_t full_addr, uint64_t line_addr, uint32_t hit,
+-                                    uint32_t was_prefetch, uint32_t late)
++static uint64_t demand_event_log_demand(const CACHE* cache, uint32_t cpu, uint64_t cycle, const char* op, uint32_t type,
++                                        uint64_t ip, uint64_t full_addr, uint64_t line_addr, uint32_t hit,
++                                        uint32_t was_prefetch, uint32_t late)
+ {
+     demand_event_open_once();
+     if (!demand_event_log.is_open())
+-        return;
++        return demand_event_no_trigger;
++    const uint64_t this_event_id = demand_event_id++;
+     demand_event_log << "DEMAND"
+-                     << ',' << demand_event_id++ << ',' << cpu << ',' << cycle << ',' << cache->NAME
++                     << ',' << this_event_id << ',' << cpu << ',' << cycle << ',' << cache->NAME
+                      << ',' << op << ',' << type << ',' << ip << ',' << full_addr << ',' << line_addr
+                      << ',' << hit << ',' << was_prefetch << ',' << late
+                      << ',' << 0 << ',' << 0 << ',' << 0 << ',' << 0 << ',' << 0 << ',' << 0
+                      << ',' << cache->PQ.occupancy << ',' << cache->PQ.SIZE
+-                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE << std::endl;
++                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE
++                     << ',' << this_event_id << ',' << cpu << ',' << ip << ',' << line_addr
++                     << ',' << demand_event_logger_schema << std::endl;
++    return this_event_id;
++}
++
++static void demand_event_log_fill(const CACHE* cache, uint32_t cpu, uint64_t cycle,
++                                  uint32_t type, uint64_t filled_addr,
++                                  uint64_t evicted_addr, uint32_t was_prefetch)
++{
++    demand_event_open_once();
++    if (!demand_event_log.is_open())
++        return;
++    demand_event_log << "FILL"
++                     << ',' << demand_event_id++ << ',' << cpu << ',' << cycle << ',' << cache->NAME
++                     << ',' << "cache_fill" << ',' << type << ',' << 0 << ',' << evicted_addr
++                     << ',' << (evicted_addr >> LOG2_BLOCK_SIZE) << ',' << 0
++                     << ',' << was_prefetch << ',' << 0 << ',' << 0 << ',' << 0
++                     << ',' << filled_addr << ',' << 0 << ',' << 0 << ',' << 0
++                     << ',' << cache->PQ.occupancy << ',' << cache->PQ.SIZE
++                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE
++                     << ',' << demand_event_no_trigger << ',' << 0 << ',' << 0 << ',' << 0
++                     << ',' << demand_event_logger_schema << std::endl;
++}
++
++static void demand_event_begin_trigger(uint64_t event_id, uint32_t cpu, uint64_t ip, uint64_t line)
++{
++    demand_event_active_trigger_id = event_id;
++    demand_event_active_trigger_cpu = cpu;
++    demand_event_active_trigger_ip = ip;
++    demand_event_active_trigger_line = line;
++}
++
++static void demand_event_end_trigger()
++{
++    demand_event_active_trigger_id = demand_event_no_trigger;
++    demand_event_active_trigger_cpu = 0;
++    demand_event_active_trigger_ip = 0;
++    demand_event_active_trigger_line = 0;
+ }
+ 
+ static void demand_event_log_pf(const CACHE* cache, uint32_t cpu, uint64_t cycle, uint64_t ip,
+@@ -57,7 +103,12 @@ static void demand_event_log_pf(const CACHE* cache, uint32_t cpu, uint64_t cycle
+                      << ',' << accepted << ',' << duplicate << ',' << base_addr << ',' << pf_addr
+                      << ',' << (pf_addr >> LOG2_BLOCK_SIZE) << ',' << fill_level
+                      << ',' << cache->PQ.occupancy << ',' << cache->PQ.SIZE
+-                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE << std::endl;
++                     << ',' << cache->MSHR.occupancy << ',' << cache->MSHR.SIZE
++                     << ',' << demand_event_active_trigger_id
++                     << ',' << demand_event_active_trigger_cpu
++                     << ',' << demand_event_active_trigger_ip
++                     << ',' << demand_event_active_trigger_line
++                     << ',' << demand_event_logger_schema << std::endl;
+ }
+ 
+ 
+@@ -270,6 +321,14 @@ void CACHE::handle_fill()
+             }
+             if  (cache_type == IS_L2C)
+             {
++                if (warmup_complete[fill_cpu]) {
++                    demand_event_log_fill(
++                        this, fill_cpu, current_core_cycle[fill_cpu],
++                        MSHR.entry[mshr_index].type,
++                        MSHR.entry[mshr_index].address << LOG2_BLOCK_SIZE,
++                        block[set][way].address << LOG2_BLOCK_SIZE,
++                        (MSHR.entry[mshr_index].type == PREFETCH) ? 1 : 0);
++                }
+                 MSHR.entry[mshr_index].pf_metadata = l2c_prefetcher_cache_fill(MSHR.entry[mshr_index].address<<LOG2_BLOCK_SIZE, set, way, (MSHR.entry[mshr_index].type == PREFETCH) ? 1 : 0, block[set][way].address<<LOG2_BLOCK_SIZE, MSHR.entry[mshr_index].pf_metadata);
+             }
+             if (cache_type == IS_LLC)
+@@ -570,8 +629,17 @@ void CACHE::handle_writeback()
+                     if (cache_type == IS_L1D)
+ 		      l1d_prefetcher_cache_fill(WQ.entry[index].full_addr, set, way, 0, block[set][way].address<<LOG2_BLOCK_SIZE, WQ.entry[index].pf_metadata);
+                     else if (cache_type == IS_L2C)
+-		      WQ.entry[index].pf_metadata = l2c_prefetcher_cache_fill(WQ.entry[index].address<<LOG2_BLOCK_SIZE, set, way, 0,
++		      {
++		          if (warmup_complete[writeback_cpu]) {
++		              demand_event_log_fill(
++		                  this, writeback_cpu, current_core_cycle[writeback_cpu],
++		                  WQ.entry[index].type,
++		                  WQ.entry[index].address << LOG2_BLOCK_SIZE,
++		                  block[set][way].address << LOG2_BLOCK_SIZE, 0);
++		          }
++		          WQ.entry[index].pf_metadata = l2c_prefetcher_cache_fill(WQ.entry[index].address<<LOG2_BLOCK_SIZE, set, way, 0,
+ 									      block[set][way].address<<LOG2_BLOCK_SIZE, WQ.entry[index].pf_metadata);
++		      }
+                     if (cache_type == IS_LLC)
+ 		      {
+ 			cpu = writeback_cpu;
+@@ -631,6 +699,7 @@ void CACHE::handle_read()
+         if ((RQ.entry[RQ.head].event_cycle <= current_core_cycle[read_cpu]) && (RQ.occupancy > 0))
+         {
+             int index = RQ.head;
++            uint64_t demand_logger_trigger_id = demand_event_no_trigger;
+ 
+             // access cache
+             uint32_t set = get_set(RQ.entry[index].address);
+@@ -666,13 +735,27 @@ void CACHE::handle_read()
+                         PROCESSED.add_queue(&RQ.entry[index]);
+                 }
+ 
++                // Log the demand before invoking L2 prefetcher callbacks so every
++                // synchronous PF row follows, and explicitly names, its trigger.
++                if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
++                    demand_logger_trigger_id = demand_event_log_demand(
++                        this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
++                        RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
++                        1, block[set][way].prefetch ? 1 : 0, 0);
++                }
++
+                 // update prefetcher on load instruction
+                 if (RQ.entry[index].type == LOAD) 
+                 {
+                     if (cache_type == IS_L1D) 
+                         l1d_prefetcher_operate(RQ.entry[index].full_addr, RQ.entry[index].ip, 1, RQ.entry[index].type);
+                     else if (cache_type == IS_L2C)
++                    {
++                        demand_event_begin_trigger(demand_logger_trigger_id, read_cpu,
++                                                   RQ.entry[index].ip, RQ.entry[index].address);
+                         l2c_prefetcher_operate(block[set][way].address<<LOG2_BLOCK_SIZE, RQ.entry[index].ip, 1, RQ.entry[index].type, 0);
++                        demand_event_end_trigger();
++                    }
+                     else if (cache_type == IS_LLC) 
+                     {
+                         cpu = read_cpu;
+@@ -701,11 +784,6 @@ void CACHE::handle_read()
+                 }
+ 
+                 // update prefetch stats and reset prefetch bit
+-                if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
+-                    demand_event_log_demand(this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
+-                                             RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
+-                                             1, block[set][way].prefetch ? 1 : 0, 0);
+-                }
+                 if (block[set][way].prefetch)
+                 {
+                     pf_useful++;
+@@ -732,13 +810,9 @@ void CACHE::handle_read()
+                 // check mshr
+                 uint8_t miss_handled = 1;
+                 int mshr_index = check_mshr(&RQ.entry[index]);
+-
+-                if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
+-                    uint32_t demand_late = (mshr_index != -1 && MSHR.entry[mshr_index].type == PREFETCH) ? 1 : 0;
+-                    demand_event_log_demand(this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
+-                                             RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
+-                                             0, 0, demand_late);
+-                }
++                // Snapshot lateness before merge handling can replace the PREFETCH MSHR entry.
++                uint32_t demand_logger_late =
++                    (mshr_index != -1 && MSHR.entry[mshr_index].type == PREFETCH) ? 1 : 0;
+ 
+                 if ((mshr_index == -1) && (MSHR.occupancy < MSHR_SIZE)) // this is a new miss
+                 {
+@@ -887,6 +961,15 @@ void CACHE::handle_read()
+ 
+                 if (miss_handled) 
+                 {
++                    // Log only a completed demand callback.  A stalled RQ retry must
++                    // not create a second model timestep for the same load.
++                    if (cache_type == IS_L2C && warmup_complete[read_cpu] && RQ.entry[index].type == LOAD) {
++                        demand_logger_trigger_id = demand_event_log_demand(
++                            this, read_cpu, current_core_cycle[read_cpu], "read", RQ.entry[index].type,
++                            RQ.entry[index].ip, RQ.entry[index].full_addr, RQ.entry[index].address,
++                            0, 0, demand_logger_late);
++                    }
++
+                     // update prefetcher on load instruction
+                     if (RQ.entry[index].type == LOAD) 
+                     {
+@@ -896,7 +979,10 @@ void CACHE::handle_read()
+                         }
+                         if (cache_type == IS_L2C)
+                         {
++                            demand_event_begin_trigger(demand_logger_trigger_id, read_cpu,
++                                                       RQ.entry[index].ip, RQ.entry[index].address);
+                             l2c_prefetcher_operate(RQ.entry[index].address<<LOG2_BLOCK_SIZE, RQ.entry[index].ip, 0, RQ.entry[index].type, 0);
++                            demand_event_end_trigger();
+                         }
+                         if (cache_type == IS_LLC)
+                         {

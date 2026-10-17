@@ -1,15 +1,36 @@
 # cache_arch
 
-A matched-input, trace-driven study of offline LSTM cache prefetchers in
-ChampSim for `602.gcc_s-734B`, evaluated against Stride, Streamer, AMPM, and
-SPP.
+Teacher-action LSTM prefetcher studies in ChampSim for `602.gcc_s-734B`: original offline training and keyed replay, followed by frozen stateful C++ live inference. Stride, Streamer, AMPM and SPP keep their own model and measurement contracts. Measured MAC0 IPC and earlier finite-engine experiments remain separate protocols.
 
 ## Start here
 
+- **[Current 602 results — open this folder](formal_study/results/602_width_templates/README.md)**: completed H16 and capped H8-template study, 24/24 new runs, 9,748 checks passed; CSV, figures and findings together.
+- [All study results and preserved earlier rounds](RESULTS_INDEX.md).
+- [Same local / Sacramento / GitHub folder layout](formal_study/README.md).
+
+The active Git checkout is the `cache` root on `experiment/602-gate-mechanism`.
+The repository-relative `formal_study/results/602_width_templates/` is identical
+on the local machine, Sacramento and this GitHub branch. Sacramento is the
+execution server, not a separate repository or a folder named `sacramental`.
+Large raw runs, traces and builds remain inside local/server `cache`; curated
+CSV, figures, code and small original models are committed.
+
+- [H16 recovery and capped H8-template supplement](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md)
+- [Canonical cache layout and recovery](docs/602_width_templates/LAYOUT_AND_RECOVERY.md)
+- [Corrections to retained replay slides](docs/602_width_templates/SLIDE_ERRATA.md)
+
+- [2026-10-16 formal current-line / gate / payload results](docs/602_gate_mechanism/REPORT.md)
+- [Full-ROI mechanism run and recovery guide](formal_NN_training/experiments/602_gate_mechanism/RUN_GUIDE.md)
 - [Project website](https://angelawoo572.github.io/cache_arch/)
 - [Quick presentation: `602_deck_v7_15.pdf`](https://angelawoo572.github.io/cache_arch/602_deck_v7_15.pdf)
 - [All 602 experiments](formal_NN_training/experiments/)
 - [Shared implementation](formal_NN_training/common/)
+
+The new mechanism follow-up uses frozen live inference on two future ROIs,
+three existing training seeds and a validation-selected request ceiling. Its
+MAC4 subset models a serial finite inference engine; MAC0 is a functional
+comparison. Historical replay results below retain their own protocol and are
+not pooled with these formal results.
 
 The primary project artifacts are intentionally concentrated in two places:
 
@@ -19,6 +40,20 @@ The primary project artifacts are intentionally concentrated in two places:
   used by the four 602 tracks.
 
 ## 602 experiment source
+
+The frozen live continuation is in
+[`602_four_prefetcher_formal`](formal_NN_training/experiments/602_four_prefetcher_formal/README.md),
+with independent Streamer, AMPM and SPP live-inference siblings beside the
+existing Stride live/dynamic tracks. It preserves the real checkpoints,
+global versus per-PC state, SPP demand/fill inputs and L2/LLC output targets.
+Its new MAC0 measurements use a separate protocol; prior offline, live and
+formal results remain available and their IPC is not pooled across protocols.
+605 is deferred in this continuation.
+
+The [first frozen Stride formal archive](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md)
+contains its lightweight tables, figures, definitions and findings. The
+[forward/dependency recovery guide](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md)
+explains runtime generation and checks against the sources actually built.
 
 | Conventional comparator | Experiment directory | Neural runtime input boundary |
 | --- | --- | --- |
@@ -31,7 +66,7 @@ Each experiment directory is self-contained: begin with its README, then use
 its track-specific collection, training, offline inference, replay, analysis,
 contract, and report files.
 
-## Comparison boundary
+## Historical replay comparison boundary
 
 For every primary comparison, the offline conventional prefetcher and offline
 LSTM consume the same chronological source-visible input stream and their

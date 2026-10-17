@@ -1,0 +1,141 @@
+{
+  "status": "PASS",
+  "planned_rows": 71,
+  "completed": 71,
+  "pending": [],
+  "failures": [],
+  "execution_counts": {
+    "fresh": 64,
+    "compatible_reference": 7
+  },
+  "reference_compatibility": [
+    {
+      "kind": "NoPF",
+      "roi": 0,
+      "fields": 210,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_none_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "NoPF",
+      "roi": 1,
+      "fields": 210,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_none_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s7_m0_b0_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s7_m0_b2363_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s17_m0_b0_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s17_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s17_m0_b2363_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s17_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s27_m0_b0_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s27_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s27_m0_b2363_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s27_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r0_nn_s7_m4_b2363_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_nn_s7_balanced_m4_b2363_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "native_SPP_functional_only",
+      "run": "test_602_r0_spp_s7_m0_b0_f0_sil0",
+      "fields": 54,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+      "excluded": "Mixed-fill old cohort metrics are invalid as whole-SPP accuracy/timeliness/coverage. New L2-target subset is a distinct denominator."
+    },
+    {
+      "kind": "native_SPP_functional_only",
+      "run": "test_602_r0_spp_s7_m0_b2363_f0_sil0",
+      "fields": 54,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r0_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json",
+      "excluded": "Mixed-fill old cohort metrics are invalid as whole-SPP accuracy/timeliness/coverage. New L2-target subset is a distinct denominator."
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r1_nn_s7_m0_b0_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_nn_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r1_nn_s17_m0_b0_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_nn_s17_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r1_nn_s27_m0_b0_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_nn_s27_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "unfiltered_NN",
+      "run": "test_602_r1_nn_s7_m4_b2363_f0_sil0",
+      "fields": 14,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_nn_s7_balanced_m4_b2363_sil0_qfifo_hist5000000/summary.json"
+    },
+    {
+      "kind": "native_SPP_functional_only",
+      "run": "test_602_r1_spp_s7_m0_b0_f0_sil0",
+      "fields": 54,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+      "excluded": "Mixed-fill old cohort metrics are invalid as whole-SPP accuracy/timeliness/coverage. New L2-target subset is a distinct denominator."
+    },
+    {
+      "kind": "native_SPP_functional_only",
+      "run": "test_602_r1_spp_s7_m0_b2363_f0_sil0",
+      "fields": 54,
+      "differences": {},
+      "original": "research_output/raw_v2/test/test_602_r1_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json",
+      "excluded": "Mixed-fill old cohort metrics are invalid as whole-SPP accuracy/timeliness/coverage. New L2-target subset is a distinct denominator."
+    }
+  ],
+  "no_nopf_reference_rows": [],
+  "missing_pair_controls": [],
+  "classified_profiles_available": 64,
+  "legacy_reference_profiles_not_imputed": 7,
+  "created_utc": "2026-10-17T01:59:59.622048+00:00"
+}

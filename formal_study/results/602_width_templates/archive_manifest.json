@@ -1,0 +1,457 @@
+{
+  "status": "PASS",
+  "protocol": "four602_width_templates_20261017_v1",
+  "created_ns": 1792263225780478000,
+  "source_analysis": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final",
+  "raw_root": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017",
+  "reference_raw": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2",
+  "destination": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_four_prefetcher_formal/results/width_templates_20261017",
+  "new_complete_runs": 24,
+  "reference_runs": 64,
+  "copied_files": 82,
+  "copied_bytes": 15474926,
+  "files": [
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/audit.json",
+      "relative_destination": "audit.json",
+      "bytes": 1889287
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/metric_definitions.json",
+      "relative_destination": "metric_definitions.json",
+      "bytes": 8188
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/selection_verification.json",
+      "relative_destination": "selection_verification.json",
+      "bytes": 738
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/callback_verification.json",
+      "relative_destination": "callback_verification.json",
+      "bytes": 4787
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/binding_verification.json",
+      "relative_destination": "binding_verification.json",
+      "bytes": 164
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/reference_bindings.json",
+      "relative_destination": "reference_bindings.json",
+      "bytes": 63953
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/inventory.json",
+      "relative_destination": "inventory.json",
+      "bytes": 74201
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/figure_manifest.json",
+      "relative_destination": "figure_manifest.json",
+      "bytes": 1518
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/cost_attachment_verification.json",
+      "relative_destination": "cost_attachment_verification.json",
+      "bytes": 899
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/cost_fields_h16.json",
+      "relative_destination": "cost_fields_h16.json",
+      "bytes": 17141
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/cost_fields_h8_original.json",
+      "relative_destination": "cost_fields_h8_original.json",
+      "bytes": 14236
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/reference_audit_original.json",
+      "relative_destination": "reference_audit_original.json",
+      "bytes": 4296967
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/FINDINGS.md",
+      "relative_destination": "FINDINGS.md",
+      "bytes": 6748
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/PAPER_STORY.md",
+      "relative_destination": "PAPER_STORY.md",
+      "bytes": 2870
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/per_run_new.csv",
+      "relative_destination": "per_run_new.csv",
+      "bytes": 90679
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/per_run.csv",
+      "relative_destination": "per_run.csv",
+      "bytes": 316903
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/reference_per_run_original.csv",
+      "relative_destination": "reference_per_run_original.csv",
+      "bytes": 196680
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/raw_flat_new.csv",
+      "relative_destination": "raw_flat_new.csv",
+      "bytes": 481447
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/paired_comparisons.csv",
+      "relative_destination": "paired_comparisons.csv",
+      "bytes": 42090
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/action_histograms.csv",
+      "relative_destination": "action_histograms.csv",
+      "bytes": 493146
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/action_histograms_full_roi.csv",
+      "relative_destination": "action_histograms_full_roi.csv",
+      "bytes": 86654
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/classified_requests.csv",
+      "relative_destination": "classified_requests.csv",
+      "bytes": 247147
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/progress_snapshots.csv",
+      "relative_destination": "progress_snapshots.csv",
+      "bytes": 987501
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phase_progress.csv",
+      "relative_destination": "phase_progress.csv",
+      "bytes": 28623
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/storage_cost.csv",
+      "relative_destination": "storage_cost.csv",
+      "bytes": 94230
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/cost_plot_data.csv",
+      "relative_destination": "cost_plot_data.csv",
+      "bytes": 2571
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_plot_data.csv",
+      "relative_destination": "startup_plot_data.csv",
+      "bytes": 1791198
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distribution_plot_data.csv",
+      "relative_destination": "distribution_plot_data.csv",
+      "bytes": 8396
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phase_plot_data.csv",
+      "relative_destination": "phase_plot_data.csv",
+      "bytes": 7487
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/comparison_plot_data.csv",
+      "relative_destination": "comparison_plot_data.csv",
+      "bytes": 11049
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/route_status.csv",
+      "relative_destination": "route_status.csv",
+      "bytes": 615
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi0_cap0.png",
+      "relative_destination": "widths_roi0_cap0.png",
+      "bytes": 210510
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi0_cap0.svg",
+      "relative_destination": "widths_roi0_cap0.svg",
+      "bytes": 77855
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi0_cap16144.png",
+      "relative_destination": "widths_roi0_cap16144.png",
+      "bytes": 184635
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi0_cap16144.svg",
+      "relative_destination": "widths_roi0_cap16144.svg",
+      "bytes": 79438
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi1_cap0.png",
+      "relative_destination": "widths_roi1_cap0.png",
+      "bytes": 215476
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi1_cap0.svg",
+      "relative_destination": "widths_roi1_cap0.svg",
+      "bytes": 73981
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi1_cap16144.png",
+      "relative_destination": "widths_roi1_cap16144.png",
+      "bytes": 185341
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/widths_roi1_cap16144.svg",
+      "relative_destination": "widths_roi1_cap16144.svg",
+      "bytes": 77125
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/h8_template_cap.png",
+      "relative_destination": "h8_template_cap.png",
+      "bytes": 193962
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/h8_template_cap.svg",
+      "relative_destination": "h8_template_cap.svg",
+      "bytes": 93815
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/width_cost.png",
+      "relative_destination": "width_cost.png",
+      "bytes": 153256
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/width_cost.svg",
+      "relative_destination": "width_cost.svg",
+      "bytes": 25428
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_ampm_roi0.png",
+      "relative_destination": "startup_ampm_roi0.png",
+      "bytes": 167239
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_ampm_roi0.svg",
+      "relative_destination": "startup_ampm_roi0.svg",
+      "bytes": 65096
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_spp_roi0.png",
+      "relative_destination": "startup_spp_roi0.png",
+      "bytes": 162826
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_spp_roi0.svg",
+      "relative_destination": "startup_spp_roi0.svg",
+      "bytes": 63703
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_ampm_roi1.png",
+      "relative_destination": "startup_ampm_roi1.png",
+      "bytes": 210227
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_ampm_roi1.svg",
+      "relative_destination": "startup_ampm_roi1.svg",
+      "bytes": 73301
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_spp_roi1.png",
+      "relative_destination": "startup_spp_roi1.png",
+      "bytes": 194988
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/startup_spp_roi1.svg",
+      "relative_destination": "startup_spp_roi1.svg",
+      "bytes": 68112
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_ampm_roi0.png",
+      "relative_destination": "distributions_ampm_roi0.png",
+      "bytes": 153431
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_ampm_roi0.svg",
+      "relative_destination": "distributions_ampm_roi0.svg",
+      "bytes": 43868
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_ampm_roi0.png",
+      "relative_destination": "phases_ampm_roi0.png",
+      "bytes": 74837
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_ampm_roi0.svg",
+      "relative_destination": "phases_ampm_roi0.svg",
+      "bytes": 36834
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_spp_roi0.png",
+      "relative_destination": "distributions_spp_roi0.png",
+      "bytes": 151575
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_spp_roi0.svg",
+      "relative_destination": "distributions_spp_roi0.svg",
+      "bytes": 43834
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_spp_roi0.png",
+      "relative_destination": "phases_spp_roi0.png",
+      "bytes": 79789
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_spp_roi0.svg",
+      "relative_destination": "phases_spp_roi0.svg",
+      "bytes": 39937
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_ampm_roi1.png",
+      "relative_destination": "distributions_ampm_roi1.png",
+      "bytes": 160644
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_ampm_roi1.svg",
+      "relative_destination": "distributions_ampm_roi1.svg",
+      "bytes": 60074
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_ampm_roi1.png",
+      "relative_destination": "phases_ampm_roi1.png",
+      "bytes": 100073
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_ampm_roi1.svg",
+      "relative_destination": "phases_ampm_roi1.svg",
+      "bytes": 39354
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_spp_roi1.png",
+      "relative_destination": "distributions_spp_roi1.png",
+      "bytes": 162146
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/distributions_spp_roi1.svg",
+      "relative_destination": "distributions_spp_roi1.svg",
+      "bytes": 60751
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_spp_roi1.png",
+      "relative_destination": "phases_spp_roi1.png",
+      "bytes": 108576
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/phases_spp_roi1.svg",
+      "relative_destination": "phases_spp_roi1.svg",
+      "bytes": 42421
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/bindings.json",
+      "relative_destination": "metadata/bindings.json",
+      "bytes": 49870
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/reference_bindings.json",
+      "relative_destination": "metadata/reference_bindings.json",
+      "bytes": 63953
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/correctness_gate.json",
+      "relative_destination": "metadata/correctness_gate.json",
+      "bytes": 2729
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/selection.json",
+      "relative_destination": "metadata/selection.json",
+      "bytes": 1234
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/matrix.json",
+      "relative_destination": "metadata/matrix.json",
+      "bytes": 16087
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/protocol_source/config.json",
+      "relative_destination": "metadata/config.json",
+      "bytes": 1765
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2/build.json",
+      "relative_destination": "metadata/reference_actual_build.json",
+      "bytes": 1575
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/templates/ampm_h16.txt",
+      "relative_destination": "metadata/templates/ampm_h16.txt",
+      "bytes": 22
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/templates/spp_h16.txt",
+      "relative_destination": "metadata/templates/spp_h16.txt",
+      "bytes": 34
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/templates/streamer_h8.txt",
+      "relative_destination": "metadata/templates/streamer_h8.txt",
+      "bytes": 22
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/templates/ampm_h8.txt",
+      "relative_destination": "metadata/templates/ampm_h8.txt",
+      "bytes": 23
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/templates/spp_h8.txt",
+      "relative_destination": "metadata/templates/spp_h8.txt",
+      "bytes": 34
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/pipeline_result.json",
+      "relative_destination": "metadata/pipeline_result.json",
+      "bytes": 101
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/method.svg",
+      "relative_destination": "method.svg",
+      "bytes": 4233
+    },
+    {
+      "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/analysis_final/method.png",
+      "relative_destination": "method.png",
+      "bytes": 130673
+    }
+  ],
+  "byte_equal_all_copies": true,
+  "raw_inputs_modified": false,
+  "reference_data_rewritten": false,
+  "subsets": [
+    {
+      "policy": "streamer",
+      "directory": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_streamer_live_inference/results/width_templates_20261017",
+      "rows": 21,
+      "files": 10
+    },
+    {
+      "policy": "ampm",
+      "directory": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_ampm_live_inference/results/width_templates_20261017",
+      "rows": 30,
+      "files": 10
+    },
+    {
+      "policy": "spp",
+      "directory": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_spp_live_inference/results/width_templates_20261017",
+      "rows": 30,
+      "files": 10
+    }
+  ],
+  "excluded": [
+    "raw_snapshots.json",
+    "run.log",
+    "full callback streams",
+    "simulator binary",
+    "model.bin",
+    "model.pt",
+    "traces"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "protocol": "gate_mechanism_20261016_v1",
+  "fit_splits": [
+    "train",
+    "validation"
+  ],
+  "capacity": 64,
+  "selection": "descending combined event count; ascending unsigned PC tie",
+  "majority": "2 * NN_emit_positive_count >= combined_event_count",
+  "threshold": 0.5,
+  "split_state": "independent_zero_initial_exact64_lru",
+  "emit_definition": "raw result.emit, independent of K/addresses",
+  "unseen_pc": "silent",
+  "test_used": false,
+  "build_id": "build_20261016_213702"
+}

@@ -1,0 +1,202 @@
+{
+  "602.gcc_s-734B/roi0": {
+    "zero_original": [
+      {
+        "seed": 7,
+        "ipc": 0.4076568746627455,
+        "speedup_pct": 10.818095175541288,
+        "requests_per_million": 19126.677704798676,
+        "run": "test_602_r0_nn_s7_balanced_m0_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 17,
+        "ipc": 0.40694565316332165,
+        "speedup_pct": 10.624755588470048,
+        "requests_per_million": 18907.79773106427,
+        "run": "test_602_r0_nn_s17_balanced_m0_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 27,
+        "ipc": 0.40786006616468345,
+        "speedup_pct": 10.873331077595537,
+        "requests_per_million": 19268.277687806676,
+        "run": "test_602_r0_nn_s27_balanced_m0_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_original": [
+      {
+        "seed": 7,
+        "ipc": 0.3680212994215192,
+        "speedup_pct": 0.04349716820157834,
+        "requests_per_million": 3593.199568816052,
+        "run": "test_602_r0_nn_s7_balanced_m4_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 17,
+        "ipc": 0.3680369785845933,
+        "speedup_pct": 0.04775941690584595,
+        "requests_per_million": 3561.6395726032515,
+        "run": "test_602_r0_nn_s17_balanced_m4_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 27,
+        "ipc": 0.367961477322765,
+        "speedup_pct": 0.02723503343733391,
+        "requests_per_million": 3618.9195657296523,
+        "run": "test_602_r0_nn_s27_balanced_m4_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_capped": [
+      {
+        "seed": 7,
+        "ipc": 0.36791013163307856,
+        "speedup_pct": 0.013277139237133362,
+        "requests_per_million": 2362.919716449634,
+        "run": "test_602_r0_nn_s7_balanced_m4_b2363_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 17,
+        "ipc": 0.36792954297269376,
+        "speedup_pct": 0.01855394876655314,
+        "requests_per_million": 2362.959716444834,
+        "run": "test_602_r0_nn_s17_balanced_m4_b2363_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 27,
+        "ipc": 0.3678873766790157,
+        "speedup_pct": 0.007091396221903246,
+        "requests_per_million": 2362.959716444834,
+        "run": "test_602_r0_nn_s27_balanced_m4_b2363_sil0_qfifo_hist5000000"
+      }
+    ]
+  },
+  "602.gcc_s-734B/roi1": {
+    "zero_original": [
+      {
+        "seed": 7,
+        "ipc": 0.35814378503398037,
+        "speedup_pct": 25.16062747473753,
+        "requests_per_million": 28221.95774224338,
+        "run": "test_602_r1_nn_s7_balanced_m0_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 17,
+        "ipc": 0.36206724332580864,
+        "speedup_pct": 26.53175974673716,
+        "requests_per_million": 28690.917704726584,
+        "run": "test_602_r1_nn_s17_balanced_m0_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 27,
+        "ipc": 0.3649303428315936,
+        "speedup_pct": 27.532328081694168,
+        "requests_per_million": 29884.997609200193,
+        "run": "test_602_r1_nn_s27_balanced_m0_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_original": [
+      {
+        "seed": 7,
+        "ipc": 0.28563366847414495,
+        "speedup_pct": -0.1795070358593609,
+        "requests_per_million": 5021.759598259232,
+        "run": "test_602_r1_nn_s7_balanced_m4_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 17,
+        "ipc": 0.2854233268291832,
+        "speedup_pct": -0.25301520036647984,
+        "requests_per_million": 5025.4395979648325,
+        "run": "test_602_r1_nn_s17_balanced_m4_b0_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 27,
+        "ipc": 0.2857519004585849,
+        "speedup_pct": -0.13818846499910054,
+        "requests_per_million": 5263.279578937633,
+        "run": "test_602_r1_nn_s27_balanced_m4_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_capped": [
+      {
+        "seed": 7,
+        "ipc": 0.2861463797941848,
+        "speedup_pct": -0.000329640603158321,
+        "requests_per_million": 2362.959810963215,
+        "run": "test_602_r1_nn_s7_balanced_m4_b2363_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 17,
+        "ipc": 0.28616780441444023,
+        "speedup_pct": 0.007157628551390793,
+        "requests_per_million": 2362.879810969615,
+        "run": "test_602_r1_nn_s17_balanced_m4_b2363_sil0_qfifo_hist5000000"
+      },
+      {
+        "seed": 27,
+        "ipc": 0.28616208519106406,
+        "speedup_pct": 0.005158929659110356,
+        "requests_per_million": 2362.959810963215,
+        "run": "test_602_r1_nn_s27_balanced_m4_b2363_sil0_qfifo_hist5000000"
+      }
+    ]
+  },
+  "605.mcf_s-994B/roi0": {
+    "zero_original": [
+      {
+        "seed": 7,
+        "ipc": 0.18268116898907655,
+        "speedup_pct": -0.0781013148155596,
+        "requests_per_million": 4939.72,
+        "run": "test_605_r0_nn_s7_balanced_m0_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_original": [
+      {
+        "seed": 7,
+        "ipc": 0.1825548403868264,
+        "speedup_pct": -0.14719980955879564,
+        "requests_per_million": 979.16,
+        "run": "test_605_r0_nn_s7_balanced_m4_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_capped": [
+      {
+        "seed": 7,
+        "ipc": 0.1827865103058215,
+        "speedup_pct": -0.020482325198833973,
+        "requests_per_million": 212.88,
+        "run": "test_605_r0_nn_s7_balanced_m4_b213_sil0_qfifo_hist5000000"
+      }
+    ]
+  },
+  "623.xalancbmk_s-700B/roi0": {
+    "zero_original": [
+      {
+        "seed": 7,
+        "ipc": 0.3429340886442918,
+        "speedup_pct": -2.852005861264839,
+        "requests_per_million": 27282.44,
+        "run": "test_623_r0_nn_s7_balanced_m0_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_original": [
+      {
+        "seed": 7,
+        "ipc": 0.3528091013458256,
+        "speedup_pct": -0.05456545561414172,
+        "requests_per_million": 1383.32,
+        "run": "test_623_r0_nn_s7_balanced_m4_b0_sil0_qfifo_hist5000000"
+      }
+    ],
+    "finite_capped": [
+      {
+        "seed": 7,
+        "ipc": 0.3528091013458256,
+        "speedup_pct": -0.05456545561414172,
+        "requests_per_million": 1383.32,
+        "run": "test_623_r0_nn_s7_balanced_m4_b4082_sil0_qfifo_hist5000000"
+      }
+    ]
+  }
+}

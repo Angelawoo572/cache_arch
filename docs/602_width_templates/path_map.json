@@ -1,0 +1,79 @@
+{
+  "local_root": "/Users/angelawoo/Documents/CMU/ece/cache",
+  "remote_root": "/home/qianruw/cache",
+  "relative_old_to_new": {
+    "formal_study_20261016": "formal_study/archive/20261016",
+    "formal_study_20261017": "formal_study/archive/20261017",
+    "formal_study_20261016/work/cache_gate_mechanism": "formal_study/work/cache_gate_mechanism"
+  },
+  "local_git_dependency": "formal_study/archive/20261016/cache_recovered/.git/objects",
+  "new_runs": "formal_study/runs/602_width_templates_20261017",
+  "local_verification": {
+    "status": "PASS",
+    "regular_files": 15314,
+    "total_bytes": 7651782754,
+    "same_device_inode_size_after_rename": true,
+    "history_content_modified": false,
+    "git_head_preserved": true,
+    "git_worktree": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism",
+    "git_alternates_after": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261016/cache_recovered/.git/objects",
+    "git_branch": "experiment/602-gate-mechanism",
+    "active_git_metadata_updates": [
+      "objects/info/alternates repointed; original retained",
+      "branch merge tracking corrected; no authentication changes"
+    ],
+    "old_to_new": [
+      {
+        "old": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016",
+        "new": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261016"
+      },
+      {
+        "old": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017",
+        "new": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017"
+      },
+      {
+        "old": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/work/cache_gate_mechanism",
+        "new": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/work/cache_gate_mechanism"
+      }
+    ],
+    "compatibility_links": [
+      "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016",
+      "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017",
+      "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261016/work/cache_gate_mechanism"
+    ],
+    "proof": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/migration/consolidation_1792262233289308000"
+  },
+  "remote_verification": {
+    "status": "PASS",
+    "regular_files": 14141,
+    "total_bytes": 4419228854,
+    "same_inode_device_size": true,
+    "historical_metadata_unchanged": true,
+    "old_to_new": [
+      {
+        "old": "/home/qianruw/cache/formal_study_20261016",
+        "new": "/home/qianruw/cache/formal_study/archive/20261016"
+      },
+      {
+        "old": "/home/qianruw/cache/formal_study_20261017",
+        "new": "/home/qianruw/cache/formal_study/archive/20261017"
+      }
+    ],
+    "notes": [
+      "Historical source-only directories remain archived; new work checkout is separate.",
+      "No data deleted, historical files rewritten, or authentication changed."
+    ],
+    "proof": "/home/qianruw/cache/formal_study/migration/remote_1792262352081859000"
+  },
+  "original_offline_layout_unchanged": true,
+  "current_layout": {
+    "active_git_checkout": ".",
+    "shared_results": "formal_study/results/602_width_templates",
+    "raw_results": "formal_study/runs/602_width_templates_20261017",
+    "compatibility_links": {
+      "formal_study/work/cache_gate_mechanism": "../..",
+      "formal_NN_training/experiments/602_four_prefetcher_formal/results/width_templates_20261017": "../../../../formal_study/results/602_width_templates"
+    },
+    "previous_path_records": "preserved historical metadata; current_layout takes precedence"
+  }
+}

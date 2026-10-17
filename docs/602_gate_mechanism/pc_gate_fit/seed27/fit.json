@@ -1,0 +1,262 @@
+{
+  "status": "complete",
+  "spec": {
+    "contract": {
+      "protocol": "gate_mechanism_20261016_v1",
+      "fit_splits": [
+        "train",
+        "validation"
+      ],
+      "capacity": 64,
+      "selection": "descending combined event count; ascending unsigned PC tie",
+      "majority": "2 * NN_emit_positive_count >= combined_event_count",
+      "threshold": 0.5,
+      "split_state": "independent_zero_initial_exact64_lru",
+      "emit_definition": "raw result.emit, independent of K/addresses",
+      "unseen_pc": "silent",
+      "test_used": false,
+      "build_id": "build_20261016_213702"
+    },
+    "model_metadata": {
+      "backpropagation_in_live_runtime": false,
+      "checkpoint_path": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed27/balanced/offline/model.pt",
+      "emit_loss": "balanced",
+      "endianness": "little",
+      "endianness_marker": 16909060,
+      "experiment_revision": "source_input_variable_delta_free_running_v7",
+      "feature_width": 128,
+      "float_type": "float32",
+      "float_type_code": 1,
+      "format_version": 1,
+      "heldout_behavior_metrics": {
+        "callbacks": 80206,
+        "count_exact_match_rate": 0.5343615190883475,
+        "false_negative_actions": 2525,
+        "false_positive_actions": 76501,
+        "fill_accuracy_on_matched_targets": null,
+        "gate_false_negative_rows": 72,
+        "gate_false_positive_rows": 36849,
+        "gate_positive_f1": 0.4007401275746214,
+        "gate_positive_precision": 0.2509452372240517,
+        "gate_positive_recall": 0.9942014979463638,
+        "gate_predicted_positive_rows": 49194,
+        "gate_target_positive_rows": 12417,
+        "gate_true_positive_rows": 12345,
+        "normal_actions": 24406,
+        "predicted_actions": 98382,
+        "target_f1": 0.3564029058214158,
+        "target_precision": 0.22240857067349717,
+        "target_recall": 0.896541833975252,
+        "true_positive_actions": 21881
+      },
+      "hidden_size": 8,
+      "inference_runtime_fields": [
+        "pc",
+        "cache_line_address"
+      ],
+      "instruction_budget": 1000000,
+      "legacy_checkpoint": false,
+      "magic": "STRLSTM1",
+      "model_revision": "compact_shared_pc_hurdle_delta_v9",
+      "normal_policy_outputs_used_as_model_inputs": false,
+      "normal_policy_outputs_used_as_training_targets": true,
+      "online_learning": false,
+      "optimizer_in_live_runtime": false,
+      "parameter_count": 1908,
+      "python_source": "formal_NN_training/experiments/602_offline_lstm_stride/python/train_and_offline_infer.py",
+      "recurrent_state_bytes_per_pc": 64,
+      "schema_version": 1,
+      "seed": 27,
+      "teacher_role": "offline_labels_only",
+      "tensor_names": [
+        "input_projection.weight",
+        "input_projection.bias",
+        "encoder_lstm.weight_ih_l0",
+        "encoder_lstm.weight_hh_l0",
+        "encoder_lstm.bias_ih_l0",
+        "encoder_lstm.bias_hh_l0",
+        "emit_head.weight",
+        "emit_head.bias",
+        "log_count_mean.weight",
+        "log_count_mean.bias",
+        "action_decoder.action_cell.weight_ih",
+        "action_decoder.action_cell.weight_hh",
+        "action_decoder.action_cell.bias_ih",
+        "action_decoder.action_cell.bias_hh",
+        "action_decoder.delta_head.weight",
+        "action_decoder.delta_head.bias"
+      ],
+      "tensor_order": [
+        "input_projection.weight",
+        "input_projection.bias",
+        "encoder_lstm.weight_ih_l0",
+        "encoder_lstm.weight_hh_l0",
+        "encoder_lstm.bias_ih_l0",
+        "encoder_lstm.bias_hh_l0",
+        "emit_head.weight",
+        "emit_head.bias",
+        "log_count_mean.weight",
+        "log_count_mean.bias",
+        "action_decoder.action_cell.weight_ih",
+        "action_decoder.action_cell.weight_hh",
+        "action_decoder.action_cell.bias_ih",
+        "action_decoder.action_cell.bias_hh",
+        "action_decoder.delta_head.weight",
+        "action_decoder.delta_head.bias"
+      ],
+      "tensor_shapes": {
+        "action_decoder.action_cell.bias_hh": [
+          24
+        ],
+        "action_decoder.action_cell.bias_ih": [
+          24
+        ],
+        "action_decoder.action_cell.weight_hh": [
+          24,
+          8
+        ],
+        "action_decoder.action_cell.weight_ih": [
+          24,
+          1
+        ],
+        "action_decoder.delta_head.bias": [
+          1
+        ],
+        "action_decoder.delta_head.weight": [
+          1,
+          8
+        ],
+        "emit_head.bias": [
+          2
+        ],
+        "emit_head.weight": [
+          2,
+          8
+        ],
+        "encoder_lstm.bias_hh_l0": [
+          32
+        ],
+        "encoder_lstm.bias_ih_l0": [
+          32
+        ],
+        "encoder_lstm.weight_hh_l0": [
+          32,
+          8
+        ],
+        "encoder_lstm.weight_ih_l0": [
+          32,
+          8
+        ],
+        "input_projection.bias": [
+          8
+        ],
+        "input_projection.weight": [
+          8,
+          128
+        ],
+        "log_count_mean.bias": [
+          1
+        ],
+        "log_count_mean.weight": [
+          1,
+          8
+        ]
+      },
+      "training_config": {
+        "chunk_length": 256,
+        "emit_loss": "balanced",
+        "epochs": 12,
+        "eval_stream": "/home/qianruw/cache_formal_20261016_runs_v2/validation/validation_602_r0_none_s7_balanced_m0_b0_sil0_qfifo_hist4000000/inputs.csv.gz",
+        "eval_trace": "602.gcc_s-734B",
+        "initial_state_saved": true,
+        "initialization": "fresh_torch_seed_before_model_constructor",
+        "learning_rate": 0.002,
+        "optimizer": "Adam",
+        "optimizer_steps": 228,
+        "pc_batch_size": 128,
+        "seed": 27,
+        "train_rows": 16172,
+        "train_stream": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/training_prefixes/i1m/602.gcc_s-734B.i1m.train_stream.csv.gz",
+        "train_trace": "602.gcc_s-734B"
+      },
+      "training_identity_source": "checkpoint_and_metadata",
+      "training_metadata_path": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed27/balanced/offline/run_metadata.json",
+      "training_runtime_fields": [
+        "pc",
+        "cache_line_address"
+      ],
+      "training_trace": "602.gcc_s-734B",
+      "weight_bytes": 7632,
+      "weights_frozen": true
+    },
+    "inputs": [
+      {
+        "name": "train",
+        "source": "/home/qianruw/cache_formal_20261016_runs_v2/models/train_inputs.csv.gz",
+        "snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/train/source.csv.gz",
+        "canonical": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/train/pc_line.csv",
+        "events": 16172,
+        "initial_state": "independent_zero",
+        "state_capacity": 64,
+        "source_records": [
+          0,
+          1000000
+        ]
+      },
+      {
+        "name": "validation",
+        "source": "/home/qianruw/cache_formal_20261016_runs_v2/models/validation_inputs.csv.gz",
+        "snapshot": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/validation/source.csv.gz",
+        "canonical": "/home/qianruw/cache_gate_mechanism_20261016_runs/fit_inputs/validation/pc_line.csv",
+        "events": 80206,
+        "initial_state": "independent_zero",
+        "state_capacity": 64,
+        "source_records": [
+          5000000,
+          10000000
+        ]
+      }
+    ],
+    "seed": 27
+  },
+  "table": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/seed27/pc_gate.tsv",
+  "table_entries": 55,
+  "gate_positive_entries": 20,
+  "agreement": {
+    "train": {
+      "events": 16172,
+      "pcs": 55,
+      "agreement_events": 16051,
+      "agreement": 0.9925179322285431,
+      "table_miss_events": 0,
+      "table_miss_pcs": 0,
+      "unseen_in_combined_events": 0,
+      "nn_emit_positive_events": 9773,
+      "nn_emit_k_zero_events": 0
+    },
+    "validation": {
+      "events": 80206,
+      "pcs": 31,
+      "agreement_events": 80061,
+      "agreement": 0.9981921552003591,
+      "table_miss_events": 0,
+      "table_miss_pcs": 0,
+      "unseen_in_combined_events": 0,
+      "nn_emit_positive_events": 49194,
+      "nn_emit_k_zero_events": 0
+    },
+    "combined": {
+      "events": 96378,
+      "pcs": 55,
+      "agreement_events": 96112,
+      "agreement": 0.997240034032663,
+      "table_miss_events": 0,
+      "table_miss_pcs": 0,
+      "unseen_in_combined_events": 0,
+      "nn_emit_positive_events": 58967,
+      "nn_emit_k_zero_events": 0
+    }
+  },
+  "python_table_roundtrip": "PASS",
+  "engine_table_roundtrip": "required_in_correctness_ready"
+}

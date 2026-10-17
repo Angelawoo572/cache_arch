@@ -1,0 +1,14 @@
+run_id,arm,protocol,phase,hidden_size,seed,checkpoint,state_capacity,service_case,slice_origin_instructions,simulation_instructions,configured_max_bytes,observed_peak_bytes,note
+cold_frozen_i1m_h16_s7_state0_mac0,frozen,cold,final,16,7,i1m,0,0,25000000,25000000,NA,37968,sum of component peaks; not a simultaneous allocation measurement
+cold_frozen_i1m_h8_s7_state0_mac0,frozen,cold,final,8,7,i1m,0,0,25000000,25000000,NA,18000,sum of component peaks; not a simultaneous allocation measurement
+cold_frozen_i1m_h8_s7_state64_mac0,frozen,cold,final,8,7,i1m,64,0,25000000,25000000,17352,15312,sum of component peaks; not a simultaneous allocation measurement
+cold_frozen_i1m_h8_s7_state64_mac16,frozen,cold,final,8,7,i1m,64,16,25000000,25000000,17352,16056,sum of component peaks; not a simultaneous allocation measurement
+cold_frozen_i1m_h8_s7_state64_mac4,frozen,cold,final,8,7,i1m,64,4,25000000,25000000,17352,15480,sum of component peaks; not a simultaneous allocation measurement
+cold_frozen_i20m_h16_s7_state0_mac0,frozen,cold,final,16,7,i20m,0,0,25000000,25000000,NA,37968,sum of component peaks; not a simultaneous allocation measurement
+cold_frozen_i20m_h8_s7_state0_mac0,frozen,cold,final,8,7,i20m,0,0,25000000,25000000,NA,18000,sum of component peaks; not a simultaneous allocation measurement
+cold_none_h0_s7_state0_mac0,no_pref,cold,final,0,7,,0,0,25000000,25000000,0,0,sum of component peaks; not a simultaneous allocation measurement
+cold_stride_h0_s7_state0_mac0,stride,cold,final,0,7,,0,0,25000000,25000000,2064,2064,sum of component peaks; not a simultaneous allocation measurement
+historical_frozen_i1m_h16_s7_state0_mac0,frozen,historical,final,16,7,i1m,0,0,25000000,25000000,NA,NA,sum of component peaks; not a simultaneous allocation measurement
+historical_frozen_i1m_h8_s7_state0_mac0,frozen,historical,final,8,7,i1m,0,0,25000000,25000000,NA,NA,sum of component peaks; not a simultaneous allocation measurement
+historical_frozen_i20m_h16_s7_state0_mac0,frozen,historical,final,16,7,i20m,0,0,25000000,25000000,NA,NA,sum of component peaks; not a simultaneous allocation measurement
+historical_frozen_i20m_h8_s7_state0_mac0,frozen,historical,final,8,7,i20m,0,0,25000000,25000000,NA,NA,sum of component peaks; not a simultaneous allocation measurement

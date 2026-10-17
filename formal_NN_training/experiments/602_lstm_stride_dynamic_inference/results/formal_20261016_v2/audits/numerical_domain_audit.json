@@ -1,0 +1,59 @@
+{
+  "status": "verified_for_actual_three_balanced_checkpoints",
+  "kind": "conservative analytical bounds, not a warmup failure counter",
+  "scope": "All binary PC/address inputs, finite histories from zero h/c, at most32 decoder iterations",
+  "assumptions": [
+    "C++ default round-to-nearest float32 and stable sign-split sigmoid; CPU runtime uses tanh projection and bounded sigmoid/tanh LSTM/GRU.",
+    "Encoder hidden absolute value <=1. Cell update magnitude grows by at most1 per completion in exact arithmetic; float32 remains finite for the declared finite warmup/ROI.",
+    "Decoder state is a convex sigmoid blend of tanh candidate and previous hidden; bound2 includes ample float32 rounding margin over <=32 decoder steps.",
+    "Each head coordinate/logmean is bounded by abs(bias)+sum(abs(weight))*state_bound; 0.01 percent plus1e-4 padding covers the small8-term float32 sums."
+  ],
+  "limitation": "The generic engine clears numerical_failures at ROI reset; this independent bound establishes that the actual three balanced checkpoints in this supplement cannot reach count/delta overflow or nonfinite arithmetic under this input/state domain. It does not certify arbitrary future model files.",
+  "results": [
+    {
+      "seed": 7,
+      "model": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed7/balanced/export/model.bin",
+      "all_parameters_finite": true,
+      "max_abs_parameter": 0.7203230261802673,
+      "projection_preactivation_abs_bound": 8.002808347778295,
+      "encoder_gate_preactivation_abs_bound": 4.612246399851143,
+      "count_logmean_abs_bound": 1.3414414368769154,
+      "decoder_coordinate_abs_bound": 4.561037998835742,
+      "decoder_gate_preactivation_abs_bound": 6.6792379194630405,
+      "count_domain_limit_log": 43.66827237527655,
+      "conservative_max_count": 3.82455238490674,
+      "conservative_max_abs_delta": 94.68274688147507,
+      "passed": true
+    },
+    {
+      "seed": 17,
+      "model": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed17/balanced/export/model.bin",
+      "all_parameters_finite": true,
+      "max_abs_parameter": 0.5677652955055237,
+      "projection_preactivation_abs_bound": 7.212951196350832,
+      "encoder_gate_preactivation_abs_bound": 5.584422819618322,
+      "count_logmean_abs_bound": 1.5441231297574938,
+      "decoder_coordinate_abs_bound": 4.369744302940369,
+      "decoder_gate_preactivation_abs_bound": 6.398018375224805,
+      "count_domain_limit_log": 43.66827237527655,
+      "conservative_max_count": 4.683862685971913,
+      "conservative_max_abs_delta": 78.02342305911137,
+      "passed": true
+    },
+    {
+      "seed": 27,
+      "model": "/home/qianruw/cache_formal_20261016_runs_v2/models/seed27/balanced/export/model.bin",
+      "all_parameters_finite": true,
+      "max_abs_parameter": 0.7097402811050415,
+      "projection_preactivation_abs_bound": 7.895939339287221,
+      "encoder_gate_preactivation_abs_bound": 4.702657211506646,
+      "count_logmean_abs_bound": 1.76763947243914,
+      "decoder_coordinate_abs_bound": 3.917460452299565,
+      "decoder_gate_preactivation_abs_bound": 7.962694538397439,
+      "count_domain_limit_log": 43.66827237527655,
+      "conservative_max_count": 5.857011393817647,
+      "conservative_max_abs_delta": 49.27261283079456,
+      "passed": true
+    }
+  ]
+}

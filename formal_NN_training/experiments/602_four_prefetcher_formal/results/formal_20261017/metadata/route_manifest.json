@@ -1,0 +1,28 @@
+{
+  "routes": {
+    "stride": {
+      "offline": {"status": "previously_completed", "evidence": "../602_offline_lstm_stride/README.md", "details": "Original keyed offline/replay protocol retained separately."},
+      "live": {"status": "previously_completed_and_regenerated", "evidence": "../602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md", "details": "Original per-PC frozen runtime and actual generated build files retained; current filtered seed7 arm uses the verified original model."},
+      "old_formal": {"status": "previously_completed_archived", "evidence": "../602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md", "details": "First frozen formal89test+12validation, independent h/c14 and gate71 retain their original protocols; not pooled with new IPC."},
+      "new_formal": {"evidence": "results/formal_20261017/per_run.csv", "details": "Filtered current-line MAC0 student; original per-PC state/capacity/decoder/output controls retained and reported, not imposed on other students."}
+    },
+    "streamer": {
+      "offline": {"status": "previously_completed", "evidence": "../602_offline_lstm_streamer/README.md", "details": "Retained real v7 seed7 H8 checkpoint, source training0..20M and previously inspected replay evaluation25..50M."},
+      "live": {"status": "newly_implemented_and_parity_verified", "evidence": "../602_lstm_streamer_live_inference/README.md", "details": "Actual Streamer weights; address-only global LSTM/Poisson/GMM4/free-running GRU; full state/actions verified against Python."},
+      "old_formal": {"status": "not_previously_run", "details": "Old Streamer student results are offline/replay; do not relabel them as live/formal."},
+      "new_formal": {"evidence": "results/formal_20261017/per_run.csv", "details": "New synchronous MAC0 full ROI, cap and validation-frozen template/state interventions; single retained seed7."}
+    },
+    "ampm": {
+      "offline": {"status": "previously_completed", "evidence": "../602_offline_lstm_ampm/README.md", "details": "Retained real v7 seed7 H8 checkpoint, source training0..20M; original guard20..25M and replay evaluation25..50M."},
+      "live": {"status": "newly_implemented_and_parity_verified", "evidence": "../602_lstm_ampm_live_inference/README.md", "details": "Actual AMPM weights; address-only global LSTM/Poisson/GMM4/free-running GRU; full state/actions verified against Python."},
+      "old_formal": {"status": "not_previously_run", "details": "Old AMPM student results are offline/replay; not new formal measurement."},
+      "new_formal": {"evidence": "results/formal_20261017/per_run.csv", "details": "New synchronous MAC0 full ROI, cap and validation-frozen template/state interventions; single retained seed7."}
+    },
+    "spp": {
+      "offline": {"status": "previously_completed", "evidence": "../602_offline_lstm_spp/README.md", "details": "Retained empirical-prior hurdle v2 seed7 H8 checkpoint, demand/fill stream and learned L2/LLC outputs."},
+      "live": {"status": "newly_implemented_and_parity_verified", "evidence": "../602_lstm_spp_live_inference/README.md", "details": "Actual65feature weights and actual live raw demand/fill callbacks; global h/c; preserve native PF-only FILTER feedback as a separate effective-input qualification."},
+      "old_formal": {"status": "native_reference_only", "evidence": "../602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md", "details": "Historical formal SPP was native comparator only, at default25 PF threshold. New matching native comparator explicitly90/40; no protocol IPC pooling."},
+      "new_formal": {"evidence": "results/formal_20261017/per_run.csv", "details": "First actual student live formal measurement; preserve predicted fill target, separate L2/LLC lifecycle cohorts and availability flags."}
+    }
+  }
+}

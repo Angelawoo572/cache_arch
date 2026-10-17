@@ -1,0 +1,18 @@
+{
+  "available": true,
+  "source": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/cost/cost_fields_h16.json",
+  "separate_H16_record": true,
+  "attached_runs": [
+    "test_r0_ampm_h16_student_full_cap0",
+    "test_r0_ampm_h16_student_full_cap16144",
+    "test_r0_spp_h16_student_full_cap0",
+    "test_r0_spp_h16_student_full_cap16144",
+    "test_r1_ampm_h16_student_full_cap0",
+    "test_r1_ampm_h16_student_full_cap16144",
+    "test_r1_spp_h16_student_full_cap0",
+    "test_r1_spp_h16_student_full_cap16144",
+    "validation_r0_ampm_h16_student_full_cap0",
+    "validation_r0_spp_h16_student_full_cap0"
+  ],
+  "scope": "actual scalar runtime ordinary new/new[] requested allocations on4096 causal correctness callbacks plus documented boundaries; observed peak is not unbounded-degree worst case; excludes outer adapter/observer/stack/allocator/RSS/PPA"
+}

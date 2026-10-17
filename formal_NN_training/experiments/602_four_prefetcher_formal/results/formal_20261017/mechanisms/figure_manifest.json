@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "protocol": "four602_frozen_live_20261017_v2",
+  "source_analysis": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final",
+  "source_audit_status": "PASS",
+  "actual_formal_runs": 64,
+  "selected_uncapped_intervention_rows": 24,
+  "figures": [
+    "mechanisms_roi0_seed7",
+    "mechanisms_roi1_seed7"
+  ],
+  "seeds": [
+    "7"
+  ],
+  "all_rows_retained": true,
+  "averaging": false,
+  "limitations": [
+    "Only existing seed7; no independent-training robustness claim.",
+    "MAC0 IPC is synchronous; no finite-cost IPC inference.",
+    "No capped mechanism intervention is inferred from uncapped controls.",
+    "Different actions can change future callback streams; whole-run state identity not claimed.",
+    "Template is validation-selected joint per-slot delta/fill plus unconditional modalK; no assumed +2/PC.",
+    "No prefix extrapolation; all displayed rows are complete25M ROI.",
+    "SPP native raw sourcecall K differs from canonical deduplicated training-action K."
+  ]
+}

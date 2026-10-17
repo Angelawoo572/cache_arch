@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1220" viewBox="0 0 1600 1220" role="img" aria-label="Gate and payload controls for the frozen recurrent prefetcher">
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L10 5L0 10z" fill="#2768a2"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#203548}.title{font-size:34px;font-weight:700;fill:#172f4a}.subtitle{font-size:19px;fill:#5c6d7d}.band{font-size:17px;font-weight:700;letter-spacing:1.2px;fill:#2768a2}.head{font-size:22px;font-weight:700}.body{font-size:18px}.small{font-size:16px;fill:#5c6d7d}.arrow{stroke:#2768a2;stroke-width:3;fill:none;marker-end:url(#arrow)}</style><rect width="1600" height="1220" fill="white"/>
+<text x="52" y="62" class="title">Separate the learned request gate from the predicted payload</text>
+<text x="52" y="95" class="subtitle">Implemented mechanism study · frozen weights · no outcome claim before the formal data audit</text>
+<rect x="35" y="124" width="1530" height="66" rx="12" fill="#edf5fc"/>
+<text x="55" y="151" class="body">Question: does the model choose useful addresses, identify useful emitting PCs/events, or mainly change request volume?</text>
+<text x="55" y="176" class="body">A shared request ceiling and explicit payload interventions test these explanations separately.</text>
+<text x="55" y="227" class="band">OFFLINE: FIT THE MINIMAL PC CONTROL WITHOUT TEST DATA</text>
+<rect x="55" y="247" width="310" height="142" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="73" y="279" class="head">Complete NoPF streams</text>
+<text x="73" y="310" class="body">Train 0–1M + validation 5–10M</text>
+<text x="73" y="335" class="body">Full EOF; independent split state = 0</text>
+<text x="73" y="360" class="body">No test inputs / no 4096 prefix</text>
+<rect x="425" y="247" width="310" height="142" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="443" y="279" class="head">Score each frozen seed</text>
+<text x="443" y="310" class="body">Scalar NN; exact 64-entry LRU</text>
+<text x="443" y="335" class="body">Record raw emit votes per PC</text>
+<text x="443" y="360" class="body">Output limit 32; full forward</text>
+<rect x="795" y="247" width="310" height="142" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="813" y="279" class="head">Fixed fitting rule</text>
+<text x="813" y="310" class="body">Top 64 combined event frequency</text>
+<text x="813" y="335" class="body">PC ascending breaks count ties</text>
+<text x="813" y="360" class="body">Emit majority ≥ 0.5; no sweep</text>
+<rect x="1165" y="247" width="380" height="142" rx="12" fill="#edf7f3" stroke="#b5cada" stroke-width="1.5"/>
+<text x="1183" y="279" class="head">Frozen PC table</text>
+<text x="1183" y="310" class="body">PC + valid + one gate bit</text>
+<text x="1183" y="335" class="body">Absent PC remains silent</text>
+<text x="1183" y="360" class="body">No recurrent state / runtime training</text>
+<path d="M365 318L425 318" class="arrow"/>
+<path d="M735 318L795 318" class="arrow"/>
+<path d="M1105 318L1165 318" class="arrow"/>
+<text x="55" y="437" class="band">FORMAL: GATE, PAYLOAD AND COMPUTE ARE DISTINCT</text>
+<text x="55" y="470" class="small">Treatment</text>
+<text x="338" y="470" class="small">Gate / state policy</text>
+<text x="733" y="470" class="small">Completed payload</text>
+<text x="1068" y="470" class="small">Request path</text>
+<text x="55" y="532" class="head">Learned NN</text>
+<text x="55" y="564" class="body">Original and filtered</text>
+<rect x="320" y="495" width="350" height="122" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="338" y="527" class="head">Frozen recurrent forward</text>
+<text x="338" y="558" class="body">Learned emit + K + deltas</text>
+<text x="338" y="583" class="body">Full inference + h/c</text>
+<rect x="715" y="495" width="300" height="122" rx="12" fill="#edf7f3" stroke="#b5cada" stroke-width="1.5"/>
+<text x="733" y="527" class="head">Learned addresses</text>
+<text x="733" y="558" class="body">Original K / delta payload</text>
+<rect x="1060" y="495" width="485" height="122" rx="12" fill="#f7f9fc" stroke="#b5cada" stroke-width="1.5"/>
+<text x="1078" y="527" class="head">Same output interface</text>
+<text x="1078" y="558" class="body">Current-line filter: off or on</text>
+<text x="1078" y="583" class="body">Same page → shared cap → cache</text>
+<path d="M670 556L715 556" class="arrow"/>
+<path d="M1015 556L1060 556" class="arrow"/>
+<text x="55" y="682" class="head">NN gate → fixed+2</text>
+<text x="55" y="714" class="body">Payload-only intervention</text>
+<rect x="320" y="645" width="350" height="122" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="338" y="677" class="head">Same full NN forward</text>
+<text x="338" y="708" class="body">Gate on raw NN emit</text>
+<text x="338" y="733" class="body">Keep decoder work + h/c</text>
+<rect x="715" y="645" width="300" height="122" rx="12" fill="#edf7f3" stroke="#b5cada" stroke-width="1.5"/>
+<text x="733" y="677" class="head">One line+2 iff emit</text>
+<text x="733" y="708" class="body">K=0 still permits fixed payload</text>
+<rect x="1060" y="645" width="485" height="122" rx="12" fill="#f7f9fc" stroke="#b5cada" stroke-width="1.5"/>
+<text x="1078" y="677" class="head">Same output interface</text>
+<text x="1078" y="708" class="body">Current-line filter: on</text>
+<text x="1078" y="733" class="body">Same page → shared cap → cache</text>
+<path d="M670 706L715 706" class="arrow"/>
+<path d="M1015 706L1060 706" class="arrow"/>
+<text x="55" y="832" class="head">Unconditional +2</text>
+<text x="55" y="864" class="body">Minimal fixed target</text>
+<rect x="320" y="795" width="350" height="122" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="338" y="827" class="head">Always emit</text>
+<text x="338" y="858" class="body">Every eligible L2 LOAD</text>
+<text x="338" y="883" class="body">No NN compute / h/c</text>
+<rect x="715" y="795" width="300" height="122" rx="12" fill="#edf7f3" stroke="#b5cada" stroke-width="1.5"/>
+<text x="733" y="827" class="head">One line+2</text>
+<text x="733" y="858" class="body">No learned payload</text>
+<rect x="1060" y="795" width="485" height="122" rx="12" fill="#f7f9fc" stroke="#b5cada" stroke-width="1.5"/>
+<text x="1078" y="827" class="head">Same output interface</text>
+<text x="1078" y="858" class="body">Current-line filter: on</text>
+<text x="1078" y="883" class="body">Same page → shared cap → cache</text>
+<path d="M670 856L715 856" class="arrow"/>
+<path d="M1015 856L1060 856" class="arrow"/>
+<text x="55" y="982" class="head">PC gate → fixed+2</text>
+<text x="55" y="1014" class="body">One table per seed</text>
+<rect x="320" y="945" width="350" height="122" rx="12" fill="#f2f6fb" stroke="#b5cada" stroke-width="1.5"/>
+<text x="338" y="977" class="head">Frozen 64-PC lookup</text>
+<text x="338" y="1008" class="body">Use stored emit bit</text>
+<text x="338" y="1033" class="body">No NN compute / h/c</text>
+<rect x="715" y="945" width="300" height="122" rx="12" fill="#edf7f3" stroke="#b5cada" stroke-width="1.5"/>
+<text x="733" y="977" class="head">One line+2 iff bit=1</text>
+<text x="733" y="1008" class="body">Absent PC: no request</text>
+<rect x="1060" y="945" width="485" height="122" rx="12" fill="#f7f9fc" stroke="#b5cada" stroke-width="1.5"/>
+<text x="1078" y="977" class="head">Same output interface</text>
+<text x="1078" y="1008" class="body">Current-line filter: on</text>
+<text x="1078" y="1033" class="body">Same page → shared cap → cache</text>
+<path d="M670 1006L715 1006" class="arrow"/>
+<path d="M1015 1006L1060 1006" class="arrow"/>
+<line x1="55" y1="1094" x2="1545" y2="1094" stroke="#d3dce5" stroke-width="1.5"/>
+<text x="55" y="1123" class="body">Common: two future 25M ROIs · 5M NoPF cache warmup / NN history · same-page policy · original or 2363 requests/M ceiling</text>
+<text x="55" y="1152" class="small">Three training seeds at MAC0; MAC4 is a seed 7 capped learned-payload subset. Actual traffic can differ under the same ceiling.</text>
+<text x="55" y="1178" class="small">Arrival-time shadow Stride is diagnostic only. Full-ROI/5M-phase distributions and actual silent-output intervention support attribution.</text>
+</svg>

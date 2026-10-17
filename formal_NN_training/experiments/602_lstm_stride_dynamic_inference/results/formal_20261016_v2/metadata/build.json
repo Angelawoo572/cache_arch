@@ -1,0 +1,9 @@
+{
+  "binary": "/home/qianruw/cache_formal_20261016_runs_v2/builds/build_20261016_185845/simulator/bin/perceptron-no-dynamic602-no-ship-1core",
+  "simulator": "/home/qianruw/cache_formal_20261016_runs_v2/builds/build_20261016_185845/simulator",
+  "source_snapshot": "/home/qianruw/cache_formal_20261016_runs_v2/builds/build_20261016_185845/source_snapshot",
+  "binary_snapshot": "/home/qianruw/cache_formal_20261016_runs_v2/builds/build_20261016_185845/simulator_binary_snapshot",
+  "build_id": "build_20261016_185845",
+  "protocol": "frozen_formal_20261016_v2",
+  "base": "838be17e"
+}

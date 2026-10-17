@@ -1,0 +1,254 @@
+{
+  "protocol": "gate_mechanism_20261016_v1",
+  "audit_kind": "source-field inventory plus actual Sacramento C++ object/allocator probes; no engine mutation",
+  "source": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/work/cache_gate_mechanism",
+  "compiler": {
+    "gcc": "8.5.0 20210514 (Red Hat 8.5.0-28)",
+    "glibcxx": 20210514,
+    "pointer_bytes": 8
+  },
+  "actual_cpp_pc_gate": {
+    "implementation": "read-only std::map<uint64_t,bool>, maximum64 unique entries; count/positives are parser-local validation values",
+    "source_fields": [
+      {
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h",
+        "line": 43
+      },
+      {
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+        "line": 119
+      },
+      {
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+        "line": 184
+      }
+    ],
+    "actual_fitted_entries_per_seed": {
+      "7": 55,
+      "17": 55,
+      "27": 55
+    },
+    "gate1_per_seed": {
+      "7": 24,
+      "17": 29,
+      "27": 20
+    },
+    "actual_cpp_measurements": {
+      "55": {
+        "entries": 55,
+        "node_allocations": 55,
+        "std_map_object_bytes": 48,
+        "std_pair_pc_bool_bytes": 16,
+        "node_requested_bytes_each": 48,
+        "node_malloc_usable_bytes_each": 56,
+        "node_requested_bytes_total": 2640,
+        "node_malloc_usable_bytes_total": 3080,
+        "map_object_plus_requested_nodes_bytes": 2688,
+        "map_object_plus_usable_nodes_bytes": 3128
+      },
+      "64": {
+        "entries": 64,
+        "node_allocations": 64,
+        "std_map_object_bytes": 48,
+        "std_pair_pc_bool_bytes": 16,
+        "node_requested_bytes_each": 48,
+        "node_malloc_usable_bytes_each": 56,
+        "node_requested_bytes_total": 3072,
+        "node_malloc_usable_bytes_total": 3584,
+        "map_object_plus_requested_nodes_bytes": 3120,
+        "map_object_plus_usable_nodes_bytes": 3632
+      }
+    },
+    "measurement_scope": "map control object plus node allocation request / malloc_usable_size. Includes implementation node links/colour/padding; excludes allocator bookkeeping outside usable chunks, unified engine/observer objects, other container allocations and process RSS.",
+    "full_unified_engine_object_bytes": 2344,
+    "object_plus_pc_nodes_requested_55_bytes": 4984,
+    "object_plus_pc_nodes_requested_scope": "2344+55*48, not complete heap/RSS: the map header is already inside2344; do not add48 a second time.",
+    "loader_certificate_remote": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/engine_loader_verification.json"
+  },
+  "hypothetical_pc_gate_architecture": {
+    "basis": "Declared packed architectural schema; actual implementation is std::map, not a synthesized CAM/SRAM.",
+    "table_capacity": 64,
+    "actual_valid_entries": 55,
+    "entry_bits": {
+      "PC_tag": 64,
+      "emit_gate": 1,
+      "valid": 1
+    },
+    "table_bits": 4224,
+    "table_bytes": 528,
+    "chosen_additional_reservations_bytes": {
+      "control_flags_word": 8,
+      "immediate_pc_line_address_candidate": 24
+    },
+    "fixed_design_source_field_budget_bytes": 560,
+    "common_budget_gate_bytes": 16,
+    "budget_matched_source_field_budget_bytes": 576,
+    "controller_assumptions": "One64-bit flags word holds method/page/current-filter controls; no online PC replacement/LRU/counters. A24B immediate pc/line/address reservation covers the callback payload. Existing CPU retirement counter is reused; cap register+allowed-request counter add16B.",
+    "unmodeled": "PC-match comparator/selection/adder area, lookup latency, energy, SRAM/CAM layout and synthesis; callback lookup is immediate, like legacy Stride.",
+    "warning": "528B is only the table payload; 560/576B are explicit hypothetical source-field reservations, not measured software allocation or physical area."
+  },
+  "unconditional_plus2_architecture": {
+    "functional_state": "No PC table, h/c or weights; combinational line+2 address rule.",
+    "chosen_fixed_control_and_candidate_bytes": 32,
+    "common_budget_gate_bytes": 16,
+    "chosen_budget_matched_budget_bytes": 48,
+    "basis": "Same8B flag word +24B immediate candidate schema as PC gate; no table528B. Hardware adder/compare cost is not synthesized."
+  },
+  "nn_fullforward_source_field_budget": {
+    "reference_audit": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/research_audit/engine/storage_audit.json",
+    "core_arrays_events_scratch_bytes": 16808,
+    "controller_schema_bytes": 112,
+    "fixed_design_bytes": 16920,
+    "shared_budget_control_bytes": 16,
+    "budget_matched_bytes": 16936,
+    "component_bytes": {
+      "resident_fp32_weights": 7632,
+      "state64_entries": 6144,
+      "forward_scratch_reservation": 1344,
+      "active_event_metadata": 24,
+      "decoded_delta_and_address_results32": 512,
+      "input_queue16": 384,
+      "output_queue32": 768
+    },
+    "controller_inventory": [
+      {
+        "name": "scheduled service due or remaining counter",
+        "words64": 1
+      },
+      {
+        "name": "next output-release cycle counter",
+        "words64": 1
+      },
+      {
+        "name": "state allocation lifetime counter",
+        "words64": 1
+      },
+      {
+        "name": "LRU timestamp counter",
+        "words64": 1
+      },
+      {
+        "name": "state occupancy count",
+        "words64": 1
+      },
+      {
+        "name": "input FIFO head,tail,occupancy",
+        "words64": 3
+      },
+      {
+        "name": "output FIFO head,tail,occupancy",
+        "words64": 3
+      },
+      {
+        "name": "raw predicted K and decoded valid-count",
+        "words64": 2
+      },
+      {
+        "name": "active/failed/page/queue flags reserved word",
+        "words64": 1
+      }
+    ],
+    "new_functional_controls": [
+      {
+        "field": "payload_mode_",
+        "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h:42",
+        "software_type": "std::string (32B object on this compiler)",
+        "architectural_schema": "one selector bit fits existing64-bit flags reserve; fixed arm can hardwire it"
+      },
+      {
+        "field": "new method values",
+        "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc:39",
+        "software_type": "existing method_ std::string",
+        "architectural_schema": "five modes need at most3 bits instead of2; existing flags word accommodates them"
+      },
+      {
+        "field": "current-line output filter",
+        "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc:376",
+        "software_type": "environment predicate at common request gate",
+        "architectural_schema": "one enable bit plus line equality comparator; enable fits flags word, line/address already in payload"
+      },
+      {
+        "field": "fixed_addresses",
+        "source": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc:243",
+        "software_type": "temporary vector<uint64_t>, one8B element for fixed payload",
+        "architectural_schema": "reuse existing forward/result scratch after full decoder completion; no additional reserved array under this explicit reuse assumption"
+      }
+    ],
+    "unchanged": "weights,h/c capacity,raw decoder cap,serial II/service and original MAC/nonlinear costs; no canonical h/c history initialization was transplanted.",
+    "scope": "Conservative packed/source-field reservations with buffer reuse, not actual C++sizeof or RTL area; programmable resource registers remain an optional extra56B as in the original audit."
+  },
+  "mechanism_added_diagnostics": {
+    "source_fields": [
+      {
+        "field": "phase_instructions_,roi_instructions_",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h",
+        "line": 44,
+        "fixed_object_bytes": 16
+      },
+      {
+        "field": "mechanism_distributions_",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h",
+        "line": 63,
+        "fixed_object_bytes": 48,
+        "heap": "variable string-keyed exact histogram map nodes"
+      },
+      {
+        "field": "mechanism_requests_",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h",
+        "line": 64,
+        "fixed_object_bytes": 48,
+        "heap": "variable full-ROI class counter map nodes"
+      },
+      {
+        "field": "Output.phase/slot/current_line/list_duplicate",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.h",
+        "line": 38,
+        "field_payload_bytes": 14,
+        "actual_struct_growth_bytes": 16
+      },
+      {
+        "field": "profile std::set seen",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+        "line": 148,
+        "heap": "temporary nodes used only to count duplicates; no request deduplication"
+      },
+      {
+        "field": "fixed_deltas",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/dynamic602_engine.cc",
+        "line": 243,
+        "heap": "temporary one-element signed-delta vector used by payload diagnostics; +2 is a fixed design literal"
+      },
+      {
+        "field": "label FIFOs,origin/allowed phases,classified lifecycle maps",
+        "file": "formal_NN_training/experiments/602_lstm_stride_dynamic_inference/measurement/dynamic_observer.cc",
+        "line": 348,
+        "heap": "measurement-only request context and eventual usefulness records"
+      }
+    ],
+    "current_line_annotation_scope": "The cached current-line annotation is validated against the line/address equality before the output-only filter reads it. It encodes no independent predictor feature or hidden state; hardware can derive the equality from existing payload fields.",
+    "excluded": "shadow teacher,per-event teacher labels,timing/history counters,fullphase distributions,classification maps,logs and process allocator overhead are excluded from deployment payload accounting; their host effect remains in measured host RSS.",
+    "all_request_class_phases": "complete ROI aggregate, fixed5 phases for25M/5M, lastbin absorbs retirement overshoot; bounded event log is not used as fullROI evidence."
+  },
+  "actual_cpp_sizes": {
+    "Dynamic602": 2344,
+    "previous_Dynamic602": 2152,
+    "increase": 192,
+    "Event": 136,
+    "Entry": 72,
+    "Output": 48,
+    "previous_Output": 32,
+    "payload_mode_string": 32,
+    "gate_map_header": 48,
+    "phase_and_roi_words": 16,
+    "two_profile_map_headers": 96,
+    "scope": "Static object controls include selected and unselected arms and diagnostics, excluding pointed-to arrays/nodes/buffers. Empty gate map header exists even in NN unified software object. No size here is a complete RSS or hardware total."
+  },
+  "evidence": {
+    "map_probe": "host_map_probe.cc",
+    "engine_probe": "sizeof_engine_probe.cc",
+    "remote_map_json": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/host_map_measurement.json",
+    "remote_sizeof_json": "/home/qianruw/cache_gate_mechanism_20261016_runs/pc_gate/sizeof_engine.json",
+    "engine_unit_log": "/tmp/cache-gate-engine-unit-20261016/unit_results.log"
+  },
+  "caveat": "No lookup latency/area/energy synthesis was performed for cheap controls. NN dense_weight_read_bytes remains MAC*4 and omits bias loads by model assumption; resident weights create zero modeled DRAM traffic, separately from actual cache/DRAM transactions."
+}
