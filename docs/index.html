@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A matched-input ChampSim study of offline LSTM cache prefetchers for 602.gcc_s-734B.">
+  <meta name="description" content="ChampSim prefetcher research: historical offline replay and completed frozen live-inference studies for 602.gcc_s-734B.">
   <meta name="theme-color" content="#09111f">
   <meta property="og:title" content="CacheArch — Neural Cache Prefetching">
-  <meta property="og:description" content="Offline LSTM prefetchers matched against Stride, Streamer, AMPM, and SPP in ChampSim.">
+  <meta property="og:description" content="Completed cache-prefetcher studies, evidence, limitations and historical replay slides.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://angelawoo572.github.io/cache_arch/">
   <title>CacheArch — Neural Cache Prefetching</title>
@@ -582,9 +582,9 @@
       </a>
       <div class="nav-links">
         <a href="#method">Method</a>
-        <a href="#presentation">Presentation</a>
+        <a href="#presentation">Historical slides</a>
         <a href="#source">Source</a>
-        <a href="https://github.com/Angelawoo572/cache_arch" target="_blank" rel="noopener noreferrer">GitHub ↗</a>
+        <a href="https://github.com/Angelawoo572/cache_arch/blob/main/RESULTS_INDEX.md" target="_blank" rel="noopener noreferrer">Current results ↗</a>
       </div>
     </nav>
   </header>
@@ -593,13 +593,15 @@
     <div class="hero">
       <div class="shell">
         <div class="eyebrow">602.gcc_s-734B · ChampSim</div>
-        <h1>Learning cache-prefetch actions, <span class="gradient-text">then replaying the consequences.</span></h1>
+        <h1>Learning cache-prefetch actions, <span class="gradient-text">then testing the consequences.</span></h1>
         <p class="hero-copy">
-          A matched-input, trace-driven study of standalone offline LSTM prefetchers
-          against Stride, Streamer, AMPM, and SPP.
+          Teacher-action learning for Stride, Streamer, AMPM and SPP, from historical
+          offline replay to frozen live inference. Read the current results,
+          controls and limitations in one shared project overview.
         </p>
         <div class="actions">
-          <a class="button primary" href="#slides">Read the presentation here ↓</a>
+          <a class="button primary" href="https://github.com/Angelawoo572/cache_arch/blob/main/RESULTS_INDEX.md">Read current results ↗</a>
+          <a class="button" href="#slides">Historical replay slides ↓</a>
           <a class="button" href="https://github.com/Angelawoo572/cache_arch" target="_blank" rel="noopener noreferrer">Browse the repository ↗</a>
         </div>
 
@@ -613,8 +615,8 @@
             <span>Only source-visible callback fields reach each neural policy.</span>
           </div>
           <div class="fact">
-            <strong>Shared replay</strong>
-            <span>Normal and neural actions face the same queue and cache path.</span>
+            <strong>Replay → live</strong>
+            <span>Independent study protocols; frozen weights, measured controls.</span>
           </div>
         </div>
       </div>
@@ -624,13 +626,15 @@
       <div class="shell">
         <div class="section-heading">
           <div>
-            <p class="kicker">Research method</p>
+            <p class="kicker">Historical replay method</p>
             <h2>One comparison boundary, end to end.</h2>
           </div>
           <p>
             Conventional-prefetcher outputs supervise the model during training, but
             are never neural runtime features, gates, candidates, or request budgets.
-            The replay—not label accuracy alone—is the final evaluation boundary.
+            The pipeline below describes the historical offline stage. Later live
+            and finite-engine measurements are separated in the
+            <a href="https://github.com/Angelawoo572/cache_arch/blob/main/RESULTS_INDEX.md">current overview</a>.
           </p>
         </div>
 
@@ -663,24 +667,26 @@
       <div class="shell">
         <div class="section-heading">
           <div>
-            <p class="kicker">Start here</p>
-            <h2>The fast path through the project.</h2>
+            <p class="kicker">Historical offline / replay stage</p>
+            <h2>The original slides, with their scope preserved.</h2>
           </div>
           <p>
-            The deck gives the shortest narrative: why prefetching is difficult,
-            how the learned policy is trained, what the fairness contract allows,
-            and why replay metrics can disagree with imitation accuracy.
+            This deck describes the earlier offline/keyed-replay experiments, with
+            different warmup and state histories. It does not summarize the later
+            live results. Read the
+            <a href="https://github.com/Angelawoo572/cache_arch/blob/main/docs/602_width_templates/SLIDE_ERRATA.md">slide corrections</a>
+            for silent-event denominators, request versus DRAM traffic, and SPP L2/LLC coverage.
           </p>
         </div>
 
         <div class="presentation">
           <article class="deck-card">
             <div>
-              <span class="filetype">PDF · 602 DECK</span>
-              <h3>Neural cache prefetching in one presentation.</h3>
+              <span class="filetype">PDF · HISTORICAL REPLAY</span>
+              <h3>Original offline/replay presentation.</h3>
               <p>
-                Read the complete deck directly below, or open the same Pages-hosted
-                PDF full screen. No repository navigation is required.
+                The original PDF is preserved unchanged. Current conclusions and
+                evidence are in the main-branch project overview.
               </p>
             </div>
             <a class="button primary" href="#slides">Jump to the embedded slides ↓</a>
@@ -701,7 +707,7 @@
           <div class="pdf-toolbar">
             <div class="pdf-title">
               <span class="pdf-badge">PDF</span>
-              <span>602_deck_v7_15.pdf</span>
+              <span>602_deck_v7_15.pdf · historical offline/replay</span>
             </div>
             <a href="./602_deck_v7_15.pdf" target="_blank" rel="noopener noreferrer">Open full screen ↗</a>
           </div>

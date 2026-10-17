@@ -1,3 +1,5 @@
+> Current reading entry: [RESULTS_INDEX](../../RESULTS_INDEX.md). The shared checkout is now on `main`; branch names and paths in older migration records below remain historical evidence.
+
 # Canonical study layout and recovery
 
 All local study activity stays below `/Users/angelawoo/Documents/CMU/ece/cache`.

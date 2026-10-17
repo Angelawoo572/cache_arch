@@ -1,3 +1,5 @@
+> Current overview: [RESULTS_INDEX](RESULTS_INDEX.md). Both active checkouts use `main`.
+
 # Cache consolidation
 
 The active healthy Git checkout is now the cache root. Current lightweight results

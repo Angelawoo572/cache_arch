@@ -74,6 +74,8 @@
       "formal_study/work/cache_gate_mechanism": "../..",
       "formal_NN_training/experiments/602_four_prefetcher_formal/results/width_templates_20261017": "../../../../formal_study/results/602_width_templates"
     },
-    "previous_path_records": "preserved historical metadata; current_layout takes precedence"
+    "previous_path_records": "preserved historical metadata; current_layout takes precedence",
+    "active_branch": "main",
+    "overview": "RESULTS_INDEX.md"
   }
 }

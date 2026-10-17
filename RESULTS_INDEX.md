@@ -1,31 +1,40 @@
-# 602 结果入口
+# CacheArch: research question and results
 
-**本轮结果直接打开 [formal_study/results/602_width_templates](formal_study/results/602_width_templates/README.md)。**
-本地、Sacramento、GitHub 的相对目录完全相同。24/24 新运行完成，9,748 项检查通过。
+- **Question:** Can a small recurrent predictor trained on traditional prefetcher actions improve IPC under a fair request ceiling and finite inference resources? We train on teacher actions, then run the frozen student independently; only its recurrent state changes online. Stride uses per-PC state; Streamer, AMPM and SPP retain their own global state, decoder and fill semantics. [Method and boundaries](formal_NN_training/experiments/602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md).
+- **Current status:** the completed studies below are integrated into **main**. Start here on GitHub or in local Markdown preview; every evidence link uses the same repository-relative path. This organization update adds no training or simulation. Current figures and CSVs stay in [formal_study/results/602_width_templates/](formal_study/results/602_width_templates/README.md).
 
-- [中文简洁报告及比较表](docs/602_width_templates/REPORT.md)
-- [一页 paper story](docs/602_width_templates/PAPER_STORY.md)
-- [结果与全部图](formal_study/results/602_width_templates/FINDINGS.md)
-- [逐项完整数据（24 新运行＋64 兼容参考，保留各自协议）](formal_study/results/602_width_templates/per_run.csv)
-- [24 项新运行](formal_study/results/602_width_templates/per_run_new.csv) · [配对比较](formal_study/results/602_width_templates/paired_comparisons.csv) · [审计](formal_study/results/602_width_templates/audit.json)
-- [配置、模型与恢复运行](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md)
-- [旧 slides 勘误](docs/602_width_templates/SLIDE_ERRATA.md) · [旧 replay 对齐](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md)
+| Completed stage / evidence | New versus reused runs | Scope, baselines and inference cost |
+| --- | --- | --- |
+| [Original offline training and keyed replay](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) | Historical model/deck results; excluded from live-run totals | Four teacher-specific models; original seed7/width/state contracts. Replay-generated actions and matching losses are separate from live inference. |
+| [First Stride formal study](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md) | 101 original runs: 89 test + 12 validation; [14 h/c-history runs separately](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/verification/hc_final_verification.json) | 602 seeds 7/17/27; NoPF, legacy/forward Stride and native SPP; MAC0 and serial MAC4. Historical 605/623 transfer uses seed7 only. The separate MAC4 h/c supplement covers ROI0 with all three seeds and ROI1 with seed7. |
+| [Current-line / gate / payload](docs/602_gate_mechanism/REPORT.md) | 64 new + 7 compatible references; 71 audited | 602, two ROIs, seeds 7/17/27; cap 2,363 requests/M. NN, NN-gate/+2, unconditional +2, frozen PC-gate, Stride and SPP. Main comparison MAC0; MAC4 filtering reference is seed7 only. |
+| [Four-route H8 live v2](formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/README.md) | 64 new: 56 test + 8 validation | 602, retained seed7; NoPF, each native teacher/student, fixed-payload/template/reset controls. MAC0, uncapped or cap 16,144/M. Distinct v1 is preserved and excluded. |
+| [H16 + capped H8 templates: newest](formal_study/results/602_width_templates/FINDINGS.md) | 24 new: 2 validation + 16 H16 test + 6 H8-template test; 64 compatible H8/native/NoPF references reused, giving [88 labeled rows](formal_study/results/602_width_templates/per_run.csv) | 602, original seed7; AMPM/SPP H16 NN versus their own validation-frozen templates; Streamer/AMPM/SPP H8 capped templates. MAC0 only; no retraining. |
 
-本轮完整原始数据、日志、checkpoints、回调、snapshots 和模型：
-`formal_study/runs/602_width_templates_20261017/`。
-本地以 `/Users/angelawoo/Documents/CMU/ece/cache/` 为根；服务器以 `/home/qianruw/cache/` 为根。
+- **Read the stages separately.** “New” describes when each study was executed; reused rows are not additional replications. Caps, page/native settings, training budgets and cohort definitions differ across stages, so their IPC values are not pooled into a cross-stage ranking. The four-route models are not a matched-training-budget comparison. [Contracts](formal_NN_training/experiments/602_four_prefetcher_formal/README.md).
+- **Latest measurement contract:** validation 20–25M; ROI0 25–50M and ROI1 75–100M, each preceded by 5M cache/state warmup. Weights stay frozen; warmup state is retained and measurement counters restart. Each H16 template is selected only from its own validation outputs; H8 templates were already frozen. ROI0 was previously inspected; the supplement is post-inspection analysis. [Exact matrix, state history and recovery](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md).
 
-## 保留的前轮结果
+## What the completed evidence supports
 
-- [64 项四预取器 H8 live 正式结果](formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/README.md)
-- [current-line / gate / payload 研究](docs/602_gate_mechanism/REPORT.md)
-- [首轮正式 Stride 轻量归档](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md)
-- [原 offline 训练和 replay 各模型目录](formal_NN_training/experiments/)
+- **H16 retains a native-baseline advantage in these MAC0 tests:** AMPM improves IPC by **0.532%–2.205%**, SPP by **1.415%–4.151%**; 8/8 H16/native pairs and 8/8 H16/H8-NN pairs are positive. This is one existing seed and two ROIs, not a new seed-robustness result. [Paired summary](docs/602_width_templates/summary.csv).
+- **The benefit does not establish a need for learned payload or recurrent state.** SPP H16’s simple template exactly matches IPC/cycles, requests and DRAM in all four ROI/cap combinations. AMPM NN exceeds its template by only **0.035% / 0.125%** uncapped and slightly loses when capped. Under the H8 cap, Streamer/SPP templates are within **0.0052% / 0.0006%** of NN; AMPM templates improve IPC by **0.894% / 0.954%**, with fewer requests. [Full paired comparisons](formal_study/results/602_width_templates/paired_comparisons.csv), [summary](docs/602_width_templates/summary.csv).
+- **Filtering current-line requests fixes a budget artifact, not the finite-engine bottleneck.** In the earlier Stride study, capped MAC0 benefit partially recovers, and NN-gate/fixed +2 closely reproduces learned payload. The seed7 MAC4 filtered rows remain near NoPF: **+0.045%** in ROI0 and **−0.080%** in ROI1. [Mechanism evidence](docs/602_gate_mechanism/results/paired_ranges.csv), [finite-cost results](docs/602_gate_mechanism/FINITE_CURRENTLINE.md).
+- **Negative results remain:** H8 students beat native in only **9 of 16** four-route comparisons; capped AMPM H16 loses to its template; uncapped SPP H16 issues fewer requests than native SPP yet increases actual DRAM. A common cap is a common upper limit, not equal realized traffic. [H8 results](formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/FINDINGS.md), [latest requests and DRAM](formal_study/results/602_width_templates/per_run.csv).
 
-历史完整 source/raw/models/builds/logs 保留在 `formal_study/archive/20261016/` 和
-`formal_study/archive/20261017/`；四路线有缺陷的 v1 和修复后的 v2 保持独立。
-大日志、traces、builds 和原始数据保存在本地及 Sacramento 的 cache 内，按研究要求不提交 GitHub。
+![Future ROI1 at cap 16144: native, H8/H16 students and frozen templates; IPC, actual requests and DRAM](formal_study/results/602_width_templates/widths_roi1_cap16144.png)
 
-健康 Git 现在就在 cache 根；分支为 `experiment/602-gate-mechanism`。
-旧内层 checkout 和旧结果位置仅为兼容链接，实际数据没有重复保存。
-[统一目录说明](formal_study/README.md) · [路径映射与恢复](docs/602_width_templates/LAYOUT_AND_RECOVERY.md)
+![Both ROIs: capped H8 student versus its previously frozen no-NN template](formal_study/results/602_width_templates/h8_template_cap.png)
+
+## Cost, metrics and open questions
+
+- **Finite-resource benefit remains unproven.** Latest global-student IPC assumes synchronous, zero-cost MAC0 inference. For H16, ceil(counted dense MACs / 4) divided by measured MAC0 ROI cycles is **12.95–31.15×**: a throughput estimate, not simulated finite-cost IPC. The earlier Stride engine is serial, II = service time, with 4 MAC/cycle, 16 B/cycle, a 4-cycle nonlinear unit and finite queues/state; its deployment contract cannot be silently imposed on the global models. Conventional-baseline compute is not newly costed. [Measured fields and assumptions](formal_study/results/602_width_templates/storage_cost.csv), [cost report](docs/602_width_templates/REPORT.md), [serial-engine contract](docs/602_gate_mechanism/cost_invariants.json).
+- **Read the denominators:** IPC uses actual retired instructions/cycles; requests/M counts credit-allowed cache calls. DRAM comes from controller transactions/bus bytes, never requests × 64. Latest accuracy/timeliness/coverage are reported only for completely tracked, separate first-intent L2/LLC cohorts; coverage is not causal miss elimination, and unused is not pollution. SPP’s native fill feedback differs from its student input. Earlier cross-scope SPP quality is not pooled with repaired metrics. [Latest definitions](formal_study/results/602_width_templates/metric_definitions.json), [method limits](formal_NN_training/experiments/602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md).
+- **Still open:** robust finite-engine IPC for the global models; independent training seeds and workloads; complete deployment storage/PPA; and an intervention that isolates recurrent state from simpler mechanisms. Template mismatches alone do not establish stateful novelty. [Evidence-labeled retained paper story](formal_study/results/602_width_templates/PAPER_STORY.md).
+- **More evidence:** [24 new rows](formal_study/results/602_width_templates/per_run_new.csv), [9,748-check audit](formal_study/results/602_width_templates/audit.json), [full-ROI K/delta/fill distributions](formal_study/results/602_width_templates/action_histograms_full_roi.csv), [stage curves](formal_study/results/602_width_templates/phase_progress.csv), [all figures](formal_study/results/602_width_templates/FINDINGS.md), [method diagram](formal_study/results/602_width_templates/method.svg).
+- **Historical slides:** the [original PDF](docs/602_deck_v7_15.pdf) describes offline/keyed replay, with different warmup/state semantics. Read its [denominator/traffic/coverage corrections](docs/602_width_templates/SLIDE_ERRATA.md); it is not the current live-results overview. The [website](docs/index.html) links back here.
+
+## Data locations and branch roles
+
+- **Local/Sacramento only:** complete newest raw runs, logs, callbacks, snapshots, models and cost probes are at `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/` and `/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/`. These large files, traces and builds are intentionally absent from GitHub.
+- **Preserved history:** beneath either cache root, `formal_study/archive/20261016/` holds first-formal raw, the separate h/c supplement and `gate_output/raw/`; `formal_study/archive/20261017/` holds distinct four-route `raw/` v1 and `raw_v2/`. Original offline `formal_NN_training/experiments/*/runs/` remain in place. The local Git recovery donor at `formal_study/archive/20261016/cache_recovered/.git/objects` remains required. [Exact layout and restoration](docs/602_width_templates/LAYOUT_AND_RECOVERY.md).
+- **Branches:** `main` is the shared reading and integration branch. `archive/summer-2026-offline` preserves remote main before this integration, including its Pages fix. The original experiment branches remain intact: `experiment/602-stride-live-inference` → `experiment/602-stride-dynamic-inference` → `experiment/602-gate-mechanism`. [Integration and static checks](formal_study/INTEGRATION.md).
