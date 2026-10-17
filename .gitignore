@@ -242,3 +242,9 @@ formal_NN_training/experiments/**/colab_output/
 # Pre-existing offline report containers retained locally, outside current sources.
 /docs/602_stride_dynamic_inference/
 /formal_NN_training/formal_research_20261016/
+
+# Local provenance aliases only: public Markdown links directly to real results.
+# Pages checks out docs/ alone, so outside-tree compatibility links stay untracked.
+/docs/602_width_templates/method.png
+/docs/602_width_templates/method.svg
+/docs/602_width_templates/summary.csv

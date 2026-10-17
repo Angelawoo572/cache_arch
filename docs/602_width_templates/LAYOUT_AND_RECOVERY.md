@@ -108,3 +108,15 @@ gates and the complete 24-run status are rechecked after consolidation.
 Do not copy or recreate a dated top-level `formal_study_2026...` directory. The
 old `archive/20261016` and `archive/20261017` names distinguish historical
 protocols inside the common archive; they are not parallel active projects.
+
+
+## Current reading assets
+
+The compact `summary.csv` and the method SVG/PNG live under
+`formal_study/results/602_width_templates/`, alongside the current tables and
+figures. Public Markdown links directly to those real files. The former
+`docs/602_width_templates/{summary.csv,method.svg,method.png}` paths are ignored,
+local-only compatibility symlinks for retained provenance. Restore each link
+to `../../formal_study/results/602_width_templates/<filename>` if reconstructing
+a machine from Git plus the historical raw archive. These aliases are excluded
+from Git and the docs-only Pages checkout, whose original workflow is retained.
