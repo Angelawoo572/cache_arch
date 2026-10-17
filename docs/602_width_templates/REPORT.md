@@ -91,10 +91,10 @@ L2/LLC 指标分别按首次 source-enqueue 意图 cohort 报告：accuracy=LOAD
 
 仅有602、一个真实训练 seed7 和两个已定义区间；ROI0已观察，ROI1是独立未来区间但本轮续研时也已有H8结果，不称完全盲测。未检验有限引擎 IPC、额外 seeds 或跨 workload 泛化；未训练新权重。模板不能复现的少量 AMPM 残差仍需独立机制消融，不能归为 stateful 创新。
 
-- [简表 CSV](summary.csv)；[全部24新增行](../../formal_study/results/602_width_templates/per_run_new.csv)；[88行来源标注总表](../../formal_study/results/602_width_templates/per_run.csv)；[配对比较](../../formal_study/results/602_width_templates/paired_comparisons.csv)。
+- [简表 CSV](../../formal_study/results/602_width_templates/summary.csv)；[全部24新增行](../../formal_study/results/602_width_templates/per_run_new.csv)；[88行来源标注总表](../../formal_study/results/602_width_templates/per_run.csv)；[配对比较](../../formal_study/results/602_width_templates/paired_comparisons.csv)。
 - [正式审计](../../formal_study/results/602_width_templates/audit.json)、[指标定义](../../formal_study/results/602_width_templates/metric_definitions.json)、[成本](../../formal_study/results/602_width_templates/storage_cost.csv)、[一页 story](PAPER_STORY.md)。
 - [H8/H16 IPC–请求–DRAM：ROI0 cap](../../formal_study/results/602_width_templates/widths_roi0_cap16144.svg)、[ROI1无cap](../../formal_study/results/602_width_templates/widths_roi1_cap0.svg)、[H8 cap](../../formal_study/results/602_width_templates/h8_template_cap.svg)、[成本](../../formal_study/results/602_width_templates/width_cost.svg)。
-- [完整动作分布](../../formal_study/results/602_width_templates/distributions_spp_roi1.svg)、[阶段](../../formal_study/results/602_width_templates/phases_spp_roi1.svg)、[完整图表索引](../../formal_study/results/602_width_templates/README.md)；[方法图](method.svg)。
+- [完整动作分布](../../formal_study/results/602_width_templates/distributions_spp_roi1.svg)、[阶段](../../formal_study/results/602_width_templates/phases_spp_roi1.svg)、[完整图表索引](../../formal_study/results/602_width_templates/README.md)；[方法图](../../formal_study/results/602_width_templates/method.svg)。
 - [配置与恢复运行](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md)、[路径映射与恢复](LAYOUT_AND_RECOVERY.md)。
 
 本地完整新 raw：`/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/`。Sacramento：`/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/`。新目录保留 checkpoints/models、actual binary snapshot、完整 run logs/callbacks/snapshots、source bindings、cost probes 与 analysis_final；复用的完整实际构建在各自 `formal_study/archive/20261017/raw_v2/builds/`。历史轮次在 `archive/20261016` 与 `archive/20261017`；健康 checkout 就是 `cache` 根，`work/cache_gate_mechanism` 仅为兼容链接。可见的日期兼容入口已经删除；历史元数据原样保留，恢复工具在内存中映射旧路径。
