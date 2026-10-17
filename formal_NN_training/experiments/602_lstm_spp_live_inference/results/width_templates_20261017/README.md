@@ -2,7 +2,7 @@
 
 Complete policy rows plus three exact matched NoPF references: **30 rows**. Original protocols and result identities are retained; references are not new runs.
 
-[Aggregate findings](../../../602_four_prefetcher_formal/results/width_templates_20261017/FINDINGS.md), [one-page story](../../../602_four_prefetcher_formal/results/width_templates_20261017/PAPER_STORY.md), [all88 labeled rows](../../../602_four_prefetcher_formal/results/width_templates_20261017/per_run.csv), [strict audit](../../../602_four_prefetcher_formal/results/width_templates_20261017/audit.json), [method](../../../602_four_prefetcher_formal/results/width_templates_20261017/method.svg).
+[Aggregate findings](../../../../../formal_study/results/602_width_templates/FINDINGS.md), [one-page story](../../../../../formal_study/results/602_width_templates/PAPER_STORY.md), [all88 labeled rows](../../../../../formal_study/results/602_width_templates/per_run.csv), [strict audit](../../../../../formal_study/results/602_width_templates/audit.json), [method](../../../../../formal_study/results/602_width_templates/method.svg).
 
 [This policy + matched NoPF](per_run.csv), [paired contrasts](paired_comparisons.csv), [entire-ROI action histograms](action_histograms_full_roi.csv), [phase histograms](action_histograms.csv), [classified request outcomes](classified_requests.csv), [actual startup snapshots](progress_snapshots.csv), [phase progress](phase_progress.csv), [storage/cost](storage_cost.csv).
 

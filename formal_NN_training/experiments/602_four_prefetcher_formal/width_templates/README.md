@@ -2,7 +2,7 @@
 
 This separate protocol is four602_width_templates_20261017_v1. It does not overwrite the completed H8 v2 protocol, models, templates or results. It reuses the actual archived v2 executable and compiled C++ source, whose generic LV602R1 runtime reads H from each model header. No common C++ change or retraining is needed.
 
-The new root is /home/qianruw/cache/formal_study/runs/602_width_templates_20261017; the canonical source is /home/qianruw/cache/formal_study/work/cache_gate_mechanism. Local copies use /Users/angelawoo/Documents/CMU/ece/cache/formal_study/. Compilation/Python caches belong under the new run root's runtime/, configured by the driver. The driver has no SSH logic.
+The new root is /home/qianruw/cache/formal_study/runs/602_width_templates_20261017; the canonical source checkout is /home/qianruw/cache. Local source uses /Users/angelawoo/Documents/CMU/ece/cache. The former work/cache_gate_mechanism path is a compatibility link to that same root. Compilation/Python caches belong under the new run root's runtime/, configured by the driver. The driver has no SSH logic.
 
 The exact 24-row matrix is saved in matrix.json:
 

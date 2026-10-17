@@ -65,5 +65,15 @@
     ],
     "proof": "/home/qianruw/cache/formal_study/migration/remote_1792262352081859000"
   },
-  "original_offline_layout_unchanged": true
+  "original_offline_layout_unchanged": true,
+  "current_layout": {
+    "active_git_checkout": ".",
+    "shared_results": "formal_study/results/602_width_templates",
+    "raw_results": "formal_study/runs/602_width_templates_20261017",
+    "compatibility_links": {
+      "formal_study/work/cache_gate_mechanism": "../..",
+      "formal_NN_training/experiments/602_four_prefetcher_formal/results/width_templates_20261017": "../../../../formal_study/results/602_width_templates"
+    },
+    "previous_path_records": "preserved historical metadata; current_layout takes precedence"
+  }
 }

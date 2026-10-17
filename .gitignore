@@ -230,3 +230,15 @@ formal_NN_training/experiments/**/colab_output/
 !formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/original_checkpoint.pt
 !formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/
 !formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/original_checkpoint.pt
+
+# Canonical local/server workspace: retain raw data and recovery material locally.
+/.runtime/
+/formal_study/archive/
+/formal_study/runs/
+/formal_study/work/
+/formal_study/migration/
+# Curated formal_study/results/ is tracked and shared with GitHub.
+
+# Pre-existing offline report containers retained locally, outside current sources.
+/docs/602_stride_dynamic_inference/
+/formal_NN_training/formal_research_20261016/

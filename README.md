@@ -4,6 +4,17 @@ Teacher-action LSTM prefetcher studies in ChampSim for `602.gcc_s-734B`: origina
 
 ## Start here
 
+- **[Current 602 results — open this folder](formal_study/results/602_width_templates/README.md)**: completed H16 and capped H8-template study, 24/24 new runs, 9,748 checks passed; CSV, figures and findings together.
+- [All study results and preserved earlier rounds](RESULTS_INDEX.md).
+- [Same local / Sacramento / GitHub folder layout](formal_study/README.md).
+
+The active Git checkout is the `cache` root on `experiment/602-gate-mechanism`.
+The repository-relative `formal_study/results/602_width_templates/` is identical
+on the local machine, Sacramento and this GitHub branch. Sacramento is the
+execution server, not a separate repository or a folder named `sacramental`.
+Large raw runs, traces and builds remain inside local/server `cache`; curated
+CSV, figures, code and small original models are committed.
+
 - [H16 recovery and capped H8-template supplement](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md)
 - [Canonical cache layout and recovery](docs/602_width_templates/LAYOUT_AND_RECOVERY.md)
 - [Corrections to retained replay slides](docs/602_width_templates/SLIDE_ERRATA.md)

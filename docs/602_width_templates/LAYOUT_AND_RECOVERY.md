@@ -5,7 +5,8 @@ Sacramento uses `/home/qianruw/cache`. The root-relative layout is the same:
 
 | Purpose | Canonical path |
 | --- | --- |
-| Healthy active checkout | `formal_study/work/cache_gate_mechanism` |
+| Healthy active checkout | `cache` root (`.`), same as GitHub root |
+| Shared lightweight result folder | `formal_study/results/602_width_templates` |
 | First formal, gate mechanism, recovery donor | `formal_study/archive/20261016` |
 | Four-route v1 and v2, independently preserved | `formal_study/archive/20261017` |
 | New H16 and capped-H8-template results | `formal_study/runs/602_width_templates_20261017` |
@@ -42,8 +43,11 @@ Its object alternate is the retained recovery donor at
 `formal_study/archive/20261016/cache_recovered/.git/objects`; do not remove that
 donor. No external Git worktree pointer needs repair. Git connectivity and the
 branch `experiment/602-gate-mechanism` were checked before and after relocation.
-The original cache-root damaged `.git` was preserved; use only the healthy
-checkout for Git commands.
+The original cache-root Git directories are preserved under
+`formal_study/archive/root_checkout_before_unification_20261017/` (local and
+Sacramento have their own retained metadata). The healthy main `.git` is now at
+the cache root. `formal_study/work/cache_gate_mechanism` is a compatibility link
+to `../..`; it contains no second checkout. Run Git commands from cache.
 
 Migration used same-filesystem directory renames, with per-file size/device/inode
 checks, rather than copying or deleting historical data. Local verification
@@ -63,8 +67,10 @@ New runtime, temporary, matplotlib and Python cache files belong under the new
 `runs/602_width_templates_20261017/runtime` directory. The offline sibling layout
 is unchanged.
 
-To recover, restore `archive/`, `work/`, `runs/` and `migration/` under the same
-cache root. Use the canonical-path launcher for recorded date paths; do not recreate the removed top-level aliases. Restore the internal archived checkout pointer if needed. If the cache root changes, update the active Git alternates
+To recover, check out this study branch directly as the cache root, then restore
+`formal_study/archive/`, `formal_study/runs/` and `formal_study/migration/` beneath
+it. Keep `formal_study/results/` from Git and recreate the optional
+`formal_study/work/cache_gate_mechanism -> ../..` compatibility link. Use the canonical-path launcher for recorded date paths; do not recreate the removed top-level aliases. Restore the internal archived checkout pointer if needed. If the cache root changes, update the active Git alternates
 path to the retained donor and run `git fsck --connectivity-only` in the healthy
 checkout. Update only the new active config; preserve archived metadata. Restore
 traces and the matching ChampSim base/dependencies described by the existing
@@ -77,3 +83,26 @@ relabels old rows as new measurements.
 `consolidate_remote.py` documents and checks the one-time Sacramento rename. It
 is intentionally guarded against overwriting an existing canonical archive.
 The file-level evidence is not committed because it is bulky and machine-specific.
+
+
+## Root unification (2026-10-17)
+
+Local, Sacramento and GitHub now use the same repository root and real results
+folder: `formal_study/results/602_width_templates/`. All 84 original light-archive
+files moved intact (15,496,846 bytes); old result and checkout locations are only
+compatibility links, not duplicate datasets. The 82 manifest-bound files and all
+historical provenance remain byte-identical. The added root navigation does not
+change a model, protocol or measurement.
+
+Local merge verified 18,869 protected original files (89,942,853,626 bytes) by
+size/device/inode, including offline runs, raw, models, traces, builds and Git
+recovery objects. Sacramento has its own equivalent merge record. Divergent
+root source versions and the original root Git were preserved rather than
+replaced irrecoverably. Detailed evidence and the guarded one-time merge tool
+are under `formal_study/migration/unify_cache_root_20261017/`. These machine
+records are intentionally local/server only. Both frozen source/model/build
+gates and the complete 24-run status are rechecked after consolidation.
+
+Do not copy or recreate a dated top-level `formal_study_2026...` directory. The
+old `archive/20261016` and `archive/20261017` names distinguish historical
+protocols inside the common archive; they are not parallel active projects.
