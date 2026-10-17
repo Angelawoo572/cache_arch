@@ -1,6 +1,6 @@
 # 602 paper story：先验证可部署语义，再检验收益机制
 
-本页保留原64行 H8 协议故事。后续真实 H16 与 capped H8 模板的24个完整 run 已完成，见[新的 concise paper story](../../../../docs/602_width_templates/PAPER_STORY.md)与[正式结果](../results/width_templates_20261017/README.md)；不要把两个协议的行重新标记为同一轮。
+本页保留原64行 H8 协议故事。后续真实 H16 与 capped H8 模板的24个完整 run 已完成，见[新的 concise paper story](../../../../docs/602_width_templates/PAPER_STORY.md)与[正式结果](../../../../formal_study/results/602_width_templates/README.md)；不要把两个协议的行重新标记为同一轮。
 
 **现有 teacher-action student 可以改善 NoPF，但本轮不支持普遍优于 teacher，也不支持把主要收益归因于复杂 learned payload。** 研究对象是保留的真实 seed7 checkpoint；不是新算法、在线训练或四模型等训练预算排名。
 
