@@ -1,0 +1,166 @@
+{
+  "status": "PASS",
+  "completed_rows": 101,
+  "test_rows": 89,
+  "validation_rows": 12,
+  "raw_top_level_fields_exactly_preserved": 21210,
+  "independent_numeric_assertions": 2259,
+  "paired_rows_verified": 94,
+  "unavailable_pair_controls_count": 27,
+  "unavailable_pair_controls": [
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s17_balanced_m4_b0_sil0_qdrop_oldest_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s17_balanced_m4_b0_sil0_qfifo_hist0",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s17_balanced_m4_b0_sil0_qfifo_hist100000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s27_balanced_m4_b0_sil0_qdrop_oldest_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s27_balanced_m4_b0_sil0_qfifo_hist0",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s27_balanced_m4_b0_sil0_qfifo_hist100000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s7_balanced_m4_b0_sil0_qdrop_oldest_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s7_balanced_m4_b0_sil0_qfifo_hist0",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r0_nn_s7_balanced_m4_b0_sil0_qfifo_hist100000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s17_balanced_m4_b0_sil1_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s17_balanced_m4_b2363_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s27_balanced_m4_b0_sil1_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s27_balanced_m4_b2363_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s7_balanced_m4_b0_sil0_qfifo_hist0",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s7_balanced_m4_b0_sil0_qfifo_hist100000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s7_balanced_m4_b0_sil1_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_602_r1_nn_s7_balanced_m4_b2363_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "forward1_vs_remove_current",
+      "run_id": "test_602_r1_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "forward1_vs_remove_current",
+      "run_id": "test_602_r1_stride_forward1_s7_balanced_m0_b2363_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_605_r0_nn_s7_balanced_m4_b213_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "additional_lookahead",
+      "run_id": "test_605_r0_stride_forward2_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "additional_lookahead",
+      "run_id": "test_605_r0_stride_forward2_s7_balanced_m0_b213_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "finite_service",
+      "run_id": "test_623_r0_nn_s7_balanced_m4_b4082_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "additional_lookahead",
+      "run_id": "test_623_r0_stride_forward2_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "additional_lookahead",
+      "run_id": "test_623_r0_stride_forward2_s7_balanced_m0_b4082_sil0_qfifo_hist5000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "forward1_vs_remove_current",
+      "run_id": "validation_605_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "status": "missing_control"
+    },
+    {
+      "comparison": "forward1_vs_remove_current",
+      "run_id": "validation_623_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "status": "missing_control"
+    }
+  ],
+  "unavailable_pair_controls_by_comparison": {
+    "finite_service": 19,
+    "forward1_vs_remove_current": 4,
+    "additional_lookahead": 4
+  },
+  "no_nopf_reference_rows": [
+    "validation_605_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+    "validation_623_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000"
+  ],
+  "no_nopf_explanation": "Only the two cross-workload validation calibration rows have no matching NoPF. NoPF-derived metrics are null for those rows; their raw results validate correctly. All 89 test rows have matched NoPF.",
+  "storage_schema_and_rss_verified_rows": 101,
+  "nn_training_seeds": [
+    7,
+    17,
+    27
+  ],
+  "plots_verified": 50,
+  "color_only_rerender_all_csv_bytes_unchanged": true,
+  "history_scope": "Main v2 is operational predictor history, including h/c plus tags/LRU/occupancy. The separate fixed-metadata h/c-only supplement is pending."
+}

@@ -1,0 +1,56 @@
+{
+  "selection": {
+    "evidence": {
+      "602.gcc_s-734B": {
+        "instructions": 5000000,
+        "requests": 11816,
+        "source_run": "validation_602_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000"
+      },
+      "605.mcf_s-994B": {
+        "instructions": 5000002,
+        "requests": 1070,
+        "source_run": "validation_605_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000"
+      },
+      "623.xalancbmk_s-700B": {
+        "instructions": 5000000,
+        "requests": 20413,
+        "source_run": "validation_623_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000"
+      }
+    },
+    "protocol": "frozen_formal_20261016_v2",
+    "requests_per_million_instructions": {
+      "602.gcc_s-734B": 2363,
+      "605.mcf_s-994B": 213,
+      "623.xalancbmk_s-700B": 4082
+    },
+    "selection": "floor(workload validation forward1 requests / retired instructions * 1e6)"
+  },
+  "source": "research_output/raw_v2/budget_selection.json",
+  "status": "valid",
+  "workloads": {
+    "602.gcc_s-734B": {
+      "configured_cap": 2363,
+      "instructions": 5000000,
+      "recomputed_cap": 2363,
+      "requests": 11816,
+      "source_run": "validation_602_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "status": "valid"
+    },
+    "605.mcf_s-994B": {
+      "configured_cap": 213,
+      "instructions": 5000002,
+      "recomputed_cap": 213,
+      "requests": 1070,
+      "source_run": "validation_605_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "status": "valid"
+    },
+    "623.xalancbmk_s-700B": {
+      "configured_cap": 4082,
+      "instructions": 5000000,
+      "recomputed_cap": 4082,
+      "requests": 20413,
+      "source_run": "validation_623_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "status": "valid"
+    }
+  }
+}

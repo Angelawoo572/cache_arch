@@ -1,0 +1,42 @@
+{
+  "protocol": "four602_frozen_live_20261017_v2",
+  "build_id": "build_1792211655617683046",
+  "binary": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/bin/perceptron-no-four602-no-ship-1core",
+  "binary_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/binary_snapshot",
+  "simulator": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator",
+  "source_snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/source_snapshot",
+  "compiled_source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/compiled_source",
+  "compiled_source_files": 100,
+  "compiled_source_byte_equal": true,
+  "generated_forward_verification": {
+    "status": "PASS",
+    "protocol": "dynamic602_forward_generation_v1",
+    "marker_present": true,
+    "artifacts": [
+      {
+        "path": "inc/stride_lstm_runtime.h",
+        "bytes": 1944,
+        "byte_equal": true
+      },
+      {
+        "path": "prefetcher/stride_lstm_runtime.cc",
+        "bytes": 10680,
+        "byte_equal": true
+      },
+      {
+        "path": "inc/stride_lstm_model_loader.h",
+        "bytes": 964,
+        "byte_equal": true
+      },
+      {
+        "path": "prefetcher/stride_lstm_model_loader.cc",
+        "bytes": 6790,
+        "byte_equal": true
+      }
+    ]
+  },
+  "compiler": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-28)",
+  "cxx": "g++",
+  "compiler_flags": "-O3 -ffp-contract=off",
+  "base": "838be17e"
+}

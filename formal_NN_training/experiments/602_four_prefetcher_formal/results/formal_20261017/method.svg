@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1140" height="420" viewBox="0 0 1140 420">
+<style>text{font:16px sans-serif;fill:#1e293b}.small{font-size:13px}.box{fill:#f8fafc;stroke:#334155;stroke-width:1.5}.arrow{stroke:#475569;stroke-width:2;fill:none;marker-end:url(#a)}</style>
+<defs><marker id="a" markerWidth="8" markerHeight="8" refX="7" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="#475569"/></marker></defs>
+<text x="30" y="30" font-weight="bold">Three global teacher-action students: training, live inference, common measurement</text>
+<rect class="box" x="30" y="60" width="245" height="90" rx="8"/><text x="45" y="88">Own teacher action labels</text><text class="small" x="45" y="112">0..20M; models trained separately</text><text class="small" x="45" y="134">Address only; SPP also D/F kind</text>
+<path class="arrow" d="M275 105 H325"/><rect class="box" x="325" y="60" width="210" height="90" rx="8"/><text x="340" y="88">Existing seed7 H8 models</text><text class="small" x="340" y="112">Frozen FP32 weights</text><text class="small" x="340" y="134">Python/C++ state/action parity</text>
+<path class="arrow" d="M535 105 H585"/><rect class="box" x="585" y="60" width="250" height="90" rx="8"/><text x="600" y="88">Independent C++ live inference</text><text class="small" x="600" y="112">Global h/c; SPP fills advance state</text><text class="small" x="600" y="134">MAC0 synchronous IPC assumption</text>
+<path class="arrow" d="M710 150 V205"/><rect class="box" x="585" y="205" width="250" height="90" rx="8"/><text x="600" y="233">Full / fixed payload / reset</text><text class="small" x="600" y="257">Validation selects joint delta/fill</text><text class="small" x="600" y="279">Template also fixes count, no NN</text>
+<path class="arrow" d="M998 205 V175 H858 V105 H835"/><text class="small" x="865" y="162">Actual L2 LOAD / SPP raw F callbacks</text>
+<path class="arrow" d="M835 250 H885"/><rect class="box" x="885" y="205" width="225" height="90" rx="8"/><text x="900" y="233">Actual cache / DRAM events</text><text class="small" x="900" y="257">Separate L2 and LLC cohorts</text><text class="small" x="900" y="279">NoPF at same protocol + ROI</text>
+<rect class="box" x="30" y="205" width="245" height="90" rx="8"/><text x="45" y="233">Validation: 20..25M</text><text class="small" x="45" y="257">NoPF LOAD callbacks define ceiling</text><text class="small" x="45" y="279">No test-selected templates or cap</text>
+<path class="arrow" d="M275 250 H585"/>
+<text x="30" y="345">Native policies remain independent comparators. Stride is separate: train 0..1M, PC/address input, per-PC h/c.</text>
+<text x="30" y="375">Operation counts + resident weights/h/c → MAC4 analytical work estimate only. No finite-cost IPC claim.</text>
+<text class="small" x="30" y="404">Tests: 25..50M (previously inspected replication) and 75..100M (future ROI), each with common 5M cache warmup.</text></svg>

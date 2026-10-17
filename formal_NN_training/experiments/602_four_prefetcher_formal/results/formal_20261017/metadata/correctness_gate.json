@@ -1,0 +1,278 @@
+{
+  "status": "PASS",
+  "protocol": "four602_frozen_live_20261017_v2",
+  "build_id": "build_1792211655617683046",
+  "certification_root": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380",
+  "final_statistics_flush": {
+    "status": "PASS",
+    "data_rows": 10003,
+    "lines_with_header": 10004,
+    "last_newline": true,
+    "owner_not_destroyed": true,
+    "failed_open_stream_rejected": true,
+    "actual_source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/four602_engine.cc",
+    "compiler_command": [
+      "g++",
+      "-std=c++11",
+      "-O3",
+      "-ffp-contract=off",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/final_flush/final_flush.cc",
+      "-o",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/final_flush/final_flush"
+    ],
+    "no_simulator_execution": true
+  },
+  "actual_checkpoint_parity": {
+    "streamer": {
+      "status": "PASS",
+      "policy": "streamer",
+      "seed": 7,
+      "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+      "model": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/streamer/model.bin",
+      "probe": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe",
+      "actual_global_callbacks": 4126,
+      "compared_all_actions": 8234,
+      "numeric_checks": 78376,
+      "state_scope": "one_global_h_c",
+      "source_segments": [
+        {
+          "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.train_stream.csv.gz",
+          "actual_contiguous_source_rows": 4096,
+          "boundary_rows": 14,
+          "initial_state": "independent_zero_then_continuous_global_h_c"
+        }
+      ],
+      "reset_records": 3,
+      "max_absolute_errors": {
+        "hidden": 1.4882170107366477e-07,
+        "cell": 1.1475830078211402e-05,
+        "count_raw": 4.817596437334259e-07,
+        "coordinate": 2.4323974612272536e-07
+      },
+      "abs_tol": 2e-05,
+      "rel_tol": 2e-05,
+      "failures": [],
+      "failure_count": 0,
+      "invalid_inputs_rejected": [
+        {
+          "command": "D 1",
+          "diagnostic": "live602 expects aligned byte address"
+        },
+        {
+          "command": "F 0",
+          "diagnostic": "address-only student cannot observe fill events"
+        }
+      ],
+      "scalar_boundary_tests": "PASS",
+      "count_and_all_action_fields_required_exact": true,
+      "weight_roundtrip": "exact FP32",
+      "executable_cost_checked": true,
+      "qualification": "Numerical/semantic correctness fixtures using real contiguous inputs plus boundaries; no ChampSim ROI, pilot IPC or benchmark result."
+    },
+    "ampm": {
+      "status": "verified",
+      "model_family": "real_ampm_v7_global_lstm_poisson_mixture",
+      "seed": 7,
+      "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+      "model": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/ampm/model.bin",
+      "streams": [
+        "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/ampm/guard4096.csv"
+      ],
+      "callbacks": 4096,
+      "actions": 4142,
+      "all_actions_exact": true,
+      "all_hidden_cell_compared": true,
+      "max_hidden_abs_error": 1.197089233295756e-07,
+      "max_cell_abs_error": 1.3391601562773303e-05,
+      "atol": 2e-05,
+      "reset_verified": true,
+      "no_degree_cap": true,
+      "no_policy_budget": true,
+      "no_teacher_at_inference": true,
+      "scope": "full supplied ordered sequences; global h/c carried between supplied streams, no weight training; no ChampSim performance pilot"
+    },
+    "spp": {
+      "status": "PASS",
+      "policy": "spp",
+      "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h8/model.pt",
+      "model": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/spp/model.bin",
+      "sequence_source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_input/602.gcc_s-734B.spp.train_stream.csv.gz",
+      "callback_count": 4112,
+      "demand_callbacks": 2349,
+      "fill_callbacks": 1763,
+      "actions_compared": 11733,
+      "max_abs_hidden_error": 1.792608032014087e-07,
+      "max_abs_cell_error": 4.74787597681825e-06,
+      "absolute_tolerance": 2e-05,
+      "exact_action_sequence_equal": true,
+      "mismatches": [],
+      "scope": "complete states and all ordered address/fill actions for a chronological correctness fixture plus uint64 boundary inputs; not an IPC sample"
+    }
+  },
+  "measurement_test": {
+    "status": "PASS",
+    "routing_cases": 6,
+    "lifecycle_cases": 8,
+    "queue_shortcut_cases": 5
+  },
+  "bindings": [
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/streamer/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/models/streamer/model.bin",
+      "bytes": 11798
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/ampm/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/models/ampm/model.bin",
+      "bytes": 11798
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/raw_v2/models/spp/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/models/spp/model.bin",
+      "bytes": 12024
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261016/research_output/raw_v2/models/seed7/balanced/export/model.bin",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/models/stride/model.bin",
+      "bytes": 8372
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/checkpoints/streamer/model.pt",
+      "bytes": 16209
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/checkpoints/ampm/model.pt",
+      "bytes": 16209
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h8/model.pt",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/checkpoints/spp/model.pt",
+      "bytes": 16790
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/run_metadata.json",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/checkpoints/streamer/run_metadata.json",
+      "bytes": 4379
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/source/simulator/prefetcher/live602_runtime.cc",
+      "bytes": 10625
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/live602_runtime.h",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/source/simulator/inc/live602_runtime.h",
+      "bytes": 1690
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/common/live602_runtime/probe.cc",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/source/probe.cc",
+      "bytes": 2088
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe",
+      "snapshot": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe_snapshot",
+      "bytes": 73984
+    }
+  ],
+  "commands": [
+    [
+      "g++",
+      "-std=c++11",
+      "-O3",
+      "-ffp-contract=off",
+      "-I/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/inc",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+      "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/common/live602_runtime/probe.cc",
+      "-o",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe"
+    ],
+    [
+      "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+      "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/experiments/602_lstm_streamer_live_inference/validation/compare_python_cpp.py",
+      "--seed",
+      "7",
+      "--allow-legacy-metadata",
+      "--model",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/models/streamer/model.bin",
+      "--checkpoint",
+      "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+      "--run-metadata",
+      "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/run_metadata.json",
+      "--probe",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe",
+      "--sequence",
+      "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.train_stream.csv.gz",
+      "--max-events",
+      "4096",
+      "--out-dir",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/streamer",
+      "--runtime-dir",
+      "/home/qianruw/cache/formal_study_20261017/runtime_v2"
+    ],
+    [
+      "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+      "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/experiments/602_lstm_ampm_live_inference/validation/validate_parity.py",
+      "--checkpoint",
+      "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+      "--model",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/models/ampm/model.bin",
+      "--probe",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe",
+      "--stream",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/ampm/guard4096.csv",
+      "--tmp",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/ampm/runtime",
+      "--output",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/ampm/parity.json"
+    ],
+    [
+      "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+      "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/experiments/602_lstm_spp_live_inference/python/export_and_validate.py",
+      "--checkpoint",
+      "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h8/model.pt",
+      "--model",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/spp/model.bin",
+      "--probe",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe",
+      "--stream",
+      "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_spp/runs/602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_input/602.gcc_s-734B.spp.train_stream.csv.gz",
+      "--events",
+      "4096",
+      "--report",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/spp/parity.json"
+    ],
+    [
+      "g++",
+      "-std=c++11",
+      "-O3",
+      "-ffp-contract=off",
+      "-I/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/inc",
+      "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/experiments/602_four_prefetcher_formal/validation/test_cohort.cc",
+      "-o",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/cohort_test"
+    ],
+    [
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/cohort_test"
+    ],
+    [
+      "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+      "/home/qianruw/cache/formal_study_20261017/source_v2/formal_NN_training/experiments/602_four_prefetcher_formal/validation/test_final_flush.py",
+      "--source",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/four602_engine.cc",
+      "--out",
+      "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/final_flush",
+      "--cxx",
+      "g++"
+    ]
+  ],
+  "actual_probe_source": "/home/qianruw/cache/formal_study_20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+  "probe": "/home/qianruw/cache/formal_study_20261017/raw_v2/certifications/cert_1792211734633129380/probe",
+  "compiler_flags": "-O3 -ffp-contract=off",
+  "ampm_fixture_source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_ampm/runs/602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.guard_stream.csv.gz",
+  "ampm_fixture_rows": 4096,
+  "formal_models_unchanged": true,
+  "scope": "4096 real causal correctness rows per global model plus script boundary/reset cases; no simulator pilot/IPC sample"
+}

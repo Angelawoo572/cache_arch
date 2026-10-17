@@ -1,0 +1,167 @@
+{
+  "status": "PASS",
+  "scope": "Forward source reproduction only; historical observer/runner protocols remain separate.",
+  "current_repo": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/work/cache_gate_mechanism",
+  "builds": [
+    {
+      "build_id": "build_20261016_185845",
+      "actual_build": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/research_output/raw_v2/builds/build_20261016_185845",
+      "current_generation_vs_actual": {
+        "status": "PASS",
+        "protocol": "dynamic602_forward_generation_v1",
+        "marker_present": false,
+        "artifacts": [
+          {
+            "path": "inc/stride_lstm_runtime.h",
+            "bytes": 1944,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_runtime.cc",
+            "bytes": 10680,
+            "byte_equal": true
+          },
+          {
+            "path": "inc/stride_lstm_model_loader.h",
+            "bytes": 964,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_model_loader.cc",
+            "bytes": 6790,
+            "byte_equal": true
+          }
+        ]
+      },
+      "archived_canonical_vs_actual": {
+        "status": "PASS",
+        "protocol": "dynamic602_forward_generation_v1",
+        "marker_present": false,
+        "artifacts": [
+          {
+            "path": "inc/stride_lstm_runtime.h",
+            "bytes": 1944,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_runtime.cc",
+            "bytes": 10680,
+            "byte_equal": true
+          },
+          {
+            "path": "inc/stride_lstm_model_loader.h",
+            "bytes": 964,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_model_loader.cc",
+            "bytes": 6790,
+            "byte_equal": true
+          }
+        ]
+      },
+      "canonical_source_comparisons": [
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_runtime.h",
+          "byte_equal": true
+        },
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_runtime.cc",
+          "byte_equal": true
+        },
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_model_loader.h",
+          "byte_equal": true
+        },
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_model_loader.cc",
+          "byte_equal": true
+        }
+      ],
+      "binary_snapshot_equal": true,
+      "note": "Legacy build may lack the new generation marker; exact source bytes are still checked."
+    },
+    {
+      "build_id": "build_20261016_213702",
+      "actual_build": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/gate_output/raw/builds/build_20261016_213702",
+      "current_generation_vs_actual": {
+        "status": "PASS",
+        "protocol": "dynamic602_forward_generation_v1",
+        "marker_present": false,
+        "artifacts": [
+          {
+            "path": "inc/stride_lstm_runtime.h",
+            "bytes": 1944,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_runtime.cc",
+            "bytes": 10680,
+            "byte_equal": true
+          },
+          {
+            "path": "inc/stride_lstm_model_loader.h",
+            "bytes": 964,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_model_loader.cc",
+            "bytes": 6790,
+            "byte_equal": true
+          }
+        ]
+      },
+      "archived_canonical_vs_actual": {
+        "status": "PASS",
+        "protocol": "dynamic602_forward_generation_v1",
+        "marker_present": false,
+        "artifacts": [
+          {
+            "path": "inc/stride_lstm_runtime.h",
+            "bytes": 1944,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_runtime.cc",
+            "bytes": 10680,
+            "byte_equal": true
+          },
+          {
+            "path": "inc/stride_lstm_model_loader.h",
+            "bytes": 964,
+            "byte_equal": true
+          },
+          {
+            "path": "prefetcher/stride_lstm_model_loader.cc",
+            "bytes": 6790,
+            "byte_equal": true
+          }
+        ]
+      },
+      "canonical_source_comparisons": [
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_runtime.h",
+          "byte_equal": true
+        },
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_runtime.cc",
+          "byte_equal": true
+        },
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_model_loader.h",
+          "byte_equal": true
+        },
+        {
+          "path": "formal_NN_training/experiments/602_lstm_stride_live_inference/runtime/stride_lstm_model_loader.cc",
+          "byte_equal": true
+        }
+      ],
+      "binary_snapshot_equal": true,
+      "note": "Legacy build may lack the new generation marker; exact source bytes are still checked."
+    }
+  ],
+  "generated_artifact_comparisons": 8,
+  "canonical_source_comparisons": 8,
+  "no_simulation_or_retraining": true,
+  "no_completed_sources_modified": true
+}

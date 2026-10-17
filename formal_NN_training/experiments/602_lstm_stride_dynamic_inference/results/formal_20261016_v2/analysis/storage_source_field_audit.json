@@ -1,0 +1,544 @@
+{
+  "audit": {
+    "accounting_summary": {
+      "all_are": "Conservative logical source-field reservations with an explicit controller schema, not measured/synthesized SRAM macro area or host RSS.",
+      "compatibility": "No engine/config/active results changed; raw16808B counter retained and relabeled by audit boundary.",
+      "nn_budget_matched_source_field_budget": 16936,
+      "nn_fixed_source_field_budget": 16920,
+      "spp_budget_matched_source_field_budget": 5954,
+      "spp_fixed_source_field_budget": 5938,
+      "stride_budget_matched_source_field_budget": 2152,
+      "stride_fixed_source_field_budget": 2136
+    },
+    "audit_date": "2026-10-16",
+    "boundaries": {
+      "cpp_sizeof": "measured GCC/libstdc++ server object size; excludes dynamic allocations and call stack",
+      "host_rss": "whole simulator resident process size from each run host_time.txt; not deployment SRAM",
+      "modeled_bytes": "explicit analytical predictor payload and reservations; excludes shared CPU/cache/DRAM capacities",
+      "packed_logical_bytes": "bit packing retains all bounded source values; not measured SRAM macro area or synthesized implementation"
+    },
+    "build_id": "build_20261016_185845",
+    "common_budget_gate": {
+      "additional_counter_payload_bytes": 8,
+      "chosen_register_schema_bytes": 16,
+      "chosen_schema": "One64-bit allowed-request counter +one64-bit programmable cap, common to all budget-matched methods. Retired count is an existing CPU counter.",
+      "default_unlimited": "gate diagnostic counters remain measurement-only; no constrained request decision state needed",
+      "extra_decision_state": "allowed-request uint64 counter; uses existing CPU retired-instruction count",
+      "not_included_in_predictor_totals_above": true,
+      "programmable_cap_register_bytes_if_not_hardwired": 8,
+      "used_in": "all budget-matched arms, including nativeSPP/Stride/NN"
+    },
+    "evidence_files": [
+      "storage_source/sizeof_probe.cc",
+      "storage_source/sizeof_sacramento.txt",
+      "storage_source/inc/spp_dev2_helper.h",
+      "storage_source/inc/spp_dev2.h",
+      "storage_source/inc/stride.h",
+      "storage_source/prefetcher/spp_dev2.cc",
+      "storage_source/prefetcher/spp_dev2_helper.cc",
+      "storage_source/spp_formal_callback_knob_audit.txt",
+      "storage_source/spp_callback_conditions.txt",
+      "storage_source/sizeof_nn_sacramento.txt",
+      "spp_bounds_certificate.json"
+    ],
+    "excluded_diagnostics": [
+      "shadow teacher and its counters",
+      "source-mirror forward helper duplicate representation when reporting minimal algorithmic tracker state",
+      "teacher address snapshots and overlap categories",
+      "timestamps and histogram bins",
+      "state lifetime update/eviction counters used only for logging",
+      "input CSV occurrence maps",
+      "per-PC summary maps",
+      "cohort/lifecycle bookkeeping",
+      "stats/logging containers and file buffers",
+      "SPP diagnostic delta/depth histograms",
+      "offline optimizer/training memory"
+    ],
+    "nn_dense_weight_traffic": {
+      "bias_reads_not_in_counter": "4*(9H+2+e+K*(6H+1)) bytes per successful forward when counting source bias loads literally",
+      "dense_formula": "4*(128H+8H^2+2H+eH+K*(3H^2+4H))",
+      "meaning": "analytical FP32 dense matrix operand reads, assuming every weight multiply reads4B from resident predictor storage",
+      "nn_weight_dram_bytes": 0,
+      "not_measured_sram_traffic": true,
+      "recorded_counter": "inference_weight_read_bytes=4*inference_macs",
+      "service_assumption": "dense arithmetic and dense-weight reads overlap by max(MAC/BW time); nonlinear/control/scratch phases serialize. Bias traffic and detailed ports/energy not separately charged. Finite-engine results are a sensitivity model under these assumptions, not a silicon cost proof."
+    },
+    "nn_h8_state64": {
+      "active_event": "24B pc,line,life; prior-state vectors and staged h/c already in scratch reserve",
+      "array_payload_and_forward_scratch_bytes": 16808,
+      "complete_budget_matched_formula": "core_arrays_formula +112B controller schema +16B common request-cap control",
+      "complete_budget_matched_source_field_budget_bytes": 16936,
+      "complete_fixed_design_formula": "core_arrays_formula +112B controller schema",
+      "complete_fixed_design_source_field_budget_bytes": 16920,
+      "components_bytes": {
+        "active_event_metadata": 24,
+        "decoded_delta_and_address_results32": 512,
+        "forward_scratch_reservation": 1344,
+        "input_queue16": 384,
+        "output_queue32": 768,
+        "resident_fp32_weights": 7632,
+        "state64_entries": 6144
+      },
+      "controller_schema": {
+        "basis": "conservative64-bit source-field word allocation, not optimized RTL minimum; fixed design knobs hardwired",
+        "inventory": [
+          {
+            "name": "scheduled service due or remaining counter",
+            "words64": 1
+          },
+          {
+            "name": "next output-release cycle counter",
+            "words64": 1
+          },
+          {
+            "name": "state allocation lifetime counter",
+            "words64": 1
+          },
+          {
+            "name": "LRU timestamp counter",
+            "words64": 1
+          },
+          {
+            "name": "state occupancy count",
+            "words64": 1
+          },
+          {
+            "name": "input FIFO head,tail,occupancy",
+            "words64": 3
+          },
+          {
+            "name": "output FIFO head,tail,occupancy",
+            "words64": 3
+          },
+          {
+            "name": "raw predicted K and decoded valid-count",
+            "words64": 2
+          },
+          {
+            "name": "active/failed/page/queue flags reserved word",
+            "words64": 1
+          }
+        ],
+        "programmable_resource_registers_if_supported": {
+          "additional_bytes": 56,
+          "register_width_bits": 64,
+          "registers": [
+            "MACS",
+            "state capacity",
+            "decoder limit",
+            "input capacity",
+            "output capacity",
+            "nonlinear cycles",
+            "bandwidth bytes/cycle"
+          ]
+        },
+        "source_scalar_scratch": "forward scalar datapath temporaries use the existing1344B scratch reservation; this schema separately accounts serial engine/FIFO/state-controller bookkeeping that was absent from16808B",
+        "total_bytes": 112,
+        "total_words64": 14
+      },
+      "core_arrays_formula": "4*(11H^2+150H+4) + capacity*(32+8H) + 4*(128+26H) + 24 + 16*decoder_cap + 24*input_cap + 24*output_cap",
+      "decoder_capacity": 32,
+      "hidden_size": 8,
+      "host_sizeof": {
+        "Dynamic602_object_bytes": 2152,
+        "Entry_object_bytes": 72,
+        "Event_object_bytes": 136,
+        "InferenceResult_object_bytes": 136,
+        "Output_object_bytes": 32,
+        "RecurrentState_object_bytes": 48,
+        "scope": "Actual GCC/libstdc++ object controls, includes diagnostic representations; excludes pointed-to weights/h-c/vector/map nodes and file-buffer allocations. Not hardware payload."
+      },
+      "input_queue_capacity": 16,
+      "output_entry": "24B pc,line,address; category annotation is diagnostic",
+      "output_queue_capacity": 32,
+      "raw_counter_label_correction": "The raw counter historical name says deployment_bytes_configured, but its16808B omits explicit ring/control words. Report as core arrays/event/scratch reservations; do not call synthesized full total.",
+      "raw_engine_counter_deployment_bytes_configured": 16808,
+      "state_capacity": 64,
+      "state_entry": "32B PC tag/controller/lifetime reserve + 8H B completed FP32 h/c",
+      "unbounded_state": "no finite configured maximum; observed peak envelope must not be called a maximum"
+    },
+    "noprefetch": {
+      "additional_predictor_storage_bytes": 0
+    },
+    "protocol": "frozen_formal_20261016_v2",
+    "source_read_from": "authenticated Sacramento source plus actual formal build; no engine or matrix mutation",
+    "spp_native": {
+      "callback_semantics": {
+        "contrast_nn": "NN forward sees only PC/aligned address plus completed per-PC h/c. Shadow Stride is diagnostic, except explicit causal output-suppression experiment. No same-input claim across nativeSPP andNN.",
+        "demand_operate": "L2 RQ LOAD hit/miss only; RFO does not call operate",
+        "features": "SPP receives callback address, PC, cache_hit,type and fill/eviction callbacks; body uses address and private signature/pattern/filter/GHR state; PC/type/cache_hit are not directly consumed in invoke body",
+        "fill": "L2 MSHR and writeback fill paths invoke cache_fill, including demand/RFO/PF/writeback fills. NativeSPP uses evicted_addr to update PREFETCH_FILTER and global feedback counters.",
+        "prefetch_operate": "PREFETCH callback occurs only for PF originating above L2; same-level SPP requests do not recursively invoke themselves; L1 prefetcher is none in actual formal build"
+      },
+      "conservative_packed_persistent_bytes": 5554,
+      "cost_model": "Native functional SPP has no modeled finite compute/lookup throughput or nonlinear engine. Its IPC is a strong conventional functional baseline, not a demonstrated finite-cost hardware implementation.",
+      "cpp_dynamic_exclusions": [
+        "delta_histogram nodes/buckets",
+        "depth_delta_histogram nodes/buckets",
+        "other allocator overhead",
+        "call stack including candidate arrays"
+      ],
+      "cpp_global_register_bytes": 160,
+      "cpp_object_breakdown": {
+        "base_string_and_vptr": 40,
+        "diagnostic_stats": 88,
+        "parent_cache_pointer": 8,
+        "persistent_tables": 33184,
+        "two_empty_histogram_map_controls": 112
+      },
+      "cpp_persistent_tables_bytes": 33184,
+      "cpp_predictor_object_bytes": 33432,
+      "default_knobs": {
+        "C_DELTA_BIT": 4,
+        "C_SIG_BIT": 4,
+        "FILTER_SET": 1024,
+        "L2C_MSHR_SIZE": 32,
+        "MAX_GHR_ENTRY": 8,
+        "PT_SET": 512,
+        "PT_WAY": 4,
+        "SIG_BIT": 12,
+        "ST_SET": 1,
+        "ST_TAG_BIT": 16,
+        "ST_WAY": 256,
+        "spp_dev2_fill_threshold": 90,
+        "spp_dev2_pf_threshold": 25
+      },
+      "explicit_candidate_arrays": {
+        "cpp_and_native_width_payload_bytes": 256,
+        "declared_confidence_bits": 32,
+        "declared_delta_bits": 32,
+        "entries": 32,
+        "exact_value_packed_payload_bytes_if_delta7_confidence32": 156,
+        "source": "prefetcher/spp_dev2.cc:62-66"
+      },
+      "lookahead_limits": {
+        "array_safety_verified": false,
+        "array_safety_verified_for_listed_formal_runs": true,
+        "array_safety_verified_meaning": "This legacy field refers to a universal static/source-code proof, which is not established. See the separate8/8 scoped empirical guard certificate.",
+        "certificate_completed": 6,
+        "certificate_expected": 8,
+        "certificate_results_available_path": "research_audit/engine/spp_bounds_certificate.json (written at8/8 completion)",
+        "certificate_scope": "Full common warmup plus25M ROI for602ROI0 andROI1,605ROI0,623ROI0; each original requests and validation-selected common cap; three guarded writes; no behavior change when in bounds",
+        "certificate_status": "running",
+        "declared_candidate_array_entries": 32,
+        "general_static_array_bounds_proof": false,
+        "generic_static_bounds_proven": false,
+        "guard_certificate": {
+          "all_summary_fields_exact": true,
+          "build_downloaded": false,
+          "checked_write_sites": [
+            "confidence append",
+            "delta append",
+            "terminal confidence write"
+          ],
+          "completed_repetitions": 8,
+          "evidence_directory": "research_output/raw_v2/correctness_repetitions/spp_bounds",
+          "expected_repetitions": 8,
+          "general_static_bounds_proof": false,
+          "guard_patch": "research_output/raw_v2/correctness_repetitions/spp_bounds/bounds_guard.patch",
+          "guard_semantics": "Instrumented isolated simulator throws before any of the three checked candidate-array writes with tail>=L2C_MSHR_SIZE32. When in range the original behavior is unchanged.",
+          "guard_trip_count": 0,
+          "limitation": "A finite tested-scenario guard certificate, not a proof for every trace/state/configuration or a synthesized finite-service SPP implementation.",
+          "no_original_engine_protocol_or_data_mutation": true,
+          "original_build_id": "build_20261016_185845",
+          "proof_refresh": "all_eight_recompared_after_original_matrix_completion",
+          "protocol": "frozen_formal_20261016_v2",
+          "results": [
+            {
+              "budget": 0,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_602_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "roi": 0,
+              "roi_instructions": 25000003,
+              "run_id": "test_602_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "602.gcc_s-734B"
+            },
+            {
+              "budget": 2363,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r0_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r0_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_602_r0_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json",
+              "roi": 0,
+              "roi_instructions": 25000003,
+              "run_id": "test_602_r0_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "602.gcc_s-734B"
+            },
+            {
+              "budget": 0,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r1_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r1_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_602_r1_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "roi": 1,
+              "roi_instructions": 25000002,
+              "run_id": "test_602_r1_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "602.gcc_s-734B"
+            },
+            {
+              "budget": 2363,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r1_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_602_r1_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_602_r1_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000/summary.json",
+              "roi": 1,
+              "roi_instructions": 25000002,
+              "run_id": "test_602_r1_spp_s7_balanced_m0_b2363_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "602.gcc_s-734B"
+            },
+            {
+              "budget": 0,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_605_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_605_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_605_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "roi": 0,
+              "roi_instructions": 25000000,
+              "run_id": "test_605_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "605.mcf_s-994B"
+            },
+            {
+              "budget": 213,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_605_r0_spp_s7_balanced_m0_b213_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_605_r0_spp_s7_balanced_m0_b213_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_605_r0_spp_s7_balanced_m0_b213_sil0_qfifo_hist5000000/summary.json",
+              "roi": 0,
+              "roi_instructions": 25000000,
+              "run_id": "test_605_r0_spp_s7_balanced_m0_b213_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "605.mcf_s-994B"
+            },
+            {
+              "budget": 0,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_623_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_623_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_623_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000/summary.json",
+              "roi": 0,
+              "roi_instructions": 25000000,
+              "run_id": "test_623_r0_spp_s7_balanced_m0_b0_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "623.xalancbmk_s-700B"
+            },
+            {
+              "budget": 4082,
+              "compared_summary_fields": 210,
+              "exact_summary_match": true,
+              "guard_trip_count": 0,
+              "guarded_log": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_623_r0_spp_s7_balanced_m0_b4082_sil0_qfifo_hist5000000/run.log",
+              "guarded_status": "complete",
+              "guarded_summary": "research_output/raw_v2/correctness_repetitions/spp_bounds/test/test_623_r0_spp_s7_balanced_m0_b4082_sil0_qfifo_hist5000000/summary.json",
+              "original_status": "complete",
+              "original_summary": "research_output/raw_v2/test/test_623_r0_spp_s7_balanced_m0_b4082_sil0_qfifo_hist5000000/summary.json",
+              "roi": 0,
+              "roi_instructions": 25000000,
+              "run_id": "test_623_r0_spp_s7_balanced_m0_b4082_sil0_qfifo_hist5000000",
+              "status": "PASS",
+              "warmup_instructions": 5000000,
+              "workload": "623.xalancbmk_s-700B"
+            }
+          ],
+          "scope": "Only the eight listed complete formal SPP scenarios:602 two independent ROIs,605 and623,each original and common-cap policies;25M ROI after5M cache warmup.",
+          "source_unbounded_lookahead_and_missing_native_tail_guard_remain": true,
+          "status": "PASS",
+          "total_exact_field_comparisons": 1680
+        },
+        "guarded_formal_array_bounds_completed": 8,
+        "guarded_formal_array_bounds_expected": 8,
+        "guarded_formal_array_bounds_status": "PASS",
+        "observed_602_roi0_max_depth": 16,
+        "observed_602_roi0_max_same_page_breadth": 2,
+        "observed_budgeted_602_roi0_max_depth": 16,
+        "observed_budgeted_602_roi0_max_same_page_breadth": 2,
+        "reason": "Native source retains unbounded lookahead and lacks a tail bound guard. All8listed complete formal guarded repetitions had0trips at the3instrumented candidate-array write sites and matched all210original summary fields each. This certifies those tested scenarios only, not all possible executions.",
+        "source": "do/while(do_lookahead); no explicit service-depth limit and no pf_q_tail bounds guard at array append/read_pattern terminal write"
+      },
+      "old_estimator": {
+        "not_usable_as_complete_total": true,
+        "omissions": [
+          "3 global feedback counters omitted",
+          "GHR confidence assumed10bits without explicit source clamp",
+          "explicit candidate arrays omitted",
+          "transient scalar/control omitted"
+        ],
+        "reported_bytes": 5508
+      },
+      "persistent_components": [
+        {
+          "capacity": "1 set \u00d7 256 ways",
+          "component": "signature_table",
+          "cpp_sizeof_bytes": 4352,
+          "fields": "valid1 + tag16 + last_offset6 + signature12 + exactLRUrank8",
+          "logical_bits": 11008,
+          "logical_bytes": 1376
+        },
+        {
+          "capacity": "512 sets \u00d7 4 ways",
+          "component": "pattern_table",
+          "cpp_sizeof_bytes": 18432,
+          "fields": "signed delta7 + delta_count4 per way; signature_count4 per set",
+          "logical_bits": 24576,
+          "logical_bytes": 3072
+        },
+        {
+          "capacity": "1024 entries",
+          "component": "prefetch_filter",
+          "cpp_sizeof_bytes": 10240,
+          "fields": "remainder6 + valid1 + useful1",
+          "logical_bits": 8192,
+          "logical_bytes": 1024
+        },
+        {
+          "capacity": "8 entries",
+          "component": "global_history_entries",
+          "cpp_payload_bytes": 136,
+          "fields": "valid1 + signature12 + confidence32 + offset6 + delta7; confidence retains source width because no explicit clamp is proven",
+          "logical_bits": 464,
+          "logical_bytes": 58
+        },
+        {
+          "capacity": "3 scalar counters",
+          "component": "global_feedback_counters",
+          "cpp_payload_bytes": 24,
+          "fields": "pf_useful64 + pf_issued64 + global_accuracy64; feedback state affects decisions and is not diagnostic",
+          "logical_bits": 192,
+          "logical_bytes": 24
+        }
+      ],
+      "persistent_plus_exact_value_packed_array_payload_bytes": 5710,
+      "persistent_plus_native_array_payload_bytes": 5810,
+      "source_scalar_control_schema": {
+        "caller_components": [
+          "three64-bit page/base/input-address values",
+          "four32-bit page_offset/last_sig/curr_sig/delta values",
+          "five32-bit queuehead/queuetail/depth/lookaheadconfidence/lookaheadway values",
+          "loop index32",
+          "target address64",
+          "PT set32",
+          "sigdelta32",
+          "one64-bit word for control flags/padding"
+        ],
+        "caller_reserved_bytes": 88,
+        "caller_scope_note": "128B total intentionally conservatively envelopes all caller scalar values by reusing nonoverlapping loop indices, excluding diagnostic breadth counters",
+        "candidate_arrays_native_width_bytes": 256,
+        "complete_budget_matched_source_field_budget_bytes": 5954,
+        "complete_fixed_design_source_field_budget_bytes": 5938,
+        "helper_basis": "ST locals28B + nested GHR check12B; FILTER locals32B + hash key8B; PT locals20B + hash key8B; maximum40B",
+        "largest_nested_helper_reserved_bytes": 40,
+        "programmable_thresholds_if_supported_additional_bytes": 8,
+        "scope": "Explicit source-field scalar/control reservation with fixed knobs. No extra pipeline stages or macro padding invented; not a finite throughput/silicon implementation.",
+        "total_reserved_bytes": 128
+      },
+      "unassigned_overhead": "All persistent state, explicit candidate arrays and bounded source-scalar/control reservation are inventoried. SRAM macro ports/padding/ECC and implementation-specific pipeline registers/logic area remain unsynthesized; no physical area or timing total is claimed."
+    },
+    "stride": {
+      "additional_cpp_allocations": "deque pointer blocks/map, allocation metadata, live Tracker allocations, temporary request vector; not included in sizeof",
+      "complete_control_scratch_schema": {
+        "complete_budget_matched_source_field_budget_bytes": 2152,
+        "complete_fixed_design_source_field_budget_bytes": 2136,
+        "entry_storage_bytes": 2048,
+        "existing_global_controller_bytes": 16,
+        "global_controller_assignment": "64-bit matched slot +32-bit degree +32-bit emitted count",
+        "immediate_output_payload_bytes": 16,
+        "scope": "conservative source-field register/payload schema under reuse of one tracker table; not a separately simulated finite service engine or synthesized design",
+        "source_scalar_fields": [
+          {
+            "bytes": 16,
+            "name": "callback PC/address"
+          },
+          {
+            "bytes": 8,
+            "name": "current line"
+          },
+          {
+            "bytes": 4,
+            "name": "computed stride"
+          },
+          {
+            "bytes": 4,
+            "name": "page offset"
+          },
+          {
+            "bytes": 4,
+            "name": "candidate offset"
+          },
+          {
+            "bytes": 8,
+            "name": "page"
+          },
+          {
+            "bytes": 8,
+            "name": "target byte address"
+          }
+        ],
+        "source_scalar_payload_bytes": 52,
+        "word_aligned_scalar_reservation_bytes": 56
+      },
+      "configured_trackers": 64,
+      "core_table_and_control_reservations_bytes": 2064,
+      "cpp_deque_control_bytes_in_object": 80,
+      "cpp_diagnostic_stats_bytes_in_object": 72,
+      "cpp_object_plus_tracker_payload_lower_bound_bytes": 1728,
+      "cpp_predictor_object_bytes": 192,
+      "cpp_tracker_payload_for64_bytes": 1536,
+      "existing_architectural_controller_budget_bytes": 16,
+      "existing_architectural_entry_budget_bytes": 32,
+      "existing_modeled_state_control_bytes": 2064,
+      "forward_helper": "The host forward-control helper duplicates trackers to recover current stride; logically one conventional tracker table is sufficient. Host RSS includes duplicate representation; it must not be mistaken for extra algorithmic history.",
+      "scratch_limitation": "Existing2064B counter covers table/control only. Explicit audit schema adds56B scalar scratch +16B immediate output addresses, giving2136B fixed-design source-field budget or2152B with shared16B request-cap registers. No finite-service timing/ports or synthesized area claim.",
+      "source_tracker_cpp_bytes": 24,
+      "source_tracker_fields": "PC uint64, last_line uint64, last_stride int64 (generated stride values narrow to int32)",
+      "variants": [
+        "legacy degree2 [current,current+stride]",
+        "remove_current",
+        "forward1",
+        "forward2 [current+stride,current+2stride]"
+      ]
+    }
+  },
+  "source": "/Users/angelawoo/.codex/.chatgpt-projects/g-p-69fa00bd18d88191bc3efcbb94ae6240/research_audit/engine/storage_audit.json",
+  "status": "available"
+}

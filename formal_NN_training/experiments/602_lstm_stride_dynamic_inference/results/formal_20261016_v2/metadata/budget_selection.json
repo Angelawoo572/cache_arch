@@ -1,0 +1,26 @@
+{
+  "protocol": "frozen_formal_20261016_v2",
+  "selection": "floor(workload validation forward1 requests / retired instructions * 1e6)",
+  "requests_per_million_instructions": {
+    "602.gcc_s-734B": 2363,
+    "605.mcf_s-994B": 213,
+    "623.xalancbmk_s-700B": 4082
+  },
+  "evidence": {
+    "602.gcc_s-734B": {
+      "source_run": "validation_602_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "requests": 11816,
+      "instructions": 5000000
+    },
+    "605.mcf_s-994B": {
+      "source_run": "validation_605_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "requests": 1070,
+      "instructions": 5000002
+    },
+    "623.xalancbmk_s-700B": {
+      "source_run": "validation_623_r0_stride_forward1_s7_balanced_m0_b0_sil0_qfifo_hist4000000",
+      "requests": 20413,
+      "instructions": 5000000
+    }
+  }
+}

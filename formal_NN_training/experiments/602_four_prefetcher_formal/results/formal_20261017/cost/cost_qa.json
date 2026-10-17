@@ -1,0 +1,154 @@
+{
+  "status": "PASS",
+  "complete_rows": 64,
+  "full_test_student_rows": 16,
+  "all_work_and_ratio_and_payload_recomputed": true,
+  "native_work_na_not_zero": true,
+  "visual_qa": "PASS: both test ROIs, labels/legend/caption readable, no validation values in plot; uncapped ratio annotations only; partial-payload scope explicit",
+  "selected_rows": [
+    {
+      "run_id": "test_r0_ampm_student_full_cap0",
+      "ipc": "0.42831753909741993",
+      "counted_nn_macs_per_1k_retired": "44567.47049190354",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "4.772257321222251",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r0_ampm_student_full_cap16144",
+      "ipc": "0.42629854143676743",
+      "counted_nn_macs_per_1k_retired": "44567.47049190354",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "4.749761916556163",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r0_spp_student_full_cap0",
+      "ipc": "0.42255727780115554",
+      "counted_nn_macs_per_1k_retired": "87543.51973477763",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "9.248037847064843",
+      "model_weight_bytes": "11460",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11524"
+    },
+    {
+      "run_id": "test_r0_spp_student_full_cap16144",
+      "ipc": "0.4171635097376881",
+      "counted_nn_macs_per_1k_retired": "87543.80005474399",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "9.130019721652854",
+      "model_weight_bytes": "11460",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11524"
+    },
+    {
+      "run_id": "test_r0_streamer_student_full_cap0",
+      "ipc": "0.43662212329802097",
+      "counted_nn_macs_per_1k_retired": "48508.31705900195",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "5.294951097978761",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r0_streamer_student_full_cap16144",
+      "ipc": "0.4316588545919855",
+      "counted_nn_macs_per_1k_retired": "48508.31705900195",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "5.234761144968413",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r0_stride_stride_student_full_cap0",
+      "ipc": "0.4090147193254622",
+      "counted_nn_macs_per_1k_retired": "29526.245736850513",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "3.019167278198134",
+      "model_weight_bytes": "7632.0",
+      "hc_payload_bytes": "4096.0",
+      "weights_plus_hc_payload_bytes": "11728.0"
+    },
+    {
+      "run_id": "test_r0_stride_stride_student_full_cap16144",
+      "ipc": "0.4090147193254622",
+      "counted_nn_macs_per_1k_retired": "29526.245736850513",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "3.019167278198134",
+      "model_weight_bytes": "7632.0",
+      "hc_payload_bytes": "4096.0",
+      "weights_plus_hc_payload_bytes": "11728.0"
+    },
+    {
+      "run_id": "test_r1_ampm_student_full_cap0",
+      "ipc": "0.3896857910720685",
+      "counted_nn_macs_per_1k_retired": "58565.180594785554",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "5.705504682339392",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r1_ampm_student_full_cap16144",
+      "ipc": "0.3316065828305161",
+      "counted_nn_macs_per_1k_retired": "58564.998194800144",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "4.855134731213255",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r1_spp_student_full_cap0",
+      "ipc": "0.37394095442886655",
+      "counted_nn_macs_per_1k_retired": "123147.38886820889",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "11.512463032200202",
+      "model_weight_bytes": "11460",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11524"
+    },
+    {
+      "run_id": "test_r1_spp_student_full_cap16144",
+      "ipc": "0.3253464812863387",
+      "counted_nn_macs_per_1k_retired": "123168.91462648683",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "10.018143244396235",
+      "model_weight_bytes": "11460",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11524"
+    },
+    {
+      "run_id": "test_r1_streamer_student_full_cap0",
+      "ipc": "0.39089192492711666",
+      "counted_nn_macs_per_1k_retired": "63808.91393528689",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "6.235597298918252",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r1_streamer_student_full_cap16144",
+      "ipc": "0.33760435670555056",
+      "counted_nn_macs_per_1k_retired": "63808.91393528689",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "5.385541835300592",
+      "model_weight_bytes": "11284",
+      "hc_payload_bytes": "64",
+      "weights_plus_hc_payload_bytes": "11348"
+    },
+    {
+      "run_id": "test_r1_stride_stride_student_full_cap0",
+      "ipc": "0.3596431195435939",
+      "counted_nn_macs_per_1k_retired": "39619.77955041764",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "3.562245278285422",
+      "model_weight_bytes": "7632.0",
+      "hc_payload_bytes": "4096.0",
+      "weights_plus_hc_payload_bytes": "11728.0"
+    },
+    {
+      "run_id": "test_r1_stride_stride_student_full_cap16144",
+      "ipc": "0.3596431195435939",
+      "counted_nn_macs_per_1k_retired": "39619.77955041764",
+      "mac4_dense_work_cycles_div_measured_mac0_roi_cycles": "3.562245278285422",
+      "model_weight_bytes": "7632.0",
+      "hc_payload_bytes": "4096.0",
+      "weights_plus_hc_payload_bytes": "11728.0"
+    }
+  ]
+}

@@ -28,6 +28,20 @@ The primary project artifacts are intentionally concentrated in two places:
 
 ## 602 experiment source
 
+The frozen live continuation is in
+[`602_four_prefetcher_formal`](formal_NN_training/experiments/602_four_prefetcher_formal/README.md),
+with independent Streamer, AMPM and SPP live-inference siblings beside the
+existing Stride live/dynamic tracks. It preserves the real checkpoints,
+global versus per-PC state, SPP demand/fill inputs and L2/LLC output targets.
+Its new MAC0 measurements use a separate protocol; prior offline, live and
+formal results remain available and their IPC is not pooled across protocols.
+605 is deferred in this continuation.
+
+The [first frozen Stride formal archive](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md)
+contains its lightweight tables, figures, definitions and findings. The
+[forward/dependency recovery guide](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md)
+explains runtime generation and checks against the sources actually built.
+
 | Conventional comparator | Experiment directory | Neural runtime input boundary |
 | --- | --- | --- |
 | Stride | [`602_offline_lstm_stride`](formal_NN_training/experiments/602_offline_lstm_stride/) | Current PC and cache-line address |

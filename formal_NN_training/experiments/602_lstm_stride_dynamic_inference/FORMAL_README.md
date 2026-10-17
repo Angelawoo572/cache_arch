@@ -1,6 +1,10 @@
 # Frozen L2 teacher-action study, 2026-10-16
 
-**Archived main-v2 protocol record.** This branch adds the separate
+**Archived main-v2 protocol record.** The completed first-formal
+[lightweight archive](results/formal_20261016_v2/README.md) contains all 101
+rows, figures, findings and certificates; see
+[forward/dependency reproduction](runtime/FORWARD_REPRODUCTION.md) for the
+relocated raw paths and source-byte checks. This branch adds the separate
 [gate/payload follow-up](../602_gate_mechanism/RUN_GUIDE.md), with a new raw root
 and measurement-hook protocol. Use that guide for the current study. Reproduce
 the original completed v2 study from its archived actual source/build; do not

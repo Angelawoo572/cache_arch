@@ -1,5 +1,51 @@
 # 602 Stride training-prefix sufficiency
 
+## Current frozen live-inference model
+
+The current four-route formal study uses the actual balanced seed7/h8 checkpoint
+from the completed first formal run, not a keyed replay file or a new model.
+Its local checkpoint is
+`/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/research_output/raw_v2/models/seed7/balanced/offline/model.pt`
+(25,134 bytes). The actual portable file is the adjacent `export/model.bin`
+(8,372 bytes), with `export/model_metadata.json`; the Sacramento prefix is
+`/home/qianruw/cache/formal_study_20261016/research_output/raw_v2`.
+The formal binary stays at that existing Stride model path. It is not copied
+from a Streamer/AMPM/SPP model, and the three newer sibling checkpoint copies
+do not replace it. Preserve this original raw model directory for reproduction.
+
+The model has 1,908 FP32 parameters (7,632 resident weight bytes), a 128-feature
+PC-plus-aligned-byte-address input, tanh projection `128 → 8`, LSTM h8, a two-logit
+hurdle gate and positive exp-count, and a scalar-delta autoregressive GRU.
+PC and address bits are LSB-first; address means `cache_line << 6`. Gate ties
+choose silence; a positive gate uses nearest/ties-even rounded exp-count with
+minimum 1 and a checked int64 host domain. Each delta uses signed `expm1` and
+ties-even rounding, then wraps in the 58-bit line domain. Decoder state begins
+at the encoder h; its unrounded coordinate feeds every GRU step, including the
+final step. It requests L2 and has no learned fill head. The training prefix
+was 0..1M records, 12 epochs, with teacher actions used only as targets.
+
+The canonical scalar runtime maintains one h/c per exact PC. The formal dynamic
+engine retains its original 64-entry per-PC state capacity and decoder/output
+limits, with explicit current-line filtering before shared credit accounting.
+Its weights are frozen and h/c publishes at modeled completion; this round's
+Stride reference uses MAC0. These per-PC controls are not imposed on the other
+three global-state students. Live inference uses no replay lookup, future
+teacher action, optimizer or online weight update. Host timing is not simulated
+hardware cost.
+
+The canonical runtime files generate the actual dynamic forward through
+[prepare_forward and exact-byte checks](../602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md).
+The [first formal archive](../602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md)
+contains both actual-build byte certificates and all original metrics/figures.
+The [current v2 run guide](../602_four_prefetcher_formal/README.md) uses separate
+`source_v2`, `raw_v2`, `runtime_v2` and `raw_v2/analysis_final` paths. It retains
+ROI0 as an already-observed replication and ROI1 as future relative to original
+training/evaluation coordinates. Old replay/live/finite-cost protocols are
+separate references and their IPC is never pooled into that new main table.
+
+The remainder of this README records the historical training-prefix/replay
+study and its separate functional-live extension.
+
 The primary study in this directory is the h8/h16 training-prefix sweep under
 the **original 602 offline keyed-replay protocol**. The completed sibling
 experiment [`602_offline_lstm_stride`](../602_offline_lstm_stride/) remains

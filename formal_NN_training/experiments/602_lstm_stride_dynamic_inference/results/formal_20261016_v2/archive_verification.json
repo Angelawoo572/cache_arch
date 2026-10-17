@@ -1,0 +1,510 @@
+{
+  "status": "PASS",
+  "protocol": "frozen_formal_20261016_v2",
+  "source_study_root": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016",
+  "archive_root": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261016/work/cache_gate_mechanism/formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2",
+  "completed_rows": 101,
+  "test_rows": 89,
+  "validation_rows": 12,
+  "copied_artifacts": 81,
+  "total_copied_bytes": 9496465,
+  "figures": {
+    "png": 25,
+    "svg": 25
+  },
+  "csv_files": 11,
+  "excluded": [
+    "analysis_final/results.json (redundant nested copy)",
+    "raw traces, models, binaries, large logs, raw simulator event streams"
+  ],
+  "no_source_changes": true,
+  "no_new_simulation": true,
+  "artifacts": [
+    {
+      "path": "analysis/analysis_notes.md",
+      "source_relative_path": "research_output/analysis_final/analysis_notes.md",
+      "bytes": 3095,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/budget_audit.json",
+      "source_relative_path": "research_output/analysis_final/budget_audit.json",
+      "bytes": 1830,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/dram_traffic.csv",
+      "source_relative_path": "research_output/analysis_final/dram_traffic.csv",
+      "bytes": 55281,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/history_602_roi0_m4.png",
+      "source_relative_path": "research_output/analysis_final/history_602_roi0_m4.png",
+      "bytes": 120876,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/history_602_roi0_m4.svg",
+      "source_relative_path": "research_output/analysis_final/history_602_roi0_m4.svg",
+      "bytes": 25169,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/history_602_roi1_m4.png",
+      "source_relative_path": "research_output/analysis_final/history_602_roi1_m4.png",
+      "bytes": 100450,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/history_602_roi1_m4.svg",
+      "source_relative_path": "research_output/analysis_final/history_602_roi1_m4.svg",
+      "bytes": 24444,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/history_per_pc.csv",
+      "source_relative_path": "research_output/analysis_final/history_per_pc.csv",
+      "bytes": 1114924,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/inventory.csv",
+      "source_relative_path": "research_output/analysis_final/inventory.csv",
+      "bytes": 28023,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi0_budget0.png",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi0_budget0.png",
+      "bytes": 99959,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi0_budget0.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi0_budget0.svg",
+      "bytes": 22851,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi0_budget2363.png",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi0_budget2363.png",
+      "bytes": 103663,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi0_budget2363.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi0_budget2363.svg",
+      "bytes": 22788,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi1_budget0.png",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi1_budget0.png",
+      "bytes": 83286,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi1_budget0.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi1_budget0.svg",
+      "bytes": 18930,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi1_budget2363.png",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi1_budget2363.png",
+      "bytes": 73111,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_602_roi1_budget2363.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_602_roi1_budget2363.svg",
+      "bytes": 13468,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_605_roi0_budget0.png",
+      "source_relative_path": "research_output/analysis_final/ipc_605_roi0_budget0.png",
+      "bytes": 79537,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_605_roi0_budget0.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_605_roi0_budget0.svg",
+      "bytes": 13390,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_605_roi0_budget213.png",
+      "source_relative_path": "research_output/analysis_final/ipc_605_roi0_budget213.png",
+      "bytes": 71598,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_605_roi0_budget213.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_605_roi0_budget213.svg",
+      "bytes": 10808,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_623_roi0_budget0.png",
+      "source_relative_path": "research_output/analysis_final/ipc_623_roi0_budget0.png",
+      "bytes": 82475,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_623_roi0_budget0.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_623_roi0_budget0.svg",
+      "bytes": 13420,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_623_roi0_budget4082.png",
+      "source_relative_path": "research_output/analysis_final/ipc_623_roi0_budget4082.png",
+      "bytes": 73379,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_623_roi0_budget4082.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_623_roi0_budget4082.svg",
+      "bytes": 11637,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_validation_602_roi0_budget0.png",
+      "source_relative_path": "research_output/analysis_final/ipc_validation_602_roi0_budget0.png",
+      "bytes": 95513,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/ipc_validation_602_roi0_budget0.svg",
+      "source_relative_path": "research_output/analysis_final/ipc_validation_602_roi0_budget0.svg",
+      "bytes": 16817,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/lifecycle.csv",
+      "source_relative_path": "research_output/analysis_final/lifecycle.csv",
+      "bytes": 38499,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/metric_definitions.json",
+      "source_relative_path": "research_output/analysis_final/metric_definitions.json",
+      "bytes": 6276,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/metrics_per_seed.csv",
+      "source_relative_path": "research_output/analysis_final/metrics_per_seed.csv",
+      "bytes": 62598,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/paired_comparisons.csv",
+      "source_relative_path": "research_output/analysis_final/paired_comparisons.csv",
+      "bytes": 79857,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/plot_status.json",
+      "source_relative_path": "research_output/analysis_final/plot_status.json",
+      "bytes": 1876,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/raw_per_seed.csv",
+      "source_relative_path": "research_output/analysis_final/raw_per_seed.csv",
+      "bytes": 3694707,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/realized_request_gap.csv",
+      "source_relative_path": "research_output/analysis_final/realized_request_gap.csv",
+      "bytes": 19486,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_602_roi0.png",
+      "source_relative_path": "research_output/analysis_final/request_ipc_602_roi0.png",
+      "bytes": 82401,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_602_roi0.svg",
+      "source_relative_path": "research_output/analysis_final/request_ipc_602_roi0.svg",
+      "bytes": 32933,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_602_roi1.png",
+      "source_relative_path": "research_output/analysis_final/request_ipc_602_roi1.png",
+      "bytes": 71488,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_602_roi1.svg",
+      "source_relative_path": "research_output/analysis_final/request_ipc_602_roi1.svg",
+      "bytes": 24990,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_605_roi0.png",
+      "source_relative_path": "research_output/analysis_final/request_ipc_605_roi0.png",
+      "bytes": 67316,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_605_roi0.svg",
+      "source_relative_path": "research_output/analysis_final/request_ipc_605_roi0.svg",
+      "bytes": 20493,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_623_roi0.png",
+      "source_relative_path": "research_output/analysis_final/request_ipc_623_roi0.png",
+      "bytes": 71224,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_623_roi0.svg",
+      "source_relative_path": "research_output/analysis_final/request_ipc_623_roi0.svg",
+      "bytes": 20521,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_validation_602_roi0.png",
+      "source_relative_path": "research_output/analysis_final/request_ipc_validation_602_roi0.png",
+      "bytes": 83621,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/request_ipc_validation_602_roi0.svg",
+      "source_relative_path": "research_output/analysis_final/request_ipc_validation_602_roi0.svg",
+      "bytes": 25913,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/resident_state_lifetimes.csv",
+      "source_relative_path": "research_output/analysis_final/resident_state_lifetimes.csv",
+      "bytes": 633667,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi0_budget0_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_602_roi0_budget0_m4.png",
+      "bytes": 67460,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi0_budget0_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_602_roi0_budget0_m4.svg",
+      "bytes": 63784,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi0_budget2363_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_602_roi0_budget2363_m4.png",
+      "bytes": 68534,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi0_budget2363_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_602_roi0_budget2363_m4.svg",
+      "bytes": 63787,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi1_budget0_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_602_roi1_budget0_m4.png",
+      "bytes": 57703,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi1_budget0_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_602_roi1_budget0_m4.svg",
+      "bytes": 48210,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi1_budget2363_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_602_roi1_budget2363_m4.png",
+      "bytes": 58585,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_602_roi1_budget2363_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_602_roi1_budget2363_m4.svg",
+      "bytes": 48216,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_605_roi0_budget0_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_605_roi0_budget0_m4.png",
+      "bytes": 53186,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_605_roi0_budget0_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_605_roi0_budget0_m4.svg",
+      "bytes": 35738,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_605_roi0_budget213_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_605_roi0_budget213_m4.png",
+      "bytes": 53934,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_605_roi0_budget213_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_605_roi0_budget213_m4.svg",
+      "bytes": 35888,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_623_roi0_budget0_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_623_roi0_budget0_m4.png",
+      "bytes": 53037,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_623_roi0_budget0_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_623_roi0_budget0_m4.svg",
+      "bytes": 34805,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_623_roi0_budget4082_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_623_roi0_budget4082_m4.png",
+      "bytes": 54629,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_623_roi0_budget4082_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_623_roi0_budget4082_m4.svg",
+      "bytes": 34808,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_distributions.csv",
+      "source_relative_path": "research_output/analysis_final/service_distributions.csv",
+      "bytes": 468221,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_validation_602_roi0_budget0_m4.png",
+      "source_relative_path": "research_output/analysis_final/service_validation_602_roi0_budget0_m4.png",
+      "bytes": 57705,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/service_validation_602_roi0_budget0_m4.svg",
+      "source_relative_path": "research_output/analysis_final/service_validation_602_roi0_budget0_m4.svg",
+      "bytes": 40535,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/storage.csv",
+      "source_relative_path": "research_output/analysis_final/storage.csv",
+      "bytes": 514659,
+      "byte_equal": true
+    },
+    {
+      "path": "analysis/storage_source_field_audit.json",
+      "source_relative_path": "research_output/analysis_final/storage_source_field_audit.json",
+      "bytes": 28929,
+      "byte_equal": true
+    },
+    {
+      "path": "verification/analysis_final_verification.json",
+      "source_relative_path": "research_output/analysis_final_verification.json",
+      "bytes": 5737,
+      "byte_equal": true
+    },
+    {
+      "path": "verification/data_audit_final.json",
+      "source_relative_path": "research_output/data_audit_final.json",
+      "bytes": 6403,
+      "byte_equal": true
+    },
+    {
+      "path": "verification/hc_final_verification.json",
+      "source_relative_path": "research_output/hc_final_verification.json",
+      "bytes": 9284,
+      "byte_equal": true
+    },
+    {
+      "path": "findings.json",
+      "source_relative_path": "research_output/delivery/findings.json",
+      "bytes": 6231,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/pipeline_result.json",
+      "source_relative_path": "research_output/raw_v2/pipeline_result.json",
+      "bytes": 138,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/formal_matrix.json",
+      "source_relative_path": "research_output/raw_v2/formal_matrix.json",
+      "bytes": 51403,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/training_pairs.json",
+      "source_relative_path": "research_output/raw_v2/training_pairs.json",
+      "bytes": 1627,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/budget_selection.json",
+      "source_relative_path": "research_output/raw_v2/budget_selection.json",
+      "bytes": 849,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/training_split.json",
+      "source_relative_path": "research_output/raw_v2/training_split.json",
+      "bytes": 1347,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/resource_envelope.json",
+      "source_relative_path": "research_output/raw_v2/resource_envelope.json",
+      "bytes": 1127,
+      "byte_equal": true
+    },
+    {
+      "path": "metadata/build.json",
+      "source_relative_path": "research_output/raw_v2/build.json",
+      "bytes": 585,
+      "byte_equal": true
+    },
+    {
+      "path": "audits/storage_audit.json",
+      "source_relative_path": "research_audit/engine/storage_audit.json",
+      "bytes": 27676,
+      "byte_equal": true
+    },
+    {
+      "path": "audits/storage_audit.md",
+      "source_relative_path": "research_audit/engine/storage_audit.md",
+      "bytes": 11360,
+      "byte_equal": true
+    },
+    {
+      "path": "audits/numerical_domain_audit.json",
+      "source_relative_path": "research_audit/engine/numerical_domain_audit.json",
+      "bytes": 3324,
+      "byte_equal": true
+    },
+    {
+      "path": "audits/spp_bounds_certificate.json",
+      "source_relative_path": "research_audit/engine/spp_bounds_certificate.json",
+      "bytes": 8433,
+      "byte_equal": true
+    }
+  ]
+}

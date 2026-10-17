@@ -1,0 +1,17 @@
+{
+  "status": "complete",
+  "protocols": [
+    "four602_frozen_live_20261017_v2"
+  ],
+  "builds": [
+    "build_1792211655617683046"
+  ],
+  "stage": "test",
+  "plotted_full_student_rows": 16,
+  "derived_complete_rows": 64,
+  "missing_work_run_ids": [],
+  "source_per_run": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/per_run.csv",
+  "source_storage_cost": "/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2/analysis_final/storage_cost.csv",
+  "source_cost_fields": "formal_NN_training/experiments/602_four_prefetcher_formal/report/cost_fields.json",
+  "interpretation": "MAC0 measured IPC only; counted operation totals and partial weights+h/c payload. Native compute NA. r=ceil(MAC/4)/measured MAC0 cycles is a necessary aggregate-throughput test for serving all counted work in the same MAC0 callback timeline/window. r<=1 is not sufficient; r>1 does not predict finite IPC, and finite scheduling can change arrivals for the same program trace. Mechanism rows retained in derived CSV but main effect/cost plot shows full models only."
+}

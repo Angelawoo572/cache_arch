@@ -1,0 +1,7 @@
+run_id,policy,roi,raw_generated,demand_callbacks,fill_callbacks,warmup_completed_updates,ROI_completed_updates,emit_hist_counts,K_hist_counts,fill_hist_counts,current_line,list_duplicate
+test_r0_streamer_student_full_cap0,streamer,0,808457,404238,0,80756,404238,"{""1"": 404238}","{""1"": 19, ""2"": 404219}","{""2"": 808457}",0,0
+test_r0_ampm_student_full_cap0,ampm,0,492684,404238,0,80756,404238,"{""1"": 404238}","{""1"": 315792, ""2"": 88446}","{""2"": 492684}",0,0
+test_r0_spp_student_full_cap0,spp,0,2021190,404238,203176,121542,607414,"{""1"": 404238}","{""5"": 404238}","{""4"": 2021190}",0,0
+test_r1_streamer_student_full_cap0,streamer,1,1055006,532854,0,80618,532854,"{""1"": 532854}","{""1"": 10702, ""2"": 522152}","{""2"": 1055006}",0,0
+test_r1_ampm_student_full_cap0,ampm,1,634806,532858,0,80618,532858,"{""0"": 7, ""1"": 532851}","{""0"": 7, ""1"": 430896, ""2"": 101955}","{""2"": 634806}",0,0
+test_r1_spp_student_full_cap0,spp,1,2664355,532856,350748,121343,883604,"{""1"": 532856}","{""4"": 3, ""5"": 532775, ""6"": 78}","{""2"": 66, ""4"": 2664289}",17,27

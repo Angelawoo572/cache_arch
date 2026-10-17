@@ -1,0 +1,48 @@
+{
+  "protocol": "four602_frozen_live_20261017_v2",
+  "source": "/home/qianruw/cache/formal_study_20261017/source_v2",
+  "raw": "/home/qianruw/cache/formal_study_20261017/raw_v2",
+  "runtime": "/home/qianruw/cache/formal_study_20261017/runtime_v2",
+  "python": "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+  "simulator": "/home/qianruw/cache/external/ChampSim",
+  "simulator_base": "838be17e",
+  "trace": "/home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+  "model_root": "/home/qianruw/cache/formal_NN_training/experiments",
+  "stride_model": "/home/qianruw/cache/formal_study_20261016/research_output/raw_v2/models/seed7/balanced/export/model.bin",
+  "checkpoint_runs": {
+    "streamer": "602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+    "ampm": "602_offline_lstm_ampm_variable_delta_free_running_v7_seed7/colab_output/h8/model.pt",
+    "spp": "602_offline_lstm_spp_empirical_prior_hurdle_free_running_v2_seed7/colab_output/independent_delta_spp_lstm_h8/model.pt"
+  },
+  "train_records": [
+    0,
+    20000000
+  ],
+  "validation_records": [
+    20000000,
+    25000000
+  ],
+  "test_records": [
+    [
+      25000000,
+      50000000
+    ],
+    [
+      75000000,
+      100000000
+    ]
+  ],
+  "warmup_instructions": 5000000,
+  "phase_instructions": 5000000,
+  "jobs": 8,
+  "seed": 7,
+  "hidden_size": 8,
+  "macs": 0,
+  "page_policy": "cross_page",
+  "spp_native_fill_threshold": 90,
+  "spp_native_prefetch_threshold": 40,
+  "request_cap_selection": "one_credit_per_validation_NoPF_eligible_L2_LOAD; same_ceiling_not_same_actual_traffic",
+  "mechanism_selection": "validation_only_modal_count_and_joint_per_slot_delta_fill; address_only_no_PC",
+  "notes": "Keep original model input/state/decoder/fill semantics; original25-50M was already observed. No605. No weight updates. No decoder truncation or per-PC table imposed on global models.",
+  "analysis": "/home/qianruw/cache/formal_study_20261017/raw_v2/analysis_final"
+}

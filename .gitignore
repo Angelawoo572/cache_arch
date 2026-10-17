@@ -206,6 +206,12 @@ formal_NN_training/experiments/602_lstm_stride_live_inference/**/*.tar.gz
 *.model.txt
 *.build_info.txt
 
+# Tiny retained seed7/H8 checkpoints for the three verified 602 live siblings.
+# All training runs, traces and other generated checkpoints remain local.
+!formal_NN_training/experiments/602_lstm_streamer_live_inference/models/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_ampm_live_inference/models/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_spp_live_inference/models/original_checkpoint.pt
+
 # Colab transfer archives and extracted payloads move only via SCP/browser.
 # Source notebooks remain tracked; generated inputs, outputs, and models do not.
 **/*.colab_input.tar.gz
