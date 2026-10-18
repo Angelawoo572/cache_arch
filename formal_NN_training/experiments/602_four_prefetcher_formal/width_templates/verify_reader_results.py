@@ -56,7 +56,7 @@ def main():
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     for path in (args.source, args.metrics, args.pairs, args.pareto, args.output):
-        if path is not None and not path.resolve().is_relative_to(ROOT):
+        if path is not None and path.resolve() != ROOT and ROOT not in path.resolve().parents:
             raise ValueError("all reader files must stay inside cache")
     errors = []
     checks = 0
