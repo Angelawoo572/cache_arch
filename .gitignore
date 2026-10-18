@@ -248,3 +248,8 @@ formal_NN_training/experiments/**/colab_output/
 /docs/602_width_templates/method.png
 /docs/602_width_templates/method.svg
 /docs/602_width_templates/summary.csv
+
+# Compatible retained Stride/Streamer H16 models for the complete eight-model study.
+!formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/model.bin
+!formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/original_checkpoint.pt
+!formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/original_checkpoint.pt

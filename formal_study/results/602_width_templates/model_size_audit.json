@@ -1,0 +1,169 @@
+{
+  "status": "PASS",
+  "models_verified": 8,
+  "checkpoint_bytes_verified": true,
+  "no_simulation_or_training": true,
+  "checks": [
+    {
+      "policy": "stride",
+      "hidden_size": 8,
+      "model_path": "formal_study/archive/20261016/research_output/raw_v2/models/seed7/balanced/export/model.bin",
+      "checkpoint_path": "formal_study/archive/20261016/research_output/raw_v2/models/seed7/balanced/offline/model.pt",
+      "status": "PASS",
+      "format": "STRLSTM1",
+      "parameters": 1908,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 16,
+        "parameter_count": 1908,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "stride",
+      "hidden_size": 16,
+      "model_path": "formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "STRLSTM1",
+      "parameters": 5220,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 16,
+        "parameter_count": 5220,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "streamer",
+      "hidden_size": 8,
+      "model_path": "formal_NN_training/experiments/602_lstm_streamer_live_inference/models/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_streamer_live_inference/models/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "LV602R1",
+      "parameters": 2821,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 14,
+        "parameter_count": 2821,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "streamer",
+      "hidden_size": 16,
+      "model_path": "formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "LV602R1",
+      "parameters": 6653,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 14,
+        "parameter_count": 6653,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "ampm",
+      "hidden_size": 8,
+      "model_path": "formal_NN_training/experiments/602_lstm_ampm_live_inference/models/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_ampm_live_inference/models/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "LV602R1",
+      "parameters": 2821,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 14,
+        "parameter_count": 2821,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "ampm",
+      "hidden_size": 16,
+      "model_path": "formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_ampm_live_inference/models/h16/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "LV602R1",
+      "parameters": 6653,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 14,
+        "parameter_count": 6653,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "spp",
+      "hidden_size": 8,
+      "model_path": "formal_NN_training/experiments/602_lstm_spp_live_inference/models/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_spp_live_inference/models/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "LV602R1",
+      "parameters": 2865,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 16,
+        "parameter_count": 2865,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    },
+    {
+      "policy": "spp",
+      "hidden_size": 16,
+      "model_path": "formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/model.bin",
+      "checkpoint_path": "formal_NN_training/experiments/602_lstm_spp_live_inference/models/h16/original_checkpoint.pt",
+      "status": "PASS",
+      "format": "LV602R1",
+      "parameters": 6609,
+      "shape_contract_exact": true,
+      "FP32_values_finite": true,
+      "header_count_equals_tensor_sum": true,
+      "checkpoint": {
+        "status": "PASS",
+        "tensors": 16,
+        "parameter_count": 6609,
+        "all_FP32_tensor_bytes_equal_export": true
+      }
+    }
+  ],
+  "equations": {
+    "affine": "out \u00d7 in + out bias",
+    "lstm": "4H(D + H + 2): input/recurrent weights plus two biases",
+    "gru": "3H(D_decoder + H + 2)",
+    "stride": "11H\u00b2 + 150H + 4",
+    "streamer_ampm": "8H\u00b2 + 287H + 13",
+    "spp": "7H\u00b2 + 300H + 17",
+    "FP32_parameter_bytes": "4 \u00d7 sum(product(tensor shape))",
+    "hc_payload": "4H hidden + 4H cell = 8H bytes per state"
+  },
+  "boundaries": [
+    "A model.bin file includes headers, tensor names/shapes and payload; checkpoint serialization may include additional training data. Neither file size is resident FP32 parameter payload.",
+    "Stride shares one weight copy across up to 64 PC states; only h/c and state metadata multiply by capacity. Global routes retain one chronological h/c pair.",
+    "Stride 32-byte tag/controller/lifetime reservation per entry is a source-field accounting convention, not measured map-node storage; actual ABI/padding/STL allocation remains separate.",
+    "A shorter observation history changes state contents/update count, not fixed H, parameter count or configured state reservation. Fewer active PCs may change occupied entries, not the configured capacity.",
+    "Weights plus h/c is partial storage, not complete deployment memory and not synthesized area/energy/PPA. Scratch, queues, output, controller and allocator overhead need separate implementation accounting."
+  ]
+}

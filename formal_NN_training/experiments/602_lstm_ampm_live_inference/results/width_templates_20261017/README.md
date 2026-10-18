@@ -1,5 +1,6 @@
 # AMPM width/template formal subset
 
+- **Current H8/H16 results and controls:** [shared reader](../../../../../formal_study/results/602_width_templates/README.md). This subset preserves the earlier 88-row study; the additional 30-run completion is linked from that reader.
 - Complete policy rows plus three exact matched NoPF references: **30 rows**. Original protocols and result identities are retained; references are not new runs.
 
 - [Aggregate findings](../../../../../formal_study/results/602_width_templates/FINDINGS.md), [one-page story](../../../../../formal_study/results/602_width_templates/PAPER_STORY.md), [all88 labeled rows](../../../../../formal_study/results/602_width_templates/per_run.csv), [strict audit](../../../../../formal_study/results/602_width_templates/audit.json), [method](../../../../../formal_study/results/602_width_templates/method.svg).

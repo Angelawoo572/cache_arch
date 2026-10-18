@@ -49,13 +49,14 @@ def relation(nn_ipc, native_ipc, nn_cost, native_cost):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source", type=Path, default=BASE / "per_run.csv")
+    parser.add_argument("--completion-source", type=Path, default=BASE / "per_run_h16_completion.csv")
     parser.add_argument("--metrics", type=Path, default=BASE / "reader_metrics.csv")
     parser.add_argument("--pairs", type=Path, default=BASE / "reader_pairs.csv")
     parser.add_argument("--pareto", type=Path, default=BASE / "reader_pareto.csv")
     parser.add_argument("--require-pareto", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    for path in (args.source, args.metrics, args.pairs, args.pareto, args.output):
+    for path in (args.source, args.completion_source, args.metrics, args.pairs, args.pareto, args.output):
         if path is not None and path.resolve() != ROOT and ROOT not in path.resolve().parents:
             raise ValueError("all reader files must stay inside cache")
     errors = []
@@ -91,13 +92,17 @@ def main():
             good = False
         check(good, context, name, actual, expected if not isinstance(expected, Fraction) else float(expected))
 
-    source_headers, source_rows = read_csv(args.source)
-    check(len(source_rows) == 88, "source", "88 original rows", len(source_rows), 88)
+    source_headers, original_rows = read_csv(args.source)
+    check(len(original_rows) == 88, "source", "88 original rows", len(original_rows), 88)
+    completion_headers, completion_rows = read_csv(args.completion_source)
+    check(len(completion_rows) == 30, "completion source", "30 completed validation/test rows", len(completion_rows), 30)
+    source_rows = original_rows + completion_rows
+    check(len({r["result_id"] for r in source_rows}) == len(source_rows), "source", "unique provenance identities across rounds")
     selected = [r for r in source_rows
                 if r["stage"] == "test" and r["mode"] == "full"
                 and r["method"] in ("native", "student", "stride_student", "none")
                 and r["budget"] in ("0", "16144")]
-    check(len(selected) == 42, "source", "eligible core rows", len(selected), 42)
+    check(len(selected) == 50, "source", "eligible full-comparison rows", len(selected), 50)
     expected = {}
     for r in selected:
         rid = r["result_id"] or r["protocol"] + "::" + r["run_id"]
@@ -112,6 +117,9 @@ def main():
               rid, "complete/full MAC0 shared-page eligibility")
         check(r["warmup"] == "5000000" and r["build_id"] == "build_1792211655617683046",
               rid, "same archived actual build and warmup")
+        check(int(r["seed"]) == 7 and int(r["roi"]) in (0, 1) and
+              int(r["skip"]) == (20000000 if int(r["roi"]) == 0 else 70000000) and
+              abs(ins - 25000000) <= 4, rid, "same seed and full two-ROI contract")
         check(dram == int(r["raw__dram_read_bus_bytes"]) + int(r["raw__dram_write_bus_bytes"]),
               rid, "DRAM read/write byte sum")
         check(dram == int(r["raw__line_bytes"]) *
@@ -136,7 +144,10 @@ def main():
             check(math.isclose(float(r[field]), float(value), rel_tol=2e-12),
                   rid, "source formula " + field)
         if h == 16:
-            check(r["evidence_origin"] == "new_supplemental_run" and
+            completion = r["protocol"] == "four602_all_h16_20261017_v1"
+            check(r["protocol"] == ("four602_all_h16_20261017_v1" if r["policy"] in ("stride", "streamer") else "four602_width_templates_20261017_v1"),
+                  rid, "correct independent H16 round")
+            check(r["evidence_origin"] == ("new_H16_completion_run" if completion else "new_supplemental_run") and
                   r["baseline_reuse_is_explicit"] == "True" and
                   r["no_pf_protocol"] == "four602_frozen_live_20261017_v2",
                   rid, "explicit H16 reference reuse")
@@ -156,6 +167,8 @@ def main():
                  l2_load_mpki=Fraction(1000 * int(r["l2_load_misses"]), ins),
                  net_l2_load_miss_reduction=float(r["net_l2_load_miss_reduction"]),
                  net_llc_load_miss_reduction=float(r["net_llc_load_miss_reduction"]))
+        for field in ("inference_macs", "inference_nonlinears", "completed_updates", "model_weight_bytes", "recurrent_hc_bytes"):
+            e[field] = int(r[field]) if r.get(field) not in (None, "") else None
         for level, baseline_name in (("l2", "no_pf_L2_LOAD_misses"), ("llc", "no_pf_LLC_LOAD_misses")):
             n = int(r[level + "_target_enqueued"])
             timely = int(r[level + "_target_timely_load"])
@@ -165,6 +178,7 @@ def main():
             # NoPF has no prefetch cohort quality to evaluate.
             available = source_tracking_available and arm != "nopf"
             useful = timely + late
+            check(useful == int(r[level + "_target_LOAD_useful"]), rid, "source " + level + " LOAD useful partition")
             baseline = int(r[baseline_name])
             e.update({level + "_enqueued": n, level + "_timely_load": timely,
                       level + "_late_load": late, level + "_useful_load": useful,
@@ -187,11 +201,15 @@ def main():
               e["result_id"], "net L2 miss reduction")
     identity_counts = Counter("nopf" if e["arm"] == "nopf" else "H16" if e["hidden_size"] == 16 else "H8_native_or_NN"
                               for e in expected.values())
-    check(identity_counts == {"H8_native_or_NN": 32, "H16": 8, "nopf": 2},
+    check(identity_counts == {"H8_native_or_NN": 32, "H16": 16, "nopf": 2},
           "source", "core partitions", dict(identity_counts))
+    model_counts = Counter((e["policy"], e["hidden_size"])
+                           for e in expected.values() if e["arm"] == "nn")
+    check(model_counts == {(policy, h): 4 for policy in ("stride", "streamer", "ampm", "spp") for h in (8, 16)},
+          "source", "all eight actual models have two ROIs and two budgets", dict((str(k), v) for k, v in model_counts.items()))
 
     metrics_headers, metrics_rows = read_csv(args.metrics)
-    check(len(metrics_rows) == 42, "reader_metrics", "row count", len(metrics_rows), 42)
+    check(len(metrics_rows) == 50, "reader_metrics", "row count", len(metrics_rows), 50)
     seen = set()
     for row in metrics_rows:
         rid = row.get("result_id", "")
@@ -200,7 +218,7 @@ def main():
         if rid in expected:
             for name, value in expected[rid].items():
                 check_value(row, name, value, "reader_metrics:" + rid)
-    check(seen == set(expected), "reader_metrics", "exact 42 identities")
+    check(seen == set(expected), "reader_metrics", "exact 50 identities")
 
     pairs_expected = {}
     for e in expected.values():
@@ -228,9 +246,9 @@ def main():
                 for field in ("enqueued", "accuracy", "coverage_proxy", "timeliness"):
                     pair[prefix + level + "_" + field] = values[level + "_" + field]
         pairs_expected[key] = pair
-    check(len(pairs_expected) == 24, "source", "24 own-native pairs")
+    check(len(pairs_expected) == 32, "source", "32 own-native pairs")
     pair_headers, pair_rows = read_csv(args.pairs)
-    check(len(pair_rows) == 24, "reader_pairs", "row count", len(pair_rows), 24)
+    check(len(pair_rows) == 32, "reader_pairs", "row count", len(pair_rows), 32)
     pair_seen = set()
     for row in pair_rows:
         try:
@@ -242,9 +260,9 @@ def main():
         if key in pairs_expected:
             for name, value in pairs_expected[key].items():
                 check_value(row, name, value, "reader_pairs:" + str(key))
-    check(pair_seen == set(pairs_expected), "reader_pairs", "exact 16 H8 + 8 H16 pairs")
+    check(pair_seen == set(pairs_expected), "reader_pairs", "exact 16 H8 + 16 H16 pairs")
 
-    pareto_report = dict(status="not_available", expected_rows=160)
+    pareto_report = dict(status="not_available", expected_rows=176)
     if args.pareto.exists():
         pareto_headers, pareto_rows = read_csv(args.pareto)
         pareto_expected = {}
@@ -254,7 +272,7 @@ def main():
                     group = [e for e in expected.values()
                              if e["roi"] == roi and (e["arm"] == "nopf" or e["budget"] == budget)
                              and (candidate_set != "H8_only" or e["hidden_size"] != 16)]
-                    check(len(group) == (9 if candidate_set == "H8_only" else 11),
+                    check(len(group) == (9 if candidate_set == "H8_only" else 13),
                           candidate_set, "per-ROI/cap candidate count")
                     for cost_axis in ("requests_per_million_instructions", "dram_bus_bytes"):
                         for e in group:
@@ -264,7 +282,7 @@ def main():
                             key = (candidate_set, roi, budget, cost_axis, e["result_id"])
                             pareto_expected[key] = dict(x_cost=e[cost_axis], ipc=e["ipc"],
                                                        is_pareto=not dominated, actual_run_budget=e["budget"])
-        check(len(pareto_rows) == 160, "reader_pareto", "row count", len(pareto_rows), 160)
+        check(len(pareto_rows) == 176, "reader_pareto", "row count", len(pareto_rows), 176)
         seen_pareto = set()
         for row in pareto_rows:
             try:
@@ -293,6 +311,7 @@ def main():
     capped = [p for p in pairs_expected.values() if p["budget"] == 16144]
     capped_summary = {}
     for scope, values in (("H8", [p for p in capped if p["hidden_size"] == 8]),
+                          ("H16", [p for p in capped if p["hidden_size"] == 16]),
                           ("H8_plus_H16", capped)):
         capped_summary[scope] = dict(
             pairs=len(values),
@@ -314,6 +333,8 @@ def main():
     headline = dict(
         H8_capped=comparison_counts([p for p in all_pairs if p["hidden_size"] == 8 and p["budget"] == 16144]),
         H8_uncapped=comparison_counts([p for p in all_pairs if p["hidden_size"] == 8 and p["budget"] == 0]),
+        H16_capped=comparison_counts([p for p in all_pairs if p["hidden_size"] == 16 and p["budget"] == 16144]),
+        H16_uncapped=comparison_counts([p for p in all_pairs if p["hidden_size"] == 16 and p["budget"] == 0]),
         H16_all=comparison_counts([p for p in all_pairs if p["hidden_size"] == 16]))
     h16_lower_dram = [dict(policy=p["policy"], roi=p["roi"], budget=p["budget"],
                           ipc_gain_pct=float(p["ipc_gain_pct"]),
@@ -325,13 +346,11 @@ def main():
           headline["H8_capped"]["IPC_ties"] == 0, "root headline", "H8 capped 6/8 IPC wins")
     check(headline["H8_uncapped"]["pairs"] == 8 and headline["H8_uncapped"]["IPC_wins"] == 3 and
           headline["H8_uncapped"]["IPC_ties"] == 0, "root headline", "H8 uncapped 3/8 IPC wins")
-    check(headline["H16_all"]["pairs"] == 8 and headline["H16_all"]["IPC_wins"] == 8,
-          "root headline", "H16 8/8 IPC wins")
-    check(headline["H16_all"]["DRAM_increases"] == 7 and len(h16_lower_dram) == 1 and
-          h16_lower_dram[0]["policy"] == "spp" and h16_lower_dram[0]["roi"] == 1 and
-          h16_lower_dram[0]["budget"] == 16144, "root headline", "only capped ROI1 SPP H16 has lower DRAM")
+    check(headline["H16_all"]["pairs"] == 16 and headline["H16_capped"]["pairs"] == 8 and
+          headline["H16_uncapped"]["pairs"] == 8, "root headline", "complete H16 outcomes; no win assumed")
     report = dict(status="PASS" if not errors else "FAIL", checks=checks, errors=errors,
-                  source_rows=len(source_rows), reader_metric_rows=len(metrics_rows),
+                  source_rows=len(source_rows), original_source_rows=len(original_rows),
+                  completion_source_rows=len(completion_rows), reader_metric_rows=len(metrics_rows),
                   reader_pair_rows=len(pair_rows), identity_partitions=dict(identity_counts),
                   expected_NA_counts=dict(null_counts), pareto=pareto_report,
                   capped_own_native_comparisons=capped_summary, root_headline_checks=headline,

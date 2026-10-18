@@ -1,13 +1,54 @@
-# Supplementary evidence: Frozen H16 and capped-template supplement
+# Frozen H16: run and recovery
 
-- **Read first:** [project overview](../../../../RESULTS_INDEX.md) · [four-route native-versus-own-NN results](../../../../formal_study/results/602_width_templates/README.md), including IPC, accuracy, coverage, timeliness and Pareto comparisons.
-- **This page:** Secondary H16/template protocol, model contracts and recovery. Use the reader report above for the main result comparison.
+- **Read results:** [project overview](../../../../RESULTS_INDEX.md) · [H8/H16 native-versus-NN metrics and SVG figures](../../../../formal_study/results/602_width_templates/README.md).
+- **Active configuration:** [complete_h16.json](complete_h16.json), protocol `four602_all_h16_20261017_v1`; [controller](complete_h16.py) · [read-only analyzer](analyze_complete_h16.py).
+- **Action/history figures:** [plot_h16_completion.py](plot_h16_completion.py) reads all 32 completed NN tests and retained phase/snapshot CSVs; produces matching SVG/PNG and exact plot-data CSVs without simulation.
+- **Size explanation:** [Model size and inference state](../../../../formal_study/results/602_width_templates/README.md#model-size-and-inference-state) is the single calculation section: tensor counts → FP32 parameter bytes, with recurrent state and host overhead separate. No separate size document is needed.
+
+## Current Stride/Streamer H16 completion
+
+- Both compatible seed7 checkpoints were recovered; **no retraining**. Stride retains balanced loss, 0–1M, 12 epochs, shared weights/per-PC h/c. Streamer retains v7, 0–20M, 8 epochs and global h/c. Matching recipes do not imply identical training trajectories across widths.
+- **Completed and audited: 30/30 conditions = 2 validation + 28 complete test ROIs**. [Completion audit](../../../../formal_study/results/602_width_templates/audit_h16_completion.json). Tests: Stride/Streamer full NN or NN-free template × two ROIs × uncapped/cap16144 (16); Streamer/AMPM/SPP H16 fixed-payload or reset-state controls × two uncapped ROIs (12).
+- Reuse matching NoPF/native/forward-Stride, AMPM/SPP H16 full/template and frozen H8 controls with their original identities. The controller reuses byte-identical compatible NN-free controls instead of duplicating them.
+- Validation stays 20–25M; tests stay 25–50M and 75–100M, each after 5M cache warmup. MAC0, page/fill rules and cap16144 are unchanged. New templates use their own complete validation output only; no test fitting.
+- The actual certified v2 binary is unchanged. `prepare` compares the executable snapshot, compiled source, models and accepted parity certificates; it never substitutes a similar build or edits historical metadata.
+- **Status authority:** `controller.json`, per-run `run.json` and the final analyzer audit determine running/complete/reused/verified status. The archived controller is complete and the analyzer passed all 30 runs. Run `status` before recovery; do not duplicate completed conditions.
+
+```sh
+cd /home/qianruw/cache
+study_python=/home/qianruw/venvs/cache-few-nn-cpu/bin/python
+study_driver=formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/complete_h16.py
+completion_root=formal_study/runs/602_width_templates_20261017/stride_streamer_h16
+"$study_python" "$study_driver" status
+"$study_python" "$study_driver" prepare \
+  --stride-certificate "$completion_root/correctness/stride/compatibility_and_parity.json" \
+  --streamer-certificate "$completion_root/correctness/streamer/parity/parity_report.json"
+"$study_python" "$study_driver" all
+```
+
+- Stages: `prepare → validation → select → test`; `all` resumes the last three. `matrix` prints exact expected conditions. Keep the configured **8 jobs**; use existing SSH/environment without authentication or permission changes.
+- `prepare` requires the two explicit real-model, actual-C++ certificates above. It preserves their copies in `correctness_bound/`, plus frozen config/source/model bindings. Model files remain in the sibling `models/h16/` directories; exported copies are bound under the raw child's `models/`.
+- Preserve existing analysis directories; choose a **fresh** output path inside the raw child. This analyzer runs no training or simulation and publishes only named lightweight completion artifacts:
+
+```sh
+"$study_python" formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/analyze_complete_h16.py \
+  --raw "$completion_root" --out "$completion_root/analysis_recovery" --publish
+```
+
+- The analyzer requires all planned full conditions and complete final snapshots/callback records; incomplete data stays incomplete. Reused references are not extra runs. [Current reader builder](build_reader_results.py) updates the existing overview, tables and SVG/PNG figures after the audit passes.
+- **Full raw, local:** `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/`.
+- **Full raw, Sacramento:** `/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/`. Retain `runs/`, `correctness/`, `correctness_bound/`, `models/`, `templates/`, `protocol_source/`, `cost/`, runtime and logs together.
+- No pilot, history/capacity/quantization sweep, 605, online updates or engine redesign is part of this completion.
+
+## Preserved AMPM/SPP H16 study
+
+- The remaining sections describe the **earlier 24-row protocol**, not the active completion controller. Its [config.json](config.json), raw root, source bindings and original result identities remain frozen; do not rerun into completed outputs.
 
 - **Protocol:** `four602_width_templates_20261017_v1`; 24 new rows =2 validation + 22 tests, plus 64 explicitly bound H8 reference rows. No retraining or shared C++ change.
 - **Scope:** original seed 7 AMPM/SPP H16, 602, two ROIs, synchronous MAC0. H16 gains do not establish learned-payload necessity or finite-resource benefit; simple templates explain almost all gain. Keep negative/null results.
 - **Contracts:** [config](config.json), [driver](driver.py), [old replay alignment](EVIDENCE_ALIGNMENT.md), [method limits](../report/METHOD_LIMITATIONS.md), [canonical layout/recovery](../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md).
 
-## Matrix and selection
+### Matrix and selection
 
 | New rows | Full measurements |
 | --- | --- |
@@ -20,7 +61,7 @@
 - A shared ceiling is an upper bound, not equal realized cache requests or DRAM. Original and reused rows keep their own protocol/source identity.
 - H16 versus H8 uses independently trained retained widths, not a new paired-training or multi-seed experiment.
 
-## Exact model and execution boundary
+### Exact model and execution boundary
 
 | Original retained seed 7 model | FP32 parameters | Weights | Global h/c |
 | --- | ---: | ---: | ---: |
@@ -32,7 +73,7 @@
 - No imposed global degree cap, FIFO or finite service model. MAC0 IPC and aggregate analytical MAC4 work ratios do not measure finite-resource IPC.
 - Native SPP receives prefetch-fill feedback only; the student receives all raw L2 fills. Its internal same-page/confidence destinations remain native. L2/LLC first-source-intent cohorts are separate, not final physical fill or all-level usefulness.
 
-## Training exposure and live history
+### Training exposure and live history
 
 - Both H16 models were trained on 0–20M,8 epochs. Old AMPM inference started fresh at guard 20M then continued evaluation; old SPP started fresh before complete train→guard→evaluation chronology. Those old states are not loaded here.
 - Every live run starts zero h/c at the beginning of its 5M cache warmup. Validation warms 15–20M/measures 20–25M; ROI0 warms 20–25M/measures 25–50M; ROI1 warms 70–75M/measures 75–100M.
@@ -40,7 +81,7 @@
 - Warmup updates are reported separately;5M instructions is not 5M state updates. ROI callback/completion axes are not training amount, per-PC history or a minimum-observation claim.
 - ROI0 was already observed in historical work; ROI1 is future. H8 formal references used the same 5M live warmup rule, while old offline/replay curves used different histories.
 
-## Run, restore and resume
+### Run, restore and resume
 
 - Canonical source: cache root (`/home/qianruw/cache` on Sacramento); run root: `formal_study/runs/602_width_templates_20261017`. All temporary/compiler/Python/plot caches stay in that run's `runtime/`.
 - Use the existing CPU Torch environment and canonical-path launcher; it translates historical decoded path strings in memory, without changing archived JSON or model/protocol controls.
@@ -62,7 +103,7 @@ study_driver=formal_NN_training/experiments/602_four_prefetcher_formal/width_tem
 - Per run retain `run.json`, complete summaries/snapshots/logs, frozen student bytes or template text/path; uncapped full students retain callback CSVs. Compatible old rows are reused without relabeling them as new measurements.
 - Removed dated top-level aliases must not be recreated. For a local read-only gate add `--local --check` before the driver path; see [layout/recovery](../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md).
 
-## Host storage and analytical work
+### Host storage and analytical work
 
 - [profile_cost.py](profile_cost.py) starts no simulator. Via the same canonical launcher, it compiles the existing storage probe against actual archived runtime/native headers and reuses the accepted AMPM 4104/SPP 4112 correctness fixtures.
 - [Cost fields](../../../../formal_study/results/602_width_templates/cost_fields_h16.json) retain headers, C++ `sizeof`, persistent requested `new/new[]` bytes and fixture-observed allocation peaks; source/input/compiler evidence remains in the raw `cost/` directory.

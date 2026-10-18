@@ -9,10 +9,19 @@
 | Shared lightweight results | `formal_study/results/602_width_templates` |
 | First formal, gate study and local recovery donor | `formal_study/archive/20261016` |
 | Four-route v1/v2, separately preserved | `formal_study/archive/20261017` |
-| H16 and capped H8-template raw runs | `formal_study/runs/602_width_templates_20261017` |
+| Original AMPM/SPP H16 and capped H8-template raw | `formal_study/runs/602_width_templates_20261017` |
+| Current Stride/Streamer H16 completion raw | `formal_study/runs/602_width_templates_20261017/stride_streamer_h16` |
 | Rename evidence and restoration maps | `formal_study/migration` |
 | Original offline training experiments | `formal_NN_training/experiments` |
 | Traces and matching simulator dependencies | `traces`, `external/ChampSim` |
+
+## Current H16 completion
+
+- Active config: [complete_h16.json](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/complete_h16.json); [run/recovery commands](../../formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md#current-stridestreamer-h16-completion). Earlier `width_templates/config.json` and parent H8 `config.json` remain historical, with their original protocol identities.
+- The completed, audited 30-condition extension uses recovered Stride/Streamer H16 weights, unchanged certified binary, two complete 25M ROIs, 5M cache warmup, MAC0 and 8 jobs. Native/NoPF and compatible controls are reused; validation alone freezes new templates.
+- Restore the new raw child with its `protocol_source/`, model/template bindings and both accepted certificates: `correctness/stride/compatibility_and_parity.json` and `correctness/streamer/parity/parity_report.json`. `prepare` binds them before validation/select/test.
+- Inspect `controller.json` and per-run `run.json`; only the analyzer's audit establishes verification. Do not infer completion from the expected matrix or launch a second active controller. Preserve existing analysis outputs and choose a fresh child directory for recovery analysis.
+- Model-size calculation is consolidated in [Model size and inference state](../../formal_study/results/602_width_templates/README.md#model-size-and-inference-state): actual tensor parameters → FP32 bytes, separate global/per-PC h/c and host overhead. SVG/PNG share sources; storage is not synthesized area.
 
 ## Retained paths and launcher
 
@@ -24,7 +33,7 @@
 - Use the launcher for retained drivers reading old build/binding JSON, including `profile_cost.py`. Direct historical commands may reference removed date names.
 - The complete **24-row** local/Sacramento binding checks passed without the removed date-root aliases. The work compatibility pointer above is a separate requirement for the recorded source paths.
 
-- On Sacramento, run retained commands from the cache root through the existing CPU environment:
+- Historical 24-row status check, through the existing Sacramento CPU environment:
 
 ```sh
 study_python=/home/qianruw/venvs/cache-few-nn-cpu/bin/python
@@ -57,8 +66,8 @@ python3 -B docs/602_width_templates/canonical_paths.py --local --check \
 - Restore `formal_study/work/cache_gate_mechanism -> ../..` and the historical internal archived-checkout pointer. Use the launcher for old date paths; do not recreate date-root aliases.
 - If the cache root changes, update only the active Git alternate to the retained donor, then run `git fsck --connectivity-only` in the healthy checkout. Preserve archived metadata.
 - For a genuinely new experiment, change only its new active destination settings; preserve completed config/source and archived metadata under their existing raw identity.
-- Active configuration is `formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/config.json`. The parent `config.json` retains the old H8 protocol and recorded paths; recover it through the launcher, never rerun into its completed raw root.
-- New runtime/temp/matplotlib/Python-cache files belong under `formal_study/runs/602_width_templates_20261017/runtime`. Original offline sibling paths stay unchanged.
+- Active configuration is `formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/complete_h16.json`. The earlier width `config.json` and parent H8 `config.json` retain frozen protocols/recorded paths; recover them through the launcher without rerunning into completed raw roots.
+- Current runtime/temp/matplotlib/Python-cache files belong under `formal_study/runs/602_width_templates_20261017/stride_streamer_h16/runtime`; older runtime and original offline sibling paths stay unchanged.
 - The new driver reuses the archived actual binary only after checking executable, compiled source, controls and reference bytes. Its parity probe compiles from that actual core; old builds and row identities are not overwritten.
 - `consolidate_remote.py` records the guarded one-time Sacramento rename and refuses to overwrite an existing canonical archive. Bulky per-file evidence is local/server only.
 

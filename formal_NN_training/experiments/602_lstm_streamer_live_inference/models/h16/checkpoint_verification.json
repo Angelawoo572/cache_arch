@@ -1,0 +1,177 @@
+{
+  "status": "PASS",
+  "policy": "streamer",
+  "hidden_size": 16,
+  "seed": 7,
+  "compatible_retained_checkpoint": true,
+  "trained_this_round": false,
+  "source_checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h16/model.pt",
+  "source_metadata": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h16/run_metadata.json",
+  "source_training_history": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_output/h16/training_history.csv",
+  "weight_training_instruction_interval": [
+    0,
+    20000000
+  ],
+  "training_epochs": 8,
+  "training_rows": 325389,
+  "chunk_length": 1024,
+  "optimizer_step_every_chunks": 32,
+  "training_recipe_evidence": "Same original v7 collection run and train stream identity as current H8; linux/run_server.sh collect train_prefix 0 20000000; retained history epochs1..8.",
+  "input_contract": "64 LSB-first aligned byte-address bits; no PC",
+  "state_scope": "one global chronological FP32 h/c pair",
+  "decoder": "Poisson floor-softplus K, free-running GRU mixture mode, L2 fill",
+  "parameter_count": 6653,
+  "fp32_parameter_bytes": 26612,
+  "recurrent_hc_bytes": 128,
+  "tensors": [
+    {
+      "name": "lstm.weight_ih_l0",
+      "shape": [
+        64,
+        64
+      ],
+      "parameters": 4096,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "lstm.weight_hh_l0",
+      "shape": [
+        64,
+        16
+      ],
+      "parameters": 1024,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "lstm.bias_ih_l0",
+      "shape": [
+        64
+      ],
+      "parameters": 64,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "lstm.bias_hh_l0",
+      "shape": [
+        64
+      ],
+      "parameters": 64,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.count_head.weight",
+      "shape": [
+        1,
+        16
+      ],
+      "parameters": 16,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.count_head.bias",
+      "shape": [
+        1
+      ],
+      "parameters": 1,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.initial_state.weight",
+      "shape": [
+        16,
+        16
+      ],
+      "parameters": 256,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.initial_state.bias",
+      "shape": [
+        16
+      ],
+      "parameters": 16,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.action_cell.weight_ih",
+      "shape": [
+        48,
+        1
+      ],
+      "parameters": 48,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.action_cell.weight_hh",
+      "shape": [
+        48,
+        16
+      ],
+      "parameters": 768,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.action_cell.bias_ih",
+      "shape": [
+        48
+      ],
+      "parameters": 48,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.action_cell.bias_hh",
+      "shape": [
+        48
+      ],
+      "parameters": 48,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.delta_head.weight",
+      "shape": [
+        12,
+        16
+      ],
+      "parameters": 192,
+      "dtype": "torch.float32",
+      "finite": true
+    },
+    {
+      "name": "decoder.delta_head.bias",
+      "shape": [
+        12
+      ],
+      "parameters": 12,
+      "dtype": "torch.float32",
+      "finite": true
+    }
+  ],
+  "actual_compiled_runtime_bindings": [
+    {
+      "actual": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/live602_runtime.h",
+      "retained_compiled_source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/compiled_source/inc/live602_runtime.h",
+      "correctness_source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/source/live602_runtime.h",
+      "bytes": 1690,
+      "byte_equal": true
+    },
+    {
+      "actual": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+      "retained_compiled_source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/compiled_source/prefetcher/live602_runtime.cc",
+      "correctness_source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/source/live602_runtime.cc",
+      "bytes": 10625,
+      "byte_equal": true
+    }
+  ]
+}

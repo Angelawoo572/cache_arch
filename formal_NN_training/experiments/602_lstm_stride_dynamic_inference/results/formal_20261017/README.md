@@ -1,6 +1,6 @@
 # stride formal v2 result subset
 
-- **Current reader comparison:** [four native prefetchers versus H8 NN, with separate H16 results](../../../../../formal_study/results/602_width_templates/README.md). This archive retains its original protocol and row values.
+- **Current reader comparison:** [four native prefetchers versus all H8/H16 NNs](../../../../../formal_study/results/602_width_templates/README.md). This archive retains its original protocol and row values.
 
 - Protocol: `four602_frozen_live_20261017_v2`. This is an exact row/field subset of the complete64-row archive, containing this policy and its same-build, same-split, same-ROI matched NoPF controls. It does not import any old replay, old live, first-formal or superseded-v1 row.
 

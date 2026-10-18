@@ -1,18 +1,20 @@
 {
   "status": "PASS",
-  "checks": 6976,
+  "checks": 9068,
   "errors": [],
-  "source_rows": 88,
-  "reader_metric_rows": 42,
-  "reader_pair_rows": 24,
+  "source_rows": 118,
+  "original_source_rows": 88,
+  "completion_source_rows": 30,
+  "reader_metric_rows": 50,
+  "reader_pair_rows": 32,
   "identity_partitions": {
     "H8_native_or_NN": 32,
     "nopf": 2,
-    "H16": 8
+    "H16": 16
   },
   "expected_NA_counts": {
-    "llc_accuracy": 30,
-    "llc_timeliness": 30,
+    "llc_accuracy": 38,
+    "llc_timeliness": 38,
     "l2_accuracy": 4,
     "l2_coverage_proxy": 2,
     "l2_timeliness": 4,
@@ -20,8 +22,8 @@
   },
   "pareto": {
     "status": "checked",
-    "rows": 160,
-    "exact_nondominated": 73
+    "rows": 176,
+    "exact_nondominated": 83
   },
   "capped_own_native_comparisons": {
     "H8": {
@@ -33,12 +35,21 @@
       "DRAM_ties": 0,
       "DRAM_decreases": 0
     },
+    "H16": {
+      "pairs": 8,
+      "IPC_wins": 8,
+      "IPC_ties": 0,
+      "IPC_losses": 0,
+      "DRAM_increases": 7,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 1
+    },
     "H8_plus_H16": {
-      "pairs": 12,
-      "IPC_wins": 10,
+      "pairs": 16,
+      "IPC_wins": 14,
       "IPC_ties": 0,
       "IPC_losses": 2,
-      "DRAM_increases": 11,
+      "DRAM_increases": 15,
       "DRAM_ties": 0,
       "DRAM_decreases": 1
     }
@@ -62,12 +73,30 @@
       "DRAM_ties": 0,
       "DRAM_decreases": 1
     },
-    "H16_all": {
+    "H16_capped": {
       "pairs": 8,
       "IPC_wins": 8,
       "IPC_ties": 0,
       "IPC_losses": 0,
       "DRAM_increases": 7,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 1
+    },
+    "H16_uncapped": {
+      "pairs": 8,
+      "IPC_wins": 8,
+      "IPC_ties": 0,
+      "IPC_losses": 0,
+      "DRAM_increases": 8,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 0
+    },
+    "H16_all": {
+      "pairs": 16,
+      "IPC_wins": 16,
+      "IPC_ties": 0,
+      "IPC_losses": 0,
+      "DRAM_increases": 15,
       "DRAM_ties": 0,
       "DRAM_decreases": 1
     },

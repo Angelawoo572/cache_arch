@@ -1,0 +1,75 @@
+{
+  "status": "PASS",
+  "full_NN_test_rows": 32,
+  "hidden_widths": [
+    8,
+    16
+  ],
+  "rois": [
+    0,
+    1
+  ],
+  "budgets": [
+    0,
+    16144
+  ],
+  "source_histogram_rows": 272,
+  "exact_slot_rows": 398,
+  "phase_rows": 160,
+  "saved_snapshots": 8096,
+  "figures": [
+    "actions_all_widths_roi0_cap0",
+    "actions_all_widths_roi0_cap16144",
+    "actions_all_widths_roi1_cap0",
+    "actions_all_widths_roi1_cap16144",
+    "slots_all_widths_roi0_cap0",
+    "slots_all_widths_roi0_cap16144",
+    "slots_all_widths_roi1_cap0",
+    "slots_all_widths_roi1_cap16144",
+    "phase_actions_all_widths_roi0_cap0",
+    "phase_actions_all_widths_roi0_cap16144",
+    "phase_actions_all_widths_roi1_cap0",
+    "phase_actions_all_widths_roi1_cap16144",
+    "history_all_h16_roi0_cap0",
+    "history_all_h16_roi0_cap16144",
+    "history_all_h16_roi1_cap0",
+    "history_all_h16_roi1_cap16144"
+  ],
+  "figure_formats": [
+    "svg",
+    "png"
+  ],
+  "no_simulation": true,
+  "source_files_modified": false,
+  "full_ROI_not_prefix": true,
+  "exact_slot_conservation": true,
+  "sources": [
+    "formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/action_histograms.csv",
+    "formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/action_histograms_full_roi.csv",
+    "formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/phase_progress.csv",
+    "formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/progress_snapshots.csv",
+    "formal_study/results/602_width_templates/action_histograms.csv",
+    "formal_study/results/602_width_templates/action_histograms_full_roi.csv",
+    "formal_study/results/602_width_templates/action_histograms_full_roi_h16_completion.csv",
+    "formal_study/results/602_width_templates/action_histograms_h16_completion.csv",
+    "formal_study/results/602_width_templates/per_run.csv",
+    "formal_study/results/602_width_templates/per_run_h16_completion.csv",
+    "formal_study/results/602_width_templates/phase_progress.csv",
+    "formal_study/results/602_width_templates/phase_progress_h16_completion.csv",
+    "formal_study/results/602_width_templates/progress_snapshots.csv",
+    "formal_study/results/602_width_templates/progress_snapshots_h16_completion.csv"
+  ],
+  "plot_data": [
+    "action_plot_data_h16_completion.csv",
+    "slot_support_h16_completion.csv",
+    "phase_plot_data_h16_completion.csv",
+    "startup_plot_data_h16_completion.csv"
+  ],
+  "limits": [
+    "Seed7 only; MAC0 synchronous inference, not a finite-cost IPC forecast.",
+    "K uses demand decisions; SPP fill callbacks advance recurrent state separately.",
+    "Raw decoded slots precede current-line, page and credit filtering; decoded intent is not tracked cohort fate.",
+    "Execution progress is separate from training data and required history; no first-crossing or extrapolation claim.",
+    "Saved phase IPC ends at 25M; terminal +2/+3 retired instructions share the final cycle. Cumulative IPC uses exact final instructions."
+  ]
+}

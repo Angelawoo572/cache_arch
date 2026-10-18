@@ -1,22 +1,24 @@
-# 602 Stride training-prefix sufficiency
+# Frozen Stride: H8/H16 live inference and retained prefix study
 
 - **Current H8 IPC vs native (ROI0 / ROI1):** uncapped **+10.5132% / +12.7415%**; cap 16,144 requests/M **+10.5132% / +14.4433%**.
-- **H16 availability:** no H16 result exists in this common live protocol. Earlier width/replay evidence is separate; it cannot substitute for a matched live comparison.
+- **H16 IPC vs native (ROI0 / ROI1):** uncapped **+10.6206% / +14.9462%**; cap 16,144 requests/M **+10.6206% / +16.6813%**. Full matched live results, original seed7 weights; [measurements](../../../formal_study/results/602_width_templates/README.md).
 - **H8 capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 28.97% → 48.68% / 41.60% → 66.91%; useful/NoPF L2-miss ratio 17.23% → 58.20% / 42.01% → 68.68%; timeliness 99.4915% → 99.9425% / 43.1679% → 62.9265%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
 - **H8 capped traffic:** actual requests/M are 4,833.44 → 9,717.16 / 14,105.32 → 14,337.28; NN DRAM bytes change by +1.4516% / +4.5765% versus native. The common ceiling does not match actual requests.
-- **Scope:** 602, retained seed7, frozen H8 weights, per-PC h/c and its existing 64-entry engine limits, synchronous MAC0. These comparisons do not establish finite-resource benefit or cross-seed/workload robustness.
+- **Scope:** 602, retained seed7, frozen H8/H16 weights, per-PC h/c and its existing 64-entry engine limits, synchronous MAC0. These comparisons do not establish finite-resource benefit or cross-seed/workload robustness.
 - **Read the measurements:** [native-versus-NN results](../../../formal_study/results/602_width_templates/README.md) · [per-arm metrics](../../../formal_study/results/602_width_templates/reader_metrics.csv) · [paired comparisons](../../../formal_study/results/602_width_templates/reader_pairs.csv) · [H8 route archive](../602_lstm_stride_dynamic_inference/results/formal_20261017/README.md).
 
 ## Current frozen live-inference model
 
+- **Matched H16:** [checkpoint/export](models/h16/), [recipe verification](models/h16/compatibility.json). Original balanced seed7, 0–1M, 12 epochs; training input bytes match current H8. H16 has 5,220 parameters = 20,880 FP32 bytes, plus 128 h/c bytes per PC (64-entry capacity). [Actual-build parity preparation](validation/prepare_retained_h16.py).
+
 - The current four-route formal study uses the actual balanced seed7/h8 checkpoint from the completed first formal run, not a keyed replay file or a new model.
 - Its local checkpoint is `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261016/research_output/raw_v2/models/seed7/balanced/offline/model.pt` (25,134 bytes).
 - The actual portable file is the adjacent `export/model.bin` (8,372 bytes), with `export/model_metadata.json`; the Sacramento prefix is `/home/qianruw/cache/formal_study/archive/20261016/research_output/raw_v2`.
-- The formal binary stays at that existing Stride model path.
+- The H8 portable export remains at that original path; H16 uses the separate verified export above.
 - It is not copied from a Streamer/AMPM/SPP model, and the three newer sibling checkpoint copies do not replace it.
 - Preserve this original raw model directory for reproduction.
 
-- The model has 1,908 FP32 parameters (7,632 resident weight bytes), a 128-feature PC-plus-aligned-byte-address input, tanh projection `128 → 8`, LSTM h8, a two-logit hurdle gate and positive exp-count, and a scalar-delta autoregressive GRU.
+- The H8 model has 1,908 FP32 parameters (7,632 resident weight bytes), a 128-feature PC-plus-aligned-byte-address input, tanh projection `128 → 8`, LSTM h8, a two-logit hurdle gate and positive exp-count, and a scalar-delta autoregressive GRU.
 - PC and address bits are LSB-first; address means `cache_line << 6`.
 - Gate ties choose silence; a positive gate uses nearest/ties-even rounded exp-count with minimum 1 and a checked int64 host domain.
 - Each delta uses signed `expm1` and ties-even rounding, then wraps in the 58-bit line domain.

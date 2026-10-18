@@ -1,0 +1,25 @@
+{
+  "protocol": "four602_all_h16_20261017_v1",
+  "raw": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16",
+  "reference_raw": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2",
+  "width_raw": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017",
+  "trace": "/home/qianruw/cache/traces/602.gcc_s-734B.champsimtrace.xz",
+  "python": "/home/qianruw/venvs/cache-few-nn-cpu/bin/python",
+  "base": "838be17e",
+  "jobs": 8,
+  "seed": 7,
+  "macs": 0,
+  "common_cap": 16144,
+  "page_policy": "cross_page",
+  "validation_records": [20000000, 25000000],
+  "test_records": [[25000000, 50000000], [75000000, 100000000]],
+  "warmup_instructions": 5000000,
+  "phase_instructions": 5000000,
+  "models": {
+    "stride": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/model.bin",
+    "streamer": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/model.bin",
+    "ampm": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/ampm_h16/model.bin",
+    "spp": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/models/spp_h16/model.bin"
+  },
+  "notes": "Complete every current H8 condition at H16: Stride full; global full/template at both budgets; global fixed_payload/reset_state uncapped. Existing AMPM/SPP full/template runs and native/NoPF/forward Stride references are reused with original identities. Add a validation-only Stride H16 unconditional template; exact NN-free controls are deduplicated. No test selection, training unless retained compatible checkpoint missing, pilot, sweep or engine change."
+}

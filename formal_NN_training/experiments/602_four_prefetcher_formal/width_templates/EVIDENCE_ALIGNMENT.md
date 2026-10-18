@@ -6,6 +6,8 @@
 - **Supplemental H16 result:** the recovered models beat native baselines in the measured live MAC0 matrix. Simple templates reproduce nearly all of that IPC gain. The recovered AMPM/SPP seed7 models passed Python/C++ checks and the 24-run live supplement. See the [current results](../../../../RESULTS_INDEX.md) for the conclusion and [paired data](../../../../formal_study/results/602_width_templates/summary.csv) for exact values.
 - **This page aligns evidence; it does not combine protocols.** Old slides report offline inference followed by keyed replay. The newer study runs frozen weights on actual live callbacks. Finite-resource benefit remains unproven.
 
+- **Current completion:** all four H8/H16 routes now have matched live results. The additional 30-run completion and mechanism controls are in the [current reader](../../../../formal_study/results/602_width_templates/README.md); the historical replay tables below remain unchanged.
+
 ## What the old replay report actually showed
 
 | Old keyed-replay IPC | Teacher | NN H8 | NN H16 |
@@ -32,7 +34,7 @@
 | Controls / cost | Own replayed teacher; no NN execution cost | NoPF/native/H8/templates; uncapped or 16,144 requests/M; MAC0 |
 | Quality / traffic | Legacy aggregate counters; requests are not DRAM bytes | Separate tracked L2/LLC cohorts and actual DRAM counters |
 
-- The latest supplement has **24 new runs** (2 validation + 22 test) and **64 explicitly reused references**. It is one retained seed7, not a new multi-seed experiment. [Matrix and state contract](README.md) · [correctness gate](../../../../formal_study/results/602_width_templates/metadata/correctness_gate.json) · [all labeled rows](../../../../formal_study/results/602_width_templates/per_run.csv).
+- The preserved AMPM/SPP supplement has **24 new runs** (2 validation + 22 test) and **64 explicitly reused references**. It is one retained seed7, not a new multi-seed experiment. [Matrix and state contract](README.md) · [correctness gate](../../../../formal_study/results/602_width_templates/metadata/correctness_gate.json) · [all labeled rows](../../../../formal_study/results/602_width_templates/per_run.csv).
 
 ## Three corrections when reading the old slides
 

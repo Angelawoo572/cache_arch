@@ -1,0 +1,425 @@
+{
+  "schema": "model_size_streamer_h16_actual_host_v1",
+  "status": "PASS",
+  "policy": "streamer",
+  "hidden_size": 16,
+  "simulator": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator",
+  "compiler": "g++ (GCC) 8.5.0 20210514 (Red Hat 8.5.0-28)",
+  "compile_command": [
+    "g++",
+    "-std=c++11",
+    "-O3",
+    "-ffp-contract=off",
+    "-I/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc",
+    "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+    "/home/qianruw/cache/formal_NN_training/experiments/602_four_prefetcher_formal/validation/storage_probe.cc",
+    "-o",
+    "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/runtime/storage_probe"
+  ],
+  "model": {
+    "parameters": 6653,
+    "fp32_weight_bytes": 26612,
+    "global_hc_bytes": 128,
+    "hidden_size": 16,
+    "features": 64,
+    "fill_classes": 0
+  },
+  "sizeof": {
+    "live602::Config": 72,
+    "live602::State": 48,
+    "live602::Action": 32,
+    "live602::Result": 136,
+    "live602::Live602Runtime": 168,
+    "Prefetcher": 40,
+    "Stream_Tracker": 24,
+    "Streamer": 200,
+    "Bitmap": 8,
+    "AMPM_PB_Entry": 16,
+    "AMPM": 1320,
+    "SIGNATURE_TABLE": 4352,
+    "PATTERN_TABLE": 18432,
+    "PREFETCH_FILTER": 10240,
+    "GLOBAL_REGISTER": 160,
+    "SPP_dev2": 33432
+  },
+  "host_allocations": {
+    "runtime_object_bytes": 168,
+    "persistent_requested_bytes": 28428,
+    "object_plus_persistent_requested_bytes": 28596,
+    "constructor_peak_requested_bytes": 37844,
+    "constructor_allocation_calls": 112,
+    "max_infer_incremental_peak_requested_bytes": 948,
+    "max_returned_result_requested_bytes": 256,
+    "max_actions_vector_capacity": 4,
+    "residual_after_runtime_destruction": 0
+  },
+  "fixture": {
+    "callbacks": 8236,
+    "actions": 24690,
+    "reset_segments": 4,
+    "segment_lengths": [
+      4110,
+      4110,
+      8,
+      8
+    ],
+    "max_count": 3,
+    "macs": 69296032,
+    "nonlinears": 2107462,
+    "bound_to_passed_parity": true
+  },
+  "source_parity": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/parity/parity_report.json",
+  "bindings": [
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/prefetcher/live602_runtime.cc",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/live602_runtime.cc",
+      "bytes": 10625,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_four_prefetcher_formal/validation/storage_probe.cc",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/storage_probe.cc",
+      "bytes": 6309,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/live602_runtime.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/live602_runtime.h",
+      "bytes": 1690,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/streamer.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/streamer.h",
+      "bytes": 1292,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/ampm.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/ampm.h",
+      "bytes": 1537,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/bitmap.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/bitmap.h",
+      "bytes": 1148,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/prefetcher.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/prefetcher.h",
+      "bytes": 472,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/spp_dev2.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/spp_dev2.h",
+      "bytes": 1244,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator/inc/spp_dev2_helper.h",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/native_headers/spp_dev2_helper.h",
+      "bytes": 4180,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/model.bin",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/model.bin",
+      "bytes": 27126,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/parity/commands.txt",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/commands.txt",
+      "bytes": 138607,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/parity/cpp.jsonl",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/cpp.jsonl",
+      "bytes": 6701759,
+      "byte_equal": true
+    },
+    {
+      "source": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/parity/parity_report.json",
+      "preserved_copy": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/cost/streamer_h16_host/source/parity_report.json",
+      "bytes": 2172,
+      "byte_equal": true
+    }
+  ],
+  "segments": [
+    {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 6653,
+        "fp32_weight_bytes": 26612,
+        "global_hc_bytes": 128,
+        "hidden_size": 16,
+        "features": 64,
+        "fill_classes": 0
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 28428,
+        "object_plus_persistent_requested_bytes": 28596,
+        "constructor_peak_requested_bytes": 37844,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 948,
+        "max_returned_result_requested_bytes": 256,
+        "max_actions_vector_capacity": 4,
+        "inference_allocation_calls": 102726,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4110,
+        "demand_callbacks": 4110,
+        "fill_callbacks": 0,
+        "actions": 12324,
+        "max_count": 3,
+        "macs": 34583712,
+        "nonlinears": 1051842,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 852,
+          "returned_result_requested_bytes": 160,
+          "count": 1,
+          "macs": 6400,
+          "nonlinears": 150
+        }
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "segment": 0,
+      "passed_fixture_match": {
+        "callbacks": 4110,
+        "actions": 12324,
+        "macs": 34583712,
+        "nonlinears": 1051842,
+        "demand_callbacks": 4110,
+        "fill_callbacks": 0
+      }
+    },
+    {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 6653,
+        "fp32_weight_bytes": 26612,
+        "global_hc_bytes": 128,
+        "hidden_size": 16,
+        "features": 64,
+        "fill_classes": 0
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 28428,
+        "object_plus_persistent_requested_bytes": 28596,
+        "constructor_peak_requested_bytes": 37844,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 948,
+        "max_returned_result_requested_bytes": 256,
+        "max_actions_vector_capacity": 4,
+        "inference_allocation_calls": 102726,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 4110,
+        "demand_callbacks": 4110,
+        "fill_callbacks": 0,
+        "actions": 12324,
+        "max_count": 3,
+        "macs": 34583712,
+        "nonlinears": 1051842,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 852,
+          "returned_result_requested_bytes": 160,
+          "count": 1,
+          "macs": 6400,
+          "nonlinears": 150
+        }
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "segment": 1,
+      "passed_fixture_match": {
+        "callbacks": 4110,
+        "actions": 12324,
+        "macs": 34583712,
+        "nonlinears": 1051842,
+        "demand_callbacks": 4110,
+        "fill_callbacks": 0
+      }
+    },
+    {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 6653,
+        "fp32_weight_bytes": 26612,
+        "global_hc_bytes": 128,
+        "hidden_size": 16,
+        "features": 64,
+        "fill_classes": 0
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 28428,
+        "object_plus_persistent_requested_bytes": 28596,
+        "constructor_peak_requested_bytes": 37844,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 948,
+        "max_returned_result_requested_bytes": 256,
+        "max_actions_vector_capacity": 4,
+        "inference_allocation_calls": 188,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 8,
+        "demand_callbacks": 8,
+        "fill_callbacks": 0,
+        "actions": 21,
+        "max_count": 3,
+        "macs": 64304,
+        "nonlinears": 1889,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 852,
+          "returned_result_requested_bytes": 160,
+          "count": 1,
+          "macs": 6400,
+          "nonlinears": 150
+        }
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "segment": 2,
+      "passed_fixture_match": {
+        "callbacks": 8,
+        "actions": 21,
+        "macs": 64304,
+        "nonlinears": 1889,
+        "demand_callbacks": 8,
+        "fill_callbacks": 0
+      }
+    },
+    {
+      "schema": "live602_host_requested_allocations_v1",
+      "sizeof": {
+        "live602::Config": 72,
+        "live602::State": 48,
+        "live602::Action": 32,
+        "live602::Result": 136,
+        "live602::Live602Runtime": 168,
+        "Prefetcher": 40,
+        "Stream_Tracker": 24,
+        "Streamer": 200,
+        "Bitmap": 8,
+        "AMPM_PB_Entry": 16,
+        "AMPM": 1320,
+        "SIGNATURE_TABLE": 4352,
+        "PATTERN_TABLE": 18432,
+        "PREFETCH_FILTER": 10240,
+        "GLOBAL_REGISTER": 160,
+        "SPP_dev2": 33432
+      },
+      "model": {
+        "parameters": 6653,
+        "fp32_weight_bytes": 26612,
+        "global_hc_bytes": 128,
+        "hidden_size": 16,
+        "features": 64,
+        "fill_classes": 0
+      },
+      "host_allocations": {
+        "runtime_object_bytes": 168,
+        "persistent_requested_bytes": 28428,
+        "object_plus_persistent_requested_bytes": 28596,
+        "constructor_peak_requested_bytes": 37844,
+        "constructor_allocation_calls": 112,
+        "max_infer_incremental_peak_requested_bytes": 948,
+        "max_returned_result_requested_bytes": 256,
+        "max_actions_vector_capacity": 4,
+        "inference_allocation_calls": 188,
+        "residual_after_runtime_destruction": 0
+      },
+      "fixture": {
+        "callbacks": 8,
+        "demand_callbacks": 8,
+        "fill_callbacks": 0,
+        "actions": 21,
+        "max_count": 3,
+        "macs": 64304,
+        "nonlinears": 1889,
+        "first_callback": {
+          "incremental_peak_requested_bytes": 852,
+          "returned_result_requested_bytes": 160,
+          "count": 1,
+          "macs": 6400,
+          "nonlinears": 150
+        }
+      },
+      "scope": "all ordinary C++ new/new[] requested payload bytes in scalar runtime construction and Infer; fixture/measurement/log allocations excluded; malloc metadata/alignment tracking headers/C-library allocations/RSS excluded; observed fixture peak is not a universal degree bound or hardware PPA",
+      "segment": 3,
+      "passed_fixture_match": {
+        "callbacks": 8,
+        "actions": 21,
+        "macs": 64304,
+        "nonlinears": 1889,
+        "demand_callbacks": 8,
+        "fill_callbacks": 0
+      }
+    }
+  ],
+  "scope": "Actual scalar-runtime object + ordinary C++ new/new[] requested heap; includes weights and global h/c, so do not add them again. Excludes stack, C malloc internals, allocator metadata/alignment, outer Four602 controller, observer/log/fixture storage, RSS and hardware area/PPA.",
+  "peak_scope": "Observed across the complete passed 8236-callback parity fixture with four independent reset segments. This is not a worst-case K/heap bound or full-ROI peak.",
+  "no_simulator_executed": true
+}

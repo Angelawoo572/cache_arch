@@ -1,0 +1,156 @@
+{
+  "backpropagation_in_live_runtime": false,
+  "checkpoint_path": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/original_checkpoint.pt",
+  "emit_loss": "balanced",
+  "endianness": "little",
+  "endianness_marker": 16909060,
+  "experiment_revision": "source_input_variable_delta_free_running_v7",
+  "feature_width": 128,
+  "float_type": "float32",
+  "float_type_code": 1,
+  "format_version": 1,
+  "heldout_behavior_metrics": {
+    "callbacks": 404219,
+    "count_exact_match_rate": 0.5404718729203724,
+    "false_negative_actions": 13244,
+    "false_positive_actions": 380373,
+    "fill_accuracy_on_matched_targets": null,
+    "gate_false_negative_rows": 493,
+    "gate_false_positive_rows": 182844,
+    "gate_positive_f1": 0.4072461097262502,
+    "gate_positive_precision": 0.2561995574069253,
+    "gate_positive_recall": 0.9922329179336096,
+    "gate_predicted_positive_rows": 245824,
+    "gate_target_positive_rows": 63473,
+    "gate_true_positive_rows": 62980,
+    "normal_actions": 124516,
+    "predicted_actions": 491645,
+    "target_f1": 0.3611783283914431,
+    "target_precision": 0.22632590588737808,
+    "target_recall": 0.8936361592084552,
+    "true_positive_actions": 111272
+  },
+  "hidden_size": 16,
+  "inference_runtime_fields": [
+    "pc",
+    "cache_line_address"
+  ],
+  "instruction_budget": 1000000,
+  "legacy_checkpoint": true,
+  "magic": "STRLSTM1",
+  "model_revision": "compact_shared_pc_hurdle_delta_v9",
+  "normal_policy_outputs_used_as_model_inputs": false,
+  "normal_policy_outputs_used_as_training_targets": true,
+  "online_learning": false,
+  "optimizer_in_live_runtime": false,
+  "parameter_count": 5220,
+  "python_source": "formal_NN_training/experiments/602_offline_lstm_stride/python/train_and_offline_infer.py",
+  "recurrent_state_bytes_per_pc": 128,
+  "schema_version": 1,
+  "seed": 7,
+  "teacher_role": "offline_labels_only",
+  "tensor_names": [
+    "input_projection.weight",
+    "input_projection.bias",
+    "encoder_lstm.weight_ih_l0",
+    "encoder_lstm.weight_hh_l0",
+    "encoder_lstm.bias_ih_l0",
+    "encoder_lstm.bias_hh_l0",
+    "emit_head.weight",
+    "emit_head.bias",
+    "log_count_mean.weight",
+    "log_count_mean.bias",
+    "action_decoder.action_cell.weight_ih",
+    "action_decoder.action_cell.weight_hh",
+    "action_decoder.action_cell.bias_ih",
+    "action_decoder.action_cell.bias_hh",
+    "action_decoder.delta_head.weight",
+    "action_decoder.delta_head.bias"
+  ],
+  "tensor_order": [
+    "input_projection.weight",
+    "input_projection.bias",
+    "encoder_lstm.weight_ih_l0",
+    "encoder_lstm.weight_hh_l0",
+    "encoder_lstm.bias_ih_l0",
+    "encoder_lstm.bias_hh_l0",
+    "emit_head.weight",
+    "emit_head.bias",
+    "log_count_mean.weight",
+    "log_count_mean.bias",
+    "action_decoder.action_cell.weight_ih",
+    "action_decoder.action_cell.weight_hh",
+    "action_decoder.action_cell.bias_ih",
+    "action_decoder.action_cell.bias_hh",
+    "action_decoder.delta_head.weight",
+    "action_decoder.delta_head.bias"
+  ],
+  "tensor_shapes": {
+    "action_decoder.action_cell.bias_hh": [
+      48
+    ],
+    "action_decoder.action_cell.bias_ih": [
+      48
+    ],
+    "action_decoder.action_cell.weight_hh": [
+      48,
+      16
+    ],
+    "action_decoder.action_cell.weight_ih": [
+      48,
+      1
+    ],
+    "action_decoder.delta_head.bias": [
+      1
+    ],
+    "action_decoder.delta_head.weight": [
+      1,
+      16
+    ],
+    "emit_head.bias": [
+      2
+    ],
+    "emit_head.weight": [
+      2,
+      16
+    ],
+    "encoder_lstm.bias_hh_l0": [
+      64
+    ],
+    "encoder_lstm.bias_ih_l0": [
+      64
+    ],
+    "encoder_lstm.weight_hh_l0": [
+      64,
+      16
+    ],
+    "encoder_lstm.weight_ih_l0": [
+      64,
+      16
+    ],
+    "input_projection.bias": [
+      16
+    ],
+    "input_projection.weight": [
+      16,
+      128
+    ],
+    "log_count_mean.bias": [
+      1
+    ],
+    "log_count_mean.weight": [
+      1,
+      16
+    ]
+  },
+  "training_config": null,
+  "training_identity_source": "legacy_original_metadata",
+  "training_metadata_path": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/source_training_metadata.json",
+  "training_runtime_fields": [
+    "pc",
+    "cache_line_address"
+  ],
+  "training_trace": "602.gcc_s-734B",
+  "weight_bytes": 20880,
+  "weights_frozen": true
+}

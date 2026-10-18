@@ -1,0 +1,52 @@
+{
+  "status": "PASS",
+  "policy": "streamer",
+  "seed": 7,
+  "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/original_checkpoint.pt",
+  "model": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_streamer_live_inference/models/h16/model.bin",
+  "probe": "/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/stride_streamer_h16/correctness/streamer/probe",
+  "actual_global_callbacks": 8236,
+  "compared_all_actions": 24690,
+  "numeric_checks": 296478,
+  "state_scope": "one_global_h_c",
+  "source_segments": [
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.train_stream.csv.gz",
+      "actual_contiguous_source_rows": 4096,
+      "boundary_rows": 14,
+      "initial_state": "independent_zero_then_continuous_global_h_c"
+    },
+    {
+      "source": "/home/qianruw/cache/formal_NN_training/experiments/602_offline_lstm_streamer/runs/602_offline_lstm_streamer_variable_delta_free_running_v7_seed7/colab_input/602.gcc_s-734B.eval_stream.csv.gz",
+      "actual_contiguous_source_rows": 4096,
+      "boundary_rows": 14,
+      "initial_state": "independent_zero_then_continuous_global_h_c"
+    }
+  ],
+  "reset_records": 4,
+  "max_absolute_errors": {
+    "hidden": 2.387112121304824e-07,
+    "cell": 1.3394848632941603e-05,
+    "count_raw": 9.583349607211744e-07,
+    "coordinate": 3.552398681883062e-07
+  },
+  "abs_tol": 2e-05,
+  "rel_tol": 2e-05,
+  "failures": [],
+  "failure_count": 0,
+  "invalid_inputs_rejected": [
+    {
+      "command": "D 1",
+      "diagnostic": "live602 expects aligned byte address"
+    },
+    {
+      "command": "F 0",
+      "diagnostic": "address-only student cannot observe fill events"
+    }
+  ],
+  "scalar_boundary_tests": "PASS",
+  "count_and_all_action_fields_required_exact": true,
+  "weight_roundtrip": "exact FP32",
+  "executable_cost_checked": true,
+  "qualification": "Numerical/semantic correctness fixtures using real contiguous inputs plus boundaries; no ChampSim ROI, pilot IPC or benchmark result."
+}

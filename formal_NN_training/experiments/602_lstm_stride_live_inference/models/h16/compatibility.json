@@ -1,0 +1,127 @@
+{
+  "status": "PASS",
+  "policy": "stride",
+  "hidden_size": 16,
+  "checkpoint_reused": true,
+  "training_performed": false,
+  "seed": 7,
+  "emit_loss": "balanced",
+  "training_instruction_interval": [
+    0,
+    1000000
+  ],
+  "training_rows": 16172,
+  "training_epochs": 12,
+  "optimizer_steps": 228,
+  "training_stream_byte_equal_current_H8": true,
+  "legacy_identity_source": "original run/point metadata and complete history; legacy checkpoint has no embedded seed/loss",
+  "parameter_count": 5220,
+  "FP32_parameter_bytes": 20880,
+  "recurrent_hc_bytes_per_pc": 128,
+  "weight_and_decoder_semantics": "shared projected128-feature v9 weights; exact-PC h/c; hurdle exp count; deterministic free-running GRU delta; L2 fill",
+  "deployment_controls": "same current H8 per-PC64/decoder32/current-line-filter; correctness fixture compares full mathematical runtime",
+  "original_H8_note": "retained prefix H8 and current formal CPU-retrained H8 have small weight differences; recipe agreement is not checkpoint identity",
+  "model_bin": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/model.bin",
+  "checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/original_checkpoint.pt",
+  "metadata": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/models/h16/model_metadata.json",
+  "original_checkpoint": "/home/qianruw/cache/formal_NN_training/experiments/602_lstm_stride_live_inference/runs/602_gcc_stride_prefix_seed7/points/h16/i1m/seed7/offline/model.pt",
+  "actual_build_id": "build_1792211655617683046",
+  "actual_simulator": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/builds/build_1792211655617683046/simulator",
+  "forward_generation": {
+    "status": "PASS",
+    "protocol": "dynamic602_forward_generation_v1",
+    "marker_present": true,
+    "artifacts": [
+      {
+        "path": "inc/stride_lstm_runtime.h",
+        "bytes": 1944,
+        "byte_equal": true
+      },
+      {
+        "path": "prefetcher/stride_lstm_runtime.cc",
+        "bytes": 10680,
+        "byte_equal": true
+      },
+      {
+        "path": "inc/stride_lstm_model_loader.h",
+        "bytes": 964,
+        "byte_equal": true
+      },
+      {
+        "path": "prefetcher/stride_lstm_model_loader.cc",
+        "bytes": 6790,
+        "byte_equal": true
+      }
+    ]
+  },
+  "recorded": {
+    "action_mismatch_count": 0,
+    "action_mismatch_rate": 0.0,
+    "events": 4096,
+    "first_mismatch": null,
+    "max_cell_state_error": 4.77313476565655e-06,
+    "max_hidden_state_error": 2.3819241334877006e-07,
+    "mode": "recorded_stream",
+    "reference_mode": "authoritative_pytorch_checkpoint",
+    "status": "PASS"
+  },
+  "synthetic": {
+    "action_mismatch_count": 0,
+    "fixtures": [
+      {
+        "events": 6,
+        "name": "h16_silent_output",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h16_k1_positive_delta",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h16_k2_negative_delta",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h16_k4_zero_delta",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h16_stateful_interleaved_address_edges",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h8_silent_output",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h8_k1_positive_delta",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h8_k2_negative_delta",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h8_k4_zero_delta",
+        "status": "PASS"
+      },
+      {
+        "events": 6,
+        "name": "h8_stateful_interleaved_address_edges",
+        "status": "PASS"
+      }
+    ],
+    "max_cell_state_error": 1.1173438646538969e-08,
+    "max_hidden_state_error": 5.565311239630333e-09,
+    "mode": "synthetic",
+    "status": "PASS"
+  }
+}

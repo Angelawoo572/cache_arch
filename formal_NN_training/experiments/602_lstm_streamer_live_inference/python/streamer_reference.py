@@ -20,9 +20,9 @@ def cache_root():
 
 
 def configure_runtime(path=None):
-    runtime = Path(path) if path else cache_root() / "formal_study_20261017/runtime"
+    runtime = Path(path) if path else cache_root() / ".runtime/streamer_live"
     runtime = runtime.resolve()
-    if not runtime.is_relative_to((cache_root() / "formal_study_20261017").resolve()):
+    if runtime != cache_root() and cache_root() not in runtime.parents:
         raise RuntimeError("Runtime artifacts must remain inside cache")
     for name in ("tmp", "pycache", "mpl", "torch"):
         (runtime / name).mkdir(parents=True, exist_ok=True)
@@ -33,6 +33,8 @@ def configure_runtime(path=None):
     os.environ["TORCH_HOME"] = str(runtime / "torch")
     os.environ.setdefault("OMP_NUM_THREADS", "1")
     sys.pycache_prefix = str(runtime / "pycache")
+    import tempfile
+    tempfile.tempdir = str(runtime / "tmp")
     return runtime
 
 
@@ -43,7 +45,7 @@ def exact_integer(value):
 
 def checked_output(path):
     path = Path(path).resolve()
-    if not path.is_relative_to((cache_root() / "formal_study_20261017").resolve()):
+    if path != cache_root() and cache_root() not in path.parents:
         raise RuntimeError("Output must remain inside cache")
     return path
 

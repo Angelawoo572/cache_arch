@@ -1,0 +1,49 @@
+{
+  "protocol": "four602_all_h16_20261017_v1",
+  "common_cap": 16144,
+  "cap_source": "/home/qianruw/cache/formal_study/archive/20261017/raw_v2/selection.json",
+  "validation_records": [
+    20000000,
+    25000000
+  ],
+  "templates": {
+    "stride": {
+      "source_run": "validation_r0_stride_h16_stride_student_full_cap0",
+      "modal_count": 2,
+      "deployed_count": 2,
+      "slots": [
+        [
+          0,
+          2
+        ],
+        [
+          2,
+          2
+        ]
+      ],
+      "selector": "validation-only modal raw K; joint per-slot delta/fill, numeric ascending ties",
+      "current_line_filter": true
+    },
+    "streamer": {
+      "source_run": "validation_r0_streamer_h16_student_full_cap0",
+      "modal_count": 3,
+      "deployed_count": 3,
+      "slots": [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          2
+        ]
+      ],
+      "selector": "validation-only modal raw K; joint per-slot delta/fill, numeric ascending ties",
+      "current_line_filter": false
+    }
+  }
+}
