@@ -1,5 +1,8 @@
 # H8 paper story: frozen live inference and benefit mechanisms
 
+- **Current reader entry:** [project overview](../../../../RESULTS_INDEX.md) · [four-route native-versus-own-NN results](../../../../formal_study/results/602_width_templates/README.md) · [canonical paper story](../../../../formal_study/results/602_width_templates/PAPER_STORY.md).
+- **Archived scope:** the material below belongs to the original H8 `four602_frozen_live_20261017_v2` protocol. It does not replace the current combined reader view or relabel the later H16/template supplement. Recorded paths/commands remain historical; use [canonical recovery](../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md) for current locations.
+
 - This page preserves the original **64-row H8 protocol**. The later **24-run H16/capped-H8 supplement** is separate: [current paper story](../../../../docs/602_width_templates/PAPER_STORY.md), [results](../../../../formal_study/results/602_width_templates/README.md). Do not relabel their rows as one protocol.
 - **Finding:** retained teacher-action students improve on NoPF, but do not consistently beat native teachers; simple validation templates explain most observed gain.
 - Scope is existing seed7 weights, not a new algorithm, online weight training or a four-model ranking under equal training budgets.

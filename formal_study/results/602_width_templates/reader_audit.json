@@ -1,0 +1,87 @@
+{
+  "status": "PASS",
+  "checks": 6976,
+  "errors": [],
+  "source_rows": 88,
+  "reader_metric_rows": 42,
+  "reader_pair_rows": 24,
+  "identity_partitions": {
+    "H8_native_or_NN": 32,
+    "nopf": 2,
+    "H16": 8
+  },
+  "expected_NA_counts": {
+    "llc_accuracy": 30,
+    "llc_timeliness": 30,
+    "l2_accuracy": 4,
+    "l2_coverage_proxy": 2,
+    "l2_timeliness": 4,
+    "llc_coverage_proxy": 2
+  },
+  "pareto": {
+    "status": "checked",
+    "rows": 160,
+    "exact_nondominated": 73
+  },
+  "capped_own_native_comparisons": {
+    "H8": {
+      "pairs": 8,
+      "IPC_wins": 6,
+      "IPC_ties": 0,
+      "IPC_losses": 2,
+      "DRAM_increases": 8,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 0
+    },
+    "H8_plus_H16": {
+      "pairs": 12,
+      "IPC_wins": 10,
+      "IPC_ties": 0,
+      "IPC_losses": 2,
+      "DRAM_increases": 11,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 1
+    }
+  },
+  "root_headline_checks": {
+    "H8_capped": {
+      "pairs": 8,
+      "IPC_wins": 6,
+      "IPC_ties": 0,
+      "IPC_losses": 2,
+      "DRAM_increases": 8,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 0
+    },
+    "H8_uncapped": {
+      "pairs": 8,
+      "IPC_wins": 3,
+      "IPC_ties": 0,
+      "IPC_losses": 5,
+      "DRAM_increases": 7,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 1
+    },
+    "H16_all": {
+      "pairs": 8,
+      "IPC_wins": 8,
+      "IPC_ties": 0,
+      "IPC_losses": 0,
+      "DRAM_increases": 7,
+      "DRAM_ties": 0,
+      "DRAM_decreases": 1
+    },
+    "H16_lower_DRAM_pairs": [
+      {
+        "policy": "spp",
+        "roi": 1,
+        "budget": 16144,
+        "ipc_gain_pct": 1.4514766733513416,
+        "delta_dram_bytes": -77248,
+        "dram_change_pct": -0.34425027879423986
+      }
+    ]
+  },
+  "NoPF_reader_rule": "available=False means prefetch quality not applicable; all ratios NA. This deliberately differs from the raw trivially complete empty-cohort tracking flag; NoPF IPC/requests/DRAM remain valid Pareto points.",
+  "scope": "Read-only CSV/formula/provenance check, strict raw IPC/cost Pareto and paired relations; no project code/model imported, no simulation/training. Pareto is conditional on each ROI/cap candidate set and MAC0 protocol; it is not a hardware or causal ranking."
+}

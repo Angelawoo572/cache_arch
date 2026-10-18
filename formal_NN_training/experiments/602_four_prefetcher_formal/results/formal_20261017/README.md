@@ -1,5 +1,7 @@
 # Complete four-route formal v2 archive
 
+- **Current reader comparison:** [four native prefetchers versus H8 NN, with separate H16 results](../../../../../formal_study/results/602_width_templates/README.md). This archive retains its original protocol and row values.
+
 - **Reader note:** Markdown has English translations and concise formatting; original reports and numeric artifacts remain preserved. [What changed](../../../../../formal_study/INTEGRATION.md#reader-documentation).
 
 - Protocol: `four602_frozen_live_20261017_v2`;64 completed full runs (56 test +8 validation), strict callback checks, generated PNG/SVG figures, one actual build and a fresh real-checkpoint correctness gate.
@@ -8,9 +10,9 @@
 
 - Numerical CSV/JSON, figures and original raw analysis artifacts are preserved. Published Markdown is the English reader layer. The large redundant `raw_snapshots.json`, raw event streams, models, binaries, traces and large logs remain at the full raw source. No old protocol is pooled into these tables.
 
-- Complete local raw root: `/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2`.
+- **Historically recorded roots (superseded):** local `/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2`; Sacramento `/home/qianruw/cache/formal_study_20261017/raw_v2`. Frozen metadata keeps these original strings.
 
-- Recorded server raw root: `/home/qianruw/cache/formal_study_20261017/raw_v2`.
+- **Current full raw roots:** local `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2`; Sacramento `/home/qianruw/cache/formal_study/archive/20261017/raw_v2`. Complete analysis is under `analysis_final/`; individual run evidence is under `runs/<run_id>/`.
 
 ## Policy subsets
 

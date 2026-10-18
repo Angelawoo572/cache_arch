@@ -1,6 +1,9 @@
-# Old slides → recovered models → live results
+# Supplementary evidence: Old slides → recovered models → live results
 
-- **The recovered H16 models beat native baselines in the measured live MAC0 matrix.** Simple templates reproduce nearly all of that IPC gain. The recovered AMPM/SPP seed7 models passed Python/C++ checks and the 24-run live supplement. See the [current results](../../../../RESULTS_INDEX.md) for the conclusion and [paired data](../../../../formal_study/results/602_width_templates/summary.csv) for exact values.
+- **Read first:** [project overview](../../../../RESULTS_INDEX.md) · [four-route native-versus-own-NN results](../../../../formal_study/results/602_width_templates/README.md), including IPC, accuracy, coverage, timeliness and Pareto comparisons.
+- **This page:** Secondary historical evidence alignment. Keep old keyed replay, newer live inference and the H16/template supplement as distinct protocols.
+
+- **Supplemental H16 result:** the recovered models beat native baselines in the measured live MAC0 matrix. Simple templates reproduce nearly all of that IPC gain. The recovered AMPM/SPP seed7 models passed Python/C++ checks and the 24-run live supplement. See the [current results](../../../../RESULTS_INDEX.md) for the conclusion and [paired data](../../../../formal_study/results/602_width_templates/summary.csv) for exact values.
 - **This page aligns evidence; it does not combine protocols.** Old slides report offline inference followed by keyed replay. The newer study runs frozen weights on actual live callbacks. Finite-resource benefit remains unproven.
 
 ## What the old replay report actually showed

@@ -1,6 +1,6 @@
 # Four frozen students: 602 live study
 
-- **Read current conclusions first:** [RESULTS_INDEX](../../../RESULTS_INDEX.md). The latest [H16/template supplement](width_templates/README.md) is separate from this H8 archive.
+- **Read the measured native-versus-NN comparison first:** [four-route reader results](../../../formal_study/results/602_width_templates/README.md) · [RESULTS_INDEX](../../../RESULTS_INDEX.md). The latest [H16/template supplement](width_templates/README.md) is separate from this H8 archive.
 - **This protocol is complete:** `four602_frozen_live_20261017_v2`; 64 new rows =8 validation + 56 full tests, seed 7, 602 only, two ROIs, MAC0.
 - **Conclusion within that scope:** frozen students help versus NoPF, but do not consistently beat native teachers; validation-frozen templates reproduce much of the gain. Learned-payload necessity, generalization and finite-resource benefit are not established.
 - **Evidence:** [H8 archive](results/formal_20261017/README.md), [findings](results/formal_20261017/FINDINGS.md), [per-run data](results/formal_20261017/per_run.csv), [paired interventions](results/formal_20261017/paired_comparisons.csv), [64-row audit](results/formal_20261017/audit.json), [callback certificate](results/formal_20261017/callback_verification.json).
@@ -48,7 +48,8 @@
 ## Restore and inspect on Sacramento
 
 - Canonical checkout: `/home/qianruw/cache`; local root: `/Users/angelawoo/Documents/CMU/ece/cache`.
-- H8 raw/source/runtime remain under `formal_study/archive/20261017/{raw_v2,source_v2,runtime_v2}`. Historical JSON keeps original path strings; use the [canonical-path launcher](../../../docs/602_width_templates/canonical_paths.py), not removed date-root aliases.
+- **Current H8 raw roots:** local `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2`; Sacramento `/home/qianruw/cache/formal_study/archive/20261017/raw_v2`. Source/runtime remain under `formal_study/archive/20261017/{source_v2,runtime_v2}`.
+- **Historically recorded roots (superseded):** local `/Users/angelawoo/Documents/CMU/ece/cache/formal_study_20261017/raw_v2`; Sacramento `/home/qianruw/cache/formal_study_20261017/raw_v2`. Frozen JSON/source bindings retain their original strings. Use the [canonical-path launcher](../../../docs/602_width_templates/canonical_paths.py) to resolve current archives; do not recreate removed date-root aliases.
 - Restore the trace, consistent ChampSim base `838be17e` plus matching libbf, archived actual build/sources and exact model bytes. See [layout/recovery](../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md) and [forward/dependency recovery](../602_lstm_stride_dynamic_inference/runtime/FORWARD_REPRODUCTION.md).
 - `build` does not export/stage models. This restoration block copies only missing retained global files and rejects conflicting bytes; the original Stride model must also be restored.
 

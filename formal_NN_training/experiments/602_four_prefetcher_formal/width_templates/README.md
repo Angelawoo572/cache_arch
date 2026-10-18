@@ -1,6 +1,8 @@
-# Frozen H16 and capped-template supplement
+# Supplementary evidence: Frozen H16 and capped-template supplement
 
-- **Current conclusions:** [RESULTS_INDEX](../../../../RESULTS_INDEX.md); [latest tables/figures](../../../../formal_study/results/602_width_templates/README.md).
+- **Read first:** [project overview](../../../../RESULTS_INDEX.md) · [four-route native-versus-own-NN results](../../../../formal_study/results/602_width_templates/README.md), including IPC, accuracy, coverage, timeliness and Pareto comparisons.
+- **This page:** Secondary H16/template protocol, model contracts and recovery. Use the reader report above for the main result comparison.
+
 - **Protocol:** `four602_width_templates_20261017_v1`; 24 new rows =2 validation + 22 tests, plus 64 explicitly bound H8 reference rows. No retraining or shared C++ change.
 - **Scope:** original seed 7 AMPM/SPP H16, 602, two ROIs, synchronous MAC0. H16 gains do not establish learned-payload necessity or finite-resource benefit; simple templates explain almost all gain. Keep negative/null results.
 - **Contracts:** [config](config.json), [driver](driver.py), [old replay alignment](EVIDENCE_ALIGNMENT.md), [method limits](../report/METHOD_LIMITATIONS.md), [canonical layout/recovery](../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md).

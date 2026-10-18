@@ -1,42 +1,56 @@
-# CacheArch results
+# 602 prefetcher results
 
-- **Question:** Do small teacher-trained recurrent prefetchers retain useful gains under a request ceiling and finite compute? Weights stay frozen; recurrent state updates during independent online inference.
+- **Question:** How do Stride, Streamer, AMPM and SPP compare with their own frozen NN students on IPC, accuracy, coverage, timeliness and traffic?
+- **Read the main comparison below.** H8 is the four-route comparison; AMPM/SPP H16 and simple-template controls are separate supplements. All results here are complete-ROI live inference, seed7 and **zero inference cost (MAC0)**.
+- **Result:** H8 NN improves IPC in **6/8 capped pairs**, but uses more DRAM in **all eight**. Across capped and uncapped cases it wins **9/16**. A universal NN advantage is not supported. [Exact paired evidence](formal_study/results/602_width_templates/reader_pairs.csv).
 
-## Results at a glance
+## Four native prefetchers versus H8 NN
 
-- **H16 improves IPC in the measured MAC0 matrix.** In the latest seed7/two-ROI live study, H16 wins **8/8** comparisons against native teachers and **8/8** against H8 NN. IPC gains over native: **AMPM 0.53%–2.21%; SPP 1.41%–4.15%**. [Exact pairs](formal_study/results/602_width_templates/summary.csv).
-- **Simple templates reproduce nearly all measured IPC gain.** SPP H16’s frozen template matches IPC, requests and DRAM in all four cases; AMPM NN’s uncapped edge is at most **0.125%**, and its capped template is slightly better. H8 capped templates nearly match Streamer/SPP and outperform AMPM NN. [Paired results](formal_study/results/602_width_templates/paired_comparisons.csv).
-- **Finite-resource benefit is still unproven.** The earlier filtered Stride-trained NN (seed7, capped, MAC4) is near NoPF: **+0.045% / −0.080%** across the two ROIs. Latest H8/H16 global-model IPC is **MAC0 only**. [Finite-engine evidence](docs/602_gate_mechanism/FINITE_CURRENTLINE.md).
+- Common ceiling: **16,144 allowed requests/M instructions**. Each cell is **native → NN**; IPC change is relative to the matching native. Quality values are percentages.
+- **C = coverage proxy:** LOAD-useful requests ÷ matched NoPF LOAD misses. It is not the fraction of misses eliminated. Accuracy uses the enqueued cohort; timeliness uses timely ÷ all useful LOAD requests.
 
-- These results support a reproducible mechanism study. They do **not** establish that learned payload or recurrent state is necessary, or that the models win across seeds, workloads and hardware budgets.
+| Prefetcher | ROI | NN IPC change | L2 accuracy | L2 C | L2 timeliness |
+| --- | --- | --- | --- | --- | --- |
+| Stride | 0 | +10.51% | 29.0 → 48.7 | 17.2 → 58.2 | 99.5 → 99.9 |
+| Stride | 1 | +14.44% | 41.6 → 66.9 | 42.0 → 68.7 | 43.2 → 62.9 |
+| Streamer | 0 | +0.81% | 45.2 → 47.4 | 89.9 → 94.1 | 99.4 → 99.1 |
+| Streamer | 1 | +0.56% | 48.2 → 50.1 | 55.7 → 57.8 | 98.6 → 98.2 |
+| AMPM | 0 | +1.75% | 39.2 → 44.1 | 77.9 → 87.5 | 99.7 → 100.0 |
+| AMPM | 1 | +1.34% | 41.8 → 46.0 | 48.3 → 53.1 | 99.0 → 100.0 |
+| SPP | 0 | −1.59% | 72.0 → NA | 62.3 → 0.0 | 99.1 → NA |
+| SPP | 1 | −2.24% | 75.0 → 92.9* | 37.2 → 0.004* | 98.4 → 100.0* |
 
-![ROI1 at cap 16144: IPC, actual requests and DRAM for native, H8/H16 students and templates](formal_study/results/602_width_templates/widths_roi1_cap16144.png)
+- **SPP needs the LLC view:** its H8 NN mainly targets LLC. ROI0 has no L2 enqueues; ROI1 has only **14** (13 useful), so starred values are a tiny cohort. Capped LLC accuracy rises **26.1% → 47.1% / 28.6% → 49.0%**, yet IPC falls in both ROIs. Better request quality alone does not establish a performance gain. [LLC counts and definitions](formal_study/results/602_width_templates/README.md#spp-llc-intent-quality).
+- **Uncapped:** H8 NN wins only **3/8** pairs. Both budgets, absolute IPC, enqueued/useful counts and net miss reduction are in the [full comparison](formal_study/results/602_width_templates/README.md) and [run-level metric CSV](formal_study/results/602_width_templates/reader_metrics.csv). Rounded 100.0% is not always exactly 100%.
 
-## Scope before interpreting the numbers
+![Four native prefetchers versus H8 NN: IPC, accuracy, coverage proxy and timeliness](formal_study/results/602_width_templates/reader_quality_cap16144.png)
 
-- **Latest protocol:** frozen original seed7 weights; validation 20–25M; ROI0 25–50M and ROI1 75–100M; 5M cache/state warmup each. Own-validation H16 templates and already-frozen H8 templates; no test fitting. ROI0 was previously inspected. [Full contract](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/README.md).
-- **Budget is an upper limit:** uncapped or 16,144 requests/M does not mean equal actual requests or DRAM. DRAM uses real controller counters, never requests × 64. Quality uses completely tracked L2/LLC intent cohorts; unused is not pollution. [Metric definitions](formal_study/results/602_width_templates/metric_definitions.json).
-- **Limits and negative results:** H8 beats native in only 9/16 four-route comparisons; capped AMPM H16 loses to its template. Model training budgets and native/student SPP fill inputs differ. Finite global-model IPC, more training seeds/workloads and complete deployment cost remain open. [H8 findings](formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/FINDINGS.md) · [method limits](formal_NN_training/experiments/602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md) · [cost assumptions](formal_study/results/602_width_templates/storage_cost.csv).
+## Pareto: what does the IPC gain cost?
 
-## Completed studies — separate protocols
+- **Axes:** maximize IPC; minimize actual allowed requests/M or actual completed DRAM bytes. Compare the four native/H8 pairs and NoPF separately for each ROI and budget. Compute, area and energy are not measured axes.
+- **Capped result:** Stride, Streamer and AMPM exchange higher IPC for more DRAM; native SPP beats its H8 NN on both. **No capped H8 NN improves both IPC and DRAM over its own native.** [Pair classifications](formal_study/results/602_width_templates/reader_pairs.csv).
+- A shared request ceiling does not equalize actual requests or DRAM. Capped ROI0 Stride NN makes about twice as many allowed requests as native Stride. DRAM comes from controller counters, never requests × 64. [Traffic table and exact Pareto membership](formal_study/results/602_width_templates/README.md#ipc-versus-actual-requests-and-dram).
 
-- “New” means new in that study; reused rows are not extra replications. IPC is not pooled across stages.
+![IPC versus actual requests and DRAM: separate ROI frontiers](formal_study/results/602_width_templates/reader_pareto_cap16144.png)
 
-| Study | Completed runs / reuse | Model, baselines and cost |
-| --- | --- | --- |
-| [Original offline / keyed replay](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) | Historical slide/model evidence; excluded from live totals | Original seed7 models; own replayed teacher; different warmup/state contract |
-| [First Stride formal](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md) | 101 runs = 89 test + 12 validation; 14 h/c runs separate | 602 seeds 7/17/27; NoPF, Stride variants, SPP; MAC0/MAC4. Historical 605/623 transfer: seed7 only |
-| [Current-line / gate / payload](docs/602_gate_mechanism/REPORT.md) | 64 new + 7 references | Two 602 ROIs, seeds 7/17/27; cap 2,363/M; NN/+2/PC-gate/Stride/SPP. MAC4 subset: seed7 only |
-| [Four-route H8 live v2](formal_NN_training/experiments/602_four_prefetcher_formal/results/formal_20261017/README.md) | 64 new = 56 test + 8 validation | Seed7; NoPF/native/student plus mechanism controls; MAC0; cap 16,144/M |
-| [Latest H16 + capped H8 templates](formal_study/results/602_width_templates/README.md) | **24 new = 2 validation + 22 test; 64 references reused** | AMPM/SPP H16; Streamer/AMPM/SPP capped H8 templates; native/H8/NoPF controls; seed7, MAC0 |
+## Supported, limited and still open
 
-- Earlier Stride work found that filtering current-line requests partially restores capped MAC0 benefit; fixed +2 nearly reproduces learned payload. It does not fix the serial-engine bottleneck. [Mechanism pairs](docs/602_gate_mechanism/results/paired_ranges.csv).
+- **Supported in these runs:** route-dependent H8 IPC gains; improved quality can coexist with lower IPC; request caps can change the outcome. These statements cover this seed, workload and protocol.
+- **H16 supplement:** AMPM/SPP NN beats its native in 8/8 measured pairs, but simple templates reproduce nearly all IPC gain. Only capped ROI1 SPP H16 improves both IPC and DRAM versus native. [H16 results](formal_study/results/602_width_templates/README.md#h16-width-supplement) · [template evidence](formal_study/results/602_width_templates/paired_comparisons.csv).
+- **Not established:** learned payload or recurrent state is necessary; gains persist across seeds/workloads; the students improve finite-resource performance or hardware Pareto efficiency. Prior Stride MAC4 evidence is mixed and uses a different protocol. [Finite-engine results](docs/602_gate_mechanism/FINITE_CURRENTLINE.md).
+- **Method limits:** different route training budgets/state organization; native/student SPP fill feedback differs; ROI0 was previously inspected. [Metric contract](formal_study/results/602_width_templates/metric_definitions.json) · [method limits](formal_NN_training/experiments/602_four_prefetcher_formal/report/METHOD_LIMITATIONS.md) · [storage/cost assumptions](formal_study/results/602_width_templates/storage_cost.csv).
 
-## Evidence and files
+## Scope and further reading
 
-- **Current results folder:** [summary](formal_study/results/602_width_templates/summary.csv) · [24 new rows](formal_study/results/602_width_templates/per_run_new.csv) · [all 88 labeled rows](formal_study/results/602_width_templates/per_run.csv) · [9,748-check audit](formal_study/results/602_width_templates/audit.json) · [all figures](formal_study/results/602_width_templates/FINDINGS.md).
-- **Details:** [method diagram](formal_study/results/602_width_templates/method.svg) · [full-ROI actions](formal_study/results/602_width_templates/action_histograms_full_roi.csv) · [stage curves](formal_study/results/602_width_templates/phase_progress.csv) · [retained paper story](formal_study/results/602_width_templates/PAPER_STORY.md).
-- **Old slides:** [historical PDF](docs/602_deck_v7_15.pdf) · [concise evidence alignment](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) · [denominator/traffic/coverage corrections](docs/602_width_templates/SLIDE_ERRATA.md). Old replay IPC is separate from live IPC.
-- **Raw data, local/Sacramento only:** `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/` and `/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/`. Includes logs, callbacks, snapshots, models and cost probes; large files are absent from GitHub.
-- **Preserved history:** `formal_study/archive/20261016/` and `archive/20261017/`; original offline `formal_NN_training/experiments/*/runs/` stay in place. The local recovery donor remains required. [Exact paths and recovery](docs/602_width_templates/LAYOUT_AND_RECOVERY.md).
-- **Copies and branches:** `main` is the identical GitHub/local/Sacramento reading branch. `archive/summer-2026-offline` and all three experiment branches are preserved. [Integration checks](formal_study/INTEGRATION.md) · [website](docs/index.html).
+- **Protocol:** validation 20–25M; ROI0 25–50M; ROI1 75–100M; 5M cache/state warmup for each test. Frozen original weights; runtime h/c updates. Both uncapped and cap 16,144/M results are retained; no results are averaged across ROIs or protocols.
+- **Runs:** four-route H8/native study = 64 completed rows (56 test + 8 validation). Later H16/capped-template supplement = 24 rows (22 test + 2 validation), reusing those 64 references. This reader view selects 42 test rows; it adds no simulations or training. [Labeled source rows](formal_study/results/602_width_templates/per_run.csv).
+- **Secondary evidence:** [H16/template mechanisms](formal_study/results/602_width_templates/FINDINGS.md) · [actions and stages](formal_study/results/602_width_templates/action_histograms_full_roi.csv) · [phase curves](formal_study/results/602_width_templates/phase_progress.csv) · [paper story](formal_study/results/602_width_templates/PAPER_STORY.md).
+- **Separate history:** [offline/replay versus live](formal_NN_training/experiments/602_four_prefetcher_formal/width_templates/EVIDENCE_ALIGNMENT.md) · [first Stride formal](formal_NN_training/experiments/602_lstm_stride_dynamic_inference/results/formal_20261016_v2/README.md) · [current-line/gate/payload study](docs/602_gate_mechanism/REPORT.md). Their IPC is not pooled with the current four-route comparison.
+- **Historical slides:** [old PDF](docs/602_deck_v7_15.pdf) · [corrections](docs/602_width_templates/SLIDE_ERRATA.md). Replay and live results have different state/warmup and measurement contracts.
+
+## Where the evidence lives
+
+- **Shared figures and CSVs:** [`formal_study/results/602_width_templates/`](formal_study/results/602_width_templates/README.md). The same relative links work on GitHub and in local Markdown preview.
+- **Local full raw:** `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/runs/602_width_templates_20261017/`; H8/native originals: `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2/`.
+- **Sacramento full raw:** `/home/qianruw/cache/formal_study/runs/602_width_templates_20261017/`; H8/native originals: `/home/qianruw/cache/formal_study/archive/20261017/raw_v2/`. Large logs, traces and builds stay off GitHub.
+- **Navigation:** `main` is the shared reading branch. All experiment branches and `archive/summer-2026-offline` remain preserved. [Layout/recovery](docs/602_width_templates/LAYOUT_AND_RECOVERY.md) · [integration](formal_study/INTEGRATION.md) · [website](docs/index.html).

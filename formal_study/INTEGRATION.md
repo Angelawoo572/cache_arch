@@ -17,3 +17,5 @@
 - English translations and bullet formatting update some Markdown inside result archives. Original copy manifests still describe the initial archived copies; they are historical provenance, not a claim that translated Markdown remains byte-identical.
 - Original reports remain in the raw analysis/audit source paths recorded by those manifests and in Git history. Numerical CSV/JSON, trained models, figures, code, configs and raw evidence are unchanged by this documentation review.
 - The storage audit's values/assumptions and the old replay audit's numerical table cells are preserved. Current conclusions are limited by their actual seed, ROI, baseline, cohort and inference-cost contracts.
+
+- **Current reader comparison:** [native versus NN](results/602_width_templates/README.md) now leads with IPC, accuracy, coverage proxy, timeliness and separate request/DRAM Pareto views. The added reader CSVs/figures are derived from completed source rows; original scientific artifacts remain unchanged. No training or simulation was run for this reader update.
