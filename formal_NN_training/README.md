@@ -1,7 +1,7 @@
 # 602 teacher-supervised prefetchers
 
 - **Current conclusions and reading order:** [RESULTS_INDEX](../RESULTS_INDEX.md).
-- **Latest results:** [H16 and capped-template study](../formal_study/results/602_width_templates/README.md). Gains are limited to retained seed 7 models, 602, two ROIs and MAC0; simple templates explain much of the benefit. Finite-resource neural benefit remains unproven.
+- **Latest results:** [H8 and H16 native-versus-NN results](../formal_study/results/602_width_templates/README.md). Gains are limited to retained seed 7 models, 602, two ROIs and MAC0; simple templates explain much of the benefit. Finite-resource neural benefit remains unproven.
 - Weights are frozen during live inference. Recurrent h/c changes with callbacks; no online weight training is used.
 - Offline replay, synchronous live inference and finite-cost live inference are separate protocols. Their IPC values are not interchangeable.
 

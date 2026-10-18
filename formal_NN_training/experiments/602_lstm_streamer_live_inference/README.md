@@ -1,8 +1,9 @@
 # Frozen Streamer: checkpoint to live inference
 
 - **Current H8 IPC vs native (ROI0 / ROI1):** uncapped **+1.2877% / -1.7337%**; cap 16,144 requests/M **+0.8144% / +0.5590%**.
-- **Capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 45.24% → 47.35% / 48.20% → 50.07%; useful/NoPF L2-miss ratio 89.85% → 94.06% / 55.70% → 57.84%; timeliness 99.3662% → 99.1183% / 98.6170% → 98.2223%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
-- **Capped traffic:** both arms have the same measured allowed requests/M; NN actual DRAM bytes change by +0.0437% / +0.7305% versus native. Requests and DRAM are separate measurements.
+- **H16 availability:** no H16 result exists in this common live protocol. The current Streamer native/NN comparison is H8; do not infer an H16 outcome.
+- **H8 capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 45.24% → 47.35% / 48.20% → 50.07%; useful/NoPF L2-miss ratio 89.85% → 94.06% / 55.70% → 57.84%; timeliness 99.3662% → 99.1183% / 98.6170% → 98.2223%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
+- **H8 capped traffic:** both arms have the same measured allowed requests/M; NN actual DRAM bytes change by +0.0437% / +0.7305% versus native. Requests and DRAM are separate measurements.
 - **Scope:** 602, retained seed7, frozen H8 weights, global chronological h/c, synchronous MAC0. These comparisons do not establish finite-resource benefit or cross-seed/workload robustness.
 - **Read the measurements:** [native-versus-NN results](../../../formal_study/results/602_width_templates/README.md) · [per-arm metrics](../../../formal_study/results/602_width_templates/reader_metrics.csv) · [paired comparisons](../../../formal_study/results/602_width_templates/reader_pairs.csv) · [own latest subset](results/width_templates_20261017/README.md) · [H8 archive](results/formal_20261017/README.md).
 

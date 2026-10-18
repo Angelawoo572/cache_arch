@@ -248,13 +248,13 @@ def main():
     if args.pareto.exists():
         pareto_headers, pareto_rows = read_csv(args.pareto)
         pareto_expected = {}
-        for candidate_set in ("H8_primary", "H8_plus_H16_supplement"):
+        for candidate_set in ("H8_only", "H8_H16"):
             for roi in (0, 1):
                 for budget in (0, 16144):
                     group = [e for e in expected.values()
                              if e["roi"] == roi and (e["arm"] == "nopf" or e["budget"] == budget)
-                             and (candidate_set != "H8_primary" or e["hidden_size"] != 16)]
-                    check(len(group) == (9 if candidate_set == "H8_primary" else 11),
+                             and (candidate_set != "H8_only" or e["hidden_size"] != 16)]
+                    check(len(group) == (9 if candidate_set == "H8_only" else 11),
                           candidate_set, "per-ROI/cap candidate count")
                     for cost_axis in ("requests_per_million_instructions", "dram_bus_bytes"):
                         for e in group:

@@ -219,7 +219,7 @@ def archive(analysis,raw,destination):
            'Protocol: `'+PROTOCOL+'`;64 completed full runs (56 test +8 validation), strict callback checks,',
            'generated PNG/SVG figures, one actual build and a fresh real-checkpoint correctness gate.','',
            '[Paper report](report.md), [per-run metrics](per_run.csv), [paired contrasts](paired_comparisons.csv),',
-           '[Reviewed findings](FINDINGS.md), [concise paper story]('+relative_link(destination,EXP/'report/PAPER_STORY.md')+'),',
+           '[Reviewed findings](FINDINGS.md), [H8 interpretation](FINDINGS.md#interpretation),',
            '[audit](audit.json), [metric definitions](metric_definitions.json),',
            '[callback verification](callback_verification.json), [cost fields](cost_fields.json),',
            '[storage/cost table](storage_cost.csv), [source metadata](metadata/),',

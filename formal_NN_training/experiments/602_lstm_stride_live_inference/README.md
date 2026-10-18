@@ -1,8 +1,9 @@
 # 602 Stride training-prefix sufficiency
 
 - **Current H8 IPC vs native (ROI0 / ROI1):** uncapped **+10.5132% / +12.7415%**; cap 16,144 requests/M **+10.5132% / +14.4433%**.
-- **Capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 28.97% → 48.68% / 41.60% → 66.91%; useful/NoPF L2-miss ratio 17.23% → 58.20% / 42.01% → 68.68%; timeliness 99.4915% → 99.9425% / 43.1679% → 62.9265%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
-- **Capped traffic:** actual requests/M are 4,833.44 → 9,717.16 / 14,105.32 → 14,337.28; NN DRAM bytes change by +1.4516% / +4.5765% versus native. The common ceiling does not match actual requests.
+- **H16 availability:** no H16 result exists in this common live protocol. Earlier width/replay evidence is separate; it cannot substitute for a matched live comparison.
+- **H8 capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 28.97% → 48.68% / 41.60% → 66.91%; useful/NoPF L2-miss ratio 17.23% → 58.20% / 42.01% → 68.68%; timeliness 99.4915% → 99.9425% / 43.1679% → 62.9265%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
+- **H8 capped traffic:** actual requests/M are 4,833.44 → 9,717.16 / 14,105.32 → 14,337.28; NN DRAM bytes change by +1.4516% / +4.5765% versus native. The common ceiling does not match actual requests.
 - **Scope:** 602, retained seed7, frozen H8 weights, per-PC h/c and its existing 64-entry engine limits, synchronous MAC0. These comparisons do not establish finite-resource benefit or cross-seed/workload robustness.
 - **Read the measurements:** [native-versus-NN results](../../../formal_study/results/602_width_templates/README.md) · [per-arm metrics](../../../formal_study/results/602_width_templates/reader_metrics.csv) · [paired comparisons](../../../formal_study/results/602_width_templates/reader_pairs.csv) · [H8 route archive](../602_lstm_stride_dynamic_inference/results/formal_20261017/README.md).
 

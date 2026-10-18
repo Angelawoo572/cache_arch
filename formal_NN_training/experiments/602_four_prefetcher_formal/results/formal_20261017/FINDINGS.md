@@ -47,9 +47,9 @@
 - Reset reduces the current NN's IPC, but templates still reproduce most benefit. This does not establish an irreplaceable state advantage. Changed requests can change future cache callbacks, so fixed payload does not guarantee identical whole-run h/c trajectories.
 - Capped versions of these controls were not measured in this v2 study; the later supplement is a separate protocol.
 
-![ROI0 mechanisms](mechanisms/mechanisms_roi0_seed7.png)
+![ROI0 mechanisms](mechanisms/mechanisms_roi0_seed7.svg)
 
-![ROI1 mechanisms](mechanisms/mechanisms_roi1_seed7.png)
+![ROI1 mechanisms](mechanisms/mechanisms_roi1_seed7.svg)
 
 ## Complete-ROI actions and cohort scope
 
@@ -68,9 +68,9 @@
 - Native SPP FILTER sees prefetch fills; its student sees all raw L2 fills. Native thresholds remain 90/40 and internal same-page rules remain. Earlier default-25 SPP IPC is not pooled here.
 - [Progress snapshots](progress_snapshots.csv) and [phase curves](phase_progress.csv) separate retired instructions, callbacks and completed updates. They are not training size, per-PC history or a minimum-observation estimate.
 
-![ROI1 action distribution](action_distribution_roi1.png)
+![ROI1 action distribution](action_distribution_roi1.svg)
 
-![ROI1 progress axes](progress_axes_roi1.png)
+![ROI1 progress axes](progress_axes_roi1.svg)
 
 ## Storage, inference cost and recovery
 
@@ -80,8 +80,16 @@
 - Actual-checkpoint Python/C++ h/c, K, address and fill fixtures passed. [Correctness](metadata/correctness_gate.json), [actual build](metadata/build.json), [frozen selection](metadata/selection.json), [64-run audit](audit.json), [callback checks](callback_verification.json).
 - V1's callback tail-flush defect and complete runs remain separate. V2 reran the 64-row matrix; 24 comparable v1/v2 records matched IPC, requests, DRAM and phase distributions. The original 101-row Stride archive is a different protocol.
 - Full raw is local/Sacramento only: `/Users/angelawoo/Documents/CMU/ece/cache/formal_study/archive/20261017/raw_v2/` and `/home/qianruw/cache/formal_study/archive/20261017/raw_v2/`. Code, binaries, models, logs and callback/snapshot streams are retained there.
-- [Run/recovery guide](../../README.md), [method limits](../../report/METHOD_LIMITATIONS.md), [per-run data](per_run.csv), [route status](route_status.csv), [English-reader note](../../../../../formal_study/INTEGRATION.md#reader-documentation).
+- [Run/recovery guide](../../README.md), [method limits](../../report/METHOD_LIMITATIONS.md), [per-run data](per_run.csv), [route status](route_status.csv), [English-reader note](../../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md#reader-documentation).
 
-![Effect and counted cost](cost/cost_effect.png)
+![Effect and counted cost](cost/cost_effect.svg)
 
 ![Method](method.svg)
+
+## Interpretation
+
+- **Supported for this H8 protocol:** independent frozen live inference passes actual-checkpoint Python/C++ state/action checks; students improve over NoPF but beat their own native teacher in only 9/16 measured pairs.
+- **Learned payload necessity is not supported:** validation-frozen unconditional templates explain most gain without PC/test fitting. SPP template IPC is within 0.003% of full NN; Streamer and AMPM templates are equal or better in the measured uncapped ROIs.
+- **Recurrent-state necessity remains open:** reset reduces current NN IPC but also changes K, requests and future callbacks. It does not isolate an irreplaceable state contribution or establish a minimum observation history.
+- **Finite cost and generality remain open:** counted four-MAC throughput is not finite-cost IPC; native hardware/PPA is unmeasured. One seed, workload and differing route training budgets do not establish learning-algorithm superiority or stateful novelty.
+- Later H16/template runs keep their separate protocol: [current combined results](../../../../../formal_study/results/602_width_templates/README.md) and [canonical story](../../../../../formal_study/results/602_width_templates/PAPER_STORY.md).

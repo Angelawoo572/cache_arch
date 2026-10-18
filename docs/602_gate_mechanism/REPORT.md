@@ -28,8 +28,8 @@
 - Exact IPC/cycles, requests/M and actual DRAM: [result table](results/RESULT_TABLE.md), [per-seed CSV](results/metrics_per_seed.csv), [paired comparisons](results/paired_comparisons.csv), [pair ranges](results/paired_ranges.csv).
 - Full quality/counter evidence: [quality table](results/QUALITY_TABLE.md), [raw fields](results/raw_per_seed.csv). The raw fields retain MPKI, timely/late uses, accepted/merged/rejected requests, duplicates, evicted-unused, pending work, queues and state.
 
-![ROI0 capped IPC](results/ipc_roi0_cap2363.png)
-![ROI1 capped IPC](results/ipc_roi1_cap2363.png)
+![ROI0 capped IPC](results/ipc_roi0_cap2363.svg)
+![ROI1 capped IPC](results/ipc_roi1_cap2363.svg)
 
 - Circle/square/triangle denote seeds 7/17/27. A single conventional-baseline point is not a training replication.
 - Uncapped and startup plots remain in [results](results/). Snapshot prefixes do not replace full-ROI distributions; first crossing of a baseline is not a minimum-history estimate.

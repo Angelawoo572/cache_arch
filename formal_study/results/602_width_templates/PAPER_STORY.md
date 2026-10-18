@@ -1,15 +1,9 @@
-# Four-route paper story
+# H8/H16 paper story
 
-- **Question:** Can small recurrent students trained on traditional prefetcher actions improve IPC, accuracy, coverage and timeliness—and the IPC/traffic Pareto trade-off—against their own native teachers?
-- **Scope:** Stride, Streamer, AMPM and SPP; retained seed7 weights; two complete 25M ROIs, each with 5M cache/state warmup; synchronous MAC0 inference. ROI0 was previously inspected. Weights remain frozen while h/c advances online.
-- **Measured result:** H8 wins **9/16** native comparisons, including **6/8 capped pairs**. Yet **all eight capped NN cases use more DRAM** than their native baseline. Stride/Streamer/AMPM trade higher capped IPC for more DRAM; native SPP dominates its H8 NN on both axes. No capped H8 NN dominates its own native on IPC and DRAM. [Exact pairs](reader_pairs.csv).
-- **Quality is not performance:** higher accuracy or timeliness does not guarantee higher IPC. Report L2/LLC first-enqueue-intent cohorts separately. Coverage is useful requests/NoPF misses, an opportunity proxy; net miss reduction is separate. Tiny/empty SPP L2 cohorts cannot stand for LLC benefit. [Metrics and Pareto definitions](README.md).
-- **Secondary mechanism result:** H16 AMPM/SPP wins **8/8** native IPC pairs, but simple validation-frozen templates reproduce nearly all gain. SPP matches four cases exactly; AMPM has small uncapped residuals and loses slightly capped. [Detailed interventions](FINDINGS.md).
-
-| Claim | Status and limit |
-| --- | --- |
-| Independent frozen live inference and mixed quality/IPC/traffic outcomes | **Supported** for these complete runs; replay is separate. |
-| Uniform NN superiority over native or necessary learned payload/state | **Not supported**; retain losses and template explanations. |
-| Broad or finite-hardware advantage | **Unproven**: one seed/workload, different route training/state budgets, and different native/student SPP fill inputs. MAC0 gives no compute/area/energy Pareto result. |
-
-- [Project overview](../../../RESULTS_INDEX.md) · [four-route results](README.md) · [cost boundaries](storage_cost.csv).
+- **Question:** Can small recurrent students trained on conventional prefetcher actions improve IPC and request quality, and where do they sit on IPC/traffic Pareto frontiers?
+- **Scope:** H8 Stride/Streamer/AMPM/SPP and H16 AMPM/SPP; retained seed7 weights, two complete ROIs, 5M cache/state warmup and synchronous MAC0 inference. Weights are frozen; h/c advances online. Stride/Streamer H16 has no compatible completed result in this matrix.
+- **Supported — mixed H8 performance:** H8 beats its own native in 9/16 IPC pairs, including 6/8 capped cases. All eight capped H8 cases use more DRAM; no capped H8 NN dominates its own native on IPC/DRAM.
+- **Supported — H16 performance and traffic:** AMPM/SPP H16 wins all eight native IPC pairs and dominates native on IPC/actual requests. Only capped ROI1 SPP also lowers DRAM. The remaining seven pairs exchange more DRAM for higher IPC. [Exact pairs](reader_pairs.csv).
+- **Supported — quality and IPC differ:** SPP H8 improves LLC accuracy while losing IPC; H16 improves IPC despite lower L2 accuracy than native. Separate L2/LLC intent cohorts; coverage proxy is useful/NoPF misses, not causal miss elimination. [Full metrics and SVG figures](README.md).
+- **Not supported — necessary learned payload/state:** validation-frozen templates reproduce nearly all H16 IPC gain. SPP matches four cases exactly; AMPM has small uncapped residuals and loses slightly capped. These interventions constrain necessity claims. [Mechanism findings](FINDINGS.md).
+- **Unverified — generality and deployment:** one seed/workload, previously inspected ROI0, different route training/state budgets and different SPP fill feedback. MAC0 gives no finite-compute, area or energy advantage. [Cost boundaries](storage_cost.csv) · [overview](../../../RESULTS_INDEX.md).

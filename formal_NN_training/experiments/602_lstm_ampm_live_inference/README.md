@@ -1,9 +1,10 @@
 # Frozen AMPM: checkpoint to live inference
 
 - **Current H8 IPC vs native (ROI0 / ROI1):** uncapped **-0.3962% / -0.7916%**; cap 16,144 requests/M **+1.7481% / +1.3399%**.
-- **Capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 39.23% → 44.06% / 41.81% → 45.97%; useful/NoPF L2-miss ratio 77.92% → 87.52% / 48.27% → 53.12%; timeliness 99.7252% → 100.0000% / 99.0009% → 99.9984%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
-- **Capped traffic:** both arms nearly exhaust the ceiling; NN actual DRAM bytes change by +2.9850% / +4.3117% versus native. Requests and DRAM are separate measurements.
-- **Scope:** 602, retained seed7, frozen H8 weights, global chronological h/c, synchronous MAC0. These comparisons do not establish finite-resource benefit or cross-seed/workload robustness.
+- **Current H16 IPC vs native (ROI0 / ROI1):** uncapped **+0.5320% / +1.5903%**; cap 16,144 requests/M **+2.2054% / +1.3698%**. H8 and H16 accuracy, coverage proxy and timeliness are in the [combined results](../../../formal_study/results/602_width_templates/README.md) and [per-arm metrics](../../../formal_study/results/602_width_templates/reader_metrics.csv).
+- **H8 capped L2-intent quality (native → NN; ROI0 / ROI1):** accuracy 39.23% → 44.06% / 41.81% → 45.97%; useful/NoPF L2-miss ratio 77.92% → 87.52% / 48.27% → 53.12%; timeliness 99.7252% → 100.0000% / 99.0009% → 99.9984%. The useful/miss ratio is a coverage proxy, not causal miss reduction.
+- **H8 capped traffic:** both arms nearly exhaust the ceiling; NN actual DRAM bytes change by +2.9850% / +4.3117% versus native. Requests and DRAM are separate measurements.
+- **Scope:** 602, retained seed7, frozen H8/H16 weights, global chronological h/c, synchronous MAC0. These comparisons do not establish finite-resource benefit or cross-seed/workload robustness.
 - **Read the measurements:** [native-versus-NN results](../../../formal_study/results/602_width_templates/README.md) · [per-arm metrics](../../../formal_study/results/602_width_templates/reader_metrics.csv) · [paired comparisons](../../../formal_study/results/602_width_templates/reader_pairs.csv) · [own latest subset](results/width_templates_20261017/README.md) · [H8 archive](results/formal_20261017/README.md).
 
 - **Run/recovery:** [four-route guide](../602_four_prefetcher_formal/README.md), [H16/template guide](../602_four_prefetcher_formal/width_templates/README.md).

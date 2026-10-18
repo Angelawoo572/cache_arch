@@ -76,3 +76,16 @@ python3 -B docs/602_width_templates/canonical_paths.py --local --check \
 - `summary.csv` and method SVG/PNG live in `formal_study/results/602_width_templates/`; public Markdown points directly to real files.
 - Former `docs/602_width_templates/{summary.csv,method.svg,method.png}` locations are ignored, local-only compatibility symlinks for retained provenance.
 - When restoring from Git plus raw archives, point each alias at `../../formal_study/results/602_width_templates/<filename>`. They are excluded from Git and the docs-only Pages checkout; the original Pages workflow remains intact.
+
+## Repository and documentation preservation
+
+- `main` normally merged `experiment/602-gate-mechanism`; the earlier live → dynamic → gate experiment ancestry and all three branch tips remain intact. The archive `archive/summer-2026-offline` was created only when absent and preserves pre-integration remote main, including its Pages update. No force-push or history rewrite was used.
+- Both checkouts were clean before integration. Local sparse-checkout removals were restored from retained Git objects without overwriting surviving files, then sparse mode was disabled. Sacramento's shallow history was completed; it has independent healthy Git objects.
+- The integration checkpoint verified all 82 manifest-bound copies against their sources, actual raw/build/model paths, branch ancestry and Pages links. The donor pack passed integrity verification; Git had refreshed only its timestamp. Machine-specific checks remain under `formal_study/migration/main_integration/`.
+- Redundant reading pointers and repeated paper stories have been consolidated into the root overview, current results, this recovery guide and each historical protocol's findings. Retained experimental reports remain separate from current H8/H16 comparisons.
+
+## Reader documentation
+
+- Maintained Markdown is the English reader layer. Original reports remain in their raw analysis/audit locations and Git history; copy manifests retain their original historical provenance.
+- Translated or consolidated Markdown is not claimed byte-identical to its initial archived copy. Original numerical CSV/JSON, trained models, source/config snapshots, old figures and raw evidence are preserved.
+- Current reader CSVs/figures are derived from completed runs. Quality denominators, original replay table cells and storage assumptions remain explicit; no training or simulation is needed for these documentation updates.

@@ -1,6 +1,6 @@
 # Completed first formal study: frozen_formal_20261016_v2
 
-- **Reader note:** Markdown has English translations and concise formatting; original reports and numeric artifacts remain preserved. [What changed](../../../../../formal_study/INTEGRATION.md#reader-documentation).
+- **Reader note:** Markdown has English translations and concise formatting; original reports and numeric artifacts remain preserved. [What changed](../../../../../docs/602_width_templates/LAYOUT_AND_RECOVERY.md#reader-documentation).
 
 - This is an exact lightweight archive of the completed first formal study, placed with the Stride dynamic-inference experiment that produced it. It contains **101 completed rows: 89 test and 12 validation**, with three independent NN training seeds (7/17/27). The paired balanced/unweighted models use identical initialization, data, and training budget. No simulation or retraining was performed to create this archive. Negative results remain in every table.
 
