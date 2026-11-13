@@ -1,8 +1,10 @@
 #include "cache.h"
+#include "learned_llc.h"
 #include "policies.h"
 
 #include <array>
 #include <cerrno>
+#include <deque>
 #include <fstream>
 #include <memory>
 #include <unordered_map>
@@ -29,6 +31,31 @@ std::array<Counters, NUM_CPUS> cores;
 std::array<std::unique_ptr<Policy>, NUM_CPUS> predictors;
 std::unordered_map<uint64_t, Prefetch> outstanding;
 std::ofstream events;
+
+struct LearnedCore {
+    llc_learned::History history;
+    llc_learned::State state;
+    std::deque<llc_learned::Observation> waiting;
+    llc_learned::Observation running{};
+    std::array<int32_t, llc_learned::max_candidates> scores{};
+    uint64_t ready = 0;
+    uint64_t next_start = 0;
+    uint64_t issued = 0;
+};
+
+std::array<LearnedCore, NUM_CPUS> learned;
+std::unique_ptr<llc_learned::Model> neural_model;
+std::unique_ptr<llc_learned::PagePc> page_pc_model;
+uint64_t prediction_latency = 0;
+uint64_t prediction_interval = 0;
+uint64_t issue_limit = 0;
+int32_t prediction_threshold = -32768;
+uint64_t prediction_started = 0;
+uint64_t prediction_completed = 0;
+uint64_t prediction_overflow = 0;
+uint64_t prediction_abstained = 0;
+uint64_t prediction_filtered = 0;
+uint64_t cross_page_issued = 0;
 
 PolicyKind policy = PolicyKind::none;
 std::string policy_name = "nopf";
@@ -66,6 +93,24 @@ uint64_t numeric_env(const char *name, uint64_t fallback)
     if (value[0] < '0' || value[0] > '9' || *end || errno)
         fail(std::string("invalid integer in ") + name);
     return number;
+}
+
+int32_t threshold_env()
+{
+    const char* value = std::getenv("LLC_PF_THRESHOLD");
+    if (!value)
+        return -32768;
+    char* end = nullptr;
+    errno = 0;
+    const auto threshold = std::strtol(value, &end, 10);
+    if (value == end || *end || errno || threshold < -32768 || threshold > 32768)
+        fail("LLC_PF_THRESHOLD must be an integer from -32768 to 32768");
+    return static_cast<int32_t>(threshold);
+}
+
+bool learned_active()
+{
+    return neural_model || page_pc_model;
 }
 
 bool roi_active()
@@ -145,12 +190,32 @@ void CACHE::llc_prefetcher_initialize()
         {"spp", PolicyKind::spp},
     };
     auto selected = policies.find(policy_name);
-    if (selected == policies.end())
-        fail("unknown policy " + policy_name);
-    policy = selected->second;
+    if (selected != policies.end()) {
+        policy = selected->second;
+    } else {
+        const char* model = std::getenv("LLC_PF_MODEL");
+        try {
+            if (policy_name == "page_pc")
+                page_pc_model.reset(new llc_learned::PagePc(model));
+            else if (policy_name == "lstm" || policy_name == "event")
+                neural_model.reset(new llc_learned::Model(model, policy_name));
+            else
+                fail("unknown policy " + policy_name);
+        } catch (const std::runtime_error& error) {
+            fail(error.what());
+        }
+        prediction_latency = numeric_env("LLC_PF_PREDICTION_LATENCY", 16);
+        prediction_interval = numeric_env("LLC_PF_PREDICTION_INTERVAL", 16);
+        if (!prediction_latency || !prediction_interval || prediction_latency > 1000000 || prediction_interval > 1000000)
+            fail("prediction latency and interval must be between 1 and 1000000 cycles");
+        issue_limit = numeric_env("LLC_PF_ISSUE_LIMIT", 0);
+        prediction_threshold = threshold_env();
+    }
     const auto requested_degree = numeric_env("LLC_PF_DEGREE", 1);
     if (requested_degree < 1 || requested_degree > 64)
         fail("LLC_PF_DEGREE must be between 1 and 64");
+    if (learned_active() && requested_degree != 1)
+        fail("learned comparisons require a prefetch degree of one");
     degree = requested_degree;
 
     if (policy != PolicyKind::none) {
@@ -182,6 +247,17 @@ void CACHE::llc_pf_ingress(PACKET &packet)
             packet.llc_pf_mshr_occupancy = MSHR.occupancy;
         }
     }
+    if (learned_active()) {
+        if (measured) {
+            auto& lane = learned[core];
+            auto observation = lane.history.observe(packet.address, packet.ip);
+            if (lane.waiting.size() < 32)
+                lane.waiting.push_back(observation);
+            else
+                ++prediction_overflow;
+        }
+        return;
+    }
     if (!predictors[core])
         return;
 
@@ -196,45 +272,94 @@ void CACHE::llc_pf_ingress(PACKET &packet)
         if (accepted == degree || PQ.occupancy == PQ.SIZE)
             break;
         ++candidates;
-        if (!target || target == packet.address || target / lines_per_page != packet.address / lines_per_page)
+        if (target / lines_per_page != packet.address / lines_per_page)
             continue;
-        if (outstanding.count(target))
-            continue;
+        if (llc_pf_try_issue(packet.address, target, packet.ip, core)) {
+            predictors[core]->issued(target);
+            ++accepted;
+        }
+    }
+}
 
-        PACKET candidate;
-        candidate.address = target;
-        candidate.full_addr = target << LOG2_BLOCK_SIZE;
-        candidate.cpu = core;
-        if (RQ.check_queue(&candidate) != -1 || WQ.check_queue(&candidate) != -1
-            || PQ.check_queue(&candidate) != -1 || check_mshr(&candidate) != -1)
-            continue;
+bool CACHE::llc_pf_eligible(uint64_t base, uint64_t target, uint32_t core)
+{
+    if (!target || target == base || PQ.occupancy == PQ.SIZE || outstanding.count(target))
+        return false;
 
-        const auto set = get_set(target);
-        bool resident = false;
-        for (uint32_t way = 0; way < NUM_WAY; ++way) {
-            if (block[set][way].valid && block[set][way].tag == target) {
-                resident = true;
-                break;
+    PACKET candidate;
+    candidate.address = target;
+    candidate.full_addr = target << LOG2_BLOCK_SIZE;
+    candidate.cpu = core;
+    if (RQ.check_queue(&candidate) != -1 || WQ.check_queue(&candidate) != -1
+        || PQ.check_queue(&candidate) != -1 || check_mshr(&candidate) != -1)
+        return false;
+    return get_way(target, get_set(target)) == NUM_WAY;
+}
+
+bool CACHE::llc_pf_try_issue(uint64_t base, uint64_t target, uint64_t pc, uint32_t core)
+{
+    if (!llc_pf_eligible(base, target, core))
+        return false;
+
+    if (issued == UINT32_MAX)
+        fail("prefetch ID space exhausted");
+    const uint32_t id = issued + 1;
+    const auto before = PQ.occupancy;
+    const auto previous_cpu = cpu;
+    cpu = core;
+    prefetch_line(pc, base << LOG2_BLOCK_SIZE, target << LOG2_BLOCK_SIZE, FILL_LLC, id);
+    cpu = previous_cpu;
+    if (PQ.occupancy == before)
+        return false;
+    outstanding.emplace(target, Prefetch{id, 0});
+    ++issued;
+    cross_page_issued += target / llc_learned::page_lines != base / llc_learned::page_lines;
+    return true;
+}
+
+void CACHE::llc_pf_tick()
+{
+    if (!learned_active())
+        return;
+    for (uint32_t core = 0; core < NUM_CPUS; ++core) {
+        if (!core_in_roi(core))
+            continue;
+        auto& lane = learned[core];
+        const uint64_t now = current_core_cycle[core];
+        if (lane.ready && lane.ready <= now) {
+            ++prediction_completed;
+            lane.ready = 0;
+            const auto& observation = lane.running;
+            if (!issue_limit || lane.issued < issue_limit) {
+                size_t best = observation.count;
+                int32_t best_score = prediction_threshold - 1;
+                bool passes_threshold = false;
+                for (size_t i = 0; i < observation.count; ++i) {
+                    passes_threshold |= lane.scores[i] >= prediction_threshold;
+                    if (lane.scores[i] <= best_score)
+                        continue;
+                    ++candidates;
+                    if (llc_pf_eligible(observation.line, observation.candidates[i].line, core)) {
+                        best = i;
+                        best_score = lane.scores[i];
+                    }
+                }
+                bool accepted = false;
+                if (best < observation.count)
+                    accepted = llc_pf_try_issue(observation.line, observation.candidates[best].line, observation.pc, core);
+                lane.issued += accepted;
+                prediction_abstained += !passes_threshold;
+                prediction_filtered += passes_threshold && !accepted;
             }
         }
-        if (resident)
+        if (lane.ready || lane.waiting.empty() || lane.next_start > now)
             continue;
-
-        if (issued == UINT32_MAX)
-            fail("prefetch ID space exhausted");
-        const uint32_t id = issued + 1;
-        const auto before = PQ.occupancy;
-        const auto previous_cpu = cpu;
-        cpu = core;
-        prefetch_line(packet.ip, packet.address << LOG2_BLOCK_SIZE,
-                      candidate.full_addr, FILL_LLC, id);
-        cpu = previous_cpu;
-        if (PQ.occupancy == before)
-            continue;
-        outstanding.emplace(target, Prefetch{id, 0});
-        predictors[core]->issued(target);
-        ++issued;
-        ++accepted;
+        lane.running = lane.waiting.front();
+        lane.waiting.pop_front();
+        lane.scores = neural_model ? neural_model->score(lane.running, lane.state) : page_pc_model->score(lane.running);
+        lane.ready = now + prediction_latency;
+        lane.next_start = now + prediction_interval;
+        ++prediction_started;
     }
 }
 
@@ -352,6 +477,12 @@ void CACHE::llc_prefetcher_print_config()
     emit("cores", NUM_CPUS);
     emit("degree", degree);
     emit("skip", llc_pf_trace_skip());
+    if (learned_active()) {
+        emit("prediction_latency", prediction_latency);
+        emit("prediction_interval", prediction_interval);
+        emit("issue_limit", issue_limit);
+        std::cout << "LLC_PF_threshold " << prediction_threshold << '\n';
+    }
 }
 
 void CACHE::llc_prefetcher_final_stats()
@@ -363,6 +494,8 @@ void CACHE::llc_prefetcher_final_stats()
         emit_core(core, "rq_forwarded", cores[core].forwarded);
         emit_core(core, "rq_merged", cores[core].merged);
         emit_core(core, "rq_full", cores[core].full);
+        if (learned_active())
+            emit_core(core, "issued", learned[core].issued);
     }
     emit("prefetch_candidates", candidates);
     emit("prefetch_issued", issued);
@@ -378,6 +511,14 @@ void CACHE::llc_prefetcher_final_stats()
     emit("dram_demand_read_bytes", dram_demand_read);
     emit("dram_prefetch_read_bytes", dram_prefetch_read);
     emit("dram_write_bytes", dram_write);
+    if (learned_active()) {
+        emit("prediction_started", prediction_started);
+        emit("prediction_completed", prediction_completed);
+        emit("prediction_overflow", prediction_overflow);
+        emit("prediction_abstained", prediction_abstained);
+        emit("prediction_filtered", prediction_filtered);
+        emit("cross_page_issued", cross_page_issued);
+    }
 
     if (events.is_open()) {
         events.close();

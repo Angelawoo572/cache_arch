@@ -13,7 +13,9 @@ import sys
 import time
 
 
-POLICIES = ("nopf", "next_line", "stride", "streamer", "ampm", "spp")
+CONVENTIONAL_POLICIES = ("nopf", "next_line", "stride", "streamer", "ampm", "spp")
+LEARNED_POLICIES = ("page_pc", "event", "lstm")
+POLICIES = CONVENTIONAL_POLICIES + LEARNED_POLICIES
 RUNS = Path(__file__).resolve().parent / "runs"
 SETTING = re.compile(r"^([A-Za-z0-9_]+) (\S+)$")
 WARMUP = re.compile(r"^Warmup complete CPU\s+(\d+) instructions:\s+(\d+) cycles:\s+(\d+)")
@@ -30,9 +32,18 @@ def parse_args():
     parser.add_argument("--policy", choices=POLICIES, action="append", dest="policies",
                         help="run only this policy; repeat to select several")
     parser.add_argument("--events", action="store_true", help="save demand lookup events per policy")
+    for policy in LEARNED_POLICIES:
+        option = policy.replace("_", "-")
+        parser.add_argument("--{}-model".format(option), type=Path)
+        parser.add_argument("--{}-threshold".format(option), type=int, default=-32768,
+                            help="inclusive threshold in integer logit units (1024 units per logit)")
+    parser.add_argument("--prediction-latency", type=int, default=16, help="cycles per learned decision")
+    parser.add_argument("--prediction-interval", type=int, default=16, help="minimum cycles between starts per core")
+    parser.add_argument("--issue-limit", type=int, default=0, help="accepted prefetch cap per core, zero is unlimited")
     parser.add_argument("traces", nargs="+", type=Path, help="one gzip or xz trace per configured core")
     args = parser.parse_args()
-    args.policies = args.policies or POLICIES
+    args.policies = args.policies or CONVENTIONAL_POLICIES
+    args.learned_settings = {}
 
     args.binary = args.binary.resolve()
     args.output = args.output.resolve()
@@ -50,6 +61,21 @@ def parse_args():
         parser.error("--degree must be between 1 and 64")
     if len(args.policies) != len(set(args.policies)):
         parser.error("each policy can appear only once")
+    for policy in LEARNED_POLICIES:
+        model = getattr(args, policy + "_model")
+        if model is None:
+            if policy in args.policies:
+                parser.error("--{}-model is required for {}".format(policy.replace("_", "-"), policy))
+            continue
+        model = model.resolve()
+        threshold = getattr(args, policy + "_threshold")
+        if not model.is_file() or not -32768 <= threshold <= 32768:
+            parser.error("{} requires a model file and an integer threshold in [-32768, 32768]".format(policy))
+        args.learned_settings[policy] = (model, threshold)
+    if args.learned_settings and (args.degree != 1 or args.issue_limit < 0
+                                 or not 1 <= args.prediction_latency <= 1000000
+                                 or not 1 <= args.prediction_interval <= 1000000):
+        parser.error("learned comparisons require degree one, positive latency/interval and nonnegative issue limit")
     return args
 
 
@@ -131,6 +157,13 @@ def parse_result(path, args, policy, aliases, wall_seconds):
         "LLC_PF_skip": args.skip,
     }
     expected.update({"trace_{}".format(core): alias for core, alias in enumerate(aliases)})
+    if policy in LEARNED_POLICIES:
+        expected.update({
+            "LLC_PF_prediction_latency": args.prediction_latency,
+            "LLC_PF_prediction_interval": args.prediction_interval,
+            "LLC_PF_issue_limit": args.issue_limit,
+            "LLC_PF_threshold": args.learned_settings[policy][1],
+        })
     for key, value in expected.items():
         if values.get(key) != str(value):
             raise ValueError("expected {} {}; got {}".format(key, value, values.get(key)))
@@ -167,6 +200,11 @@ def parse_result(path, args, policy, aliases, wall_seconds):
             "llc_miss_rate": ratio(misses, accesses),
             "llc_mpki": 1000 * misses / instructions,
         })
+        if policy in LEARNED_POLICIES:
+            per_core_issued = int(counters[counter_prefix + "issued"])
+            if args.issue_limit and per_core_issued > args.issue_limit:
+                raise ValueError("core {} exceeded the issue limit".format(core))
+            cores[-1]["prefetch_issued"] = per_core_issued
 
     frequency = int(values["cpu_freq"])
     cycles = max(core["cycles"] for core in cores)
@@ -183,6 +221,8 @@ def parse_result(path, args, policy, aliases, wall_seconds):
         raise ValueError("LLC prefetch outcomes do not account for every issued request")
     if policy == "nopf" and issued:
         raise ValueError("NoPF issued LLC prefetch requests")
+    if policy in LEARNED_POLICIES and sum(core["prefetch_issued"] for core in cores) != issued:
+        raise ValueError("learned prefetch count does not match per-core issues")
     demand_bytes = int(counters["dram_demand_read_bytes"])
     prefetch_bytes = int(counters["dram_prefetch_read_bytes"])
     write_bytes = int(counters["dram_write_bytes"])
@@ -229,7 +269,7 @@ def parse_result(path, args, policy, aliases, wall_seconds):
         "dram_bytes_per_cycle": dram_bytes / cycles,
         "instructions_per_dram_byte": ratio(instructions, dram_bytes),
         "simulator_wall_seconds": wall_seconds,
-        "counters": {key: int(value) if value.isdigit() else value for key, value in counters.items()},
+        "counters": {key: int(value) if value.lstrip("-").isdigit() else value for key, value in counters.items()},
     }
 
 
@@ -256,6 +296,15 @@ def run_policy(args, policy, directory):
     env.pop("LLC_PF_EVENTS", None)
     if args.events:
         settings["LLC_PF_EVENTS"] = "demand.csv"
+    if policy in LEARNED_POLICIES:
+        model, threshold = args.learned_settings[policy]
+        settings.update({
+            "LLC_PF_MODEL": str(model),
+            "LLC_PF_THRESHOLD": str(threshold),
+            "LLC_PF_PREDICTION_LATENCY": str(args.prediction_latency),
+            "LLC_PF_PREDICTION_INTERVAL": str(args.prediction_interval),
+            "LLC_PF_ISSUE_LIMIT": str(args.issue_limit),
+        })
     env.update(settings)
     write_json(attempt / "command.json", {"argv": command, "environment": settings})
     log_path = attempt / "run.log"
@@ -305,6 +354,14 @@ def run(args):
         "degree": args.degree,
         "events": args.events,
     }
+    if args.learned_settings:
+        config["learned"] = {
+            "models": {policy: {"file": file_identity(model), "threshold": threshold}
+                       for policy, (model, threshold) in args.learned_settings.items()},
+            "prediction_latency": args.prediction_latency,
+            "prediction_interval": args.prediction_interval,
+            "issue_limit": args.issue_limit,
+        }
     config_path = args.output / "config.json"
     if config_path.is_file():
         if read_json(config_path) != config:

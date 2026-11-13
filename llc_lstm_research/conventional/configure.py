@@ -41,6 +41,12 @@ def patch_cache(text):
     )
     text = add_before(
         text,
+        "    if (PQ.occupancy && (reads_available_this_cycle > 0))",
+        "    if (cache_type == IS_LLC)\n"
+        "        llc_pf_tick();\n\n",
+    )
+    text = add_before(
+        text,
         "                // update prefetch stats and reset prefetch bit",
         "                if (cache_type == IS_LLC)\n"
         "                    llc_pf_demand(RQ.entry[index], true);\n\n",
@@ -184,6 +190,9 @@ def main():
         ),
         "    uint32_t cpu;",
         "    void llc_pf_ingress(PACKET &packet);\n"
+        "    void llc_pf_tick();\n"
+        "    bool llc_pf_eligible(uint64_t base, uint64_t target, uint32_t core);\n"
+        "    bool llc_pf_try_issue(uint64_t base, uint64_t target, uint64_t pc, uint32_t core);\n"
         "    void llc_pf_rq_disposition(const PACKET &packet, LlcRqDisposition disposition);\n"
         "    void llc_pf_invalidate(uint64_t address);\n"
         "    void llc_pf_demand(const PACKET &packet, bool hit);\n"
@@ -221,6 +230,7 @@ def main():
     put("replacement/llc_replacement.cc", replace_once(replacement, "    srand(time(NULL));\n", ""))
     put("prefetcher/llc_prefetcher.cc", (here / "llc_prefetcher.cc").read_text())
     put("inc/policies.h", (here / "policies.h").read_text())
+    put("inc/learned_llc.h", (here / "learned_llc.h").read_text())
     # Upstream's Makefile names dependency files but never includes them.
     patch("Makefile", lambda content: content + "\n-include $(objects:.o=.d)\n")
 
