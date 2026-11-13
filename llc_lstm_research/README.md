@@ -1,30 +1,38 @@
-# 多核 LLC 入口的 LSTM 预取
+# LSTM prefetching at the shared LLC
 
-问题很具体：在同样的预取流量下，小 LSTM 能否比传统 LLC 预取器更早取回数据，让 demand 少等几拍？
+Can a small LSTM cover more LLC misses in time than conventional prefetchers at comparable DRAM traffic?
 
-## 输入和传统对照
+- Input is a **demand data load that missed L2**. Observe successful new entries to the shared LLC read queue before tag lookup. Count merged, forwarded, and rejected requests separately. NoPF supplies the reference labels and every policy uses the same LLC entry point.
+- The demand keeps moving. The predictor can issue a separate request that fills the LLC. Current LLC hit/miss is available after lookup.
+- This directory holds the experiment. Sacramento uses the same path under `~/cache`. [Simulator and baselines](PYTHIA.md) · [Sacramento results](conventional/RESULTS.md)
 
-- 输入固定为 **L2 demand data load miss**。在共享 LLC 的读队列入口、查 tag 前采样，首轮只让成功新入队的请求更新历史。合并、转发和拒绝另计。需求请求继续执行，候选异步发出并填进 LLC。
-- **先做 NoPF、Next-Line 和 PC Stride**。Next-Line 用来检查接口和度量。Stride 提供有意义的序列基线。再加一个在同页 `+1/+2/+4` 中按近期表现选偏移的轻量表，让它和 LSTM 用同一组候选。
-- **Streamer、AMPM、SPP 都可以移植。** 先移植 Stride 和 Streamer，再加 AMPM 的页内 footprint。SPP 放最后，它有 L2/LLC 双层填充和反馈要改。所有策略接同一入口并填 LLC。先统一每次最多一条的上限，再比较实际请求数和 DRAM bytes。 [移植细节](PYTHIA.md)
+## What the papers suggest
 
-## 第一版模型
+- **Hashemi et al. (2018)** used PC and miss deltas to predict the next miss delta. Relative addresses and ordered history are good starting features. A correct next delta can still arrive too late to save a stall. [Delta-LSTM](https://proceedings.mlr.press/v80/hashemi18a.html)
+- **Voyager (2021)** used LLC accesses, split addresses into page and offset, and trained on multiple future targets. Several offsets can be useful from one trigger, so give each candidate its own score. Keep the first model small and charge its simulated inference time. [Voyager](https://www.cs.utexas.edu/~lin/papers/asplos21.pdf)
+- **PPF and Pythia** make the decision and the outcome explicit. A candidate can be correct but late, useless, or harmful under contention. Keep conventional candidates and record which requests actually fill and help a demand. [PPF](https://people.engr.tamu.edu/djimenez/pdfs/ppf_isca2019.pdf) · [Pythia](https://arxiv.org/abs/2109.12021)
+- **Augur** found little extra benefit from longer context in its single-core reservoir sweep. That is a reason to measure the window here. Its L2 predictor and our shared LLC LSTM see different streams. [Augur §VI-E](https://arxiv.org/html/2611.10929v1#S6.SS5)
 
-- **先用 3 个特征**。同核相邻 cache line 的有符号 delta、当前页内行偏移、距同核上次到达的周期数。用有界缩放处理 delta 和间隔。模型看这些信号就能区分连续扫描、页边界和突发间隔。每核独立维护序列，共用模型权重。第一条事件的 delta 和间隔设为零。
-- **一次加一个信号**。先核对上游保留了真实 load PC，再试“PC 是否与上一条相同”。然后加入口当时的共享 LLC MSHR 占用率。对照使用相同输入维度，将待测试的通道置零。当前需求的 LLC hit/miss 要等查 tag 才知道。先把模型宽度和标签固定，每次只改一个特征。
-- **单层、8 个隐藏单元**。输出三个独立分数，对应同页 `+1/+2/+4`。每次选得分最高的有效候选，低于阈值就跳过。阈值在验证集按请求预算选定。先和只看当前事件的小 MLP 比，再和读同样短历史的小 MLP 比，区分历史信息和循环结构的收益。若只有 `+1` 占主导，单独验证用传统 Next-Line 保底、模型选额外候选的方案。
-- **history 可以调**。第一轮用严格的每核窗口 `4/8/16/32` 条 L2 miss，训练与离线推理都从同样的零状态重放窗口，从 8 或 16 开始。记录这些事件横跨多少 cycles。若窗口有效，再测试每核持续保存 `h,c` 的版本。该版本每条到达只更新一次，训练的 TBPTT 可扫 `8/16/32` 步。TBPTT 决定梯度回传多远，部署状态可跨块保留。 [Voyager 表 1](https://www.cs.utexas.edu/~lin/papers/asplos21.pdf) · [TBPTT](https://proceedings.mlr.press/v115/aicher20a.html)
+## The label comes first
 
-## 标签
+For each input event, score three same-page candidates, `+1`, `+2`, and `+4`. Find the first later accepted demand to each physical line in the **same NoPF run**, across all cores, using ingress order. Store its LLC hit/miss and the cycles between the two ingress events. Target ingress is a conservative deadline that avoids giving the model credit for time the demand spends stalled in the LLC queue.
 
-- 从同一次 LLC NoPF 运行找各候选物理行的第一次后续 demand。参考中是 LLC miss 且提前量在开发集确定的窗口内，就标 `1`。已命中、来得太早或完整窗口内没访问，标 `0`。跨页、末尾观察不足的候选不进 loss。目标需求可来自任一核。
-- 用三个独立的 sigmoid 和掩码 BCE。提前量在开发集按周期校准。按候选报告正例比例、PR-AUC 和固定发出率下的 recall，再在留出段检查实际填充、及时命中和覆盖。传统 prefetcher 的动作可以当模仿对照，或只负责提供候选。主模型的标签来自后续 demand。
-- 如果目标改为超过强传统基线，可以把参考运行改成固定 Next-Line，专门标记它留下的缺失。给候选的标签描述覆盖机会，实际净收益由闭环模拟测量。 [论文和后续路线](PAPERS.md)
+- **1:** That demand misses in the LLC, and its lead time falls in the window calibrated on development data.
+- **0:** The first demand hits, falls outside the window, or is absent from a complete window.
+- **Mask:** The offset crosses a page, the observation ends too soon, or the line is already resident or in flight at the trigger when that state is recorded. Keep targets and follow-up within their own split.
+- Use three independent sigmoid scores and masked binary cross-entropy. Calibrate the lower timing bound from measured issue-to-fill latency and the inference budget. Choose the upper bound on development data to limit how long a prefetched line must stay resident. Freeze both before testing. Two candidates can be positive on the same event. A longer useful offset may give more lead time even when the next miss is `+1`. Actual timely hits, evictions, and IPC come from the closed-loop run.
+- Before training, measure positives, lead-time distributions, and the fraction of unique NoPF misses that any of the three offsets could reach. Count each miss once. Check how much `+2` and `+4` add beyond `+1`.
+- Teacher actions are useful for an imitation baseline or candidate generation. The main label uses future demand. If `+1` dominates the label, try a separate hybrid with Next-Line always on. Label the extra candidates by the misses that **Next-Line still leaves**, and count the extra traffic.
 
-## 核数怎么测
+## Start small, then tune the window
 
-- **更多 core 会增加请求和干扰的来源，是否更好学要测。** 同一个 602 片段跑多份可能主要产生重复样本。不同相位或程序混跑能增加真实变化，也会让单条交错地址序列更难预测。先保留 per-core 状态，只把共享压力作为额外输入。
-- **先做双核 602 联调，再跑 1/2/4/8 核。** 单核提供参考。多核先测同程序同相位，再测同程序错相位和留出的混合程序，例如 602 + 605。比较 per-core-only 和加共享占用率，训练事件总数匹配，同时报告每核样本数、各候选正例、到达间隔和 MSHR 占用率分布。分别看每个核数下加共享信号带来的差值。另用同一个双核模型跨核数测试，检验泛化。若要分辨是否只是样本变多，同一 mix 再比较固定样本数和全部样本。
-- **控制资源。** 主实验固定共享 LLC 容量、队列和 DRAM 通道，研究共享资源下的核数效应。资源随核数扩张时另列结果。Pythia v1.3 默认 LLC 容量和队列随核数变，超过两核时构建脚本还会增 DRAM 通道。 [构建脚本](https://github.com/CMU-SAFARI/Pythia/blob/v1.3/build_champsim.sh#L64-L77) · [LLC 配置](https://github.com/CMU-SAFARI/Pythia/blob/v1.3/inc/cache.h#L67-L74)
+- One LSTM layer, **8 hidden units**, separate history per core and shared weights. Start with signed line delta, page offset, and cycles since the previous same-core arrival. Use clipped or bucketed values. Add a same-PC bit after confirming PC survives L2 forwarding, then try shared LLC MSHR occupancy as a separate ablation. If recent hit/miss behavior helps identify phases, test a rolling fraction built from outcomes that have already arrived at prediction time.
+- Begin with **8 events**, then compare **4, 8, 16, and 32** on the same chronological train/validation/test splits. Use the same eligible anchors across window lengths, with history drawn only from the current split or its own warmup. Record the actual cycles spanned by each window. A short window may be enough for a stream and too short for recurring irregular patterns.
+- Compare a current-event MLP and a small MLP that sees the same window. Choose the shortest window that retains recall at the same issue rate and performs best on the validation trade-off between timely coverage and runtime. Evaluate the chosen settings on the held-out runs. Try width 16 only if the window results suggest that extra capacity could help.
+- If window replay costs too much, test carrying `h,c` per core and updating once per event. Retune the training unroll (TBPTT) separately. That setting limits gradient reach while deployment can retain state across chunks. [TBPTT](https://proceedings.mlr.press/v115/aicher20a.html)
 
-先完成同入口的 NoPF、Next-Line、Stride 和标签采集，再做 LSTM。用闭环的 **固定指令量完成周期、逐核 IPC、及时覆盖与实际 DRAM 流量** 选方案，另外报告 hit/miss rate、MPKI 和模型时延。 [性能与 Roofline](PERFORMANCE.md)
+## Multicore and success criteria
+
+- First use two copies of 602 to check the path. Each core gets its own address space. Then compare 1/2/4/8 cores with same-phase, staggered, and held-out mixed workloads. Fix training event counts and shared LLC/DRAM resources when isolating the core-count effect. Compare with and without the shared occupancy input at each core count.
+- More cores can provide new patterns, repeated samples, or extra contention. Compare the label distribution for similar per-core histories, ingress gaps, and queue occupancy. A more varied stream helps learning when those new cases have patterns that still predict useful prefetches on held-out workloads.
+- Pick thresholds on validation data under a request budget. On held-out runs report accuracy, timeliness, coverage, LLC hit/miss rate, MPKI, DRAM bytes, and per-core IPC. Judge the design by fixed-work completion cycles with inference delay enabled. [Metric definitions and Roofline](PERFORMANCE.md) · [Paper index](PAPERS.md)
