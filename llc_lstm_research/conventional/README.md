@@ -1,6 +1,6 @@
 # Conventional LLC baselines
 
-[Sacramento results](RESULTS.md)
+[SPEC trace screen](SPEC_SCREEN.md) · [602 results](RESULTS.md)
 
 - Run NoPF, Next-Line, Stride, Streamer, AMPM, and SPP through one shared LLC issuer. All six use the same CPU, L1D, L2, LLC, DRAM, and replacement configuration. L1D and L2 prefetching are disabled. Each core has independent predictor state.
 - Reuse Pythia v1.3's Stride, Streamer, and AMPM candidate generators. The LLC-only SPP port reuses the native signature and pattern tables, limits lookahead to four stages, and updates confidence from timely LLC use. All policies train their state during warmup and start issuing at the ROI.
@@ -25,3 +25,8 @@ python3 conventional/run.py \
 - `net_miss_reduction` is relative to NoPF LLC MPKI. The event IDs in these logs are per-run queue IDs. A stable cross-policy demand ID is needed to measure causal miss coverage.
 - A demand that merges into a prefetch already in the LLC MSHR counts as late. A prefetch that loses the race while still in the prefetch queue is redundant when it reaches the occupied line or MSHR. Timely slack measures cycles from fill to the first qualifying demand hit.
 - Upstream Pythia keeps cores running until the last core finishes. Per-core instruction counts, IPC, and LLC demand lookups stop at each core's ROI target. Traffic and shared-cache activity can include activity from a core that reached its target early.
+
+## Reproduce a SPEC screen run
+
+- Use the same build and ROI settings above. For the 620 screen, use `../traces/620.omnetpp_s-874B.champsimtrace.xz` for both inputs, `--skip 10000000` and `--output conventional/runs/spec_screen/620_dual_10m`. Repeat with `--skip 30000000 --events` and output `620_dual_30m`.
+- For the first-region NoPF event log, use the same inputs with `--policy nopf --events` and output `620_events_10m`. Use the trace names and skip counts in the [screen table](SPEC_SCREEN.md) for the other workloads.

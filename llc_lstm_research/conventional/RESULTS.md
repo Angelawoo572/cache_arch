@@ -12,7 +12,7 @@ Both cores replayed `602.gcc_s-734B` after skipping 10 million trace records. Ea
 | SPP | 94.76% | 5.24% | 0.421 | 99.11% | 94.75% | 0.845 | 0.592 |
 
 - Next-Line finished 16.5% sooner than NoPF. SPP came close at 0.592 ms and transferred 0.7% fewer DRAM bytes than Next-Line. Stride issued only 2,642 requests, so high timeliness coincided with modest net miss reduction.
-- All five issuing policies had 100% resolved independent prefetch accuracy in this segment. The denominator excludes redundant and unresolved requests. Useful requests per issued request ranged from 97.3% to 99.4%. See the CSV for the raw counts.
+- CMU 18-447 accuracy (used / sent) ranged from 97.3% to 99.4%. The resolved independent accuracy diagnostic was 100% for all five issuing policies. It excludes redundant and unresolved requests. [Metric definitions](../PERFORMANCE.md)
 - Aggregate IPC is total ROI instructions divided by the last core's finish cycle. The JSON includes per-core IPC, DRAM bytes, prefetch slack, and queue counts. The runs measured net MPKI reduction. Causal coverage needs stable demand IDs across policies.
 - These results describe one segment of the same workload on both cores. Conventional prefetches issue at ingress in this model. Later model comparisons must account for inference and queueing delay.
 

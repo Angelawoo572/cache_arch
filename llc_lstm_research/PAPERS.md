@@ -22,12 +22,14 @@ This index covers the CPU hardware data prefetching and control papers collected
 - **Twilight and T-LITE, ISCA 2024.** Rank a small set of temporal successors. T-LITE uses clustering and quantization to reduce cost. Twilight includes 4- and 8-core mixes. [Paper](https://www.cs.utexas.edu/~lin/papers/isca24.pdf)
 - **TLP, 2024.** Uses perceptrons for off-chip prediction and L1D prefetch filtering. [Paper](https://arxiv.org/abs/2403.15181)
 - **PF-LLM, ASPLOS 2026.** Generates hints offline from assembly around loads. A lightweight hardware policy consumes them. [Paper](https://doi.org/10.1145/3779212.3790202)
+- **Best-Offset, DPC2.** Learns a useful offset by checking whether it could have generated the current line with enough lead time. This is a conventional control for a timing-aware LSTM. [Paper](https://comparch-conf.gatech.edu/dpc2/resource/dpc2_michaud.pdf)
 
 ## Choose actions online and coordinate cores
 
 - **Pythia, MICRO 2021.** Learns which offset to issue or when to abstain. Rewards distinguish useful timely and late requests and account for bandwidth. [Paper](https://arxiv.org/abs/2109.12021)
 - **Policy selection, 2019–24.** Researchers used contextual bandits, random forests, deep RL, ensembles, and phase-dependent decision trees to select prefetchers and settings. [Hiebel et al.](https://digitalcommons.mtu.edu/michigantech-p/567/) · [Puppeteer](https://bu-icsg.github.io/publications/2022/puppeteer_taco_2022.pdf) · [Managing Prefetchers With Deep RL](https://www.computer.org/csdl/journal/ca/2022/02/09904841/1H2kY3Sjt0A) · [ReSemble](https://sc22.supercomputing.org/proceedings/tech_paper/tech_paper_pages/pap334.html) · [Alcorta et al.](https://ut-sysml.ece.utexas.edu/publications/prints/cal2024_alcorta.pdf) · [RL-CoPref](https://link.springer.com/article/10.1007/s11227-024-05938-9)
 - **Shared resources, 2023–26.** Micro-Armed Bandit selects L2 configurations. Micro-MAMA and CRL-Pythia coordinate cores. Athena coordinates prefetchers with an off-chip predictor. A DPC4 entry found that its static LLC prefetchers slightly hurt single-core performance when strong upper-level prefetchers were active. [Micro-Armed Bandit](https://iacoma.cs.uiuc.edu/iacoma-papers/micro23.pdf) · [Micro-MAMA](https://iacoma.cs.uiuc.edu/iacoma-papers/micro25_2.pdf) · [CRL-Pythia preprint](https://arxiv.org/abs/2509.10719) · [Athena](https://arxiv.org/abs/2601.17615) · [DPC4 entry](https://chaseblock.com/assets/pdf/dpc4.pdf)
+- **CHROME, HPCA 2024.** Uses core and PC context to distinguish mixed streams. It coordinates LLC replacement, bypass, and pattern-based prefetching with online RL. [Paper](https://xiaoyang-lu.github.io/files/HPCA2024/CHROME_paper.pdf)
 
 ## Reduce the cost of learning or inference
 
