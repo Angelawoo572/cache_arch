@@ -21,6 +21,7 @@
 ## ChampSim replay
 
 - Replays use the same trace regions, cache geometry and instruction counts for all policies. The two learned policies and Page-PC share the candidate directory, eligibility checks, 1,000-request per-core cap and 16-cycle inference latency and initiation interval. Their thresholds are fixed using 70M validation. Native conventional baselines use their existing timing and the shared degree-one limit. Coverage counts direct first use matched to a NoPF miss.
+- The Sacramento replay used Colab weights for both neural scorers. All 12 runs produced the same metrics and byte-identical demand logs as the corresponding local-weight replays.
 
 ### 90M held-out region
 
