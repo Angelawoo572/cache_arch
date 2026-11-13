@@ -1,8 +1,8 @@
 # LSTM prefetching at the shared LLC
 
-**Research question.** When can an earlier pattern in a core's L2D miss stream tell us to prefetch a farther offset, or to skip a prefetch altogether?
+**Research question.** When does a core's earlier L2D miss history tell us which previously seen page and line to prefetch?
 
-- The [SPEC trace screen](conventional/SPEC_SCREEN.md) identifies 620 OMNeT++ as the first workload. The [620 baseline comparison](conventional/620_RESULTS.md) shows where each conventional policy falls short.
+- The [long-history screen](conventional/LONG_MEMORY.md) selects 605 MCF for older page context. The [620 baseline comparison](conventional/620_RESULTS.md) remains a short-context control.
 - The [LSTM design](DESIGN.md) gets its offline inputs and labels from NoPF demand events. Conventional runs show where prefetching falls short. Model work is at the design stage.
 - [Measurement definitions](PERFORMANCE.md) follow CMU 18-447. [Conventional baselines](conventional/README.md) explains how to reproduce the screen. [Paper index](PAPERS.md) records related designs.
 
