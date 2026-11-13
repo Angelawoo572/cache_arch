@@ -36,5 +36,6 @@
 
 ## Does order help?
 
+- The [late-miss history check](620_HISTORY.md) matches Streamer and SPP late misses and compares 1–32 events at a fixed budget. The earlier check below used all future misses.
 - A frequency lookup built from 10M NoPF events ranked `+1,+2,+4` at 30M. It used the current PC, page offset, and line delta. Two variants added the preceding three deltas in their original order or sorted them. Deltas were clipped to ±8 with a separate page-change value. Each rate was smoothed with 20 pseudo-counts from the simpler key's rate.
 - At the same 1,000-decision budget, the three versions reached **371** distinct prospective misses with the current input, **448** with ordered history, and **455** with sorted history. The check uses the illustrative 300–2,000 cycle lead range and at most one candidate per event. It is an offline lookup without service, cache, or inference timing. Extra context helped this lookup. The ordered version showed no gain over sorting, so a benefit from recurrence is still an open question.
