@@ -136,6 +136,14 @@ def patch_eof(text):
     return text
 
 
+def patch_ooo(text):
+    return add_before(
+        patch_eof(text),
+        "    data_packet.full_addr = LQ.entry[lq_index].physical_address;",
+        "    data_packet.llc_pf_virtual_line = LQ.entry[lq_index].virtual_address >> LOG2_BLOCK_SIZE;\n",
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -179,7 +187,7 @@ def main():
         "    void llc_pf_rq_disposition(const PACKET &packet, LlcRqDisposition disposition);\n"
         "    void llc_pf_invalidate(uint64_t address);\n"
         "    void llc_pf_demand(const PACKET &packet, bool hit);\n"
-        "    void llc_pf_late(const PACKET &prefetch, const PACKET &demand);\n"
+        "    void llc_pf_late(const PACKET &prefetch, PACKET &demand);\n"
         "    void llc_pf_redundant(const PACKET &packet);\n"
         "    void llc_pf_fill(const PACKET &packet, const BLOCK &victim);\n\n",
     ))
@@ -187,11 +195,13 @@ def main():
         content, "    uint32_t pf_metadata;",
         "    uint64_t llc_pf_event_id = 0;\n"
         "    uint64_t llc_pf_ingress_cycle = 0;\n"
-        "    uint32_t llc_pf_mshr_occupancy = 0;\n",
+        "    uint64_t llc_pf_virtual_line = 0;\n"
+        "    uint32_t llc_pf_mshr_occupancy = 0;\n"
+        "    bool llc_pf_late_use = false;\n",
     ))
     patch("src/cache.cc", patch_cache)
     patch("src/main.cc", patch_main)
-    patch("src/ooo_cpu.cc", patch_eof)
+    patch("src/ooo_cpu.cc", patch_ooo)
 
     patch("prefetcher/stride.cc", lambda content: replace_once(
         content,

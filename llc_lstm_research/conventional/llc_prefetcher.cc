@@ -101,14 +101,15 @@ void discard_spp_feedback(uint64_t address)
     }
 }
 
-void finish_prefetch(const PACKET &packet, uint64_t &counter)
+bool finish_prefetch(const PACKET &packet, uint64_t &counter)
 {
     auto tracked = outstanding.find(packet.address);
-    if (tracked != outstanding.end() && tracked->second.id == packet.pf_metadata) {
-        ++counter;
-        discard_spp_feedback(packet.address);
-        outstanding.erase(tracked);
-    }
+    if (tracked == outstanding.end() || tracked->second.id != packet.pf_metadata)
+        return false;
+    ++counter;
+    discard_spp_feedback(packet.address);
+    outstanding.erase(tracked);
+    return true;
 }
 } // namespace
 
@@ -161,7 +162,8 @@ void CACHE::llc_prefetcher_initialize()
         events.open(path);
         if (!events)
             fail("cannot open demand event CSV");
-        events << "event_id,ingress_cycle,lookup_order,tag_cycle,cpu,pc,physical_line,mshr_occupancy,hit\n";
+        events << "event_id,ingress_cycle,lookup_order,tag_cycle,cpu,pc,physical_line,mshr_occupancy,hit,"
+               << "instr_id,operand,virtual_line,prefetch_use\n";
     }
 }
 
@@ -267,11 +269,13 @@ void CACHE::llc_pf_invalidate(uint64_t address)
 
 void CACHE::llc_pf_demand(const PACKET &packet, bool hit)
 {
+    bool timely_use = false;
     if (hit) {
         auto tracked = outstanding.find(packet.address);
         if (tracked != outstanding.end() && tracked->second.fill_cycle) {
             if (demand_load(packet) && packet.llc_pf_event_id && core_in_roi(packet.cpu)) {
                 ++timely;
+                timely_use = true;
                 const auto slack = current_core_cycle[packet.cpu] - tracked->second.fill_cycle;
                 slack_sum += slack;
                 slack_min = std::min(slack_min, slack);
@@ -299,14 +303,16 @@ void CACHE::llc_pf_demand(const PACKET &packet, bool hit)
         events << packet.llc_pf_event_id << ',' << packet.llc_pf_ingress_cycle << ','
                << ++next_lookup << ',' << current_core_cycle[packet.cpu] << ','
                << packet.cpu << ',' << packet.ip << ','
-               << packet.address << ',' << packet.llc_pf_mshr_occupancy << ',' << hit << '\n';
+               << packet.address << ',' << packet.llc_pf_mshr_occupancy << ',' << hit << ','
+               << packet.instr_id << ',' << packet.data_index << ',' << packet.llc_pf_virtual_line << ','
+               << (timely_use ? "timely" : packet.llc_pf_late_use ? "late" : "none") << '\n';
     }
 }
 
-void CACHE::llc_pf_late(const PACKET &prefetch, const PACKET &demand)
+void CACHE::llc_pf_late(const PACKET &prefetch, PACKET &demand)
 {
     if (demand_load(demand) && demand.llc_pf_event_id && core_in_roi(demand.cpu))
-        finish_prefetch(prefetch, late);
+        demand.llc_pf_late_use = finish_prefetch(prefetch, late);
     else
         finish_prefetch(prefetch, redundant);
 }

@@ -17,7 +17,7 @@
 | `620.omnetpp_s-874B` | 30M | 10.000 | Next-Line | 8.220 | 3.38% |
 | `623.xalancbmk_s-700B` | 10M | 0.490 | SPP | 0.344 | 0.57% |
 
-- On the first OMNeT++ region, Next-Line changed LLC hit/miss rates from 15.8%/84.2% to 30.7%/69.3%. Its 18-447 accuracy was 36.1%, timeliness was 60.1%, and net MPKI reduction was 18.4%. Aggregate IPC went from 0.471 to 0.487. [Metric definitions](../PERFORMANCE.md)
+- See the [620 baseline comparison](620_RESULTS.md) for each policy's accuracy, timeliness, coverage, and IPC in both regions.
 
 ## How many misses could the offsets reach?
 
