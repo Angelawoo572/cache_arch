@@ -2,7 +2,7 @@
 
 **Research question.** When does a core's earlier L2D miss history tell us which previously seen page and line to prefetch?
 
-- The [long-history screen](conventional/LONG_MEMORY.md) selects 605 MCF for older page context. The [620 baseline comparison](conventional/620_RESULTS.md) remains a short-context control.
+- The [605 baselines](conventional/605_RESULTS.md) report accuracy, timeliness, coverage, and IPC. The [70M history check](conventional/605_HISTORY.md) tests what ordered events add beyond the page-PC table.
 - The [LSTM design](DESIGN.md) gets its offline inputs and labels from NoPF demand events. Conventional runs show where prefetching falls short. Model work is at the design stage.
 - [Measurement definitions](PERFORMANCE.md) follow CMU 18-447. [Conventional baselines](conventional/README.md) explains how to reproduce the screen. [Paper index](PAPERS.md) records related designs.
 

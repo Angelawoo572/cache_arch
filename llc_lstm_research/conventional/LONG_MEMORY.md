@@ -5,6 +5,7 @@
 ## Conventional performance
 
 - All six policies ran on the same dual-core trace regions with a 200,000-instruction warmup, 2 million measured instructions per core, private-cache prefetching disabled, and one issue per trigger at most.
+- See [605 baseline results](605_RESULTS.md) for accuracy, timeliness, coverage, and IPC for every policy in all three regions.
 
 | MCF region | NoPF LLC MPKI | Fastest issuing policy | Its LLC MPKI | ROI time saved |
 | --- | ---: | --- | ---: | ---: |
