@@ -1,0 +1,135 @@
+{
+  "region_start_trace_records": 410000000,
+  "core": 0,
+  "policy": "Latest pure-NoPF-calibrated LLC LSTM, Q10 cutoff -950",
+  "units": {
+    "cache_line_bytes": 64,
+    "page_bytes": 4096,
+    "page_offset": "zero-based cache-line index in the page, not a byte offset",
+    "cycle": "simulated CPU cycle",
+    "Q10": "floor(1024*logit+0.5), clipped to signed 16-bit"
+  },
+  "checked_sources": {
+    "live_demand_csv": "conventional/runs/v5_clean/label32/fresh/410m/lstm/attempt-1/demand.csv",
+    "live_prefetch_csv": "conventional/runs/v5_clean/label32/fresh/410m/lstm/attempt-1/prefetch_events.csv",
+    "NoPF_demand_csv": "conventional/runs/v5_clean/label32/fresh/410m/nopf/attempt-1/demand.csv",
+    "model_checkpoint": "lstm/v5_results/clean32/lstm_model.pt",
+    "training_NoPF_demand_latency_CDF": "lstm/runs/v5_clean/service_10_30_50m.json",
+    "V1_current_page_exclusion": "conventional/learned_llc.h, History::candidates"
+  },
+  "live_model_input": {
+    "event_id": 2552,
+    "instruction_id": 219021,
+    "operand": 0,
+    "PC": "0x40245C",
+    "arrival_cycle": 270570,
+    "physical_line": 2777491196578,
+    "physical_page_number": 43398299946,
+    "page_offset": 34,
+    "recent_delta": 1,
+    "page_change": false,
+    "same_PC": true,
+    "interarrival_cycles": 218,
+    "trigger_is_LLC_hit": true,
+    "PC_embedding_index": 5,
+    "PC_embedding": [
+      -0.22408123314380646,
+      -1.9078599214553833,
+      -1.3525071144104004,
+      0.7427257895469666
+    ],
+    "encoded_event_features_order": [
+      "PC embed[0]",
+      "PC embed[1]",
+      "PC embed[2]",
+      "PC embed[3]",
+      "page_offset/63",
+      "clipped_recent_delta/8",
+      "page_change",
+      "same_PC",
+      "encoded_interarrival_gap"
+    ],
+    "encoded_event_features": [
+      -0.22408123314380646,
+      -1.9078599214553833,
+      -1.3525071144104004,
+      0.7427257895469666,
+      0.5396825671195984,
+      0.125,
+      0.0,
+      1.0,
+      0.5833333134651184
+    ],
+    "previous_event": {
+      "PC": "0x40245C",
+      "page_offset": 33,
+      "arrival_cycle": 270352
+    },
+    "most_recent_other_page": {
+      "PC": "0x40244F",
+      "physical_page_number": 43398299951,
+      "page_offset": 24,
+      "arrival_cycle": 270342,
+      "events_ago": 2
+    }
+  },
+  "live_score": {
+    "legal_positions": 116,
+    "cutoff_Q10": -950,
+    "top_candidates_retained": 16,
+    "maximum_requests_per_trigger": 1,
+    "winner": {
+      "physical_line": 2777491196579,
+      "page_offset": 35,
+      "candidate_delta": 1,
+      "raw_logit": 0.2605423033237457,
+      "Q10": 267,
+      "score_verified_from_simulator": true
+    },
+    "runner_up": {
+      "page_offset": 36,
+      "candidate_delta": 2,
+      "raw_logit": -1.18889582157135,
+      "Q10": -1217,
+      "computed_with_frozen_PyTorch": true
+    }
+  },
+  "live_request": {
+    "prediction_start_cycle": 270570,
+    "prediction_ready_cycle": 270602,
+    "accepted_cycle": 270602,
+    "dispatch_cycle": 270622,
+    "fill_cycle": 270692,
+    "copy_filled_before_consumer_arrives_by_cycles": 36,
+    "consumer_arrival_cycle": 270728,
+    "consumer_hit_cycle": 270748,
+    "consumer_instruction_id": 219017,
+    "consumer_operand": 0,
+    "outcome": "timely"
+  },
+  "counterfactual_NoPF_label": {
+    "note": "Separate simulation of the same dynamic load identities and virtual cache lines. The two simulations use their own clocks and may map pages to different physical numbers.",
+    "trigger_cycle": 283952,
+    "trigger_physical_page_number": 43398299947,
+    "target_first_later_access_cycle": 284260,
+    "target_access_is_LLC_miss": true,
+    "lead_cycles": 308,
+    "reserve_prediction_cycles": 32,
+    "allowed_service_cycles": 276,
+    "CDF_numerator": 335399,
+    "CDF_denominator": 369307,
+    "winner_soft_label": 0.9081847893486991,
+    "runner_up_soft_label": 0.0
+  },
+  "recurrence_example_hidden_unit_zero": {
+    "previous_h": -0.9387364387512207,
+    "previous_c": -4.597949028015137,
+    "forget_gate_f": 0.818471372127533,
+    "input_gate_i": 0.8854618668556213,
+    "proposal_g": -0.9701223373413086,
+    "output_gate_o": 0.9674445390701294,
+    "new_c": -4.62229585647583,
+    "new_h": -0.9672576189041138
+  },
+  "V1_output_space": "V1 excludes the current physical page, so even with the same current trigger V1 cannot score current-page offset 35. This explains why the example is reachable by the latest model. It does not quantify how much of aggregate speedup comes from this one design choice."
+}

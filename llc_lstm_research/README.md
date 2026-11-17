@@ -2,7 +2,11 @@
 
 **Research question.** When does a core's earlier L2D miss history tell us which previously seen page and line to prefetch?
 
-- The [NoPF-only retrain and matched coverage results](lstm/V5_RESULTS.md) correct the archived V5 timing provenance. The corrected LSTM won three newly opened 605 regions by 2.88% summed time, with 3.15% more DRAM traffic than the fastest traditional strategy on each region. Under exactly 2,000 requests at 390M, V2 retained substantially higher coverage. [Chinese report source](report/llc_lstm_report.tex)
+- The [V1 vs. Newest comparison](lstm/v5_results/v1_comparison/README.md) replays both frozen LSTMs on five identical 605 regions. On the two original V1 test regions, exactly 2,000 requests per model per region raise pooled coverage from 0.710% to 2.641%, with nearly equal completion time. The report starts with one real PC and cache-line decision. [Report source](report/llc_lstm_report.tex)
+
+## Earlier experiments
+
+- The [NoPF-only retrain and prior comparisons](lstm/V5_RESULTS.md) record the timing-provenance correction and the conventional baseline experiments.
 - The [development experiments](lstm/V4_DEVELOPMENT.md) separate candidate reach, exposed retirement stalls, timing features, and recurrent scoring.
 - The [605 baselines](conventional/605_RESULTS.md) report accuracy, timeliness, coverage, and IPC. The [70M history check](conventional/605_HISTORY.md) tests what ordered events add beyond the page-PC table.
 - The [LSTM design](DESIGN.md) gets its offline inputs and labels from NoPF demand events. The [605 training and replay results](lstm/RESULTS.md) report what the recurrent state learned and how it performed in ChampSim.
