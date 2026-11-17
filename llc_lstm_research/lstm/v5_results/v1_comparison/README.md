@@ -16,9 +16,13 @@
 - **410M, 430M and 450M, no extra cap.** Coverage rose from 1.269% to 24.308% and pooled completion time fell 6.60%. The newest model sent 153,362 requests versus 12,097 and used 24.196 MB of DRAM traffic versus 19.582 MB.
 - **Fresh test runs with an issue cap.** At 1,000/core, V1 sent 1,571 requests at 410M and the newest model sent 2,000. The actual count was 2,000 for both versions at 430M and 450M. At 150/core, both versions reached exactly 300 requests in every region. On the three fresh regions at that cap, matched coverage rose from 288 to 613 of 294,753 NoPF misses, while pooled time rose 0.080%. The newest model covered 112 misses against V1's 125 at 430M.
 
+## Newest vs. conventional prefetchers
+
+- The same 410M, 430M and 450M slices include NoPF, Next-Line, Stride, Streamer, AMPM and SPP. All use the released issue rules with no extra total-count cap. Newest beats the fastest conventional policy on each region, taking 7.300 ms total versus 7.517 ms and using 3.15% more DRAM bytes. Pooled coverage is 24.31% for Newest and 26.37% for Next-Line. Newest reaches 17.97% timely coverage versus Next-Line's 10.56%. [Per-region measurements](../clean32/per_phase.csv) · [Pooled measurements](../clean32/pooled.csv)
+
 ## Data and reproduction
 
 - [All per-region measurements](per_region.csv) and [pooled counts and metrics](pooled.csv). Each per-region row includes the actual number accepted by each core, the NoPF denominator, direct and timely coverage numerators, and paths to the raw simulator runs. Use the `exact_count_regions` pooled cohort when matching actual acceptance counts at 1,000/core across both test sets.
 - [One live address and LSTM example](example_410m.json) lists the PC, line positions, candidate scores, one gate-state update, actual issue and fill cycles, and the matching label from a separate NoPF replay.
 - Run `python3 lstm/v5_results/v1_comparison/replay.py` from the `llc_lstm_research` folder with the existing local simulator and trace slices. Then run `python3 lstm/v5_results/v1_comparison/collect.py` to verify the configuration and join the logs. Commands and raw logs are stored below `conventional/runs/v1_newest_replay/`. Joining uses the run's existing same-host NoPF reference checks.
-- Generate the figure data with `python3 report/make_v1_newest_figures.py`. Compile the [LaTeX report](../../../report/llc_lstm_report.tex) from `report/` using `tectonic -X compile llc_lstm_report.tex`.
+- Generate the figure data with `python3 report/make_v1_newest_figures.py` and `python3 report/make_conventional_newest.py`. Compile the [LaTeX report](../../../report/llc_lstm_report.tex) from `report/` using `tectonic -X compile llc_lstm_report.tex`. The compiled PDF stays on the local and Sacramento copies.

@@ -1,0 +1,82 @@
+\input{conventional_newest_data.tex}
+
+\newcommand{\conventionaltablehead}{%
+Policy & IPC & \shortstack{Time\\(ms)} & \shortstack{Accuracy\\\%}
+& \shortstack{Timeliness\\\%} & \shortstack{Coverage\\\%}
+& \shortstack{Timely cov.\\\%} & \shortstack{LLC hit\\\%}
+& \shortstack{LLC miss\\\%} & MPKI & \shortstack{DRAM\\(MB)} & Accepted \\}
+
+\newcommand{\conventionalpooledplot}[2]{%
+\begin{tikzpicture}[x=1cm,y=.36cm,font=\footnotesize]
+  \foreach \col/\heading in #1 {
+    \node[font=\footnotesize\bfseries] at ({2.93*\col+1.13},.78) {\heading};
+    \draw[muted!24] ({2.93*\col},.38)--({2.93*\col},-6.35);
+  }
+  \foreach \row/\label/\tone in \ConvChartLabels {
+    \node[anchor=east,text=\tone] at (-.11,-\row) {\label};
+  }
+  \foreach \col/\row/\value/\raw/\tone in #2 {
+    \fill[\tone] ({2.93*\col},{-\row-.25}) rectangle
+        ({2.93*\col+1.43*\value},{-\row+.25});
+    \node[anchor=west,font=\footnotesize] at ({2.93*\col+1.50},-\row) {\raw};
+  }
+\end{tikzpicture}\par}
+
+\newpage
+\sectionline{CONVENTIONAL BASELINES}
+\titleline{Newest 在每个测试段跑得怎样？}
+三段都是同一份 SPEC 605 MCF trace 上的不同区间。NoPF 关闭预取，给 coverage 提供分母。Next-Line 试同页下一条线，Stride 跟踪重复地址间距，Streamer 跟踪地址流，AMPM 识别页内访问图案，SPP 跟踪地址间距的序列。各策略在同一 cache 配置和每次触发至多接受 1 个请求的规则下重放。没有额外的整段发包上限。
+
+\subhead{IPC by test region}
+\begin{tikzpicture}[x=1cm,y=.43cm,font=\footnotesize]
+  \foreach \col/\heading in \ConvRegionHeaders {
+    \node[font=\footnotesize\bfseries] at ({5.10*\col+1.90},.91) {\heading};
+    \foreach \tick in {0,0.5,1} {
+      \draw[muted!25] ({5.10*\col+3.42*\tick},.42)--({5.10*\col+3.42*\tick},-6.45);
+      \node[anchor=north,font=\scriptsize,text=muted] at ({5.10*\col+3.42*\tick},-6.55) {\tick};
+    }
+  }
+  \foreach \row/\label/\tone in \ConvChartLabels {
+    \node[anchor=east,text=\tone] at (-.11,-\row) {\label};
+  }
+  \foreach \col/\row/\value/\raw/\tone in \ConvIpcBars {
+    \fill[\tone] ({5.10*\col},{-\row-.27}) rectangle
+        ({5.10*\col+3.42*\value},{-\row+.27});
+    \node[anchor=west,font=\footnotesize] at ({5.10*\col+3.48},-\row) {\raw};
+  }
+\end{tikzpicture}\par
+
+\subhead{Complete per-region results}
+{\footnotesize\setlength{\tabcolsep}{3.2pt}\renewcommand{\arraystretch}{1.08}%
+\begin{tabular}{@{}lrrrrrrrrrrr@{}}
+\toprule
+\conventionaltablehead
+\midrule
+\ConvPhaseTable
+\bottomrule
+\end{tabular}\par}
+\smallnote{这里逐段对比，保留 430M 这类运行较慢的区间。Time (ms) 是该段最后一个 core 完成所需的时间。Accepted 只数进入预取队列的请求，DRAM (MB) 数读写总字节，1 MB = 1,000,000 B。}
+
+\newpage
+\sectionline{CONVENTIONAL BASELINES}
+\titleline{三段合起来，速度和流量各花了多少？}
+把三段视作连续做完的三件工作。Time 加总各段的完成时间，IPC 用总退休指令数除以总完成周期。Accuracy、Coverage、LLC hit 等比例都先加总各自的分子和分母再相除。这样各段按实际事件数计入结果。
+
+\subhead{Pooled results}
+\smallnote{每格的 bar 从 0 开始。百分比刻度到 100，其余各格到本格最大值。数值标在 bar 旁边。}
+
+\conventionalpooledplot{\ConvPooledHeadA}{\ConvPooledBarsA}
+\vspace{4pt}
+\conventionalpooledplot{\ConvPooledHeadB}{\ConvPooledBarsB}
+
+{\footnotesize\setlength{\tabcolsep}{3.2pt}\renewcommand{\arraystretch}{1.12}%
+\begin{tabular}{@{}lrrrrrrrrrrr@{}}
+\toprule
+\conventionaltablehead
+\midrule
+\ConvPooledTable
+\bottomrule
+\end{tabular}\par}
+
+\subhead{怎么读这组结果？}
+Newest 在三段都比该段最快的传统预取器快，传统最快分别是 SPP、SPP、Streamer。合计完成时间是 \textbf{7.300 ms}，逐段用最快传统策略合计是 \textbf{7.517 ms}，Newest 快 \textbf{2.88\%}，DRAM 流量多 \textbf{3.15\%}。Next-Line 的 Coverage 最高（26.37\%），Newest 的 Timely coverage 最高（17.97\%），说明被覆盖的 miss 数和提前到达的 miss 数值得分开看。

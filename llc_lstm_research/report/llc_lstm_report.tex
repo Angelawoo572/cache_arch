@@ -38,6 +38,20 @@
       \node[font=\footnotesize] at (\col,-\row) {\value};
     }
   \end{tikzpicture}\par}
+\newcommand{\coveragebars}[4]{%
+  \begin{tikzpicture}[x=#1,y=.57cm,font=\footnotesize]
+    \foreach \tick in #3 {
+      \draw[muted!20] (\tick,.42)--(\tick,-#4+.50);
+      \node[anchor=north,text=muted] at (\tick,-#4+.42) {\tick\%};
+    }
+    \foreach \label/\row/\original/\current in #2 {
+      \node[anchor=east] at (-.03,-\row) {\label};
+      \fill[amber] (0,{-\row+.03}) rectangle (\original,{-\row+.23});
+      \fill[teal] (0,{-\row-.23}) rectangle (\current,{-\row-.03});
+      \node[anchor=west,text=amber] at (\original,{-\row+.13}) {\original\%};
+      \node[anchor=west,text=teal] at (\current,{-\row-.13}) {\current\%};
+    }
+  \end{tikzpicture}\par}
 \tikzset{block/.style={draw=teal,rounded corners=2pt,fill=tint,align=center,inner sep=5pt,minimum height=.66cm},
   store/.style={draw=muted,rounded corners=2pt,fill=paper,align=center,inner sep=5pt,minimum height=.66cm},
   wire/.style={-{Stealth[length=2mm]},draw=teal,thick},
@@ -46,10 +60,10 @@
 \begin{document}
 \sectionline{V1 vs. NEWEST}
 \titleline{一次 L2D miss，接下来要取哪条线？}
-CPU 的 load 指令需要一块数据。私有 L2 data cache 找不到它时，就把请求发到共享的 Last-Level Cache（LLC）。如果能猜出下一条要读的 cache line，预取器就可以先去取，让后来的 load 少等。实验比较两个已训练的预取器。V1 是原来的 Colab LSTM，Newest 是只用 NoPF 数据训练和标定的最新 LSTM。
+CPU 的 load 指令需要一块数据。私有 L2 data cache 找不到它时，就把请求发到共享的 Last-Level Cache（LLC）。预取器猜哪条 cache line 稍后会用到，提前把它取来，后面的 load 就可能少等。V1 是原来的 Colab LSTM。Newest 是只用 NoPF 数据训练和标定的最新 LSTM。
 
 \subhead{一条真实访问}
-\smallnote{SPEC 605 MCF，410M，Core 0，LLC ingress event 2,552。下面的 PC、offset、分数和周期都来自这次重放。}
+\smallnote{SPEC 605 MCF，410M，Core 0，LLC ingress event 2,552。PC、offset、选中分数和周期来自日志。其他分数用冻结权重和同一输入重算。}
 \begin{tikzpicture}[x=1cm,y=1cm,font=\small]
   \node[store,text width=3.1cm] (old) at (1.72,1.25) {\textbf{Previous load}\\PC 0x40245C\\Page A / offset 33};
   \node[block,text width=3.2cm] (now) at (7.02,1.25) {\textbf{Current L2D miss}\\PC 0x40245C\\Page A / offset 34};
@@ -82,7 +96,7 @@ Newest 也给 offset 36 打了分。它的 Q10 是 $-1217$，低于 $-950$ 门�
 \end{tikzpicture}\par
 同一条目标线的 demand 到 LLC 时，预取已经填好 \textbf{36 cycles}。当前 offset 34 的 L2D miss 本身在 LLC 命中。模型在 LLC 查 tag 之前就看到了这个 L2D miss，因此这样的请求也会更新状态。
 
-\callout{先看同发包量的对照。在原来 90M 和 110M 两段，每版每段都发 2,000 个请求。Newest 的 coverage 分别从 0.754\% 到 2.465\%、从 0.666\% 到 2.820\%。两段合计完成时间基本持平。}
+\callout{\textbf{先看两个结果。} 90M/110M 各发 2,000 个请求时，合计 coverage 从 0.710\% 到 2.641\%，时间基本持平。Newest 对传统预取器的主实验用了各自的正常发包规则，新三段合计快 2.88\%，DRAM bytes 多 3.15\%。}
 
 \newpage
 \sectionline{MODEL DESIGN}
@@ -125,7 +139,7 @@ Combine $[x_t,h_t]$ with the 8 page features in an 8-unit ReLU head. Each signed
 
 \smallnote{PC 表示哪条指令发来请求。offset 和 page changed 表示地址在哪里、是否换页。delta 表示方向。gap 表示访问来得多密，按 log 档编码，218 cycles 在例子里变成 $7/12$。输入的 same-page delta 比较相邻请求，截到 $\pm8$ 后除以 8。输出的 target delta 用目标线减来源线，范围 $-63$ 到 $+63$。两者来源不同。}
 
-\subhead{四个门如何留下历史}
+\subhead{三个门怎样决定保留、写入和读出}
 \begin{tikzpicture}[x=1cm,y=.70cm,font=\footnotesize]
   \node (cprev) at (.75,0) {$c_{t-1}$};
   \node[op] (forget) at (2.35,0) {$\times$};
@@ -152,7 +166,7 @@ Combine $[x_t,h_t]$ with the 8 page features in an 8-unit ReLU head. Each signed
 \underbrace{h_t}_{\text{hidden state}}
   =\underbrace{o_t}_{\text{output}}\odot\tanh(c_t).
 \]
-\smallnote{第一页的实测例子里，第一个 cell value 从 $-4.5979$ 开始。Forget $0.8185$，Input $0.8855$，New content $-0.9701$，Output $0.9674$。代入后得到 $c_t\approx-4.6223$，$h_t\approx-0.9673$。这些值和另外七组一起写回该 core 的状态。}
+\smallnote{用一个小例子看公式。旧记忆是 2，forget gate 保留 75\%，留下 1.5。新内容是 0.4，input gate 写入一半，再加 0.2。新记忆 $c_t=1.7$。output gate 取 0.5，评分器看到 $h_t=0.5\tanh(1.7)\approx0.47$。一个 core 的 8 个值都这样更新。}
 
 \newpage
 \sectionline{TRAINING LABELS}
@@ -180,7 +194,7 @@ Why & 用一个固定时间窗挑可能赶上的请求。阈值附近只差一�
   \node[block,text width=3.05cm] (d) at (13.48,.8) {\textbf{Soft label}\\335,399 / 369,307\\$\mathbf{0.9082}$};
   \draw[wire] (a)--(b); \draw[wire] (b)--(c); \draw[wire] (c)--(d);
 \end{tikzpicture}\par
-这里是同一动态访问在\textbf{另一遍 NoPF replay}里的周期。offset 35 的标签是 0.9082。同一触发的 offset 36 在 NoPF 里没有后续访问，标签是 0。第一页发包用的 $+267$ 是模型输出的 Q10 score。
+这是同一动态访问在\textbf{另一遍 NoPF replay}里的周期。offset 35 的标签是 0.9082，offset 36 没有后续访问，标签为 0。308 cycles 落在 V1 的窗口内。如果 V1 的候选池里有 offset 35，V1 就会标 1。训练标签告诉模型各条线的区别，整段 LLC hit rate 留给测试。第一页的 $+267$ 是模型输出的 Q10 score。
 
 \subhead{训练用什么数据}
 {\small
@@ -197,7 +211,7 @@ Trained / kept epoch & 4 / 4 & 12 / 8\\
 Training block / batch & 256 events / 16 blocks & 128 events / 32 blocks\\
 \bottomrule
 \end{tabular}\par}
-两版都用 PyTorch 的 weighted BCE 和 AdamW，learning rate 0.003，seed 605。正样本少，训练提高正标签的权重。V1 用 Colab CPU，Newest 用本地 PyTorch。训练区间相同，Newest 的 NoPF 事件由本地重新采集。一个 full batch 都有 4,096 个监督事件位置。Newest 多跑几个 epoch，让开发集可以选权重，最终选 epoch 8；训练轮数不改变部署成本。
+两版都用 PyTorch。Weighted binary cross-entropy 让模型分数接近标签，并补偿正标签少的问题。AdamW 用 learning rate 0.003 更新权重，seed 605 让本轮可复现。V1 用 Colab CPU，Newest 在本地重新采集 NoPF 事件后训练。两版每个 full batch 都有 4,096 个监督位置。Newest 在开发段用 2K/4K 决策的预期及时覆盖挑出 epoch 8，再用闭环周期挑发包阈值。增加 epoch 只改变训练开销。
 
 \smallnote{Newest 的 369,307 个 NoPF service samples 全部来自 10M/30M/50M。p50/p90/p95 是 210/263/340 cycles。两个模型的 checkpoint 在开发段选择，测试段只用于评估。}
 
@@ -211,17 +225,19 @@ Training block / batch & 256 events / 16 blocks & 128 events / 32 blocks\\
 \midrule
 8 hidden units & 保留 V1 的小状态。每核 $h,c$ 合计 16 个 FP32 值（64 B）。维度扩大时，recurrent matrix 会变大。本次比较固定宽度。\\[2pt]
 8-event unroll & V1 在 70M 的 2K/4K offline decisions 下，8、16、32 的去重目标数为 94/130、94/128、94/128。保留 8，训练每 8 条切断梯度。线上 $h,c$ 仍连续传。\\[2pt]
-32 directory / 32 burn-in / 128 start & 32-entry directory 找已见地址，按每条 16 B 共 512 B/core。32-event burn-in 给训练块恢复前缀状态。先观察 128 条 ROI 事件，再开始给地址评分。它们各自限制地址存储、训练初始化和发包起点。\\[2pt]
-2 pages / 127 target deltas & 当前页补上 V1 漏掉的同页线，再留一个最近不同页的机会。每页 64 条线，位移表有 $2\times64-1=127$ 项。来源线已经访问，从两页扣掉至少两条，最多 126 条可评分。Top 16 把交给后续 filter 的列表控制在原来的大小。\\[2pt]
+32 directory / 32 burn-in / 128 start & 沿用 V1 的地址存储预算。32 条地址每条 16 B，共 512 B/core。训练块取 32 条更早事件来恢复状态。ROI 开头等 128 条才发包，让目录先填满并让状态积累。这三个数是固定设置。\\[2pt]
+2 pages / 127 target deltas & 加入当前页，保留一个最近的其他页。真实例子只看 1、2、4 页分别要给 54、116、239 条线打分。两页是找地址与算量的折中。64 条线的页有 $2\times64-1=127$ 种位移，两页最多评分 126 条。Top 16 把后续 filter 的列表保在原来的大小。\\[2pt]
 64 entries $\times$ 4 PC values & 用低 PC bits 折叠成表项，让 PC 作为指令身份学习。64 项共 1,024 B。示例的 PC 0x40245C 访问 entry 5，读出 $[-0.224,-1.908,-1.353,+0.743]$。多个 PC 可以共用表项，维度是存储选择。\\[2pt]
 4,000-cycle lookahead & V1 固定窗曾漏掉 2,000 cycles 之后的机会。扩大观察窗口能找到更远的首次 miss。Newest 的训练对中，有 113,047 个 future-miss pairs 的 lead 在 2,000 之后。时间窗仍给日志保留一个固定尾界。\\[2pt]
-Q10 / issue threshold & 把 1 个 logit 单位分成 1,024 格，裁成有符号 16 位整数，便于排名。V1 的 $-1037$ 来自 70M 的离线决策阈值。Newest 的 $-950$ 是 70M/130M 上完成周期最短的测试格点，也在该次搜索的下界。\\[2pt]
+Q10 / issue threshold & 把 1 个 logit 单位分成 1,024 格，裁成有符号 16 位整数，便于排名。例子里的 0.2605 变成 267。V1 的 $-1037$ 来自 70M 的离线决策。Newest 的 $-950$ 是 70M/130M 完成周期最短的测试格点，也是搜索下界。\\[2pt]
 Runtime cost & V1 / Newest 存 611 / 2,183 个 FP32 系数（2,444 / 8,732 B）。每次触发最多约 1,084 / 1,816 个 matrix MACs。还需地址目录、候选排序、队列与过滤；时钟和面积是后续硬件问题。\\
 \bottomrule
 \end{tabular}\par}
 
 \subhead{怎么做同条件比较}
-同一个 ChampSim-Pythia binary，双核各跑同一份 605 MCF，地址空间分开。每核 200K warmup、2M ROI instructions，4 GHz，4 MiB shared LLC，单通道 DDR4-2400，关闭私有 cache prefetch。两版都用 32-cycle prediction latency、8-cycle initiation interval、每核 4 个在途槽。V1 首次发表的重放用了 16 cycles，这次两版统一到 32 cycles。两核合计 IPC 用实际退休数除以最后一个 core 的完成周期。
+用同一个 ChampSim-Pythia binary。两核各跑一份相同的 605 MCF，地址空间分开，争用同一个 LLC。沿用 V1 的每核 200K warmup 和 2M 测量指令。CPU 是 4 GHz，共享 LLC 4 MiB，DRAM 单通道 DDR4-2400。关闭私有 cache prefetch，把变化集中在 LLC。各策略独立重放，发包会改变后来的 cache hit 和队列等待。
+
+把原来 V1 的 16-cycle prediction latency 在本次统一为 32 cycles，给更大的评分头留同样的模拟时间。每 8 cycles 可以启动一次，所以设 4 个在途槽。32 cycles 在 4 GHz 下是 8 ns，是模拟设定。硬件实现需要另测。
 
 \callout{\textbf{No extra cap} 是一个实验开关。两版都用各自冻结的权重和 score threshold。设置 \texttt{issue-limit=0} 时，两版都不额外限制整段的 accepted 数量。每次触发仍最多发 1 个请求，也仍要通过驻留、重复和队列检查。设为 \texttt{1000} 时，每核整段最多发 1,000 个。Newest 在两种条件下都是同一个模型。}
 
@@ -230,28 +246,30 @@ Runtime cost & V1 / Newest 存 611 / 2,183 个 FP32 系数（2,444 / 8,732 B）�
 \newpage
 \sectionline{RESULTS \quad 1,000 REQUESTS / CORE}
 \titleline{先把发包量控制住}
-\smallnote{Same total-count ceiling for both. A pair is equal-volume only when its \textbf{Accepted} counts match. V1 uses amber; Newest uses teal. Each row is one complete two-core replay.}
+\smallnote{Common count cap. Check \textbf{Accepted} for equal-volume pairs. Amber is V1. Teal is Newest. Pooled rows combine all five regions.}
+\subhead{Coverage，原 90M/110M 两段各发 2,000 个}
+\coveragebars{3cm}{\CapEqualVOneCoverageBars}{{0,1,2,3}}{3}
 \metricchart{2.06cm}{\qualityheads}{\CapQuality}
 \metricchart{2.13cm}{\cacheheads}{\CapCache}
 
 \subhead{原测试段里发生了什么}
 90M 和 110M 两版各发 2,000 个请求。覆盖数分别为 \CapNinetyCovered\ 和 \CapOneTenCovered。及时用到的请求从 874 到 1,739，但有用请求中及时的比例从 94.18\% 到 50.38\%。两段合计 15,559,434 $\to$ 15,558,327 cycles，差约 0.007\%。
 
-410M 的 V1 只发 1,571 个，属于相同上限。430M 和 450M 两版都发到 2,000 个。430M 的 coverage 略降，450M 的 coverage 上升但 IPC 降低。四个发包相等的区间合计，coverage 从 0.578\% 到 1.403\%，Newest 完成时间长 0.126\%。
+410M 的 V1 只发 1,571 个，属于相同上限。430M 和 450M 两版都发到 2,000 个。430M 的 coverage 从 0.343\% 到 0.317\%，450M 的 coverage 上升但 IPC 降低。四个发包相等的区间合计，coverage 从 0.578\% 到 1.403\%，Newest 完成时间长 0.126\%。
 
 \newpage
 \sectionline{RESULTS \quad NO EXTRA TOTAL-COUNT CAP}
 \titleline{再看各自冻结策略会实际发多少}
 \smallnote{The model and its threshold are unchanged. Both use the same degree and queue checks. This condition measures full-policy behavior at the realized request volumes.}
+\subhead{Coverage，每段和合计}
+\coveragebars{.32cm}{\NativeCoverageBars}{{0,10,20,30}}{6}
 \metricchart{2.06cm}{\qualityheads}{\NativeQuality}
 \metricchart{2.13cm}{\cacheheads}{\NativeCache}
 
 \subhead{这个测试能说明什么}
 90M/110M 合计，发包从 5,607 到 43,014，coverage 从 0.769\% 到 25.938\%，执行时间少 4.58\%。410M/430M/450M 合计，发包从 12,097 到 153,362，coverage 从 1.269\% 到 24.308\%，时间少 6.60\%，DRAM 流量从 19.582 到 24.196 MB。这是两个完整策略在各自实际流量下的表现。
 
-\subhead{数字的分母}
-\smallnote{\textbf{Accuracy} = useful first uses / accepted requests. \textbf{Timeliness} = timely first uses / useful first uses. \textbf{Coverage} = covered NoPF misses / all NoPF misses. \textbf{Timely coverage} 只计及时覆盖，分母相同。表内 \textbf{Timely} 为对应到 NoPF miss 的及时数。}
-\smallnote{按 core、dynamic instruction 和 load operand 匹配 NoPF，并核对 PC 和 virtual line。晚到合并仍算覆盖。LLC hit/miss 以 demand lookups 为分母。MPKI 是每千条退休指令的 misses。Time 由完成周期除以 4 GHz 得到。DRAM MB 包括 demand、prefetch 和 write traffic。}
+\textbf{为什么两种结果都看？} 每段可以看到反转，比如同量发包时 430M 的 coverage 下滑。合计回答跑完这些段一共要多久。430M 占新三段约 80\% 的 NoPF misses，合计 coverage 要把覆盖数和 miss 数分别加总再除。
 
 \newpage
 \sectionline{RESULTS \quad 150 REQUESTS / CORE}
@@ -263,5 +281,10 @@ Runtime cost & V1 / Newest 存 611 / 2,183 个 FP32 系数（2,444 / 8,732 B）�
 \subhead{怎么读这组补测}
 \SmallBudgetSummary
 
+\subhead{数字的分母}
+\smallnote{\textbf{Accuracy} = useful first uses / accepted requests. \textbf{Timeliness} = timely first uses / useful first uses. \textbf{Coverage} = covered NoPF misses / all NoPF misses. \textbf{Timely coverage} 只计及时覆盖，分母相同。表内 \textbf{Timely} 为对应到 NoPF miss 的及时数。}
+\smallnote{按 core、dynamic instruction 和 load operand 匹配 NoPF，并核对 PC 和 virtual line。晚到合并仍算覆盖。LLC hit/miss 以 demand lookups 为分母。MPKI 是每千条退休指令的 misses。Time 由完成周期除以 4 GHz 得到。DRAM MB 包括 demand、prefetch 和 write traffic。}
+
 \smallnote{完整英文 CSV、每核计数、NoPF 分母、真实输入样本和复现代码在 \texttt{lstm/v5\_results/v1\_comparison/}。32-cycle prediction latency 是仿真设定，tag lookup 和 DRAM 服务由模拟器推进。}
+\input{conventional_newest.tex}
 \end{document}
