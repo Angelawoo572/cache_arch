@@ -33,7 +33,8 @@ struct Candidate {
     uint64_t source_pc;
     uint64_t source_offset;
     int delta;
-    size_t age;
+    uint16_t age;
+    uint16_t elapsed;
 };
 
 struct Observation {
@@ -133,7 +134,8 @@ private:
                             return previous.line == target;
                         }))
                         continue;
-                    result.candidates[result.count++] = {target, source.pc, source_offset, delta, age};
+                    result.candidates[result.count++] = {target, source.pc, source_offset, delta,
+                                                         static_cast<uint16_t>(age), 0};
                     if (result.count == result.candidates.size())
                         return;
                 }
@@ -153,6 +155,16 @@ inline CandidateFeatures candidate_features(const Candidate& candidate, uint64_t
              static_cast<float>(candidate.source_offset) / 63,
              static_cast<float>(candidate.delta) / 6, static_cast<float>(candidate.age) / 32,
              static_cast<float>(candidate.source_pc == pc)}};
+}
+
+inline float elapsed_feature(uint32_t cycles)
+{
+    // Integer log2 of a saturated 12-bit cycle delta.
+    uint32_t value = 1 + std::min(cycles, uint32_t{4095});
+    unsigned width = 0;
+    for (; value > 1; value >>= 1)
+        ++width;
+    return static_cast<float>(width) / 12;
 }
 
 inline int32_t fixed_score(float score, float scale)
@@ -191,16 +203,7 @@ public:
 
     std::array<int32_t, max_candidates> score(const Observation& event, State& state) const
     {
-        if (recurrent)
-            update(event.features, state);
-        std::array<float, rank_size> query = query_bias;
-        for (size_t rank = 0; rank < rank_size; ++rank) {
-            const size_t begin = rank * (event_size + hidden_size);
-            for (size_t i = 0; i < event_size; ++i)
-                query[rank] += weights_query[begin + i] * event.features[i];
-            for (size_t i = 0; i < hidden_size; ++i)
-                query[rank] += weights_query[begin + event_size + i] * state.hidden[i];
-        }
+        const auto query = make_query(event, state);
         std::array<int32_t, max_candidates> scores{};
         for (size_t i = 0; i < event.count; ++i) {
             const auto features = candidate_features(event.candidates[i], event.pc);
@@ -218,7 +221,46 @@ public:
         return scores;
     }
 
+    std::array<int32_t, max_candidates> score_compact(const Observation& event, State& state) const
+    {
+        const auto query = make_query(event, state);
+        auto weights = weights_bias;
+        float bias = candidate_bias[0];
+        for (size_t rank = 0; rank < rank_size; ++rank) {
+            bias += query[rank] * key_bias[rank];
+            for (size_t j = 0; j < candidate_size; ++j)
+                weights[j] += query[rank] * weights_key[rank * candidate_size + j];
+        }
+        std::array<int32_t, max_candidates> scores{};
+        for (size_t i = 0; i < event.count; ++i) {
+            const auto& candidate = event.candidates[i];
+            auto features = candidate_features(candidate, static_cast<uint32_t>(event.pc));
+            features[3] = static_cast<float>(candidate.delta) / 63;
+            features[4] = elapsed_feature(candidate.elapsed);
+            float score = bias;
+            for (size_t j = 0; j < candidate_size; ++j)
+                score += weights[j] * features[j];
+            scores[i] = fixed_score(score, 1024);
+        }
+        return scores;
+    }
+
 private:
+    std::array<float, rank_size> make_query(const Observation& event, State& state) const
+    {
+        if (recurrent)
+            update(event.features, state);
+        auto query = query_bias;
+        for (size_t rank = 0; rank < rank_size; ++rank) {
+            const size_t begin = rank * (event_size + hidden_size);
+            for (size_t i = 0; i < event_size; ++i)
+                query[rank] += weights_query[begin + i] * event.features[i];
+            for (size_t i = 0; i < hidden_size; ++i)
+                query[rank] += weights_query[begin + event_size + i] * state.hidden[i];
+        }
+        return query;
+    }
+
     template <size_t N>
     static void read(std::ifstream& file, std::array<float, N>& values)
     {
@@ -303,7 +345,7 @@ public:
         for (size_t i = 0; i < event.count; ++i) {
             const auto& c = event.candidates[i];
             unsigned bucket = 0;
-            for (size_t lag = c.age - 1; lag; lag >>= 1)
+            for (size_t lag = c.age ? c.age - 1 : 0; lag; lag >>= 1)
                 ++bucket;
             const Key key{{6, c.delta, bucket, static_cast<int64_t>(event.pc),
                            static_cast<int64_t>(event.line % page_lines / 16),

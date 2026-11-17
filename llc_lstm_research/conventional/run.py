@@ -40,6 +40,13 @@ def parse_args():
     parser.add_argument("--prediction-latency", type=int, default=16, help="cycles per learned decision")
     parser.add_argument("--prediction-interval", type=int, default=16, help="minimum cycles between starts per core")
     parser.add_argument("--issue-limit", type=int, default=0, help="accepted prefetch cap per core, zero is unlimited")
+    parser.add_argument("--pace-instructions", type=int, default=0, help="nonrolling retired-instruction epoch per core")
+    parser.add_argument("--pace-requests", type=int, default=0, help="accepted prefetch cap per core and epoch")
+    parser.add_argument("--prefetch-events", action="store_true", help="capture sampled learned prefetch lifecycles")
+    parser.add_argument("--prefetch-sample", type=int, default=1, help="sample every N accepted learned prefetches")
+    parser.add_argument("--demand-service-sample", type=int, default=0,
+                        help="sample every N primary NoPF LLC demand misses per core")
+    parser.add_argument("--correlation-table", type=Path, help="use a fitted correlation candidate table with learned scorers")
     parser.add_argument("traces", nargs="+", type=Path, help="one gzip or xz trace per configured core")
     args = parser.parse_args()
     args.policies = args.policies or CONVENTIONAL_POLICIES
@@ -76,6 +83,22 @@ def parse_args():
                                  or not 1 <= args.prediction_latency <= 1000000
                                  or not 1 <= args.prediction_interval <= 1000000):
         parser.error("learned comparisons require degree one, positive latency/interval and nonnegative issue limit")
+    if (args.pace_instructions < 0 or args.pace_requests < 0
+            or bool(args.pace_instructions) != bool(args.pace_requests)):
+        parser.error("pacing requires both a positive instruction window and request allowance")
+    if args.pace_instructions and args.issue_limit < 0:
+        parser.error("--issue-limit must be nonnegative with pacing")
+    selected_learned = any(policy in LEARNED_POLICIES for policy in args.policies)
+    if args.prefetch_sample < 1 or (not args.prefetch_events and args.prefetch_sample != 1):
+        parser.error("--prefetch-sample requires --prefetch-events and a positive sample period")
+    if args.prefetch_events and not selected_learned:
+        parser.error("--prefetch-events requires at least one learned policy")
+    if args.demand_service_sample < 0 or (args.demand_service_sample and "nopf" not in args.policies):
+        parser.error("--demand-service-sample requires NoPF and a positive sample period")
+    if args.correlation_table is not None:
+        args.correlation_table = args.correlation_table.resolve()
+        if not selected_learned or not args.correlation_table.is_file():
+            parser.error("--correlation-table requires a readable file and at least one learned policy")
     return args
 
 
@@ -164,6 +187,18 @@ def parse_result(path, args, policy, aliases, wall_seconds):
             "LLC_PF_issue_limit": args.issue_limit,
             "LLC_PF_threshold": args.learned_settings[policy][1],
         })
+        if args.prefetch_events:
+            expected["LLC_PF_prefetch_sample"] = args.prefetch_sample
+        if args.correlation_table:
+            expected["LLC_PF_correlation"] = 1
+    if args.pace_instructions:
+        expected.update({
+            "LLC_PF_pace_instructions": args.pace_instructions,
+            "LLC_PF_pace_requests": args.pace_requests,
+            "LLC_PF_issue_limit": args.issue_limit,
+        })
+    if policy == "nopf" and args.demand_service_sample:
+        expected["LLC_PF_demand_service_sample"] = args.demand_service_sample
     for key, value in expected.items():
         if values.get(key) != str(value):
             raise ValueError("expected {} {}; got {}".format(key, value, values.get(key)))
@@ -200,7 +235,7 @@ def parse_result(path, args, policy, aliases, wall_seconds):
             "llc_miss_rate": ratio(misses, accesses),
             "llc_mpki": 1000 * misses / instructions,
         })
-        if policy in LEARNED_POLICIES:
+        if policy in LEARNED_POLICIES or args.pace_instructions:
             per_core_issued = int(counters[counter_prefix + "issued"])
             if args.issue_limit and per_core_issued > args.issue_limit:
                 raise ValueError("core {} exceeded the issue limit".format(core))
@@ -221,8 +256,9 @@ def parse_result(path, args, policy, aliases, wall_seconds):
         raise ValueError("LLC prefetch outcomes do not account for every issued request")
     if policy == "nopf" and issued:
         raise ValueError("NoPF issued LLC prefetch requests")
-    if policy in LEARNED_POLICIES and sum(core["prefetch_issued"] for core in cores) != issued:
-        raise ValueError("learned prefetch count does not match per-core issues")
+    if ((policy in LEARNED_POLICIES or args.pace_instructions)
+            and sum(core["prefetch_issued"] for core in cores) != issued):
+        raise ValueError("prefetch count does not match per-core issues")
     demand_bytes = int(counters["dram_demand_read_bytes"])
     prefetch_bytes = int(counters["dram_prefetch_read_bytes"])
     write_bytes = int(counters["dram_write_bytes"])
@@ -293,9 +329,22 @@ def run_policy(args, policy, directory):
         "LLC_PF_SKIP": str(args.skip),
     }
     env = os.environ.copy()
-    env.pop("LLC_PF_EVENTS", None)
+    for key in ("LLC_PF_EVENTS", "LLC_PF_CORRELATION", "LLC_PF_PREFETCH_EVENTS", "LLC_PF_PREFETCH_SAMPLE",
+                "LLC_PF_PACE_INSTRUCTIONS", "LLC_PF_PACE_REQUESTS", "LLC_PF_PACE_EVENTS",
+                "LLC_PF_DEMAND_SERVICE", "LLC_PF_DEMAND_SERVICE_SAMPLE"):
+        env.pop(key, None)
     if args.events:
         settings["LLC_PF_EVENTS"] = "demand.csv"
+    if args.pace_instructions:
+        settings.update({
+            "LLC_PF_PACE_INSTRUCTIONS": str(args.pace_instructions),
+            "LLC_PF_PACE_REQUESTS": str(args.pace_requests),
+            "LLC_PF_PACE_EVENTS": "pace_epochs.csv",
+            "LLC_PF_ISSUE_LIMIT": str(args.issue_limit),
+        })
+    if policy == "nopf" and args.demand_service_sample:
+        settings["LLC_PF_DEMAND_SERVICE"] = "demand_service.csv"
+        settings["LLC_PF_DEMAND_SERVICE_SAMPLE"] = str(args.demand_service_sample)
     if policy in LEARNED_POLICIES:
         model, threshold = args.learned_settings[policy]
         settings.update({
@@ -305,6 +354,11 @@ def run_policy(args, policy, directory):
             "LLC_PF_PREDICTION_INTERVAL": str(args.prediction_interval),
             "LLC_PF_ISSUE_LIMIT": str(args.issue_limit),
         })
+        if args.correlation_table:
+            settings["LLC_PF_CORRELATION"] = str(args.correlation_table)
+        if args.prefetch_events:
+            settings["LLC_PF_PREFETCH_EVENTS"] = "prefetch_events.csv"
+            settings["LLC_PF_PREFETCH_SAMPLE"] = str(args.prefetch_sample)
     env.update(settings)
     write_json(attempt / "command.json", {"argv": command, "environment": settings})
     log_path = attempt / "run.log"
@@ -313,10 +367,28 @@ def run_policy(args, policy, directory):
     with log_path.open("wb") as log:
         subprocess.run(command, cwd=str(attempt), env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
     result = parse_result(log_path, args, policy, aliases, time.monotonic() - start)
-    if args.events and not (attempt / "demand.csv").is_file():
-        raise ValueError("the simulator did not produce a demand event file")
+    for key in ("LLC_PF_EVENTS", "LLC_PF_DEMAND_SERVICE", "LLC_PF_PREFETCH_EVENTS", "LLC_PF_PACE_EVENTS"):
+        if key in settings and not (attempt / settings[key]).is_file():
+            raise ValueError("the simulator did not produce {}".format(settings[key]))
+    if args.pace_instructions:
+        validate_pacing(attempt / "pace_epochs.csv", args, result)
     result["log"] = str(log_path.relative_to(args.output))
     return result
+
+
+def validate_pacing(path, args, result):
+    totals = [0] * len(result["cores"])
+    seen = set()
+    with path.open() as stream:
+        for row in csv.DictReader(stream):
+            core, epoch, count = (int(row[field]) for field in ("cpu", "epoch", "issued"))
+            if (not 0 <= core < len(totals) or epoch < 0 or (core, epoch) in seen
+                    or not 0 < count <= args.pace_requests):
+                raise ValueError("invalid per-core issue count in {}".format(path))
+            seen.add((core, epoch))
+            totals[core] += count
+    if totals != [core["prefetch_issued"] for core in result["cores"]]:
+        raise ValueError("paced counts do not reconcile with accepted prefetch totals")
 
 
 def write_summary(directory, results):
@@ -362,6 +434,15 @@ def run(args):
             "prediction_interval": args.prediction_interval,
             "issue_limit": args.issue_limit,
         }
+        if args.correlation_table:
+            config["learned"]["correlation_table"] = file_identity(args.correlation_table)
+        if args.prefetch_events:
+            config["learned"]["prefetch_sample"] = args.prefetch_sample
+    if args.pace_instructions:
+        config["pacing"] = {"instructions": args.pace_instructions, "requests": args.pace_requests,
+                            "issue_limit": args.issue_limit}
+    if args.demand_service_sample:
+        config["demand_service_sample"] = args.demand_service_sample
     config_path = args.output / "config.json"
     if config_path.is_file():
         if read_json(config_path) != config:
