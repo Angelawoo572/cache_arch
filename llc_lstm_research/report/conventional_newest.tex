@@ -25,7 +25,7 @@ Policy & IPC & \shortstack{Time\\(ms)} & \shortstack{Accuracy\\\%}
 \newpage
 \sectionline{CONVENTIONAL BASELINES}
 \titleline{Newest 在每个测试段跑得怎样？}
-三段都是同一份 SPEC 605 MCF trace 上的不同区间。NoPF 关闭预取，给 coverage 提供分母。Next-Line 试同页下一条线，Stride 跟踪重复地址间距，Streamer 跟踪地址流，AMPM 识别页内访问图案，SPP 跟踪地址间距的序列。各策略在同一 cache 配置和每次触发至多接受 1 个请求的规则下重放。没有额外的整段发包上限。
+NoPF 关闭预取，给 coverage 提供分母。Next-Line 试同页下一条线，Stride 跟踪重复地址间距，Streamer 跟踪地址流，AMPM 识别页内访问图案，SPP 跟踪地址间距的序列。所有策略在同一 cache 配置下独立重放。
 
 \subhead{IPC by test region}
 \begin{tikzpicture}[x=1cm,y=.43cm,font=\footnotesize]
@@ -55,7 +55,7 @@ Policy & IPC & \shortstack{Time\\(ms)} & \shortstack{Accuracy\\\%}
 \ConvPhaseTable
 \bottomrule
 \end{tabular}\par}
-\smallnote{这里逐段对比，保留 430M 这类运行较慢的区间。Time (ms) 是该段最后一个 core 完成所需的时间。Accepted 只数进入预取队列的请求，DRAM (MB) 数读写总字节，1 MB = 1,000,000 B。}
+\smallnote{逐段看可以发现哪个区间在拖慢整体。430M 占全部 NoPF misses 的 79.94\%，也是最慢的一段。在实际发出的请求里，410M 以 delta $+1$ 为主（4,348 / 5,129），430M 以 $-1$ 为主（99,975 / 133,815）。}
 
 \newpage
 \sectionline{CONVENTIONAL BASELINES}
@@ -79,4 +79,6 @@ Policy & IPC & \shortstack{Time\\(ms)} & \shortstack{Accuracy\\\%}
 \end{tabular}\par}
 
 \subhead{怎么读这组结果？}
-Newest 在三段都比该段最快的传统预取器快，传统最快分别是 SPP、SPP、Streamer。合计完成时间是 \textbf{7.300 ms}，逐段用最快传统策略合计是 \textbf{7.517 ms}，Newest 快 \textbf{2.88\%}，DRAM 流量多 \textbf{3.15\%}。Next-Line 的 Coverage 最高（26.37\%），Newest 的 Timely coverage 最高（17.97\%），说明被覆盖的 miss 数和提前到达的 miss 数值得分开看。
+Newest 在三段都比该段最快的传统预取器快。传统最快分别是 SPP、SPP、Streamer。合计完成时间是 \textbf{7.300 ms} 对 \textbf{7.517 ms}，时间少 \textbf{2.88\%}。DRAM 流量是 24.196 对 23.456 MB，多 \textbf{3.15\%}。这两个变化分别用 $1-T_{\mathrm{Newest}}/T_{\mathrm{ref}}$ 和 $D_{\mathrm{Newest}}/D_{\mathrm{ref}}-1$ 算。
+
+Next-Line 的 Coverage 最高（26.37\%），Newest 的 Timely coverage 最高（17.97\%）。Stride 的 Accuracy 有 90.27\%，但只覆盖 0.67\% 的 NoPF misses。对于这三段 605，更早地覆盖更多 miss，和发包很准，是两件需要分开看的事。

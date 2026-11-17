@@ -1,0 +1,13 @@
+cohort,regions_m,context,example_pc,target_delta,lookahead_cycles,eligible_anchors,first_use_nopf_llc_misses,miss_fraction
+training,10 30 50,all_eligible,,1,4000,372845,103490,0.27756843
+training,10 30 50,example_pc,0x40245c,1,4000,136240,97183,0.71332208
+training,10 30 50,example_pc_advance_1,0x40245c,1,4000,115,98,0.85217391
+training,10 30 50,example_pc_other_context,0x40245c,1,4000,136125,97085,0.71320478
+training,10 30 50,example_pc_advance_1_both_legal,0x40245c,1,4000,113,96,0.84955752
+training,10 30 50,example_pc_advance_1_both_legal,0x40245c,2,4000,113,8,0.07079646
+test,410 430 450,all_eligible,,1,4000,296218,69105,0.23329102
+test,410 430 450,example_pc,0x40245c,1,4000,94587,57967,0.61284320
+test,410 430 450,example_pc_advance_1,0x40245c,1,4000,396,325,0.82070707
+test,410 430 450,example_pc_other_context,0x40245c,1,4000,94191,57642,0.61196930
+test,410 430 450,example_pc_advance_1_both_legal,0x40245c,1,4000,389,321,0.82519280
+test,410 430 450,example_pc_advance_1_both_legal,0x40245c,2,4000,389,72,0.18508997

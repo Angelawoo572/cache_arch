@@ -1,6 +1,6 @@
 # Direct-position LLC LSTM
 
-For the current two-version report, see [V1 vs. Newest](v5_results/v1_comparison/README.md). The sections below retain the earlier baseline comparisons and timing-provenance correction.
+The [current report](../report/llc_lstm_report.tex) covers the Newest design and the conventional comparison. Replay data for [V1 vs. Newest](v5_results/v1_comparison/README.md) remains available as a separate record. The sections below retain earlier experiments and the timing-provenance correction.
 
 ## Correction and equal-request coverage
 

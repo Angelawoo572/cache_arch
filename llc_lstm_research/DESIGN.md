@@ -2,11 +2,11 @@
 
 ## Frozen direct-position model
 
-- Use accepted L2D load misses at the shared LLC ingress. The model reads load PC, the translated physical line, and the arrival cycle. Make a nine-value event vector from a four-value PC embedding, page position, same-page displacement, page change, PC continuity, and interarrival time. The LSTM updates its eight-value hidden and cell states per core as decisions launch.
+- Use accepted L2D load misses at the shared LLC ingress. The conventional callback remains `access(physical_line, PC)`, with the core ID selecting its predictor. Newest also reads the arrival cycle. It builds a nine-value event vector from a four-value PC embedding, page position, same-page displacement, page change, PC continuity, and interarrival time. The LSTM updates its eight-value hidden and cell states per core as decisions launch. The two cores share the weights and the LLC.
 - Score every eligible position in the current physical page and the most recently observed distinct page in a 32-event directory. The eight-unit head has separate weights for the 127 signed displacements. It retains the top 16 positions in Q10 order for the shared issue filter and can issue one request. It uses no fitted offset shortlist.
 - Label each legal address using its first later same-core NoPF access. In the pure NoPF revision, a future LLC miss within 4,000 cycles receives the demand service CDF value at lead minus 32 modeled inference cycles. Everything else receives zero. The archived V5 timing CDF used older LSTM prefetch fills. Hit rate, miss rate and IPC measure the resulting policy.
 - Train with eight-event truncated backpropagation, 32 burn-in events and up to 12 epochs. The 70M/130M development split selected epoch 8 and Q10 −950 for the pure NoPF revision, and epoch 3 and Q10 50 for archived V5. Deployment carries state across launches. The 32-cycle replay allows four in-flight decisions per core.
-- The direct-position policy beat conventional prefetching across all five independent regions. Clearing its hidden input preserved the improvement and slightly improved summed time. [V5 results](lstm/V5_RESULTS.md) · [Report source and diagrams](report/llc_lstm_report.tex)
+- The current pure-NoPF checkpoint won all three 410M/430M/450M regions against the fastest traditional policy per phase. The NoPF offset analysis shows a repeatable PC and same-page direction association on these traces. A single conditional association does not isolate the contribution of recurrent state. [Results](lstm/v5_results/clean32/pooled.csv) · [Offset association](lstm/v5_results/clean32/offset_correlation.csv) · [Report source and diagrams](report/llc_lstm_report.tex)
 
 ## Earlier model experiments
 

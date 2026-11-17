@@ -2,10 +2,12 @@
 
 **Research question.** When does a core's earlier L2D miss history tell us which previously seen page and line to prefetch?
 
-- The [V1 vs. Newest comparison](lstm/v5_results/v1_comparison/README.md) replays both frozen LSTMs on five identical 605 regions. On the two original V1 test regions, exactly 2,000 requests per model per region raise pooled coverage from 0.710% to 2.641%, with nearly equal completion time. The report starts with one real PC and cache-line decision. [Report source](report/llc_lstm_report.tex)
+- The current report follows one real load through the shared LLC, the Newest LSTM, its NoPF label, and the replay metrics. Newest finished 2.88% faster than the fastest conventional policy in each of three 605 regions, with 3.15% more DRAM bytes overall. [Report source](report/llc_lstm_report.tex) · [Per-region results](lstm/v5_results/clean32/per_phase.csv) · [Pooled results](lstm/v5_results/clean32/pooled.csv)
+- With the example PC and an immediately preceding same-page `+1` step, `+1` reached a future NoPF LLC miss on 321 of 389 eligible test anchors. `+2` reached one on 72 of the same anchors. [NoPF offset association](lstm/v5_results/clean32/offset_correlation.csv)
 
 ## Earlier experiments
 
+- The [V1 vs. Newest comparison](lstm/v5_results/v1_comparison/README.md) retains the matched-count and full-policy replays of both frozen checkpoints.
 - The [NoPF-only retrain and prior comparisons](lstm/V5_RESULTS.md) record the timing-provenance correction and the conventional baseline experiments.
 - The [development experiments](lstm/V4_DEVELOPMENT.md) separate candidate reach, exposed retirement stalls, timing features, and recurrent scoring.
 - The [605 baselines](conventional/605_RESULTS.md) report accuracy, timeliness, coverage, and IPC. The [70M history check](conventional/605_HISTORY.md) tests what ordered events add beyond the page-PC table.
