@@ -1,5 +1,7 @@
 # Two-core 605 MCF baselines
 
+- The [independent 310M–390M comparison](../lstm/V5_RESULTS.md) includes all four conventional policies, Next-Line and NoPF. The raw pooled and segment-level rows include hit rate, miss rate, MPKI, request outcomes and DRAM bytes. The runs below record the original development baselines.
+
 - Both cores replayed `605.mcf_s-994B` with private-cache prefetchers disabled. Every policy used 200,000 warmup instructions and 2 million measured instructions per core. The shared LLC filter allowed at most one prefetch per eligible demand event.
 - **Accuracy** is used / sent. **Timeliness** is on-time / used. **Coverage** is the share of NoPF LLC demand misses directly served by a prefetch. A late first merge counts toward coverage, and **timely coverage** counts only timely first hits. **Aggregate IPC** divides total retired instructions by the last core's finish cycle. [Metric definitions](../PERFORMANCE.md)
 

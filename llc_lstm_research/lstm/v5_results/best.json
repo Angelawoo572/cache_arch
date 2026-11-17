@@ -1,0 +1,49 @@
+{
+  "epoch": 3,
+  "expected_on_time": [
+    [
+      205.0,
+      370.0
+    ],
+    [
+      257.0,
+      304.769436997319
+    ]
+  ],
+  "total": 1136.769436997319,
+  "slots": 2,
+  "event_only": false,
+  "relative": true,
+  "discrete_pc": true,
+  "stall_p90": null,
+  "train": [
+    "605_10m_rob",
+    "605_30m_rob",
+    "605_50m_rob"
+  ],
+  "dev": [
+    "605_70m",
+    "605_130m"
+  ],
+  "horizon": 4000,
+  "unroll": 8,
+  "latency": 16,
+  "thresholds": {
+    "2000": {
+      "cutoff_q10": 2056,
+      "desired_pooled_decisions": 4000,
+      "validation_decisions": [
+        2622,
+        1355
+      ]
+    },
+    "4000": {
+      "cutoff_q10": 1475,
+      "desired_pooled_decisions": 8000,
+      "validation_decisions": [
+        5238,
+        2763
+      ]
+    }
+  }
+}

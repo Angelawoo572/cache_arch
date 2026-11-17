@@ -39,14 +39,28 @@ def parse_args():
                             help="inclusive threshold in integer logit units (1024 units per logit)")
     parser.add_argument("--prediction-latency", type=int, default=16, help="cycles per learned decision")
     parser.add_argument("--prediction-interval", type=int, default=16, help="minimum cycles between starts per core")
+    parser.add_argument("--prediction-depth", type=int, default=1, help="maximum in-flight predictions per core")
+    parser.add_argument("--prediction-state-cycles", type=int, default=1,
+                        help="minimum cycles between recurrent state updates")
     parser.add_argument("--issue-limit", type=int, default=0, help="accepted prefetch cap per core, zero is unlimited")
     parser.add_argument("--pace-instructions", type=int, default=0, help="nonrolling retired-instruction epoch per core")
     parser.add_argument("--pace-requests", type=int, default=0, help="accepted prefetch cap per core and epoch")
+    parser.add_argument("--pace-ramp", action="store_true", help="release each epoch's request allowance over retirement")
     parser.add_argument("--prefetch-events", action="store_true", help="capture sampled learned prefetch lifecycles")
     parser.add_argument("--prefetch-sample", type=int, default=1, help="sample every N accepted learned prefetches")
     parser.add_argument("--demand-service-sample", type=int, default=0,
                         help="sample every N primary NoPF LLC demand misses per core")
     parser.add_argument("--correlation-table", type=Path, help="use a fitted correlation candidate table with learned scorers")
+    parser.add_argument("--position-scorer", action="store_true", help="use a direct learned page-position model")
+    parser.add_argument("--pressure-scorer", action="store_true",
+                        help="use a categorical-PC scorer with local arrivals and shared LLC ingress pressure")
+    parser.add_argument("--proposal-cooldown", type=int, default=0,
+                        help="prefer lines outside this many cycles of shortlist history")
+    parser.add_argument("--proposal-buffer", type=int, default=0, help="number of shortlist history tags per core")
+    parser.add_argument("--oracle-plan", type=Path, help="diagnostic only: inject a scored TSV for live candidate matches")
+    parser.add_argument("--oracle-virtual", action="store_true", help="interpret oracle target lines as virtual")
+    parser.add_argument("--state-selective", action="store_true",
+                        help="score with LSTM state only for opposite offsets from the same source line")
     parser.add_argument("traces", nargs="+", type=Path, help="one gzip or xz trace per configured core")
     args = parser.parse_args()
     args.policies = args.policies or CONVENTIONAL_POLICIES
@@ -79,16 +93,23 @@ def parse_args():
         if not model.is_file() or not -32768 <= threshold <= 32768:
             parser.error("{} requires a model file and an integer threshold in [-32768, 32768]".format(policy))
         args.learned_settings[policy] = (model, threshold)
-    if args.learned_settings and (args.degree != 1 or args.issue_limit < 0
+    if args.learned_settings and (args.degree > 16 or args.issue_limit < 0
                                  or not 1 <= args.prediction_latency <= 1000000
                                  or not 1 <= args.prediction_interval <= 1000000):
-        parser.error("learned comparisons require degree one, positive latency/interval and nonnegative issue limit")
+        parser.error("learned runs require degree 1–16, positive latency/interval and nonnegative issue limit")
     if (args.pace_instructions < 0 or args.pace_requests < 0
             or bool(args.pace_instructions) != bool(args.pace_requests)):
         parser.error("pacing requires both a positive instruction window and request allowance")
     if args.pace_instructions and args.issue_limit < 0:
         parser.error("--issue-limit must be nonnegative with pacing")
+    if args.pace_ramp and not 1 <= args.pace_requests <= args.pace_instructions <= 2**32-1:
+        parser.error("--pace-ramp requires 1 <= requests <= instructions <= 2**32-1")
     selected_learned = any(policy in LEARNED_POLICIES for policy in args.policies)
+    if selected_learned and (not 1 <= args.prediction_depth <= 32
+                             or not 1 <= args.prediction_state_cycles <= args.prediction_latency):
+        parser.error("prediction depth must be 1–32 and state cycles must be within prediction latency")
+    if not selected_learned and (args.prediction_depth != 1 or args.prediction_state_cycles != 1):
+        parser.error("pipeline settings require at least one learned policy")
     if args.prefetch_sample < 1 or (not args.prefetch_events and args.prefetch_sample != 1):
         parser.error("--prefetch-sample requires --prefetch-events and a positive sample period")
     if args.prefetch_events and not selected_learned:
@@ -99,6 +120,24 @@ def parse_args():
         args.correlation_table = args.correlation_table.resolve()
         if not selected_learned or not args.correlation_table.is_file():
             parser.error("--correlation-table requires a readable file and at least one learned policy")
+    if (args.proposal_cooldown < 0 or args.proposal_buffer < 0
+            or bool(args.proposal_cooldown) != bool(args.proposal_buffer)
+            or (args.proposal_cooldown and args.correlation_table is None)):
+        parser.error("proposal cooldown requires --correlation-table and positive cycle and buffer settings")
+    if args.oracle_plan is not None:
+        args.oracle_plan = args.oracle_plan.resolve()
+        if not selected_learned or not args.oracle_plan.is_file():
+            parser.error("--oracle-plan requires a readable file and at least one learned policy")
+    if args.oracle_virtual and args.oracle_plan is None:
+        parser.error("--oracle-virtual requires --oracle-plan")
+    if args.state_selective and ("lstm" not in args.policies or args.correlation_table is None):
+        parser.error("--state-selective requires --policy lstm and --correlation-table")
+    if args.position_scorer and (not {"lstm", "event"}.intersection(args.policies) or "page_pc" in args.policies
+                                 or args.correlation_table or args.oracle_plan):
+        parser.error("--position-scorer requires an LSTM or event model and has its own candidates")
+    if args.pressure_scorer and (not {"lstm", "event"}.intersection(args.policies) or args.position_scorer
+                                 or args.correlation_table is None):
+        parser.error("--pressure-scorer requires an LSTM or event model with --correlation-table")
     return args
 
 
@@ -191,12 +230,30 @@ def parse_result(path, args, policy, aliases, wall_seconds):
             expected["LLC_PF_prefetch_sample"] = args.prefetch_sample
         if args.correlation_table:
             expected["LLC_PF_correlation"] = 1
+        if args.position_scorer:
+            expected["LLC_PF_position_scorer"] = 1
+        if args.pressure_scorer and policy in ("lstm", "event"):
+            expected["LLC_PF_pressure_scorer"] = 1
+        if args.proposal_cooldown:
+            expected["LLC_PF_proposal_cooldown"] = args.proposal_cooldown
+            expected["LLC_PF_proposal_buffer"] = args.proposal_buffer
+        if args.oracle_plan:
+            expected["LLC_PF_oracle_plan"] = 1
+        if args.oracle_virtual:
+            expected["LLC_PF_oracle_virtual"] = 1
+        if policy == "lstm" and args.state_selective:
+            expected["LLC_PF_state_selective"] = 1
+        if args.prediction_depth != 1 or args.prediction_state_cycles != 1:
+            expected["LLC_PF_prediction_depth"] = args.prediction_depth
+            expected["LLC_PF_prediction_state_cycles"] = args.prediction_state_cycles
     if args.pace_instructions:
         expected.update({
             "LLC_PF_pace_instructions": args.pace_instructions,
             "LLC_PF_pace_requests": args.pace_requests,
             "LLC_PF_issue_limit": args.issue_limit,
         })
+        if args.pace_ramp:
+            expected["LLC_PF_pace_ramp"] = 1
     if policy == "nopf" and args.demand_service_sample:
         expected["LLC_PF_demand_service_sample"] = args.demand_service_sample
     for key, value in expected.items():
@@ -329,8 +386,12 @@ def run_policy(args, policy, directory):
         "LLC_PF_SKIP": str(args.skip),
     }
     env = os.environ.copy()
-    for key in ("LLC_PF_EVENTS", "LLC_PF_CORRELATION", "LLC_PF_PREFETCH_EVENTS", "LLC_PF_PREFETCH_SAMPLE",
+    for key in ("LLC_PF_EVENTS", "LLC_PF_CORRELATION", "LLC_PF_ORACLE_PLAN", "LLC_PF_ORACLE_VIRTUAL",
+                "LLC_PF_STATE_SELECTIVE", "LLC_PF_PROPOSAL_COOLDOWN", "LLC_PF_PROPOSAL_BUFFER",
+                "LLC_PF_POSITION_SCORER", "LLC_PF_PRESSURE_SCORER",
+                "LLC_PF_PREFETCH_EVENTS", "LLC_PF_PREFETCH_SAMPLE",
                 "LLC_PF_PACE_INSTRUCTIONS", "LLC_PF_PACE_REQUESTS", "LLC_PF_PACE_EVENTS",
+                "LLC_PF_PACE_RAMP", "LLC_PF_PREDICTION_DEPTH", "LLC_PF_PREDICTION_STATE_CYCLES",
                 "LLC_PF_DEMAND_SERVICE", "LLC_PF_DEMAND_SERVICE_SAMPLE"):
         env.pop(key, None)
     if args.events:
@@ -342,6 +403,8 @@ def run_policy(args, policy, directory):
             "LLC_PF_PACE_EVENTS": "pace_epochs.csv",
             "LLC_PF_ISSUE_LIMIT": str(args.issue_limit),
         })
+        if args.pace_ramp:
+            settings["LLC_PF_PACE_RAMP"] = "1"
     if policy == "nopf" and args.demand_service_sample:
         settings["LLC_PF_DEMAND_SERVICE"] = "demand_service.csv"
         settings["LLC_PF_DEMAND_SERVICE_SAMPLE"] = str(args.demand_service_sample)
@@ -354,8 +417,24 @@ def run_policy(args, policy, directory):
             "LLC_PF_PREDICTION_INTERVAL": str(args.prediction_interval),
             "LLC_PF_ISSUE_LIMIT": str(args.issue_limit),
         })
+        if args.prediction_depth != 1 or args.prediction_state_cycles != 1:
+            settings["LLC_PF_PREDICTION_DEPTH"] = str(args.prediction_depth)
+            settings["LLC_PF_PREDICTION_STATE_CYCLES"] = str(args.prediction_state_cycles)
         if args.correlation_table:
             settings["LLC_PF_CORRELATION"] = str(args.correlation_table)
+        if args.position_scorer:
+            settings["LLC_PF_POSITION_SCORER"] = "1"
+        if args.pressure_scorer and policy in ("lstm", "event"):
+            settings["LLC_PF_PRESSURE_SCORER"] = "1"
+        if args.proposal_cooldown:
+            settings["LLC_PF_PROPOSAL_COOLDOWN"] = str(args.proposal_cooldown)
+            settings["LLC_PF_PROPOSAL_BUFFER"] = str(args.proposal_buffer)
+        if args.oracle_plan:
+            settings["LLC_PF_ORACLE_PLAN"] = str(args.oracle_plan)
+        if args.oracle_virtual:
+            settings["LLC_PF_ORACLE_VIRTUAL"] = "1"
+        if policy == "lstm" and args.state_selective:
+            settings["LLC_PF_STATE_SELECTIVE"] = "1"
         if args.prefetch_events:
             settings["LLC_PF_PREFETCH_EVENTS"] = "prefetch_events.csv"
             settings["LLC_PF_PREFETCH_SAMPLE"] = str(args.prefetch_sample)
@@ -436,11 +515,29 @@ def run(args):
         }
         if args.correlation_table:
             config["learned"]["correlation_table"] = file_identity(args.correlation_table)
+        if args.position_scorer:
+            config["learned"]["position_scorer"] = True
+        if args.pressure_scorer:
+            config["learned"]["pressure_scorer"] = True
+        if args.proposal_cooldown:
+            config["learned"]["proposal_cooldown"] = args.proposal_cooldown
+            config["learned"]["proposal_buffer"] = args.proposal_buffer
+        if args.oracle_plan:
+            config["learned"]["oracle_plan"] = file_identity(args.oracle_plan)
+        if args.oracle_virtual:
+            config["learned"]["oracle_virtual"] = True
+        if args.state_selective:
+            config["learned"]["state_selective"] = True
         if args.prefetch_events:
             config["learned"]["prefetch_sample"] = args.prefetch_sample
+        if args.prediction_depth != 1 or args.prediction_state_cycles != 1:
+            config["learned"]["prediction_depth"] = args.prediction_depth
+            config["learned"]["prediction_state_cycles"] = args.prediction_state_cycles
     if args.pace_instructions:
         config["pacing"] = {"instructions": args.pace_instructions, "requests": args.pace_requests,
                             "issue_limit": args.issue_limit}
+        if args.pace_ramp:
+            config["pacing"]["ramp"] = True
     if args.demand_service_sample:
         config["demand_service_sample"] = args.demand_service_sample
     config_path = args.output / "config.json"

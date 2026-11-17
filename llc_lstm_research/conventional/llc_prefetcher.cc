@@ -3,6 +3,8 @@
 #include "learned_llc.h"
 #include "ooo_cpu.h"
 #include "policies.h"
+#include "position_llc.h"
+#include "pressure_llc.h"
 
 #include <array>
 #include <cerrno>
@@ -10,6 +12,8 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <sstream>
+#include <tuple>
 #include <unordered_map>
 #include <vector>
 
@@ -46,6 +50,16 @@ struct Trigger {
 struct PendingPrediction {
     llc_learned::Observation observation;
     Trigger trigger;
+    std::unique_ptr<std::array<uint64_t, llc_learned::max_candidates>> virtual_candidates;
+    std::unique_ptr<llc_learned::PositionObservation> positions;
+    llc_learned::PressureFeatures pressure;
+};
+
+struct InFlightPrediction {
+    PendingPrediction request;
+    std::array<int32_t, llc_learned::max_candidates> scores;
+    uint64_t start;
+    uint64_t ready;
 };
 
 struct PrefetchTiming {
@@ -64,6 +78,8 @@ struct PrefetchTiming {
     uint64_t accepted;
     uint64_t dispatch = 0;
     uint64_t fill = 0;
+    uint64_t target_virtual_line = 0;
+    llc_learned::PressureFeatures pressure{};
     const char* outcome = "unresolved";
     uint64_t outcome_cycle = 0;
 };
@@ -96,16 +112,18 @@ struct IssueBudget {
 std::array<IssueBudget, NUM_CPUS> budgets;
 uint64_t pace_instructions = 0;
 uint64_t pace_requests = 0;
+bool pace_ramp = false;
 
 struct LearnedCore {
     llc_learned::History history;
     llc_learned::LlcCorrelationHistory correlation_history;
+    llc_learned::PositionHistory position_history;
     llc_learned::State state;
+    llc_learned::PressureState pressure_state;
     std::deque<PendingPrediction> waiting;
-    PendingPrediction running{};
-    std::array<int32_t, llc_learned::max_candidates> scores{};
-    uint64_t start = 0;
-    uint64_t ready = 0;
+    std::deque<InFlightPrediction> in_flight;
+    std::array<uint64_t, llc_learned::directory_size> virtual_history{};
+    size_t virtual_next = 0;
     uint64_t next_start = 0;
 };
 
@@ -113,8 +131,17 @@ std::array<LearnedCore, NUM_CPUS> learned;
 std::unique_ptr<llc_learned::Model> neural_model;
 std::unique_ptr<llc_learned::PagePc> page_pc_model;
 std::unique_ptr<llc_learned::LlcCorrelationTable> correlation_model;
+std::unique_ptr<llc_learned::PositionModel> position_model;
+std::unique_ptr<llc_learned::PressureModel> pressure_model;
+llc_learned::PressureArrivals<NUM_CPUS> pressure_arrivals;
+uint64_t proposal_cooldown = 0;
+size_t proposal_buffer = 0;
 uint64_t prediction_latency = 0;
 uint64_t prediction_interval = 0;
+uint64_t prediction_depth = 1;
+uint64_t prediction_state_cycles = 1;
+uint64_t prediction_peak_inflight = 0;
+uint64_t prediction_depth_blocked = 0;
 uint64_t issue_limit = 0;
 int32_t prediction_threshold = -32768;
 uint64_t prediction_started = 0;
@@ -124,6 +151,15 @@ uint64_t prediction_abstained = 0;
 uint64_t prediction_filtered = 0;
 uint64_t prediction_pace_blocked = 0;
 uint64_t cross_page_issued = 0;
+using OracleKey = std::tuple<uint32_t, uint64_t, uint32_t, uint64_t>;
+std::map<OracleKey, int32_t> oracle_scores;
+bool oracle_active = false;
+bool oracle_virtual = false;
+uint64_t oracle_candidate_matches = 0;
+uint64_t oracle_anchor_matches = 0;
+bool state_selective = false;
+uint64_t state_eligible_predictions = 0;
+uint64_t state_hidden_enabled = 0;
 
 PolicyKind policy = PolicyKind::none;
 std::string policy_name = "nopf";
@@ -163,6 +199,30 @@ uint64_t numeric_env(const char *name, uint64_t fallback)
     return number;
 }
 
+void load_oracle(const char* path)
+{
+    std::ifstream file(path);
+    std::string line;
+    if (!std::getline(file, line) || line != "core\tinstr_id\toperand\ttarget_line\tscore")
+        fail("invalid oracle plan header");
+    for (uint64_t row = 2; std::getline(file, line); ++row) {
+        std::istringstream fields(line);
+        uint32_t core, operand;
+        uint64_t instruction, target;
+        int32_t score;
+        std::string extra;
+        if (std::count(line.begin(), line.end(), '\t') != 4 || line.find('-') < line.rfind('\t')
+            || !(fields >> core >> instruction >> operand >> target >> score) || fields >> extra
+            || core >= NUM_CPUS || (!target && !oracle_virtual) || target > (UINT64_MAX >> LOG2_BLOCK_SIZE)
+            || score < -32768 || score > 32767
+            || !oracle_scores.emplace(OracleKey{core, instruction, operand, target}, score).second)
+            fail("invalid or duplicate oracle entry on row " + std::to_string(row));
+    }
+    if (!file.eof())
+        fail("reading oracle plan failed");
+    oracle_active = true;
+}
+
 int32_t threshold_env()
 {
     const char* value = std::getenv("LLC_PF_THRESHOLD");
@@ -178,7 +238,12 @@ int32_t threshold_env()
 
 bool learned_active()
 {
-    return neural_model || page_pc_model;
+    return neural_model || page_pc_model || position_model || pressure_model;
+}
+
+bool pipeline_configured()
+{
+    return prediction_depth != 1 || prediction_state_cycles != 1;
 }
 
 bool roi_active()
@@ -218,9 +283,15 @@ uint64_t issue_epoch(uint32_t core)
 
 bool pace_allows(uint32_t core)
 {
+    if (!pace_instructions)
+        return true;
+    const auto progress = retired_in_roi(core);
     const auto& epochs = budgets[core].epochs;
-    return !pace_instructions || epochs.empty() || epochs.back().first != issue_epoch(core)
-        || epochs.back().second < pace_requests;
+    if (epochs.empty() || epochs.back().first != progress / pace_instructions)
+        return true;
+    const auto earned = pace_ramp ? 1 + (progress % pace_instructions) * pace_requests / pace_instructions
+                                  : pace_requests;
+    return epochs.back().second < earned;
 }
 
 bool below_issue_limit(uint32_t core)
@@ -305,6 +376,11 @@ void write_timing_logs()
                                 << timing.demand.instruction << ',' << timing.demand.operand << ',' << timing.demand.cycle;
             else
                 prefetch_events << ",,,,";
+            if (oracle_virtual)
+                prefetch_events << ',' << timing.target_virtual_line;
+            if (pressure_model)
+                for (const auto value : timing.pressure)
+                    prefetch_events << ',' << value;
             prefetch_events << '\n';
         }
     }
@@ -393,12 +469,22 @@ void CACHE::llc_prefetcher_initialize()
         {"spp", PolicyKind::spp},
     };
     auto selected = policies.find(policy_name);
+    const auto direct_position = numeric_env("LLC_PF_POSITION_SCORER", 0);
+    if (direct_position > 1 || (direct_position && policy_name != "lstm" && policy_name != "event"))
+        fail("position scoring requires an LSTM or event model");
+    const auto use_pressure = numeric_env("LLC_PF_PRESSURE_SCORER", 0);
+    if (use_pressure > 1 || (use_pressure && (direct_position || (policy_name != "lstm" && policy_name != "event"))))
+        fail("pressure scoring requires an LSTM or event model with correlation candidates");
     if (selected != policies.end()) {
         policy = selected->second;
     } else {
         const char* model = std::getenv("LLC_PF_MODEL");
         try {
-            if (policy_name == "page_pc")
+            if (direct_position)
+                position_model.reset(new llc_learned::PositionModel(model, policy_name));
+            else if (use_pressure)
+                pressure_model.reset(new llc_learned::PressureModel(model, policy_name));
+            else if (policy_name == "page_pc")
                 page_pc_model.reset(new llc_learned::PagePc(model));
             else if (policy_name == "lstm" || policy_name == "event")
                 neural_model.reset(new llc_learned::Model(model, policy_name));
@@ -411,30 +497,59 @@ void CACHE::llc_prefetcher_initialize()
         prediction_interval = numeric_env("LLC_PF_PREDICTION_INTERVAL", 16);
         if (!prediction_latency || !prediction_interval || prediction_latency > 1000000 || prediction_interval > 1000000)
             fail("prediction latency and interval must be between 1 and 1000000 cycles");
+        prediction_depth = numeric_env("LLC_PF_PREDICTION_DEPTH", 1);
+        prediction_state_cycles = numeric_env("LLC_PF_PREDICTION_STATE_CYCLES", 1);
+        if (!prediction_depth || prediction_depth > 32 || !prediction_state_cycles
+            || prediction_state_cycles > prediction_latency)
+            fail("prediction depth must be 1-32 and state cycles must be within prediction latency");
         prediction_threshold = threshold_env();
     }
     if (const char* table = std::getenv("LLC_PF_CORRELATION")) {
-        if (!learned_active())
-            fail("a correlation table requires a learned scorer");
+        if (!learned_active() || position_model)
+            fail("a correlation table requires a learned scorer without direct positions");
         try {
             correlation_model.reset(new llc_learned::LlcCorrelationTable(table));
         } catch (const std::runtime_error& error) {
             fail(error.what());
         }
     }
-    if (neural_model && neural_model->nonlinear_width() && !correlation_model)
+    if (((neural_model && neural_model->nonlinear_width()) || pressure_model) && !correlation_model)
         fail("a nonlinear scorer requires a correlation candidate table");
+    proposal_cooldown = numeric_env("LLC_PF_PROPOSAL_COOLDOWN", 0);
+    const auto capacity = numeric_env("LLC_PF_PROPOSAL_BUFFER", 0);
+    if (bool(proposal_cooldown) != bool(capacity) || capacity > SIZE_MAX || (proposal_cooldown && !correlation_model))
+        fail("proposal cooldown requires a correlation table and positive cycle and buffer settings");
+    proposal_buffer = static_cast<size_t>(capacity);
+    const auto selective = numeric_env("LLC_PF_STATE_SELECTIVE", 0);
+    if (selective > 1 || (selective && (policy_name != "lstm" || !correlation_model)))
+        fail("state-selective scoring requires an LSTM with correlation candidates");
+    state_selective = selective != 0;
+    const auto oracle_virtual_flag = numeric_env("LLC_PF_ORACLE_VIRTUAL", 0);
+    if (oracle_virtual_flag > 1)
+        fail("invalid oracle virtual flag");
+    oracle_virtual = oracle_virtual_flag != 0;
+    if (const auto path = std::getenv("LLC_PF_ORACLE_PLAN")) {
+        if (!learned_active() || position_model)
+            fail("an oracle plan requires a learned scorer with fixed candidates");
+        load_oracle(path);
+    }
+    if (oracle_virtual && !oracle_active)
+        fail("virtual oracle keys require an oracle plan");
     pace_instructions = numeric_env("LLC_PF_PACE_INSTRUCTIONS", 0);
     pace_requests = numeric_env("LLC_PF_PACE_REQUESTS", 0);
     if (bool(pace_instructions) != bool(pace_requests))
         fail("pacing requires both a retired instruction window and a request allowance");
+    const auto ramp = numeric_env("LLC_PF_PACE_RAMP", 0);
+    if (ramp > 1 || (ramp && (!pace_instructions || pace_instructions > UINT32_MAX || pace_requests > pace_instructions)))
+        fail("ramped pacing requires 1 <= requests <= instructions <= UINT32_MAX");
+    pace_ramp = ramp != 0;
     if (learned_active() || pace_instructions)
         issue_limit = numeric_env("LLC_PF_ISSUE_LIMIT", 0);
     const auto requested_degree = numeric_env("LLC_PF_DEGREE", 1);
     if (requested_degree < 1 || requested_degree > 64)
         fail("LLC_PF_DEGREE must be between 1 and 64");
-    if (learned_active() && requested_degree != 1)
-        fail("learned comparisons require a prefetch degree of one");
+    if (learned_active() && requested_degree > llc_learned::max_candidates)
+        fail("learned prefetch degree exceeds the candidate cap");
     degree = requested_degree;
 
     if (policy != PolicyKind::none) {
@@ -456,7 +571,14 @@ void CACHE::llc_prefetcher_initialize()
                         << "trigger_line,target_line,source_pc,source_offset,source_age,delta,score,roi_retired,"
                         << "pace_epoch,ingress_cycle,predict_start_cycle,ready_cycle,accepted_cycle,dispatch_cycle,"
                         << "fill_cycle,outcome,outcome_cycle,demand_cpu,demand_event_id,demand_instr_id,"
-                        << "demand_operand,demand_ingress_cycle\n";
+                        << "demand_operand,demand_ingress_cycle";
+        if (oracle_virtual)
+            prefetch_events << ",target_virtual_line";
+        if (pressure_model) {
+            prefetch_events.precision(9);
+            prefetch_events << ",local_iat8,local_iat32,shared_iat8,ingress_mshr_scaled";
+        }
+        prefetch_events << '\n';
     }
     if (const char* path = std::getenv("LLC_PF_DEMAND_SERVICE")) {
         demand_service_sample = numeric_env("LLC_PF_DEMAND_SERVICE_SAMPLE", 1);
@@ -493,13 +615,45 @@ void CACHE::llc_pf_ingress(PACKET &packet)
     if (learned_active()) {
         if (measured) {
             auto& lane = learned[core];
-            const auto observation = correlation_model
-                ? lane.correlation_history.observe(packet.address, packet.ip, current_core_cycle[core], *correlation_model)
-                : lane.history.observe(packet.address, packet.ip);
-            if (lane.waiting.size() < 32)
-                lane.waiting.push_back({observation, trigger_of(packet)});
-            else
+            const auto pressure = pressure_model ? pressure_arrivals.observe(core, current_core_cycle[core], MSHR.occupancy)
+                                                 : llc_learned::PressureFeatures{};
+            llc_learned::Observation observation{};
+            std::unique_ptr<llc_learned::PositionObservation> positions;
+            if (position_model) {
+                positions.reset(new llc_learned::PositionObservation(lane.position_history.observe(
+                    observation, packet.address, packet.ip, current_core_cycle[core], position_model->source_slots())));
+            } else if (correlation_model) {
+                observation = lane.correlation_history.observe(packet.address, packet.ip, current_core_cycle[core],
+                                                               *correlation_model, proposal_cooldown, proposal_buffer);
+            } else {
+                observation = lane.history.observe(packet.address, packet.ip);
+            }
+            if (lane.waiting.size() < 32) {
+                PendingPrediction request{observation, trigger_of(packet), nullptr, std::move(positions), pressure};
+                if (oracle_virtual && observation.count) {
+                    using VirtualCandidates = std::array<uint64_t, llc_learned::max_candidates>;
+                    request.virtual_candidates.reset(new VirtualCandidates{});
+                    const auto& history = lane.virtual_history;
+                    for (size_t i = 0; i < observation.count; ++i) {
+                        const auto& candidate = observation.candidates[i];
+                        const auto source = candidate.age
+                            ? history[(lane.virtual_next + history.size() - candidate.age) % history.size()]
+                            : packet.llc_pf_virtual_line;
+                        const auto lines_per_page = llc_learned::page_lines;
+                        if (source % lines_per_page != candidate.source_offset)
+                            fail("virtual oracle history does not match the physical source offset");
+                        (*request.virtual_candidates)[i] = source / lines_per_page * lines_per_page
+                            + candidate.line % lines_per_page;
+                    }
+                }
+                lane.waiting.push_back(std::move(request));
+            } else {
                 ++prediction_overflow;
+            }
+            if (oracle_virtual) {
+                lane.virtual_history[lane.virtual_next] = packet.llc_pf_virtual_line;
+                lane.virtual_next = (lane.virtual_next + 1) % lane.virtual_history.size();
+            }
         }
         return;
     }
@@ -563,6 +717,117 @@ bool CACHE::llc_pf_try_issue(uint64_t base, uint64_t target, uint64_t pc, uint32
     return true;
 }
 
+namespace {
+bool has_opposite_candidates(const llc_learned::Observation& observation)
+{
+    for (size_t i = 0; i < observation.count; ++i) {
+        const auto& left = observation.candidates[i];
+        const auto source = static_cast<int64_t>(left.line) - left.delta;
+        for (size_t j = i + 1; j < observation.count; ++j) {
+            const auto& right = observation.candidates[j];
+            if (left.delta * right.delta < 0 && source == static_cast<int64_t>(right.line) - right.delta)
+                return true;
+        }
+    }
+    return false;
+}
+
+void inject_oracle(const PendingPrediction& request, uint32_t core,
+                   std::array<int32_t, llc_learned::max_candidates>& scores)
+{
+    scores.fill(-32769);
+    const auto prefix = std::make_tuple(core, request.trigger.instruction, request.trigger.operand);
+    const auto anchor = oracle_scores.lower_bound(std::tuple_cat(prefix, std::make_tuple(uint64_t{0})));
+    if (anchor == oracle_scores.end() || std::make_tuple(std::get<0>(anchor->first),
+            std::get<1>(anchor->first), std::get<2>(anchor->first)) != prefix)
+        return;
+    ++oracle_anchor_matches;
+    for (size_t i = 0; i < request.observation.count; ++i) {
+        const auto target = oracle_virtual ? (*request.virtual_candidates)[i] : request.observation.candidates[i].line;
+        const auto found = oracle_scores.find(std::tuple_cat(prefix, std::make_tuple(target)));
+        if (found != oracle_scores.end()) {
+            scores[i] = found->second;
+            ++oracle_candidate_matches;
+        }
+    }
+}
+
+bool issue_scored_candidate(CACHE& cache, const InFlightPrediction& decision, size_t index, uint32_t core)
+{
+    const auto& observation = decision.request.observation;
+    const auto& candidate = observation.candidates[index];
+    if (!cache.llc_pf_try_issue(observation.line, candidate.line, observation.pc, core))
+        return false;
+    if (prefetch_sample && (issued - 1) % prefetch_sample == 0) {
+        PrefetchTiming sample{};
+        sample.trigger = decision.request.trigger;
+        sample.cpu = core;
+        sample.pc = observation.pc;
+        sample.line = observation.line;
+        sample.candidate = candidate;
+        sample.score = decision.scores[index];
+        sample.retired = retired_in_roi(core);
+        sample.epoch = pace_instructions ? issue_epoch(core) : 0;
+        sample.start = decision.start;
+        sample.ready = decision.ready;
+        sample.accepted = current_core_cycle[core];
+        sample.pressure = decision.request.pressure;
+        if (oracle_virtual)
+            sample.target_virtual_line = (*decision.request.virtual_candidates)[index];
+        prefetch_timing.emplace(issued, sample);
+    }
+    return true;
+}
+
+void complete_prediction(CACHE& cache, const InFlightPrediction& decision, uint32_t core)
+{
+    ++prediction_completed;
+    if (!below_issue_limit(core))
+        return;
+    if (!pace_allows(core)) {
+        ++prediction_pace_blocked;
+        return;
+    }
+
+    const auto& observation = decision.request.observation;
+    bool passes_threshold = false;
+    uint32_t accepted = 0;
+    if (degree == 1) {
+        // Preserve degree-one eligibility order and its candidate counter.
+        size_t best = observation.count;
+        int32_t best_score = prediction_threshold - 1;
+        for (size_t i = 0; i < observation.count; ++i) {
+            passes_threshold |= decision.scores[i] >= prediction_threshold;
+            if (decision.scores[i] <= best_score)
+                continue;
+            ++candidates;
+            if (cache.llc_pf_eligible(observation.line, observation.candidates[i].line, core)) {
+                best = i;
+                best_score = decision.scores[i];
+            }
+        }
+        if (best < observation.count)
+            accepted = issue_scored_candidate(cache, decision, best, core);
+    } else {
+        std::array<size_t, llc_learned::max_candidates> order;
+        size_t count = 0;
+        for (size_t i = 0; i < observation.count; ++i)
+            if (decision.scores[i] >= prediction_threshold)
+                order[count++] = i;
+        passes_threshold = count != 0;
+        std::sort(order.begin(), order.begin() + count, [&decision](size_t a, size_t b) {
+            return decision.scores[a] != decision.scores[b] ? decision.scores[a] > decision.scores[b] : a < b;
+        });
+        for (size_t i = 0; i < count && accepted < degree && below_issue_limit(core) && pace_allows(core); ++i) {
+            ++candidates;
+            accepted += issue_scored_candidate(cache, decision, order[i], core);
+        }
+    }
+    prediction_abstained += !passes_threshold;
+    prediction_filtered += passes_threshold && !accepted;
+}
+} // namespace
+
 void CACHE::llc_pf_tick()
 {
     if (!learned_active())
@@ -572,64 +837,43 @@ void CACHE::llc_pf_tick()
             continue;
         auto& lane = learned[core];
         const uint64_t now = current_core_cycle[core];
-        if (lane.ready && lane.ready <= now) {
-            ++prediction_completed;
-            const auto ready = lane.ready;
-            lane.ready = 0;
-            const auto& observation = lane.running.observation;
-            const bool below_limit = below_issue_limit(core);
-            if (below_limit && !pace_allows(core)) {
-                ++prediction_pace_blocked;
-            } else if (below_limit) {
-                size_t best = observation.count;
-                int32_t best_score = prediction_threshold - 1;
-                bool passes_threshold = false;
-                for (size_t i = 0; i < observation.count; ++i) {
-                    passes_threshold |= lane.scores[i] >= prediction_threshold;
-                    if (lane.scores[i] <= best_score)
-                        continue;
-                    ++candidates;
-                    if (llc_pf_eligible(observation.line, observation.candidates[i].line, core)) {
-                        best = i;
-                        best_score = lane.scores[i];
-                    }
-                }
-                bool accepted = false;
-                if (best < observation.count)
-                    accepted = llc_pf_try_issue(observation.line, observation.candidates[best].line, observation.pc, core);
-                if (accepted && prefetch_sample && (issued - 1) % prefetch_sample == 0) {
-                    PrefetchTiming sample{};
-                    sample.trigger = lane.running.trigger;
-                    sample.cpu = core;
-                    sample.pc = observation.pc;
-                    sample.line = observation.line;
-                    sample.candidate = observation.candidates[best];
-                    sample.score = best_score;
-                    sample.retired = retired_in_roi(core);
-                    sample.epoch = pace_instructions ? issue_epoch(core) : 0;
-                    sample.start = lane.start;
-                    sample.ready = ready;
-                    sample.accepted = now;
-                    prefetch_timing.emplace(issued, sample);
-                }
-                prediction_abstained += !passes_threshold;
-                prediction_filtered += passes_threshold && !accepted;
-            }
+        if (!lane.in_flight.empty() && lane.in_flight.front().ready <= now) {
+            complete_prediction(*this, lane.in_flight.front(), core);
+            lane.in_flight.pop_front();
         }
-        if (lane.ready || lane.waiting.empty() || lane.next_start > now)
+        if (lane.waiting.empty() || lane.next_start > now)
             continue;
-        lane.running = lane.waiting.front();
-        lane.waiting.pop_front();
-        const auto& observation = lane.running.observation;
+        if (lane.in_flight.size() >= prediction_depth) {
+            ++prediction_depth_blocked;
+            continue;
+        }
+
+        // Advance h,c in ingress order. Completed scores may wait separately for issuance.
+        auto& request = lane.waiting.front();
+        const auto& observation = request.observation;
+        const bool use_hidden = !state_selective || has_opposite_candidates(observation);
+        if (state_selective && observation.count) {
+            ++state_eligible_predictions;
+            state_hidden_enabled += use_hidden;
+        }
+        std::array<int32_t, llc_learned::max_candidates> scores;
         if (page_pc_model)
-            lane.scores = page_pc_model->score(observation);
+            scores = page_pc_model->score(observation);
+        else if (position_model)
+            scores = position_model->score(request.observation, *request.positions, lane.state);
+        else if (pressure_model)
+            scores = pressure_model->score(observation, request.pressure, lane.pressure_state, use_hidden);
         else if (correlation_model)
-            lane.scores = neural_model->score_compact(observation, lane.state);
+            scores = neural_model->score_compact(observation, lane.state, use_hidden);
         else
-            lane.scores = neural_model->score(observation, lane.state);
-        lane.start = now;
-        lane.ready = now + prediction_latency;
-        lane.next_start = now + prediction_interval;
+            scores = neural_model->score(observation, lane.state);
+        if (oracle_active)
+            inject_oracle(request, core, scores);
+        lane.in_flight.push_back({std::move(request), scores, now, now + prediction_latency});
+        lane.waiting.pop_front();
+        prediction_peak_inflight = std::max<uint64_t>(prediction_peak_inflight, lane.in_flight.size());
+        const auto state_cycles = policy_name == "lstm" ? prediction_state_cycles : 1;
+        lane.next_start = now + std::max(prediction_interval, state_cycles);
         ++prediction_started;
     }
 }
@@ -786,16 +1030,41 @@ void CACHE::llc_prefetcher_print_config()
     if (learned_active()) {
         emit("prediction_latency", prediction_latency);
         emit("prediction_interval", prediction_interval);
+        if (pipeline_configured()) {
+            emit("prediction_depth", prediction_depth);
+            emit("prediction_state_cycles", prediction_state_cycles);
+        }
         emit("issue_limit", issue_limit);
         std::cout << "LLC_PF_threshold " << prediction_threshold << '\n';
     }
     if (correlation_model)
         emit("correlation", 1);
+    if (position_model)
+        emit("position_scorer", 1);
+    if (pressure_model) {
+        emit("pressure_scorer", 1);
+        emit("pressure_hidden", pressure_model->hidden_width());
+        emit("pressure_pc_entries", pressure_model->pc_entries());
+    }
+    if (proposal_cooldown) {
+        emit("proposal_cooldown", proposal_cooldown);
+        emit("proposal_buffer", proposal_buffer);
+    }
     if (neural_model && neural_model->nonlinear_width())
         emit("nonlinear_head_width", neural_model->nonlinear_width());
+    if (state_selective)
+        emit("state_selective", 1);
+    if (oracle_active) {
+        emit("oracle_plan", 1);
+        emit("oracle_plan_rows", oracle_scores.size());
+        if (oracle_virtual)
+            emit("oracle_virtual", 1);
+    }
     if (pace_instructions) {
         emit("pace_instructions", pace_instructions);
         emit("pace_requests", pace_requests);
+        if (pace_ramp)
+            emit("pace_ramp", 1);
         if (!learned_active())
             emit("issue_limit", issue_limit);
     }
@@ -835,11 +1104,23 @@ void CACHE::llc_prefetcher_final_stats()
         emit("prediction_started", prediction_started);
         emit("prediction_completed", prediction_completed);
         emit("prediction_overflow", prediction_overflow);
+        if (pipeline_configured()) {
+            emit("prediction_peak_inflight", prediction_peak_inflight);
+            emit("prediction_depth_blocked", prediction_depth_blocked);
+        }
         emit("prediction_abstained", prediction_abstained);
         emit("prediction_filtered", prediction_filtered);
         emit("cross_page_issued", cross_page_issued);
         if (pace_instructions)
             emit("prediction_pace_blocked", prediction_pace_blocked);
+        if (state_selective) {
+            emit("state_eligible_predictions", state_eligible_predictions);
+            emit("state_hidden_enabled", state_hidden_enabled);
+        }
+        if (oracle_active) {
+            emit("oracle_candidate_matches", oracle_candidate_matches);
+            emit("oracle_anchor_matches", oracle_anchor_matches);
+        }
     }
 
     close_log(events);

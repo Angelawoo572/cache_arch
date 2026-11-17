@@ -243,6 +243,8 @@ def main():
     put("inc/policies.h", (here / "policies.h").read_text())
     put("inc/learned_llc.h", (here / "learned_llc.h").read_text())
     put("inc/correlation_llc.h", (here / "correlation_llc.h").read_text())
+    put("inc/position_llc.h", (here / "position_llc.h").read_text())
+    put("inc/pressure_llc.h", (here / "pressure_llc.h").read_text())
     # Upstream's Makefile names dependency files but never includes them.
     patch("Makefile", lambda content: content + "\n-include $(objects:.o=.d)\n")
 

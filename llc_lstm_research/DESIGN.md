@@ -1,5 +1,15 @@
 # LLC LSTM design
 
+## Frozen direct-position model
+
+- Use accepted L2D load misses at the shared LLC ingress. The model reads load PC, the translated physical line, and the arrival cycle. Make a nine-value event vector from a four-value PC embedding, page position, same-page displacement, page change, PC continuity, and interarrival time. The LSTM updates its eight-value hidden and cell states per core as decisions launch.
+- Score every eligible position in the current physical page and the most recently observed distinct page in a 32-event directory. The eight-unit head has separate weights for the 127 signed displacements. It retains the top 16 positions in Q10 order for the shared issue filter and can issue one request. It uses no fitted offset shortlist.
+- Label each legal address using its first later same-core NoPF access. A future LLC miss within 4,000 cycles receives its empirical service CDF value at lead minus 16 cycles. Everything else receives zero. The label targets address and usable lead. Hit rate, miss rate and IPC measure the resulting policy.
+- Train with eight-event truncated backpropagation, 32 burn-in events and up to 12 epochs. The 70M/130M development split selected epoch 3. Deployment carries state and does not contain the training window. The final 32-cycle, four-in-flight replay used a cutoff of 50 Q10.
+- The direct-position policy beat conventional prefetching across all five independent regions. Clearing its hidden input preserved the improvement and slightly improved summed time. [V5 results](lstm/V5_RESULTS.md) · [Report source and diagrams](report/llc_lstm_report.tex)
+
+## Earlier model experiments
+
 ## What the trace tells us
 
 - Start with `605.mcf_s-994B`. The conventional LLC prefetchers leave substantial misses. NoPF shows that a load PC from an earlier page visit can help choose a line in that page, even when the visit was 9–32 L2D misses ago. The 620 result was mainly a short-history cue. [Trace selection and measurements](conventional/LONG_MEMORY.md)

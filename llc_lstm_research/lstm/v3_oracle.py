@@ -9,8 +9,8 @@ from pathlib import Path
 import numpy as np
 
 
-def matching_size(graph):
-    """Match each trigger and each future miss at most once."""
+def matching(graph):
+    """Assign each trigger at most one distinct future miss."""
     owner = {}
     match = {}
     for trigger in graph:
@@ -37,7 +37,11 @@ def matching_size(graph):
             owner[free] = current
             match[current] = free
             free = previous
-    return len(match)
+    return match
+
+
+def matching_size(graph):
+    return len(matching(graph))
 
 
 def ceiling(path, lead):

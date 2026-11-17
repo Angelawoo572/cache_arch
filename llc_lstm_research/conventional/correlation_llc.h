@@ -3,6 +3,8 @@
 
 #include "learned_llc.h"
 
+#include <iterator>
+#include <list>
 #include <tuple>
 
 namespace llc_learned {
@@ -70,7 +72,8 @@ private:
 
 class LlcCorrelationHistory {
 public:
-    Observation observe(uint64_t line, uint64_t pc, uint64_t cycle, const LlcCorrelationTable& table)
+    Observation observe(uint64_t line, uint64_t pc, uint64_t cycle, const LlcCorrelationTable& table,
+                        uint64_t cooldown = 0, size_t cooldown_capacity = 0)
     {
         const Demand current{line, static_cast<uint32_t>(pc), static_cast<uint32_t>(cycle)};
         const auto previous = prior(1);
@@ -85,7 +88,7 @@ public:
                             static_cast<float>(!same_page), static_cast<float>(used && current.pc == previous.pc),
                             used ? elapsed_feature(current.tick - previous.tick) : 0}};
         if (observations >= first_decision)
-            candidates(result, current, table);
+            candidates(result, current, table, cycle, cooldown, cooldown_capacity);
         entries[next] = current;
         next = (next + 1) % entries.size();
         used = std::min(used + 1, entries.size());
@@ -107,12 +110,58 @@ private:
         unsigned strength;
     };
 
+    struct LastProposal {
+        uint64_t cycle;
+        std::list<uint64_t>::iterator order;
+    };
+
     const Demand& prior(size_t age) const
     {
         return entries[(next + entries.size() - age) % entries.size()];
     }
 
-    void candidates(Observation& observation, const Demand& current, const LlcCorrelationTable& table) const
+    static bool less_candidate(const Ranked& left, const Ranked& right)
+    {
+        const auto order = [](const Ranked& value) {
+            return std::make_tuple(value.rank, 255u - value.strength, value.candidate.age,
+                                   value.candidate.delta, value.candidate.line);
+        };
+        return order(left) < order(right);
+    }
+
+    void cooldown_shortlist(Observation& observation, Ranked* first, Ranked* end, uint64_t cycle,
+                            uint64_t cooldown, size_t capacity)
+    {
+        std::sort(first, end, less_candidate);
+        std::array<const Candidate*, max_candidates> repeats;
+        size_t repeat_count = 0;
+        for (auto proposal = first; proposal != end && observation.count < max_candidates; ++proposal) {
+            const auto line = proposal->candidate.line;
+            const auto previous = last_proposal.find(line);
+            if (previous == last_proposal.end() || cycle - previous->second.cycle >= cooldown)
+                observation.candidates[observation.count++] = proposal->candidate;
+            else if (repeat_count < repeats.size())
+                repeats[repeat_count++] = &proposal->candidate;
+        }
+        // Repeats used as fallback do not refresh the cooldown or LRU order.
+        for (size_t i = 0; i < observation.count; ++i) {
+            const auto line = observation.candidates[i].line;
+            const auto previous = last_proposal.find(line);
+            if (previous != last_proposal.end())
+                proposal_order.erase(previous->second.order);
+            proposal_order.push_back(line);
+            last_proposal[line] = {cycle, std::prev(proposal_order.end())};
+        }
+        while (last_proposal.size() > capacity) {
+            last_proposal.erase(proposal_order.front());
+            proposal_order.pop_front();
+        }
+        for (size_t i = 0; i < repeat_count && observation.count < max_candidates; ++i)
+            observation.candidates[observation.count++] = *repeats[i];
+    }
+
+    void candidates(Observation& observation, const Demand& current, const LlcCorrelationTable& table,
+                    uint64_t cycle, uint64_t cooldown, size_t cooldown_capacity)
     {
         std::array<Ranked, 4 * (directory_size + 1)> proposals{};
         size_t proposed = 0;
@@ -146,15 +195,14 @@ private:
                 };
             }
         }
+        if (cooldown) {
+            cooldown_shortlist(observation, proposals.data(), proposals.data() + proposed, cycle, cooldown,
+                               cooldown_capacity);
+            return;
+        }
         observation.count = std::min(proposed, max_candidates);
         std::partial_sort(proposals.begin(), proposals.begin() + observation.count, proposals.begin() + proposed,
-                          [](const Ranked& left, const Ranked& right) {
-            const auto order = [](const Ranked& value) {
-                return std::make_tuple(value.rank, 255u - value.strength, value.candidate.age,
-                                       value.candidate.delta, value.candidate.line);
-            };
-            return order(left) < order(right);
-        });
+                          less_candidate);
         for (size_t i = 0; i < observation.count; ++i)
             observation.candidates[i] = proposals[i].candidate;
     }
@@ -163,6 +211,8 @@ private:
     size_t next = 0;
     size_t used = 0;
     uint64_t observations = 0;
+    std::list<uint64_t> proposal_order;
+    std::unordered_map<uint64_t, LastProposal> last_proposal;
 };
 
 } // namespace llc_learned

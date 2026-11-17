@@ -1,0 +1,179 @@
+\documentclass[10pt,letterpaper]{article}
+\usepackage[margin=0.68in]{geometry}
+\usepackage{fontspec,xeCJK}
+\setmainfont{Helvetica Neue}
+\setCJKmainfont{PingFang SC}
+\usepackage{amsmath,amssymb,booktabs,xcolor,tikz,hyperref}
+\usetikzlibrary{arrows.meta,positioning}
+\definecolor{ink}{HTML}{172939}
+\definecolor{muted}{HTML}{425861}
+\definecolor{teal}{HTML}{006A6C}
+\definecolor{paper}{HTML}{E4F2F0}
+\definecolor{amber}{HTML}{BC7928}
+\definecolor{pale}{HTML}{F4F6F6}
+\hypersetup{colorlinks=true,urlcolor=teal}
+\pagestyle{plain}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{5pt}
+\color{ink}
+\input{results.tex}
+\newcommand{\kicker}[1]{{\small\bfseries\color{teal} #1}\par\vspace{2pt}}
+\newcommand{\headline}[1]{{\LARGE\bfseries #1}\par\vspace{4pt}}
+\newcommand{\subhead}[1]{\vspace{6pt}{\large\bfseries #1}\par}
+\newcommand{\note}[1]{{\small\color{muted}#1}\par}
+\newcommand{\callout}[1]{\par\colorbox{paper}{\parbox{\dimexpr\linewidth-2\fboxsep}{\strut #1\strut}}\par}
+\tikzset{block/.style={draw=teal,rounded corners=2pt,fill=paper,align=center,minimum height=0.66cm,inner sep=4pt},
+  store/.style={draw=muted,rounded corners=2pt,fill=pale,align=center,minimum height=0.66cm,inner sep=4pt},
+  wire/.style={-{Stealth[length=2mm]},thick,draw=teal},
+  op/.style={circle,draw=teal,fill=white,inner sep=1.8pt}}
+
+\begin{document}
+\kicker{共享 LLC 数据预取 \hfill ChampSim-Pythia / SPEC CPU2017}
+\headline{让 LSTM 学会选哪条缓存线、何时发包}
+\callout{\textbf{5/5} 个独立 605 双核测试段超过各自最快的传统策略。与逐段最快的传统策略相比，总完成时间缩短 \textbf{\NativeTimeSaved\%}，DRAM 总字节下降 \textbf{\NativeTrafficSaved\%}。}
+
+\subhead{同样的程序工作，更早完成}
+\note{条长为 $100(1-T_{\mathrm{LSTM}}/T_{\mathrm{trad}})$。右侧是 LSTM / 当段最快传统的聚合 IPC。}
+\begin{tikzpicture}[x=1.44cm,y=.72cm,font=\small]
+  \foreach \x in {0,1,2,3,4} {
+    \draw[muted!22] (\x,-.15)--(\x,4.55);
+    \node[below,muted] at (\x,-.18) {\x\%};
+  }
+  \foreach \region/\y/\time/\ours/\base/\policy in \NativeBars {
+    \node[anchor=east] at (-.15,\y) {\region M};
+    \fill[teal] (0,{\y-.20}) rectangle (\time,{\y+.20});
+    \node[anchor=west,font=\small\bfseries] at ({\time+.08},\y) {\time\%};
+    \node[anchor=west] at (5.22,\y) {\ours\ / \base\ (\policy)};
+  }
+\end{tikzpicture}
+
+\subhead{公平条件}
+每段在两核各暖机 200K、测量 2M 条指令。两核独立执行同一段 605 MCF。私有 L1/L2 的预取关闭，共享 LLC 为 4 MiB，CPU 为 4 GHz，DRAM 为单通道 DDR4-2400。NoPF、Next-Line、Stride、Streamer、AMPM、SPP 和学习模型使用同一 LLC 请求入口及出包过滤，每次触发最多发 1 个请求。
+
+模型使用 10M、30M、50M 的 NoPF 事件训练，在 70M、130M 选择 checkpoint 和阈值。固定配置后才运行 310M、330M、350M、370M、390M。传统策略保留原生发包规则。Event-only 与 LSTM 使用同一地址表示和延迟模型，各自训练。两者的实际发包量不同。
+
+\subhead{完成时间的分母}
+\[
+T=\frac{\max_i C_{i,\mathrm{ROI}}}{f},
+\qquad
+\mathrm{IPC}_{\mathrm{agg}}=\frac{\sum_i I_i}{\max_i C_{i,\mathrm{ROI}}}.
+\]
+\note{$C_{i,\mathrm{ROI}}$ 为核 $i$ 从测量开始到完成的周期，$I_i$ 为实际退休数。五段先加完成周期再计算比率。LSTM 比最快的单一传统策略 Streamer 节省 \FixedSaved\% 时间，比 Event-only 节省 \EventSaved\%。}
+
+\newpage
+\kicker{01 \hfill 地址、状态与输出}
+\headline{两个可寻址物理页，一份每核历史状态}
+\begin{tikzpicture}[font=\small,x=1cm,y=1cm]
+  \node[store,text width=2.3cm] (l2) at (1.25,2.55) {Core 0 / Core 1\\L2D load miss};
+  \node[store,text width=2.4cm] (port) at (4.2,2.55) {共享 LLC 入队口\\physical line, PC, cycle};
+  \node[block,text width=2.24cm] (event) at (7.26,2.55) {每核事件向量\\$x_t\in\mathbb R^9$};
+  \node[block,text width=2.45cm] (cell) at (10.34,2.55) {LSTM cell\\$h_t,c_t\in\mathbb R^8$};
+  \node[store,text width=2.39cm] (state) at (13.5,2.55) {每核寄存状态\\$h_{t-1},c_{t-1}$};
+  \node[store,text width=2.4cm] (dir) at (4.2,.65) {32 事件目录\\选页和屏蔽位};
+  \node[block,text width=2.24cm] (src) at (7.26,.65) {页来源向量\\$z_s\in\mathbb R^8$};
+  \node[block,text width=2.45cm] (lin) at (10.34,.65) {$8$ 维共享评分层\\相对线位移 logits};
+  \node[store,text width=2.39cm] (issue) at (13.5,.65) {Top 16 进入过滤\\发包至 LLC 填充};
+  \draw[wire] (l2)--(port); \draw[wire] (port)--(event); \draw[wire] (event)--(cell);
+  \draw[wire] (state)--(cell); \draw[wire] (cell.north) to[out=65,in=115] (state.north);
+  \draw[wire] (port)--(dir); \draw[wire] (dir)--(src); \draw[wire] (src)--(lin);
+  \draw[wire] (cell)--(lin); \draw[wire] (event.south east)--(lin.north west);
+  \draw[wire] (lin)--(issue);
+\end{tikzpicture}
+
+\subhead{LSTM cell 内部}
+\begin{tikzpicture}[font=\small,x=1cm,y=1cm]
+  \node[store] (in) at (1,1.87) {$[x_t,h_{t-1}]$};
+  \node[block] (fg) at (3.48,1.87) {$f_t=\sigma(\cdot)$};
+  \node[block] (ig) at (5.43,1.87) {$i_t=\sigma(\cdot)$};
+  \node[block] (gg) at (7.47,1.87) {$g_t=\tanh(\cdot)$};
+  \node[block] (og) at (10.63,1.87) {$o_t=\sigma(\cdot)$};
+  \node (old) at (1,.52) {$c_{t-1}$};
+  \node[op] (mul1) at (3.48,.52) {$\times$};
+  \node[op] (mul2) at (6.46,.52) {$\times$};
+  \node[op] (sum) at (8.3,.52) {$+$};
+  \node[block] (tanh) at (9.47,.52) {$\tanh$};
+  \node[op] (mul3) at (10.63,.52) {$\times$};
+  \node[store] (new) at (12.43,.52) {$h_t$};
+  \node[store] (cout) at (8.3,-.55) {$c_t$};
+  \draw[wire] (in.north) -- +(0,.32) -| (fg.north);
+  \draw[wire] (in.north) -- +(0,.32) -| (ig.north);
+  \draw[wire] (in.north) -- +(0,.32) -| (gg.north);
+  \draw[wire] (in.north) -- +(0,.32) -| (og.north);
+  \draw[wire] (old)--(mul1); \draw[wire] (fg)--(mul1);
+  \draw[wire] (ig.south) -- ++(0,-.25) -| (mul2.north);
+  \draw[wire] (gg.south) -- ++(0,-.25) -| (mul2.north);
+  \draw[wire] (mul1.south) -- ++(0,-.35) -| (sum.south);
+  \draw[wire] (mul2)--(sum); \draw[wire] (sum)--(tanh); \draw[wire] (sum)--(cout);
+  \draw[wire] (tanh)--(mul3); \draw[wire] (og)--(mul3); \draw[wire] (mul3)--(new);
+\end{tikzpicture}
+
+$c_t=f_t\odot c_{t-1}+i_t\odot g_t$，$h_t=o_t\odot\tanh(c_t)$。$f_t$ 选择保留过去的记忆，$i_t$ 控制写入，$o_t$ 控制读出。四组变换各有 $W_x,W_h,b$。模型在无可发地址的事件也更新状态。模型状态不读取未来命中结果，也不在线重新训练。
+
+\subhead{输入与输出落在哪级}
+\textbf{输入}是接受进 LLC 的 L2D demand load miss，即使随后在 LLC 命中也保留。PC 是该 load 指令的地址。特征为 4 维 PC 嵌入、页内位置、同页位移、换页位、同 PC 位、相邻到达间隔。发出的地址使用已经翻译的物理页。\\[2pt]
+\textbf{输出}是每个已观察页的相对线位移分数。页 4 KiB，含 64 条 64 B 线，位移类别 $-63\ldots63$。每页用来源 PC、页内位置、是否当前页、是否同 PC、周期差做 8 维表示。最近 demand 和不可发的线由掩码及共享过滤处理。
+
+\newpage
+\kicker{02 \hfill 标签、消融与成本}
+\headline{未来 miss 指定地址，提前量决定训练收益}
+对当前到达 $t$ 和候选线 $a$，看同核在接下来 4,000 cycles 内首次访问 $a$ 是否发生 LLC miss。成立时记录提前量 $\Delta=t_{\mathrm{future}}-t$。用 130M NoPF 的 20,361 次服务样本估计经验 CDF $F_S$。
+\[
+y_t(a)=
+\begin{cases}
+ F_S(\max(0,\Delta-16)),&\text{未来首次访问 miss},\\
+ 0,&\text{其他情况}.
+\end{cases}
+\]
+用加权 BCE 训练每条线的分数。传统预取结果不参与标签。16 cycles 是冻结训练的提前量余量，闭环统一测 32 cycles。Hit rate 和 miss rate 是运行结果。一个区间的聚合率无法区分同一触发下的两条线或两种提前量。
+
+\subhead{改了什么，数据怎么说}
+\begin{itemize}\setlength{\itemsep}{2pt}
+\item 固定候选集先限制了答案。90M/110M 的 NoPF 诊断中，原 16 候选可触及约 8.6K/6.9K 个未来 miss。扩大到近期页的合法位置，机会明显增加。640-cycle 候选去重提高可达率，固定预算下的排名仍弱。
+\item 两页绝对位置 LSTM 在开发集共得 \AbsoluteDev；相对位移得 \RelativeDev；相对位移加 PC 嵌入得 \EmbedDev。三者同用两开发段的 2K/4K 决策，分数为预期及时的去重 target 数之和。
+\item NoPF 的 ROB 头部阻塞周期帮助部分 Event-only 标签实验，但该版直接 LSTM 使用类似效益标签后明显退步。独立的 MSHR 与到达间隔实验提高过离线目标数。最终闭环使用相对位移和 PC 嵌入。
+\end{itemize}
+
+\subhead{为什么是这些数}
+{\small
+\begin{tabular}{@{}p{2.25cm}p{13.85cm}@{}}
+\toprule
+\textbf{设计量} & \textbf{选择和代价}\\
+\midrule
+$H=8$；$W=8$ & $h,c$ 各 8 个值。训练按 8 个事件截断反传，部署持续传状态。16 和 32 的同结构分数为 \WindowDev。改变 W 和 epoch 不增加线上参数。\\[2pt]
+32 目录；2 页 & 32 事件用于找回物理页和去掉最近线。冻结版用当前页和最近不同页。补测 1/2/4 页开发分数为 \SlotsDev；增加页数会增加评分工作。\\[2pt]
+64\,$\times$\,4 PC & 用低位折叠索引区分类别。两套 PC 特征共享 64 项，每项 4 个数，合计 1,024 B。相对线位移与 PC 类别共同用于打分。\\[2pt]
+8 维头；127 类 & $q_s=\operatorname{ReLU}(W_e[x,h]+W_s z_s+b)$，$\ell_{s,\delta}=w_{\delta}^Tq_s+b_{\delta}$。每个位移有独立权重，可表达方向反转。\\[2pt]
+Q10；Top 16 & $Q=\mathrm{clip}(\lfloor1024\ell+0.5\rfloor,-32768,32767)$。1,024 是精度刻度。开发闭环搜索选 $Q\geq50$。前 16 条可参加过滤，每事件最多接受一条。\\[2pt]
+Epoch 3 / 最多 12 & 根据独立开发分数选 PyTorch 权重。训练轮数加大只改变训练耗时。部署读取导出的定长权重。\\
+\bottomrule
+\end{tabular}\par}
+\note{两页最多 126 条合法线需要评分，最坏 1,816 个线性 MAC/事件。FP32 权重共享 8,732 B，每核状态 64 B、目录 512 B，另计队列和掩码。32-cycle 延迟、8-cycle 启动间隔、4 路在途为仿真假设。单次门变换 544 MAC，若每 8 cycles 更新，名义需 68 MAC/cycle，加上激活与排序。}
+
+\newpage
+\kicker{03 \hfill 闭环质量与边界}
+\headline{总流量、请求时机与完成时间}
+\note{五段合并计数。绿色为 LSTM，橙色为各段最快的传统策略。条上数字为百分比。}
+\begin{tikzpicture}[x=.105cm,y=.85cm,font=\small]
+  \foreach \x in {0,20,40,60,80,100} {\draw[muted!20] (\x,-.18)--(\x,5.30);\node[below,muted] at (\x,-.22) {\x\%};}
+  \foreach \metric/\y/\ours/\base in \MetricBars {
+    \node[anchor=east] at (-2,\y) {\metric};
+    \fill[teal] (0,{\y+.07}) rectangle (\ours,{\y+.24});
+    \fill[amber] (0,{\y-.24}) rectangle (\base,{\y-.07});
+    \node[anchor=west] at ({\ours+.9},{\y+.16}) {\ours};
+    \node[anchor=west] at ({\base+.9},{\y-.16}) {\base};
+  }
+\end{tikzpicture}
+
+{\small\textbf{定义}。Accuracy $=(\text{及时首用}+\text{晚到首合并})/\text{已接受请求}$；timeliness $=\text{及时首用}/\text{已使用请求}$。Direct coverage 以全部 NoPF miss 为分母，按核、动态指令与操作数匹配及时首用或晚到首合并。Timely coverage 只计及时首用。LLC hit/miss rate 以 demand lookup 为分母，$\mathrm{MPKI}=1000\,\mathrm{misses}/I$。LSTM 的 \LstmMpki\ MPKI 低于逐段传统胜者的 \BestMpki。}
+
+\subhead{资源和工作负载变了以后}
+\begin{itemize}\setlength{\itemsep}{2pt}
+\item \textbf{共同发包上限}。每核每 20K 退休指令逐步开放 256 个请求时赢 \CapHighWins/5 段，合计时间缩短 \CapHighSaved\%。配额 64 时赢 \CapLowWins/5 段，合计时间变化 \CapLowChange\%。上限相同，各臂实际发包数有差异。
+\item \textbf{64-cycle 推理}。保留权重、阈值及 4 个在途位置，仍赢 \LatencyWins/5 段。延迟增大也会限制启动吞吐。
+\item \textbf{隐藏状态消融}。同一评分权重、同一阈值，将 $h_t$ 置零后五段合计再快 \ZeroTimeSaved\%，发包 \ZeroSends\ 次，原版 149,449 次。当前主收益来自地址表示与发包决策。单独归因给长记忆仍缺少正向闭环证据。
+\item \textbf{Roofline}。取 $I/\mathrm{DRAM\ bytes}$ 为强度，$\mathrm{IPC}\leq\min(P_{\mathrm{compute}},B_{\mathrm{sustained}}\times I/\mathrm{bytes})$。390M 的 LSTM/Streamer 平均带宽为 \HeavyBW\ / \HeavyBestBW\ GB/s，单通道名义峰值 19.2 GB/s。请求的暴露延迟和重叠程度仍决定执行时间。
+\item \textbf{多核与样本多样性}。两份 605 会争 LLC/DRAM，指令模式仍相近。混合 605+602 补测 \MixedResult。更多核数、程序类型和私有预取开启时需要独立验证。
+\end{itemize}
+
+\note{\href{https://research.google/pubs/learning-memory-access-patterns/}{Google 2018}（序列学习）；\href{https://research.google/pubs/a-hierarchical-neural-model-of-data-prefetching/}{Google 2021}（页与位置）；\href{https://www.cse.iitb.ac.in/~biswa/MICRO23.pdf}{CLIP}（ROB 关键性）；\href{https://escholarship.org/uc/item/5tz795vq}{Roofline}；\href{https://users.ece.cmu.edu/~jhoe/course/ece447/S10handouts-jose/L05.pdf}{CMU 18-447 性能度量}；\href{https://d2l.ai/chapter_recurrent-modern/lstm.html}{LSTM gates}。运行、数据和复现路径见 V5 RESULTS。}
+\end{document}

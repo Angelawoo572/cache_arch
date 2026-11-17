@@ -239,6 +239,9 @@ formal_NN_training/experiments/**/colab_output/
 /formal_study/migration/
 # Curated formal_study/results/ is tracked and shared with GitHub.
 
+# The LLC research report PDFs are shared only on the local and Sacramento copies.
+/llc_lstm_research/report/*.pdf
+
 # Pre-existing offline report containers retained locally, outside current sources.
 /docs/602_stride_dynamic_inference/
 /formal_NN_training/formal_research_20261016/

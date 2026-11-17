@@ -250,11 +250,11 @@ public:
         return scores;
     }
 
-    std::array<int32_t, max_candidates> score_compact(const Observation& event, State& state) const
+    std::array<int32_t, max_candidates> score_compact(const Observation& event, State& state, bool use_hidden = true) const
     {
         if (mlp_width)
-            return score_nonlinear(event, state);
-        const auto query = make_query(event, state);
+            return score_nonlinear(event, state, use_hidden);
+        const auto query = make_query(event, state, use_hidden);
         auto weights = weights_bias;
         float bias = candidate_bias[0];
         for (size_t rank = 0; rank < rank_size; ++rank) {
@@ -274,7 +274,7 @@ public:
     }
 
 private:
-    std::array<int32_t, max_candidates> score_nonlinear(const Observation& event, State& state) const
+    std::array<int32_t, max_candidates> score_nonlinear(const Observation& event, State& state, bool use_hidden) const
     {
         if (recurrent)
             update(event.features, state);
@@ -284,7 +284,7 @@ private:
             float value = mlp_event_bias[unit];
             for (size_t j = 0; j < event_size; ++j)
                 value += mlp_event[row + j] * event.features[j];
-            if (recurrent)
+            if (recurrent && use_hidden)
                 for (size_t j = 0; j < hidden_size; ++j)
                     value += mlp_event[row + event_size + j] * state.hidden[j];
             event_projection[unit] = value;
@@ -304,7 +304,7 @@ private:
         return scores;
     }
 
-    std::array<float, rank_size> make_query(const Observation& event, State& state) const
+    std::array<float, rank_size> make_query(const Observation& event, State& state, bool use_hidden = true) const
     {
         if (recurrent)
             update(event.features, state);
@@ -313,8 +313,9 @@ private:
             const size_t begin = rank * (event_size + hidden_size);
             for (size_t i = 0; i < event_size; ++i)
                 query[rank] += weights_query[begin + i] * event.features[i];
-            for (size_t i = 0; i < hidden_size; ++i)
-                query[rank] += weights_query[begin + event_size + i] * state.hidden[i];
+            if (use_hidden)
+                for (size_t i = 0; i < hidden_size; ++i)
+                    query[rank] += weights_query[begin + event_size + i] * state.hidden[i];
         }
         return query;
     }

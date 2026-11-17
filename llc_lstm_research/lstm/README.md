@@ -1,5 +1,7 @@
 # 605 LLC LSTM experiment
 
+The current run uses [direct relative-position scoring](V5_RESULTS.md). The sections below document the original Colab checkpoint, replay and hard lead labels.
+
 - **Input.** Accepted L2D demand-load misses at LLC ingress. Features use the load PC and translated line. A 32-event per-core directory produces at most 16 legal candidates in previously seen physical pages. All three scorers use the same directory. The offline NoPF log keeps events that complete an LLC lookup. At runtime the model observes ingress directly.
 - **Label.** A candidate is positive when its first later same-core demand is an LLC miss in NoPF with 300–2,000 cycles of lead. The first 128 events initialize the directory. The label exporter masks incomplete follow-up at the end of each core's ROI. Both cores have separate address spaces in these traces.
 - **Split.** Train on 10M, 30M, and 50M. Select checkpoints and thresholds on 70M. Test on 90M and 110M. The numbers denote initial trace records skipped. Each region runs 200,000 warmup instructions and 2 million measured instructions per core.

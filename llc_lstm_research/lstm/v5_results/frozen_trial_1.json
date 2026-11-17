@@ -1,0 +1,45 @@
+{
+  "purpose": "First unseen closed-loop test of the fixed direct signed-position scorer",
+  "trace": "SPEC 605.mcf_s-994B",
+  "copies": 2,
+  "trace_regions_million_records": [
+    310,
+    330,
+    350,
+    370,
+    390
+  ],
+  "model_fit_regions": [
+    10,
+    30,
+    50
+  ],
+  "model_selection_regions": [
+    70,
+    130
+  ],
+  "warmup_instructions_per_core": 200000,
+  "roi_instructions_per_core": 2000000,
+  "degree": 1,
+  "latency_cycles": 32,
+  "initiation_interval_cycles": 8,
+  "state_cycles": 8,
+  "inflight_depth": 4,
+  "lstm": {
+    "weights": "model.txt",
+    "q10_cutoff": 50
+  },
+  "event_only": {
+    "weights": "event_model.txt",
+    "q10_cutoff": 912
+  },
+  "conventional": [
+    "nopf",
+    "next_line",
+    "stride",
+    "streamer",
+    "ampm",
+    "spp"
+  ],
+  "decision": "Check each region and summed completion cycles against all conventional policies, attribute gains against event-only, and report direct coverage, timeliness, LLC hit/miss, MPKI, and DRAM traffic."
+}

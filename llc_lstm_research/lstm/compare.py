@@ -21,16 +21,18 @@ def start_signature(result):
     return result['trace_seed'], result['cpu_mhz'], warmup
 
 
-def rows(directories):
+def rows(directories, nopf_only_from_first=False):
     config = run_config(directories[0])
     results = {}
     nopf = None
     nopf_events = None
-    for directory in directories:
+    for index, directory in enumerate(directories):
         if run_config(directory) != config:
             raise ValueError('trace, warmup, ROI, or degree mismatch in {}'.format(directory))
         for row in json.loads((directory / 'summary.json').read_text()):
             policy = row['policy']
+            if nopf_only_from_first and index == 0 and policy != 'nopf':
+                continue
             event_file = (directory / row['log']).with_name('demand.csv')
             if policy == 'nopf':
                 events = read_events(event_file, row)
