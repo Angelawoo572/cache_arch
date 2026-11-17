@@ -1,5 +1,23 @@
 # Direct-position LLC LSTM
 
+## Correction and equal-request coverage
+
+- The archived V5 label uses NoPF for the future miss address and its lead. Its time weight came from 746 completed fills in a previous LSTM run at 130M. Those samples measure ingress to fill, including the earlier 16-cycle predictor. The first report incorrectly attributed the time weights to 20,361 NoPF demand misses.
+- With the same local simulator, segments, degree and 32-cycle predictor, V2 and V5 issued 14,072 and 149,449 requests at their frozen cutoffs on 310M–390M. Coverage rose from 2.728% to 21.395%. At a common cap of ten per core per 20K retired instructions, coverage fell from 0.678% to 0.553% and timely coverage fell from 0.676% to 0.361%. Realized sends were 4,024 and 4,513. [Matched rows](v5_results/coverage_matched_by_region.csv) · [Pooled](v5_results/coverage_matched_pooled.csv)
+- At 390M under that cap, both models issued exactly 2,000 requests. V2 covered 1,824 NoPF misses, including 1,821 timely, and reached 0.193028 IPC. V5 covered 968, including 650 timely, and reached 0.192104 IPC. The pure NoPF retrain covered 1,010, including 707 timely, and reached 0.192123 IPC with the same 2,000 sends.
+- The original Colab V1 is a separate comparison. With 2,000 requests per policy and region, V1 to V5 coverage rose from 0.754% to 2.489% at 90M and from 0.666% to 2.843% at 110M. [Matched Colab rows](v5_results/coverage_matched_colab.csv)
+- On 310M–390M, V5 and SPP covered 48,455 of the same NoPF misses. V5 had 38,709 exclusive targets, of which 21,376 were timely. SPP had 39,677 exclusive targets, of which 3,808 were timely. The better pooled timely coverage is mostly from different misses. [Coverage overlap and timing changes](v5_results/coverage_overlap.csv)
+
+## Pure NoPF retrain
+
+- Measure 369,307 completed NoPF demand services at LLC ingress on 10M, 30M and 50M. The median, p90 and p95 are 210, 263 and 340 cycles. Apply the CDF at lead minus 32 modeled inference cycles. Model features, architecture, 4,000-cycle horizon and region split remain the same. [Calibration](v5_results/clean32/calibration_summary.json)
+- Fit for up to 12 epochs. Validation selects LSTM epoch 8 / Q10 −950 and Event-only epoch 5 / Q10 −650 on 70M and 130M. The LSTM threshold is the lower edge of the declared grid. [Development sweep](v5_results/clean32/development32.csv) · [Frozen setup](v5_results/clean32/frozen32.json)
+- On the original five segments, the pure NoPF LSTM gets 21.437% direct and 13.677% timely coverage at its selected cutoff. Archived V5 got 21.395% and 13.667%. At the archived cutoff of 50, pure NoPF direct coverage is 20.691%. The source correction alone made little difference to pooled coverage.
+- On three newly opened regions at 410M, 430M and 450M, the corrected LSTM gets 0.863222, 0.215747 and 0.663696 IPC. The fastest natives get 0.858428, 0.207555 and 0.651891. The LSTM takes 7.300 ms in total versus 7.517 ms, a 2.88% time saving. It uses 3.15% more DRAM bytes than those three native winners. [Full per-phase rows](v5_results/clean32/per_phase.csv) · [Pooled rows](v5_results/clean32/pooled.csv)
+- At the shared 256-per-20K cap on the original five phases, the corrected LSTM wins 5/5 and saves 1.08% summed time. At the old ten-per-20K cap, the 390M regression remains. A fixed-cutoff hidden-state ablation in the fresh phases sent 350,387 versus 153,362 requests. Its 26.64% coverage accompanied a slowdown from 7.300 to 7.613 ms. The unequal sends leave the contribution of recurrence unresolved.
+
+## Archived V5 test
+
 - The frozen LSTM won all five fresh 605 regions against every conventional arm. It cut summed completion time by **2.23%** versus the fastest native policy in each region and by **2.42%** versus Streamer, the best fixed native policy.
 - The runs used two independent copies of the 605 trace, 200K warmup and 2M ROI instructions per core, 4 GHz, and a 4 MiB shared LLC. Private cache prefetchers were off. The shared issue filter allowed one request per accepted L2D load miss.
 - Train on 10M/30M/50M NoPF and select on local 70M/130M. The frozen regions are 310M/330M/350M/370M/390M. Each row uses actual retirement counts, including up to five instructions of retirement-width overshoot between arms at 390M.
@@ -42,7 +60,8 @@
 
 ## Artifacts
 
-- [Chinese LaTeX report source](../report/llc_lstm_report.tex). The PDF is available in the local and Sacramento report folders. [All 40 frozen run rows](v5_results/per_phase.csv), [pooled counts](v5_results/policy_totals.csv), [timing and budget checks](v5_results/sensitivity.csv), [run signatures](v5_results/run_signatures.csv), and [launch/lifecycle counts](v5_results/learned_lifecycle.csv).
+- [Chinese LaTeX report source](../report/llc_lstm_report.tex). The compiled PDF stays with the local and Sacramento workspace copies. [All 40 frozen run rows](v5_results/per_phase.csv), [pooled counts](v5_results/policy_totals.csv), [timing and budget checks](v5_results/sensitivity.csv), [run signatures](v5_results/run_signatures.csv), and [launch/lifecycle counts](v5_results/learned_lifecycle.csv).
+- [Pure NoPF simulator weights](v5_results/clean32/lstm_model.txt), [PyTorch checkpoint](v5_results/clean32/lstm_model.pt), and [Event-only weights](v5_results/clean32/event_model.txt). Raw training, calibration and replay outputs are under `lstm/runs/v5_clean/` and `conventional/runs/v5_clean/`. Matched older-model replays are under `conventional/runs/v5_coverage_replay/`.
 - [Frozen model](v5_results/model.txt), [PyTorch checkpoint](v5_results/model.pt), [Event-only model](v5_results/event_model.txt), and [checkpoint selection](v5_results/best.json). The frozen runtime thresholds are Q10 50 and 912, respectively. The 4K offline decision cutoff in the checkpoint metadata uses a different selection metric.
 - Raw demand, prefetch lifecycle, and simulator logs stay in `conventional/runs/v5_comparison/`. Training arrays, checkpoints, and per-epoch logs stay in `lstm/runs/v5/`. [Earlier negative controls](V4_DEVELOPMENT.md)
 
@@ -66,5 +85,6 @@ for region in 310 330 350 370 390; do
 done
 ```
 
-- `lstm/v5_slots.py export` derives dense page slots and NoPF labels. `fit --slots 2 --relative --discrete-pc --unroll 8 --epochs 12` trains the double-page scorer. Run the separate `--event-only` fit on the same train and development arrays. The local development logs and 130M service distribution are in `lstm/runs/v5/` and `lstm/runs/v2/service_130m_matched.json`.
-- The LaTeX source uses `report/results.tex` for measured values. Compile from `report/` with `tectonic -X compile llc_lstm_report.tex`. The current source uses Helvetica Neue and PingFang SC on macOS.
+- `lstm/v5_slots.py export` derives page slots and NoPF address labels. Train with `fit --slots 2 --relative --discrete-pc --unroll 8 --epochs 12 --latency 32`. Build the time distribution with `lstm/nopf_service.py` from the three training NoPF demand-service logs. Run a separate `--event-only` fit on the same arrays. The archived fit is available by explicitly passing `--historical-prefetch-calibration` and `lstm/runs/v2/service_130m_matched.json`.
+- To run the pure NoPF frozen test, use the same runner arguments above with clean simulator weights, cutoffs −950/−650, the 410M/430M/450M trace slices from `lstm/runs/v6/trace_slices/`, and a new output path.
+- The LaTeX source draws its numeric plots from `report/figures.tex`, generated by `python3 report/make_figures.py`. Compile from `report/` with `tectonic -X compile llc_lstm_report.tex`. The source uses Helvetica Neue and PingFang SC on macOS.

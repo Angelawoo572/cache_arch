@@ -1,0 +1,32 @@
+这次只用训练段 10M、30M、50M 的 NoPF demand，从 LLC 入队量到 fill。共有 \textbf{369,307} 次已完成服务，p50/p90/p95 为 \textbf{210/263/340 cycles}。在训练中直接预留 32 cycles，和闭环一致。例如提前 300 cycles 时查 $F_S(268)$，软标签是 90.33\%。提前 180 cycles 时是 18.81\%。
+
+沿用相同输入、输出和网络，在 70M/130M 选模型与阈值。纯 NoPF LSTM 选了 epoch 8 和 Q10 $-950$，Event-only 选了 epoch 5 和 $-650$。$-950$ 是本轮阈值网格的下界。固定后才跑 410M、430M、450M。
+
+\subhead{先在原五段对齐测试}
+{\small
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+策略与阈值 & 请求数 & Coverage & Timely coverage & 总周期\\
+\midrule
+旧 V5，Q10 50 & 149,449 & 21.395\% & 13.667\% & 44,467,664\\
+纯 NoPF，仍用 50 & 145,247 & 20.691\% & 13.409\% & 44,471,908\\
+纯 NoPF，开发阈值 $-950$ & 150,144 & 21.437\% & 13.677\% & 44,413,876\\
+\bottomrule
+\end{tabular}\par}
+两版用各自开发阈值时，总覆盖只差 0.042 个百分点。保留 16-cycle 训练余量、仅换成 NoPF 标定的对照给出 21.43\% 覆盖。纠正来源后，覆盖几乎没变。
+
+390M 的窄预算问题也还在。纯 NoPF 版在同样 2,000 个请求下覆盖 \textbf{1,010} 次，其中 707 次及时。V2 是 1,824 和 1,821 次。纠正标定后，纯 NoPF 版的 coverage 仍只有 0.406\%，V2 是 0.733\%。
+
+\subhead{再看三个没用过的段}
+\smallnote{学习策略使用新权重，传统策略保持原生规则。最短完成时间与该段最高 IPC 的传统策略一致。}
+\heatmap{3.24cm}{\FreshRegions}{\FreshIpcCells}
+纯 NoPF LSTM 赢 3/3 段。它用 29,200,916 个周期做完，逐段最快的传统策略合计 30,067,737，缩短 2.88\%。Event-only 合计 29,597,007 周期，LSTM 赢其中两段。
+
+相对逐段最快的传统策略，直接覆盖从 18.04\% 升到 24.31\%，及时覆盖从 11.46\% 升到 17.97\%。DRAM 总字节从 23.46 MB 升到 24.20 MB（+3.15\%）。
+
+\newpage
+\sectionline{纠正后的完整指标}
+\titleline{新三段的全部对照}
+\smallnote{上表为三个 605 新区间上的请求质量（\%），下表为合计 IPC、时间、内存流量和发包量。}
+\heatmap{2.33cm}{\QualityNames}{\FreshQualityCells}
+\heatmap{2.48cm}{\CostNames}{\FreshCostCells}

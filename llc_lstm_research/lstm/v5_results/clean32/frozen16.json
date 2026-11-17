@@ -1,0 +1,92 @@
+{
+  "configuration": "2 cores, 200K warmup / 2M measured retired instructions each, degree 1, 32-cycle latency, 8-cycle issue/state intervals and depth 4",
+  "selection": "minimize summed 70M/130M completion cycles; break ties with lower accepted count, then higher cutoff",
+  "calibration": "service_10_30_50m.json",
+  "previously_run_regions": [
+    310,
+    330,
+    350,
+    370,
+    390
+  ],
+  "models": {
+    "lstm": {
+      "cutoff": -950,
+      "checkpoint_epoch": 8,
+      "validation": [
+        {
+          "region": 70,
+          "policy": "lstm",
+          "q10_cutoff": -950,
+          "roi_cycles": 6799980,
+          "ipc": 0.5882376124635661,
+          "accepted": 5027
+        },
+        {
+          "region": 130,
+          "policy": "lstm",
+          "q10_cutoff": -950,
+          "roi_cycles": 5770908,
+          "ipc": 0.6931319993318209,
+          "accepted": 4752
+        }
+      ],
+      "evaluated_cutoffs": [
+        -950,
+        -650,
+        -350,
+        -150,
+        50,
+        250,
+        450,
+        650,
+        850,
+        1050,
+        1250,
+        1450,
+        1650,
+        1850
+      ]
+    },
+    "event": {
+      "cutoff": -650,
+      "checkpoint_epoch": 5,
+      "validation": [
+        {
+          "region": 70,
+          "policy": "event",
+          "q10_cutoff": -650,
+          "roi_cycles": 6803553,
+          "ipc": 0.5879286896126186,
+          "accepted": 7827
+        },
+        {
+          "region": 130,
+          "policy": "event",
+          "q10_cutoff": -650,
+          "roi_cycles": 5772887,
+          "ipc": 0.692894387158453,
+          "accepted": 6502
+        }
+      ],
+      "evaluated_cutoffs": [
+        -950,
+        -650,
+        -350,
+        -150,
+        50,
+        250,
+        450,
+        650,
+        850,
+        912,
+        1050,
+        1250,
+        1450,
+        1650,
+        1850
+      ]
+    }
+  },
+  "label_latency_cycles": 16
+}

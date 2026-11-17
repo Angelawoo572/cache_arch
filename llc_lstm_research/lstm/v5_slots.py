@@ -248,6 +248,15 @@ def fit(args):
     torch.manual_seed(args.seed)
     rng = np.random.default_rng(args.seed)
     calibration = load_calibration(args.calibration)
+    calibration_metadata = json.loads(args.calibration.read_text())
+    if not args.historical_prefetch_calibration:
+        sources = calibration_metadata.get('sources')
+        if (not isinstance(sources, dict) or not sources
+                or any('nopf' not in Path(path).parts or type(count) is not int or count < 1
+                       for path, count in sources.items())
+                or sum(sources.values()) != calibration.size
+                or calibration_metadata.get('samples') != calibration.size):
+            raise ValueError('fit requires NoPF demand-service calibration from lstm/nopf_service.py')
     train = [Split(path, calibration, args.slots, args.latency) for path in args.train]
     dev = [Split(path, calibration, args.slots, args.latency) for path in args.dev]
     stall_scale = None
@@ -299,6 +308,8 @@ def fit(args):
                     'stall_p90': stall_scale, 'train': [split.name for split in train],
                     'dev': [split.name for split in dev], 'horizon': HORIZON,
                     'unroll': args.unroll, 'latency': args.latency, 'learning_rate': args.lr,
+                    'calibration_samples': int(calibration.size),
+                    'historical_prefetch_calibration': args.historical_prefetch_calibration,
                     'start_event': str(args.start_event) if args.start_event else None, 'freeze_event': args.freeze_event}
         print(json.dumps(progress), flush=True)
         if score > best:
@@ -336,6 +347,8 @@ def main():
     train.add_argument('--train', nargs='+', type=Path, required=True)
     train.add_argument('--dev', nargs='+', type=Path, required=True)
     train.add_argument('--calibration', type=Path, required=True)
+    train.add_argument('--historical-prefetch-calibration', action='store_true',
+                       help='reproduce the archived fit which used an earlier model’s prefetch fills')
     train.add_argument('--output', type=Path, required=True)
     train.add_argument('--slots', type=int, choices=(1, 2, 4), default=SLOTS)
     train.add_argument('--event-only', action='store_true')

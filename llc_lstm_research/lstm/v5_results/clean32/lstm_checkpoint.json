@@ -1,0 +1,54 @@
+{
+  "epoch": 8,
+  "expected_on_time": [
+    [
+      139.99983211799398,
+      361.99983211799395
+    ],
+    [
+      254.0,
+      400.107736923481
+    ]
+  ],
+  "total": 1156.107401159469,
+  "slots": 2,
+  "event_only": false,
+  "relative": true,
+  "discrete_pc": true,
+  "stall_p90": null,
+  "train": [
+    "605_10m_rob",
+    "605_30m_rob",
+    "605_50m_rob"
+  ],
+  "dev": [
+    "605_70m",
+    "605_130m"
+  ],
+  "horizon": 4000,
+  "unroll": 8,
+  "latency": 32,
+  "learning_rate": 0.003,
+  "calibration_samples": 369307,
+  "historical_prefetch_calibration": false,
+  "start_event": null,
+  "freeze_event": false,
+  "thresholds": {
+    "2000": {
+      "cutoff_q10": 2067,
+      "desired_pooled_decisions": 4000,
+      "validation_decisions": [
+        2755,
+        1284
+      ]
+    },
+    "4000": {
+      "cutoff_q10": 1901,
+      "desired_pooled_decisions": 8000,
+      "validation_decisions": [
+        5273,
+        2730
+      ]
+    }
+  }
+}

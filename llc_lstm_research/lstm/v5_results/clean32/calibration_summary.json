@@ -1,0 +1,16 @@
+{
+  "definition": "Completed NoPF LLC demand ingress-to-fill cycles, without modeled prediction latency",
+  "sources": {
+    "conventional/runs/v4_comparison/rob_full_10m/nopf/attempt-1/demand_service.csv": 129469,
+    "conventional/runs/v4_comparison/rob_full_30m/nopf/attempt-1/demand_service.csv": 31704,
+    "conventional/runs/v4_comparison/rob_full_50m/nopf/attempt-1/demand_service.csv": 208134
+  },
+  "samples": 369307,
+  "nearest_rank_cycles": {
+    "10": 90,
+    "50": 210,
+    "90": 263,
+    "95": 340,
+    "99": 434
+  }
+}
