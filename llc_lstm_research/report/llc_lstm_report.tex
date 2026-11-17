@@ -213,7 +213,7 @@ Training block / batch & 256 events / 16 blocks & 128 events / 32 blocks\\
 \end{tabular}\par}
 两版都用 PyTorch。Weighted binary cross-entropy 让模型分数接近标签，并补偿正标签少的问题。AdamW 用 learning rate 0.003 更新权重，seed 605 让本轮可复现。V1 用 Colab CPU，Newest 在本地重新采集 NoPF 事件后训练。两版每个 full batch 都有 4,096 个监督位置。Newest 在开发段用 2K/4K 决策的预期及时覆盖挑出 epoch 8，再用闭环周期挑发包阈值。增加 epoch 只改变训练开销。
 
-\smallnote{Newest 的 369,307 个 NoPF service samples 全部来自 10M/30M/50M。p50/p90/p95 是 210/263/340 cycles。两个模型的 checkpoint 在开发段选择，测试段只用于评估。}
+\smallnote{369,307 个 NoPF service samples 全部来自 10M/30M/50M。p50/p90/p95 是 210/263/340 cycles。以 p90 为例，加上 32 cycles 预测后要约 295 cycles，说明 lead 的量级。V1 的 300–2,000 cycles 沿用原实验的固定窗。Newest 用整条实测曲线给分，并看到了 2,000 cycles 以后的首次 miss。}
 
 \newpage
 \sectionline{PARAMETERS AND REPLAY}
@@ -224,6 +224,7 @@ Training block / batch & 256 events / 16 blocks & 128 events / 32 blocks\\
 \textbf{Setting} & \textbf{Reason and measured cost}\\
 \midrule
 8 hidden units & 保留 V1 的小状态。每核 $h,c$ 合计 16 个 FP32 值（64 B）。维度扩大时，recurrent matrix 会变大。本次比较固定宽度。\\[2pt]
+4-value query / 8-unit head & V1 把事件和候选各压成 4 维，节省逐条打分的计算。Newest 用 8 个 ReLU 值表达事件和来源页的组合，再按位移选择自己的输出权重。两个宽度是各自设计的算量取舍。\\[2pt]
 8-event unroll & V1 在 70M 的 2K/4K offline decisions 下，8、16、32 的去重目标数为 94/130、94/128、94/128。保留 8，训练每 8 条切断梯度。线上 $h,c$ 仍连续传。\\[2pt]
 32 directory / 32 burn-in / 128 start & 沿用 V1 的地址存储预算。32 条地址每条 16 B，共 512 B/core。训练块取 32 条更早事件来恢复状态。ROI 开头等 128 条才发包，让目录先填满并让状态积累。这三个数是固定设置。\\[2pt]
 2 pages / 127 target deltas & 加入当前页，保留一个最近的其他页。真实例子只看 1、2、4 页分别要给 54、116、239 条线打分。两页是找地址与算量的折中。64 条线的页有 $2\times64-1=127$ 种位移，两页最多评分 126 条。Top 16 把后续 filter 的列表保在原来的大小。\\[2pt]
@@ -256,6 +257,7 @@ Runtime cost & V1 / Newest 存 611 / 2,183 个 FP32 系数（2,444 / 8,732 B）�
 90M 和 110M 两版各发 2,000 个请求。覆盖数分别为 \CapNinetyCovered\ 和 \CapOneTenCovered。及时用到的请求从 874 到 1,739，但有用请求中及时的比例从 94.18\% 到 50.38\%。两段合计 15,559,434 $\to$ 15,558,327 cycles，差约 0.007\%。
 
 410M 的 V1 只发 1,571 个，属于相同上限。430M 和 450M 两版都发到 2,000 个。430M 的 coverage 从 0.343\% 到 0.317\%，450M 的 coverage 上升但 IPC 降低。四个发包相等的区间合计，coverage 从 0.578\% 到 1.403\%，Newest 完成时间长 0.126\%。
+\smallnote{相同 Accepted 数量控制了总发包量。模型仍会在不同时刻发不同的地址。比较测的是两版完整设计，包括输入、候选和标签一起变化的效果。}
 
 \newpage
 \sectionline{RESULTS \quad NO EXTRA TOTAL-COUNT CAP}
