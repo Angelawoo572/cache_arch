@@ -422,6 +422,8 @@ void CACHE::llc_prefetcher_initialize()
             fail(error.what());
         }
     }
+    if (neural_model && neural_model->nonlinear_width() && !correlation_model)
+        fail("a nonlinear scorer requires a correlation candidate table");
     pace_instructions = numeric_env("LLC_PF_PACE_INSTRUCTIONS", 0);
     pace_requests = numeric_env("LLC_PF_PACE_REQUESTS", 0);
     if (bool(pace_instructions) != bool(pace_requests))
@@ -789,6 +791,8 @@ void CACHE::llc_prefetcher_print_config()
     }
     if (correlation_model)
         emit("correlation", 1);
+    if (neural_model && neural_model->nonlinear_width())
+        emit("nonlinear_head_width", neural_model->nonlinear_width());
     if (pace_instructions) {
         emit("pace_instructions", pace_instructions);
         emit("pace_requests", pace_requests);

@@ -5,6 +5,7 @@
 - The [605 baselines](conventional/605_RESULTS.md) report accuracy, timeliness, coverage, and IPC. The [70M history check](conventional/605_HISTORY.md) tests what ordered events add beyond the page-PC table.
 - The [LSTM design](DESIGN.md) gets its offline inputs and labels from NoPF demand events. The [605 training and replay results](lstm/RESULTS.md) report what the recurrent state learned and how it performed in ChampSim.
 - The [v2 results](lstm/V2_RESULTS.md) compare learned address proposals, measured fill-time supervision, and paced LLC replay on three new 605 regions.
+- The [v3 scorer experiment](lstm/V3_RESULTS.md) holds those candidates fixed and measures nonlinear scoring, recurrence, and losses with NoPF supervision.
 - [Measurement definitions](PERFORMANCE.md) follow CMU 18-447. [Conventional baselines](conventional/README.md) explains how to reproduce the screen. [Paper index](PAPERS.md) records related designs.
 
 ## Open questions

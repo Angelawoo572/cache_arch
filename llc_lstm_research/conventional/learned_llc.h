@@ -18,6 +18,7 @@ constexpr size_t event_size = 7;
 constexpr size_t candidate_size = 6;
 constexpr size_t hidden_size = 8;
 constexpr size_t rank_size = 4;
+constexpr size_t max_head_width = 16;
 constexpr size_t directory_size = 32;
 constexpr size_t first_decision = 128;
 constexpr size_t max_candidates = 16;
@@ -167,6 +168,14 @@ inline float elapsed_feature(uint32_t cycles)
     return static_cast<float>(width) / 12;
 }
 
+inline CandidateFeatures compact_candidate_features(const Candidate& candidate, uint64_t pc)
+{
+    auto features = candidate_features(candidate, static_cast<uint32_t>(pc));
+    features[3] = static_cast<float>(candidate.delta) / 63;
+    features[4] = elapsed_feature(candidate.elapsed);
+    return features;
+}
+
 inline int32_t fixed_score(float score, float scale)
 {
     const float fixed = std::floor(score * scale + 0.5f);
@@ -183,26 +192,46 @@ public:
         std::string magic, mode;
         size_t d = 0, h = 0, r = 0, f = 0, c = 0;
         if (!(file >> magic >> mode >> d >> h >> r >> f >> c >> reset_events)
-            || magic != "LLC_LSTM_V1" || mode != expected_mode || d != event_size
-            || h != hidden_size || r != rank_size || f != candidate_size || c != max_candidates)
+            || mode != expected_mode || d != event_size || h != hidden_size
+            || f != candidate_size || c != max_candidates)
             throw std::runtime_error("invalid or incompatible LLC LSTM model header");
+        if (magic == "LLC_LSTM_V3" && r >= 1 && r <= max_head_width)
+            mlp_width = r;
+        else if (magic != "LLC_LSTM_V1" || r != rank_size)
+            throw std::runtime_error("invalid LLC scorer format or width");
         recurrent = mode == "lstm";
         read(file, weights_input);
         read(file, weights_hidden);
         read(file, cell_bias);
-        read(file, weights_query);
-        read(file, query_bias);
-        read(file, weights_key);
-        read(file, key_bias);
-        read(file, weights_bias);
-        read(file, candidate_bias);
+        if (mlp_width) {
+            mlp_event.resize(mlp_width * (event_size + hidden_size));
+            mlp_event_bias.resize(mlp_width);
+            mlp_candidate.resize(mlp_width * candidate_size);
+            mlp_output.resize(mlp_width);
+            read(file, mlp_event);
+            read(file, mlp_event_bias);
+            read(file, mlp_candidate);
+            read(file, mlp_output);
+            read(file, mlp_output_bias);
+        } else {
+            read(file, weights_query);
+            read(file, query_bias);
+            read(file, weights_key);
+            read(file, key_bias);
+            read(file, weights_bias);
+            read(file, candidate_bias);
+        }
         std::string trailing;
         if (file >> trailing)
             throw std::runtime_error("trailing tokens in LLC LSTM model");
     }
 
+    size_t nonlinear_width() const { return mlp_width; }
+
     std::array<int32_t, max_candidates> score(const Observation& event, State& state) const
     {
+        if (mlp_width)
+            throw std::logic_error("nonlinear LLC scorers require correlation features");
         const auto query = make_query(event, state);
         std::array<int32_t, max_candidates> scores{};
         for (size_t i = 0; i < event.count; ++i) {
@@ -223,6 +252,8 @@ public:
 
     std::array<int32_t, max_candidates> score_compact(const Observation& event, State& state) const
     {
+        if (mlp_width)
+            return score_nonlinear(event, state);
         const auto query = make_query(event, state);
         auto weights = weights_bias;
         float bias = candidate_bias[0];
@@ -233,10 +264,7 @@ public:
         }
         std::array<int32_t, max_candidates> scores{};
         for (size_t i = 0; i < event.count; ++i) {
-            const auto& candidate = event.candidates[i];
-            auto features = candidate_features(candidate, static_cast<uint32_t>(event.pc));
-            features[3] = static_cast<float>(candidate.delta) / 63;
-            features[4] = elapsed_feature(candidate.elapsed);
+            const auto features = compact_candidate_features(event.candidates[i], event.pc);
             float score = bias;
             for (size_t j = 0; j < candidate_size; ++j)
                 score += weights[j] * features[j];
@@ -246,6 +274,36 @@ public:
     }
 
 private:
+    std::array<int32_t, max_candidates> score_nonlinear(const Observation& event, State& state) const
+    {
+        if (recurrent)
+            update(event.features, state);
+        std::array<float, max_head_width> event_projection;
+        for (size_t unit = 0; unit < mlp_width; ++unit) {
+            const auto row = unit * (event_size + hidden_size);
+            float value = mlp_event_bias[unit];
+            for (size_t j = 0; j < event_size; ++j)
+                value += mlp_event[row + j] * event.features[j];
+            if (recurrent)
+                for (size_t j = 0; j < hidden_size; ++j)
+                    value += mlp_event[row + event_size + j] * state.hidden[j];
+            event_projection[unit] = value;
+        }
+        std::array<int32_t, max_candidates> scores{};
+        for (size_t i = 0; i < event.count; ++i) {
+            const auto features = compact_candidate_features(event.candidates[i], event.pc);
+            float score = mlp_output_bias[0];
+            for (size_t unit = 0; unit < mlp_width; ++unit) {
+                float value = 0;
+                for (size_t j = 0; j < candidate_size; ++j)
+                    value += mlp_candidate[unit * candidate_size + j] * features[j];
+                score += mlp_output[unit] * std::max(0.0f, event_projection[unit] + value);
+            }
+            scores[i] = fixed_score(score, 1024);
+        }
+        return scores;
+    }
+
     std::array<float, rank_size> make_query(const Observation& event, State& state) const
     {
         if (recurrent)
@@ -261,8 +319,8 @@ private:
         return query;
     }
 
-    template <size_t N>
-    static void read(std::ifstream& file, std::array<float, N>& values)
+    template <typename Values>
+    static void read(std::ifstream& file, Values& values)
     {
         for (auto& value : values) {
             if (!(file >> value) || !std::isfinite(value))
@@ -308,6 +366,12 @@ private:
     std::array<float, rank_size> key_bias{};
     std::array<float, candidate_size> weights_bias{};
     std::array<float, 1> candidate_bias{};
+    size_t mlp_width = 0;
+    std::vector<float> mlp_event;
+    std::vector<float> mlp_event_bias;
+    std::vector<float> mlp_candidate;
+    std::vector<float> mlp_output;
+    std::array<float, 1> mlp_output_bias{};
 };
 
 class PagePc {
