@@ -1,0 +1,7 @@
+policy,load,llc_misses,llc_hits,fixed_work_cycles
+stride,interior,242,1561,1147567
+stride,pair_start,60,0,1147567
+stride,paired_second_row,60,0,1147567
+counted_stride,interior,126,1677,1134977
+counted_stride,pair_start,60,0,1134977
+counted_stride,paired_second_row,3,57,1134977

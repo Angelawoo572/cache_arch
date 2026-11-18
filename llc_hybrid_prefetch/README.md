@@ -1,5 +1,7 @@
 # What can a shared LLC prefetcher see early enough to matter?
 
+**[Read the measured outcomes, paired load examples, and feature tests](MEASUREMENTS.md).**
+
 ## A. Research question
 
 - Take a load that misses the last-level cache (LLC) with prefetching disabled. Find the earliest demand event at which an LLC predictor could have named its line. Did the PC-based Stride prefetcher name it? Was there time to bring it in? Would an earlier fill have advanced retirement or the end of the run?
@@ -22,10 +24,13 @@ The sample was fixed before looking at the new policy results. Each program uses
 
 - The main matrix has four solo workloads and three mixes, MCF with CactuBSSN, MCF with Xalancbmk, and LBM with Xalancbmk. Pair the first point with the first and the second with the second. Run NoPF and LLC Stride for each of the fourteen cases.
 - Feed the same input instructions and operands to both policies. Use the same address placement, cache and memory configuration, warmup interval and measured work. For the main matrix the target is ten million warmup instructions and five million measured instructions per active core. Test warmup sensitivity at a common measured start.
-- Leave private-cache prefetchers off. Stride observes demand loads admitted from L2 to the shared LLC and keeps separate PC history per core. Its baseline has 64 trackers, requires two equal nonzero line deltas, and can issue one next-stride line on the current page. Mark page boundaries inside the generator before the shared issuer filters requests.
+- Leave private-cache prefetchers off. Both arms use a demand-only cache warmup. Stride learns its PC state during warmup and begins issuing at the measurement boundary. This controls initial residency and measures startup as well as later behavior. Stride observes demand loads admitted from L2 to the shared LLC and keeps separate PC history per core. Its baseline has 64 trackers, requires two equal nonzero line deltas, and can issue one next-stride line on the current page. Mark page boundaries inside the generator before the shared issuer filters requests.
 - Align arms by core, trace instruction ordinal and load operand. Verify the PC and virtual line. Within an arm, use physical line and event order to follow service, fills and replacements. A private-cache hit, a merge and an independent LLC lookup are distinct paths. Keep unmatched paths visible in coverage denominators.
 
 ### Which score answers which question?
+
+- The CMU 18-447 processor project's `perf_counters.sv` counts elapsed cycles and retired instructions in simulation. It also counts fetched and decoded instructions separately. This study uses **retirement** to define work, and marks simulator-only observations such as a future head wait explicitly. The course's prefetching lecture ties coverage to baseline misses and separates timeliness from address accuracy. [18-447 prefetching lecture](https://course.ece.cmu.edu/~ece447/s15/lib/exe/fetch.php?media=onur-447-spring14-lecture27-prefetching-beforelecture.pdf#page=35)
+- The project reading by Chen, Penney and Jiménez frames learned cache and prefetch decisions around what a predictor observes and what action it takes. Here the issue cycle and destination line are both essential parts of that action. [AI for Computer Architecture, §3.3.1](https://link.springer.com/book/10.1007/978-3-031-01770-4)
 
 | Measurement | Definition and use |
 |---|---|
@@ -43,6 +48,12 @@ The sample was fixed before looking at the new policy results. Each program uses
 - For a timely hit, read backward from demand to fill, acceptance, candidate generation and trigger. For a late use, include the demand-to-fill gap. Compare earlier events for the same core, favoring controls at the same PC and comparable page position. Report the number of controls available.
 - Read forward from the anchor to study consequences such as subsequent hits, eviction or a stall. Only the history up to the prediction time could have been used for prediction. Even an event immediately before the *hit* may have happened after the predictor had to decide.
 - Diagnose pollution using matched demand hits that become misses, ordering and fill/eviction evidence. When a shadow-cache comparison is available, label it as an estimate. A hit-to-miss transition alone does not identify the prefetch that caused it.
+
+### Reproduce and inspect
+
+- Build and check the simulator, then run the registered matrix. The public branch includes configurations, scripts, the English report and compact results. Raw traces and event files live under the local and Sacramento study directories. [Simulator](sim/README.md) · [Experiments](experiments/README.md) · [Definitions and event matching](analysis/README.md)
+- The 4,096-set LLC has 16 ways, 64-byte lines, 128 MSHRs and a single DRAM channel. Tags and outstanding requests are checked by the simulated issuer at admission. The results describe that simulated mechanism. Real tag/filter port costs and delays are open design questions.
+- Each faster core stops taking in new instructions at its fixed work boundary. The run ends when the last core retires its measured work. Traffic refers to transfers in that interval, including work in progress at the boundaries. The shared-memory mixes here replay independent programs; coherence-driven communication within one multithreaded application would require a different trace source.
 
 ## C. What would warrant a feature?
 

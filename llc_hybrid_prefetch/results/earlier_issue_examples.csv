@@ -1,0 +1,4 @@
+case,outcome,cpu,anchor_instr,target_instr,target_operand,virtual_line,delta,ordinary_stride_target_was_late,original_head_wait,baseline_trigger_cycle,baseline_target_ingress_cycle,replay_accepted_cycle,replay_dispatch_cycle,replay_fill_cycle,replay_demand_lookup_cycle
+mcf-cactus-r1,late,1,10234619,10234629,0,2194548144501,43,0,362,10172411,10172634,10172411,10172431,10172660,10172654
+mcf-cactus-r1,timely,0,10089204,10089236,0,2197533583213,2,1,255,10192957,10193194,10193155,10193175,10193398,10193412
+syn-nested_samepage,late,0,100226,100290,0,8488864,32,0,139,29317,29525,29317,29337,29800,29545

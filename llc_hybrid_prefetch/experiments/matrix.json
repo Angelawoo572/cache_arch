@@ -1,0 +1,750 @@
+[
+  {
+    "run_id": "mcf-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "mcf"
+    ],
+    "traces": [
+      "605.mcf_s-665B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "mcf"
+    ],
+    "traces": [
+      "605.mcf_s-665B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "mcf"
+    ],
+    "traces": [
+      "605.mcf_s-994B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "mcf"
+    ],
+    "traces": [
+      "605.mcf_s-994B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "cactus-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "cactus"
+    ],
+    "traces": [
+      "607.cactuBSSN_s-2421B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "cactus-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "cactus"
+    ],
+    "traces": [
+      "607.cactuBSSN_s-2421B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "cactus-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "cactus"
+    ],
+    "traces": [
+      "607.cactuBSSN_s-3477B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "cactus-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "cactus"
+    ],
+    "traces": [
+      "607.cactuBSSN_s-3477B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "xalan-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "xalan"
+    ],
+    "traces": [
+      "623.xalancbmk_s-700B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "xalan-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "xalan"
+    ],
+    "traces": [
+      "623.xalancbmk_s-700B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "xalan-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "xalan"
+    ],
+    "traces": [
+      "623.xalancbmk_s-592B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "xalan-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "xalan"
+    ],
+    "traces": [
+      "623.xalancbmk_s-592B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "lbm"
+    ],
+    "traces": [
+      "619.lbm_s-4268B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "lbm"
+    ],
+    "traces": [
+      "619.lbm_s-4268B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "lbm"
+    ],
+    "traces": [
+      "619.lbm_s-3766B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "lbm"
+    ],
+    "traces": [
+      "619.lbm_s-3766B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-cactus-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "mcf",
+      "cactus"
+    ],
+    "traces": [
+      "605.mcf_s-665B",
+      "607.cactuBSSN_s-2421B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-cactus-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "mcf",
+      "cactus"
+    ],
+    "traces": [
+      "605.mcf_s-665B",
+      "607.cactuBSSN_s-2421B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-cactus-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "mcf",
+      "cactus"
+    ],
+    "traces": [
+      "605.mcf_s-994B",
+      "607.cactuBSSN_s-3477B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-cactus-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "mcf",
+      "cactus"
+    ],
+    "traces": [
+      "605.mcf_s-994B",
+      "607.cactuBSSN_s-3477B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-xalan-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "mcf",
+      "xalan"
+    ],
+    "traces": [
+      "605.mcf_s-665B",
+      "623.xalancbmk_s-700B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-xalan-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "mcf",
+      "xalan"
+    ],
+    "traces": [
+      "605.mcf_s-665B",
+      "623.xalancbmk_s-700B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-xalan-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "mcf",
+      "xalan"
+    ],
+    "traces": [
+      "605.mcf_s-994B",
+      "623.xalancbmk_s-592B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "mcf-xalan-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "mcf",
+      "xalan"
+    ],
+    "traces": [
+      "605.mcf_s-994B",
+      "623.xalancbmk_s-592B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-xalan-r1-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "lbm",
+      "xalan"
+    ],
+    "traces": [
+      "619.lbm_s-4268B",
+      "623.xalancbmk_s-700B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-xalan-r1-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "lbm",
+      "xalan"
+    ],
+    "traces": [
+      "619.lbm_s-4268B",
+      "623.xalancbmk_s-700B"
+    ],
+    "region_rank": 1,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-xalan-r2-nopf",
+    "group": "spec",
+    "policy": "nopf",
+    "workloads": [
+      "lbm",
+      "xalan"
+    ],
+    "traces": [
+      "619.lbm_s-3766B",
+      "623.xalancbmk_s-592B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "lbm-xalan-r2-stride",
+    "group": "spec",
+    "policy": "stride",
+    "workloads": [
+      "lbm",
+      "xalan"
+    ],
+    "traces": [
+      "619.lbm_s-3766B",
+      "623.xalancbmk_s-592B"
+    ],
+    "region_rank": 2,
+    "warmup": 10000000,
+    "roi": 5000000,
+    "skip": 0
+  },
+  {
+    "run_id": "warm5-mcf-cactus-r1-nopf",
+    "group": "warmup",
+    "policy": "nopf",
+    "workloads": [
+      "mcf",
+      "cactus"
+    ],
+    "traces": [
+      "605.mcf_s-665B",
+      "607.cactuBSSN_s-2421B"
+    ],
+    "region_rank": 1,
+    "warmup": 5000000,
+    "roi": 5000000,
+    "skip": 5000000
+  },
+  {
+    "run_id": "warm5-mcf-cactus-r1-stride",
+    "group": "warmup",
+    "policy": "stride",
+    "workloads": [
+      "mcf",
+      "cactus"
+    ],
+    "traces": [
+      "605.mcf_s-665B",
+      "607.cactuBSSN_s-2421B"
+    ],
+    "region_rank": 1,
+    "warmup": 5000000,
+    "roi": 5000000,
+    "skip": 5000000
+  },
+  {
+    "run_id": "syn-steady-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "steady"
+    ],
+    "traces": [
+      "synthetic-steady"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-steady-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "steady"
+    ],
+    "traces": [
+      "synthetic-steady"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "nested"
+    ],
+    "traces": [
+      "synthetic-nested"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "nested"
+    ],
+    "traces": [
+      "synthetic-nested"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested_samepage-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "nested_samepage"
+    ],
+    "traces": [
+      "synthetic-nested_samepage"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested_samepage-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "nested_samepage"
+    ],
+    "traces": [
+      "synthetic-nested_samepage"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested_crosspage-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "nested_crosspage"
+    ],
+    "traces": [
+      "synthetic-nested_crosspage"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested_crosspage-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "nested_crosspage"
+    ],
+    "traces": [
+      "synthetic-nested_crosspage"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested_variable-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "nested_variable"
+    ],
+    "traces": [
+      "synthetic-nested_variable"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-nested_variable-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "nested_variable"
+    ],
+    "traces": [
+      "synthetic-nested_variable"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-interleaved-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "interleaved"
+    ],
+    "traces": [
+      "synthetic-interleaved"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-interleaved-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "interleaved"
+    ],
+    "traces": [
+      "synthetic-interleaved"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-phase-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "phase"
+    ],
+    "traces": [
+      "synthetic-phase"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-phase-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "phase"
+    ],
+    "traces": [
+      "synthetic-phase"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-recurring-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "recurring"
+    ],
+    "traces": [
+      "synthetic-recurring"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-recurring-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "recurring"
+    ],
+    "traces": [
+      "synthetic-recurring"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-paced_nested_samepage-nopf",
+    "group": "synthetic",
+    "policy": "nopf",
+    "workloads": [
+      "paced_nested_samepage"
+    ],
+    "traces": [
+      "synthetic-paced_nested_samepage"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  },
+  {
+    "run_id": "syn-paced_nested_samepage-stride",
+    "group": "synthetic",
+    "policy": "stride",
+    "workloads": [
+      "paced_nested_samepage"
+    ],
+    "traces": [
+      "synthetic-paced_nested_samepage"
+    ],
+    "region_rank": null,
+    "warmup": 100000,
+    "roi": 500000,
+    "skip": 0
+  }
+]

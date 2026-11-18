@@ -1,0 +1,3 @@
+case,planned,matched_anchors,accepted_overrides,all_timely_overrides,all_late_overrides,timely_on_intended_demand,late_on_intended_demand,targets_llc_hits,targets_llc_misses,targets_no_completed_lookup,stride_cycles,replay_cycles,cycles_saved,stride_core0,replay_core0,stride_core1,replay_core1,stride_dram_bytes,replay_dram_bytes,median_service,stride_candidates_in_lead_window,original_stride_late_on_target,targets_core0,targets_core1
+mcf-cactus-r1,256,256,256,247,9,247,9,247,9,0,17476439,17451669,24770,17476439,17451669,5190332,5194462,4753664,4752256,190,7673,44,251,5
+syn-nested_samepage,256,256,256,0,256,0,256,0,256,0,2363318,2363318,0,2363318,2363318,,,8499968,8499968,151,6103,0,256,0

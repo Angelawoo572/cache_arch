@@ -1,0 +1,13 @@
+program,context,train_median_service,test_median_service,eligible_test_anchors,test_anchors_with_training_support,offline_issue_budget,reached_at_decisions,distinct_misses_reached,test_anchors_with_seen_pc,oracle_distinct_misses_in_vocabulary
+mcf,current,82,190,127223,0,2544,3,3,168,4852
+mcf,ordered,82,190,127223,0,2544,3,3,168,4852
+mcf,unordered,82,190,127223,0,2544,3,3,168,4852
+cactus,current,190,142,38425,59,768,0,0,38231,1
+cactus,ordered,190,142,38425,49,768,0,0,38231,1
+cactus,unordered,190,142,38425,49,768,0,0,38231,1
+xalan,current,190,190,86858,70135,1737,7,7,86231,66
+xalan,ordered,190,190,86858,35000,1737,7,7,86231,66
+xalan,unordered,190,190,86858,45740,1737,7,7,86231,66
+lbm,current,529,330,27628,27574,552,486,486,27625,26312
+lbm,ordered,529,330,27628,27528,552,489,489,27625,26312
+lbm,unordered,529,330,27628,27528,552,489,489,27625,26312
