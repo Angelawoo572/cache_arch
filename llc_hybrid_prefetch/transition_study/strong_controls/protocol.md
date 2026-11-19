@@ -1,0 +1,7 @@
+# LBM R2 strong-control follow-up
+
+This comparison was registered after the LBM R2 history finding. The archived strong-control panel has no row for this region. Use the 619.lbm_s-3766B recording at the identical start, 10M retired warmup and 5M measured instructions, one active core in slot 0 of the original two-core geometry.
+
+- Reuse the existing conventional simulator and the degree-one Stride, SPP, multi-delta, cross-PC and seen physical-successor policies. Use each at every locally observed LLC demand ingress, native issue checks, identical memory timing and zero added decision latency. No policy or setting will be selected from LBM R2 outcomes.
+- Run an open issue budget and a second comparison with one common total acceptance ceiling fixed to the original Stride arm's archived accepted count. Use real acceptances, including duplicates/rejections before admission. The ceiling is a maximum; a conservative method can underfill it, and a vigorous method can exhaust it early.
+- Validate shadow Stride against archived fixed-work time, DRAM counters, accepted requests, retirement-head cycles and virtual-page mappings. Compare processor cycles, useful/late/unused requests, total DRAM bytes and the realized admission budget. These are standalone full-rate conventional controls. The earlier spatial-history experiment allowed a supplemental choice on one of eight ingress events while retaining ordinary Stride on the other events. Whole-run results carry different issue opportunities.

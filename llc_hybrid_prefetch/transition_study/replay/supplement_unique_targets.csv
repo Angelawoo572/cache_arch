@@ -1,0 +1,7 @@
+case,policy,core,unique_original_first_failures,no_llc_lookup,miss,other_hit,late,timely
+gap_bfs3_late,shadow,0,5326,0,5284,0,42,0
+gap_bfs3_late,matched_next,0,5326,0,5197,0,45,84
+gap_bfs3_late,frozen,0,5326,0,5197,0,43,86
+row_period2_paced,shadow,0,511,0,511,0,0,0
+row_period2_paced,matched_next,0,511,0,511,0,0,0
+row_period2_paced,frozen,0,511,0,462,0,0,49

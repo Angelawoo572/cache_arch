@@ -1,0 +1,7 @@
+case,policy,core,instructions,cycles,base_cycles,saved_cycles,ipc,makespan,saved_makespan,time_saved_pct,accepted,timely,late,original_timely,original_timely_preserved,original_timely_lost,all_original_late_now_timely,all_original_persistent_now_timely,auxiliary_proposed,auxiliary_accepted,auxiliary_timely,auxiliary_late,unused_evicted,redundant,unresolved,distance2_proposals,paced_proposals,turn_proposals,head_unique_cycles,dram_bytes_all_cores,dram_bytes_delta_all_cores
+gap_bfs3_late,shadow,0,2000000,13798947,13798947,0,0.1449386,13798947,0,0.0,17357,15765,55,15765,15765,0,0,0,0,0,0,0,554,0,983,0,0,0,8023558,3213824,0
+gap_bfs3_late,matched_next,0,2000000,13743395,13798947,55552,0.14552445,13743395,55552,0.402581,18049,16160,63,15765,15722,43,0,438,1044,751,440,7,732,0,1094,0,0,0,7968050,3235264,21440
+gap_bfs3_late,frozen,0,2000000,13790000,13798947,8947,0.14503263,13790000,8947,0.064838,17712,15758,56,15765,15424,341,1,333,1392,870,457,2,809,0,1089,0,0,0,8014914,3238144,24320
+row_period2_paced,shadow,0,1605632,3826060,3826060,0,0.41965677,3826060,0,0.0,7168,6656,0,6656,6656,0,0,0,0,0,0,0,0,0,512,0,0,0,508296,557056,0
+row_period2_paced,matched_next,0,1605632,3824940,3826060,1120,0.41977966,3824940,1120,0.029273,7184,6672,0,6656,6656,0,0,16,16,16,16,0,0,0,512,0,0,0,507176,557056,0
+row_period2_paced,frozen,0,1605632,3834890,3826060,-8830,0.4186905,3834890,-8830,-0.230786,7038,6535,0,6656,6486,170,0,49,195,49,49,0,0,0,503,0,0,0,517126,556480,-576

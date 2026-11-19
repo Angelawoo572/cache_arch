@@ -1,0 +1,8 @@
+instr,op,physical_line,NoPF,Stride,lookup_cycle
+402390,0,8325,llc_miss,T,410665
+402586,0,8326,llc_miss,T,411116
+402782,0,8327,llc_miss,T,411567
+402978,0,8352,llc_miss,P,412018
+403174,0,8353,llc_miss,P,412533
+403370,0,8354,llc_miss,P,413054
+403566,0,8355,llc_miss,T,413575

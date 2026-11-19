@@ -1,6 +1,8 @@
 # What can a shared LLC prefetcher see early enough to matter?
 
-**[Read the measured outcomes, paired load examples, and feature tests](MEASUREMENTS.md).**
+Can machine learning exploit temporal, spatial and cross-instruction correlations to predict useful physical cache lines that a conventional prefetcher misses or predicts too late? Can a hybrid turn those predictions into additional timely first hits and lower fixed-work execution time at a practical cost in latency, traffic, capacity and hardware?
+
+[Current study of miss-to-hit sequences, prediction lead and performance](transition_study/README.md) · [Original measurements and paired examples](MEASUREMENTS.md) · [Expanded workload and conventional controls](opportunity_study/README.md)
 
 ## A. Research question
 

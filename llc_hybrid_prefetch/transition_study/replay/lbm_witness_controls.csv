@@ -1,0 +1,13 @@
+selection,control,target_instr,operand,target_line,tag_hit,classification,head_wait,demand_ingress,tag_lookup,prior_same_line_proposals,last_prior_trigger,last_prior_reason,claim_source,claim_trigger,proposed,dispatch,fill,first_use_cycle
+most_repeated_qualifying_key,spp,12657217,0,552063,1,timely,10,7552441,7552461,1,12656771,,spp,12656771,7551801,7551821,7552191,7552461
+fixed_plus5_still_misses,spp,10399777,0,451157,1,timely,13,4365279,4365299,1,10399331,,spp,10399331,4364487,4364507,4364880,4365299
+four_open_controls_without_timely,spp,14973121,0,650838,0,late,117,10635048,10635068,1,14972675,,spp,14972675,10634781,10634801,10635146,10635068
+most_repeated_qualifying_key,multi,12657217,0,552063,0,late,244,7271697,7271717,1,12656745,,previous_delta,12656745,7271383,7271403,7271955,7271717
+fixed_plus5_still_misses,multi,10399777,0,451157,0,late,28,4316431,4316451,1,10399305,,previous_delta,10399305,4316103,4316123,4316466,4316451
+four_open_controls_without_timely,multi,14973121,0,650838,0,late,40,10126935,10126955,1,14972649,,previous_delta,14972649,10126592,10126612,10126957,10126955
+most_repeated_qualifying_key,xpc,12657217,0,552063,0,no_target_proposal_since_last_ingress,265,8036249,8036269,0,,,,,,,,
+fixed_plus5_still_misses,xpc,10399777,0,451157,0,no_target_proposal_since_last_ingress,422,4434113,4434133,0,,,,,,,,
+four_open_controls_without_timely,xpc,14973121,0,650838,0,no_target_proposal_since_last_ingress,241,11533811,11533831,0,,,,,,,,
+most_repeated_qualifying_key,temporal,12657217,0,552063,0,no_target_proposal_since_last_ingress,347,8073594,8073614,0,,,,,,,,
+fixed_plus5_still_misses,temporal,10399777,0,451157,0,no_target_proposal_since_last_ingress,704,4440409,4440429,0,,,,,,,,
+four_open_controls_without_timely,temporal,14973121,0,650838,0,no_target_proposal_since_last_ingress,241,11614353,11614373,0,,,,,,,,

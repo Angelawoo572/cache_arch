@@ -1,0 +1,20 @@
+case,panel,warmup,roi,traces
+row_period2_paced,initial_archive,401408,1605632,row_period2_paced
+row_period5_paced,initial_archive,401408,1605632,row_period5_paced
+streams_three_identified_paced,initial_archive,270336,1081344,streams_three_identified_paced
+streams_three_switch_paced,initial_archive,270336,1081344,streams_three_switch_paced
+compiled_rows,initial_archive,40000,160000,compiled_rows
+gap_bfs3_late,initial_archive,1000000,2000000,bfs-3-long
+gap_bfs8_late,initial_archive,1000000,2000000,bfs-8-long
+gap_bfs3,initial_archive,1000000,2000000,bfs-3
+gap_bfs8,initial_archive,1000000,2000000,bfs-8
+gap_bfs8_lbm,initial_archive,1000000,2000000,bfs-8 + 619.lbm_s-3766B
+cactus-r2,initial_archive,10000000,5000000,607.cactuBSSN_s-3477B
+lbm-r1,initial_archive,10000000,5000000,619.lbm_s-4268B
+mcf-r1,initial_archive,10000000,5000000,605.mcf_s-665B
+mcf-r2,initial_archive,10000000,5000000,605.mcf_s-994B
+mcf-cactus-r1,initial_archive,10000000,5000000,605.mcf_s-665B + 607.cactuBSSN_s-2421B
+lbm-xalan-r1,initial_archive,10000000,5000000,619.lbm_s-4268B + 623.xalancbmk_s-700B
+gap_bfs3_mid,fresh_BFS_midpoint,1000000,2000000,bfs-3-long
+gap_bfs8_mid,fresh_BFS_midpoint,1000000,2000000,bfs-8-long
+lbm-r2,supplemental_LBM_R2,10000000,5000000,619.lbm_s-3766B

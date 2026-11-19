@@ -1,0 +1,3 @@
+rule,original_failure_operands,strong_union_direct,rule_direct,already_in_strong_union,direct_outside_union,outside_with_auxiliary_source,outside_with_stride_source,outside_miss_in_all_four_tags
+lbm_exact,5429,3654,1834,1738,96,85,11,96
+lbm_page,5429,3654,2179,2074,105,96,9,105

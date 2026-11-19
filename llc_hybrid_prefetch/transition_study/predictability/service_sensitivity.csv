@@ -1,0 +1,17 @@
+source,test,reference,cycles,training_reference,grants,named_address_targets,named_with_available_reference,named_meeting_reference
+mcf-r1,mcf-r1,p25,70,81,3548,7,7,7
+mcf-r1,mcf-r1,p50,81,81,3548,7,7,7
+mcf-r1,mcf-r1,p75,190,81,3548,7,7,7
+mcf-r1,mcf-r1,individual,,81,3548,7,3,3
+lbm-r1,lbm-r2,p25,345,561,3447,2277,2277,2143
+lbm-r1,lbm-r2,p50,561,561,3447,2277,2277,1926
+lbm-r1,lbm-r2,p75,718,561,3447,2277,2277,1734
+lbm-r1,lbm-r2,individual,,561,3447,2277,2277,2084
+gap_bfs3_late,gap_bfs3_late,p25,70,190,1460,15,15,14
+gap_bfs3_late,gap_bfs3_late,p50,190,190,1460,15,15,13
+gap_bfs3_late,gap_bfs3_late,p75,190,190,1460,15,15,13
+gap_bfs3_late,gap_bfs3_late,individual,,190,1460,15,15,13
+row_period2_paced,row_period5_paced,p25,70,70,1016,242,242,242
+row_period2_paced,row_period5_paced,p50,70,70,1016,242,242,242
+row_period2_paced,row_period5_paced,p75,70,70,1016,242,242,242
+row_period2_paced,row_period5_paced,individual,,70,1016,242,242,242

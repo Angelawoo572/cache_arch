@@ -1,0 +1,15 @@
+case,core,target_label,paired_misses,breaks_after_streak
+row_period2_paced,0,row_body,1024,0
+row_period2_paced,0,row_start,512,511
+row_period5_paced,0,row_body,1023,0
+row_period5_paced,0,row_start,511,511
+streams_three_identified_paced,0,schedule_switch,43,43
+streams_three_identified_paced,0,stream_0,87,0
+streams_three_identified_paced,0,stream_1,256,84
+streams_three_identified_paced,0,stream_2,303,129
+streams_three_switch_paced,0,schedule_switch,171,0
+streams_three_switch_paced,0,stream_0,2645,0
+streams_three_switch_paced,0,stream_1,2730,0
+streams_three_switch_paced,0,stream_2,2646,0
+compiled_rows,0,row_body,150,0
+compiled_rows,0,row_start,74,74

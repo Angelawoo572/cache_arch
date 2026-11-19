@@ -1,0 +1,8 @@
+case,policy,core,unique_original_first_failures,no_llc_lookup,miss,other_hit,late,timely
+lbm-r2,lbm_shadow_page,0,5429,0,5344,0,85,0
+lbm-r2,lbm_plus1,0,5429,1,5207,0,111,110
+lbm-r2,lbm_plus5,0,5429,0,4843,0,69,517
+lbm-r2,lbm_page,0,5429,0,3000,0,250,2179
+lbm-r2,lbm_exact,0,5429,0,3359,0,236,1834
+lbm-r2,lbm_unrelated_older,0,5429,0,3012,0,262,2155
+lbm-r2,lbm_last_global_pc,0,5429,0,2995,0,268,2166

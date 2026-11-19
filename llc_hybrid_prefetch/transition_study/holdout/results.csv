@@ -1,0 +1,3 @@
+case,aligned_input_loads,virtual_pages,nopf_demand_llc_misses,stride_ingresses,stride_distinct_trigger_pcs,attributed_timely,attributed_late,nopf_cycles,stride_cycles
+gap_bfs3_mid,549012,14569,31561,37125,8,12710,128,10844050,9178495
+gap_bfs8_mid,607980,17531,41509,49955,8,17111,642,11622383,9780663

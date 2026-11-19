@@ -1,0 +1,7 @@
+# Two previously unmeasured time windows
+
+Before opening these data, select the same round middle position in the two archived GAP BFS recordings. Skip 24M original instructions while registering physical pages, warm on instructions 24M–25M, then measure 25M–27M. The archive already supplied the first 3.1M and 52.1M-instruction prefixes for both recordings. The published study had measured 1M–3M and 50M–52M. Using the middle window avoids selecting an address pattern or performance outcome as the inclusion criterion. The recordings share a program and are not independent applications. The two intervals are a fresh temporal test for mechanisms fitted on earlier behavior. Do not use either to choose a feature, threshold or lead horizon.
+
+Run `python3 -B holdout/run.py` from the transition study with NumPy and the original simulator available. The run directory holds the exact command, timing logs and aligned per-core events. The output CSV validates measured work, placement, inputs and load identity. The original simulator and earlier runs stay in their existing directories.
+
+A second native build on Sacramento independently reran both policies on both windows in a separate output directory. All published fields matched, including fixed-work cycles, aligned demands, placement counts and attributed conversions. Use `python3 -B holdout/repeat.py` for the independent run; its output is under `raw/repeat/`.

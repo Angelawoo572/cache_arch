@@ -1,4 +1,6 @@
-# What should a learned prefetcher remember, and when should it retrieve it?
+# Learned memory as one candidate mechanism for prefetching
+
+This review examines one design family. The [current characterization](../../transition_study/README.md) evaluates whether a prediction bottleneck concerns conditional patterns, lookahead, generalization or the memory system before choosing any model.
 
 The most useful test of memory is a *deadline*. Find two triggers with the same currently affordable context, enough time for a fill, and different later targets. Then show that a distinguishable earlier event changes which physical line to request. Finally replay the decisions against an equally early conventional rule. A higher next-address score on hits after the deadline cannot settle this question.
 
