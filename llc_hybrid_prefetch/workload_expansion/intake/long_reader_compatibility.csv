@@ -1,0 +1,8 @@
+case,window,verified_fields,instructions,loads,loads_reading_a_recent_register_writer,loads_reading_a_recent_loads_register,instructions_reading_a_recent_loads_register
+gg_arizona,deep,6,2000000,470016,399333,216806,710479
+gg_charlie,deep,6,2000000,473048,452861,228199,813954
+gg_delta,deep,6,2000000,516754,451190,277316,876878
+gg_merced,deep,6,2000000,470421,364937,232580,773254
+gg_tahoe,deep,6,2000000,508239,459169,296881,913966
+gg_tango,deep,6,2000000,429697,333508,185756,716352
+gg_yankee,deep,6,2000000,489851,422022,284957,869688

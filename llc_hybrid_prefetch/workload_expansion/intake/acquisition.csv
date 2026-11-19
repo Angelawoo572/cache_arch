@@ -1,0 +1,17 @@
+case,collection,source_url,method,compressed_bytes_received,records,record_bytes
+ai_clip,ai-ml,https://traces.rbera.com/dpc4/ai-ml/clip_trace_3.champsimtrace.gz,bounded HTTP ranges,2097152,801024,64
+ai_llama,ai-ml,https://traces.rbera.com/dpc4/ai-ml/llama2.c-stories15M.2.champsimtrace.gz,bounded HTTP ranges,1048576,801024,64
+gg_arizona,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/arizona/arizona_0002.champsim.gz,bounded HTTP ranges,4194304,801024,64
+gg_charlie,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/charlie/charlie_0010.champsim.gz,bounded HTTP ranges,4194304,801024,64
+gg_delta,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/delta/delta_0001.champsim.gz,bounded HTTP ranges,2097152,801024,64
+gg_merced,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/merced/merced_0044.champsim.gz,bounded HTTP ranges,3145728,801024,64
+gg_tahoe,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/tahoe/tahoe_0019.champsim.gz,bounded HTTP ranges,3145728,801024,64
+gg_tango,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/tango/tango_0025.champsim.gz,bounded HTTP ranges,3145728,801024,64
+gg_yankee,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/yankee/yankee_0041.champsim.gz,bounded HTTP ranges,3145728,801024,64
+graph_bfs3,Graph,https://traces.rbera.com/dpc4/Graph/GAP/bfs-3.trace.gz,existing DPC4 prefix,0,801024,64
+graph_clique,Graph,https://traces.rbera.com/dpc4/Graph/GMS/gms.k_clique_count_set_based.soc-pokec-relationships.slice-473.champsimtrace.gz,bounded HTTP ranges,2097152,801024,64
+graph_pagerank,Graph,https://traces.rbera.com/dpc4/Graph/Ligra/ligra_PageRank.com-lj.ungraph.gcc_6.3.0_O3.drop_51000M.length_250M.champsimtrace.xz,bounded HTTP ranges,1048576,801024,64
+graph_sssp,Graph,https://traces.rbera.com/dpc4/Graph/GAP/sssp-5.trace.gz,bounded HTTP ranges,1048576,801024,64
+spec_cactus,SPEC17,https://traces.rbera.com/dpc4/SPEC17/607.cactuBSSN_s-2421B.champsimtrace.xz,existing DPC4 prefix,0,801024,64
+spec_mcf,SPEC17,https://traces.rbera.com/dpc4/SPEC17/605.mcf_s-665B.champsimtrace.xz,existing DPC4 prefix,0,801024,64
+spec_xalan,SPEC17,https://traces.rbera.com/dpc4/SPEC17/623.xalancbmk_s-700B.champsimtrace.xz,existing DPC4 prefix,0,801024,64

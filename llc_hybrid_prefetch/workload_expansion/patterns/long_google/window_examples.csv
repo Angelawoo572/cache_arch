@@ -1,0 +1,7 @@
+case,rule,target_instr,target_operand,target_pc,target_line,trigger_instr,trigger_operand,trigger_pc,trigger_line,local_key,previous_three_pc,conditional_train_observations,conditional_train_match_queries,chosen_action,lead_cycles,lead_events,service_reference,covered_by_offset_or_fixed_controls,stride_class,multi_class,spp_class,stride_head
+gg_charlie,previous_pc,4658539,0,887371796,370565,4658501,0,887371824,370560,"(887371824, 0, 64)","(887371824, 887371762, 887371796)",8,7,"('delta', 5)",104,5,99,0,P,L,L,20
+gg_charlie,previous_pc,4945530,0,887371810,377290,4945463,0,887371782,377280,"(887371782, 0, 64)","(887371782, 887371810, 887371742)",6,6,"('delta', 10)",364,10,99,1,L,L,L,17
+gg_charlie,ordered_pc3,4658539,0,887371796,370565,4658501,0,887371824,370560,"(887371824, 0, 64)","(887371824, 887371762, 887371796)",8,7,"('delta', 5)",104,5,99,0,P,L,L,20
+gg_charlie,ordered_pc3,4945530,0,887371810,377290,4945463,0,887371782,377280,"(887371782, 0, 64)","(887371782, 887371810, 887371742)",5,5,"('delta', 10)",364,10,99,1,L,L,L,17
+gg_charlie,unordered_pc3,4658539,0,887371796,370565,4658501,0,887371824,370560,"(887371824, 0, 64)","(887371824, 887371762, 887371796)",8,7,"('delta', 5)",104,5,99,0,P,L,L,20
+gg_charlie,unordered_pc3,4945530,0,887371810,377290,4945463,0,887371782,377280,"(887371782, 0, 64)","(887371782, 887371810, 887371742)",5,5,"('delta', 10)",364,10,99,1,L,L,L,17

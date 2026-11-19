@@ -1,0 +1,15 @@
+case,cohort,original_demand_misses,head_exposed,reference_service,has_early_observation,has_legal_address,has_legal_address_and_lead,earliest_samepage,earliest_previous_page,earliest_second_page,earliest_wide,median_max_cycles,median_max_events
+gg_arizona,strong_missed,10839,5633,151,10839,8103,6195,5544,10,8,633,933.0,17.0
+gg_arizona,other,2610,1715,151,2610,2544,2512,2268,2,5,237,1374.0,19.0
+gg_charlie,strong_missed,4339,2314,99,4338,4052,3663,3621,27,15,0,6062.0,36.0
+gg_charlie,other,1791,1300,99,1791,1743,1736,1725,8,3,0,22120.0,38.0
+gg_delta,strong_missed,8762,6056,190,8759,5380,4617,4559,29,16,13,1639.0,24.0
+gg_delta,other,3855,1836,190,3855,3819,3777,3757,6,12,2,1657.0,29.0
+gg_merced,strong_missed,10810,8857,190,10809,6052,5280,5149,54,52,25,1512.0,9.0
+gg_merced,other,1453,1265,190,1453,1363,1343,1332,7,4,0,3123.0,22.0
+gg_tahoe,strong_missed,8477,7302,190,8476,4349,3722,3541,51,62,68,4754.5,15.0
+gg_tahoe,other,1785,1587,190,1785,1669,1657,1537,39,63,18,9658.0,27.0
+gg_tango,strong_missed,5377,4395,190,5376,2910,2123,2011,54,37,21,4727.0,13.0
+gg_tango,other,923,794,190,923,833,795,770,10,11,4,1643.0,7.0
+gg_yankee,strong_missed,4387,3740,190,4386,2757,2530,2417,60,35,18,4520.5,17.0
+gg_yankee,other,922,780,190,922,891,886,813,43,28,2,11509.5,27.0

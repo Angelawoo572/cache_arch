@@ -1,0 +1,14 @@
+case,stride_outcome,spp_outcome,consumer_pc,stride_producer_pc,spp_producer_pc,stride_displacement,spp_displacement,requests,stride_earlier_original_instruction,same_original_instruction,spp_earlier_original_instruction
+gg_delta,timely,late,60342666,60342666,60342623,2,1,214,214,0,0
+gg_delta,timely,late,60342699,60342699,60342655,2,1,209,209,0,0
+gg_delta,late,timely,60342655,60342655,60342699,2,1,187,187,0,0
+gg_delta,timely,late,60342688,60342688,60342644,2,1,184,184,0,0
+gg_delta,timely,late,60342677,60342677,60342633,2,1,181,181,0,0
+gg_delta,late,timely,60342623,60342623,60342666,2,1,178,178,0,0
+gg_delta,late,timely,60342644,60342644,60342688,2,1,176,176,0,0
+gg_delta,late,timely,60342633,60342633,60342677,2,1,165,165,0,0
+gg_delta,timely,late,60342633,60342633,60342677,2,1,27,27,0,0
+gg_delta,timely,late,60342644,60342644,60342688,2,1,19,19,0,0
+gg_delta,timely,late,60342655,60342655,60342699,2,1,18,18,0,0
+gg_delta,timely,late,60342623,60342623,60342666,2,1,14,14,0,0
+gg_delta,timely,late,59860642,60342666,59860612,2,1,9,9,0,0

@@ -1,0 +1,1 @@
+case,horizon,local_pc,offset,same_pc_delta,preceding_same_pc_delta,previous_three_pcs,chosen_delta,A_context_count,A_action_count,cue_instr,cue_operand,target_instr,target_operand,cue_line,target_line,lead_cycles,service_reference,baseline_miss,missed_by_all,stride,multi,spp,target_head

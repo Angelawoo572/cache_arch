@@ -1,0 +1,8 @@
+case,collection,source_url,prefix_path,records,record_bytes,compressed_bytes_received,identical_short_prefix_records
+gg_arizona,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/arizona/arizona_0002.champsim.gz,raw/intake/long/gg_arizona.champsimtrace,5001024,64,19922944,801024
+gg_charlie,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/charlie/charlie_0010.champsim.gz,raw/intake/long/gg_charlie.champsimtrace,5001024,64,23068672,801024
+gg_delta,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/delta/delta_0001.champsim.gz,raw/intake/long/gg_delta.champsimtrace,5001024,64,10485760,801024
+gg_merced,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/merced/merced_0044.champsim.gz,raw/intake/long/gg_merced.champsimtrace,5001024,64,12582912,801024
+gg_tahoe,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/tahoe/tahoe_0019.champsim.gz,raw/intake/long/gg_tahoe.champsimtrace,5001024,64,16777216,801024
+gg_tango,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/tango/tango_0025.champsim.gz,raw/intake/long/gg_tango.champsimtrace,5001024,64,18874368,801024
+gg_yankee,gtrace_v2,https://traces.rbera.com/dpc4/gtrace_v2/yankee/yankee_0041.champsim.gz,raw/intake/long/gg_yankee.champsimtrace,5001024,64,18874368,801024
