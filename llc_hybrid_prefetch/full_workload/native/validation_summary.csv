@@ -1,0 +1,10 @@
+case,validated_policies,source_records,first_measured_ordinal,last_measured_ordinal,total_retired_across_policies,nopf_original_misses,exact_retirement_and_quarters,matched_partitions,degree_one_and_physical_scope
+mcf17_discovery,5,2000000000,50000001,250000000,1000000000,3067839,True,True,True
+mcf17_transfer,5,2000000000,50000001,250000000,1000000000,5009921,True,True,True
+bfs_discovery,5,500000001,50000001,250000000,1000000000,2244917,True,True,True
+bfs_transfer,5,500000001,50000001,250000000,1000000000,2452070,True,True,True
+pr_heldout,5,500000001,50000001,250000000,1000000000,15678522,True,True,True
+mcf06_discovery,5,2000000000,50000001,250000000,1000000000,4165259,True,True,True
+soplex06_heldout,5,2000000000,50000001,250000000,1000000000,2003166,True,True,True
+bfs_discovery_far,5,500000001,300000002,500000001,1000000000,2409071,True,True,True
+mcf17_discovery_far,5,2000000000,1800000001,2000000000,1000000000,2256312,True,True,True

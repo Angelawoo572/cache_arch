@@ -1,0 +1,5 @@
+policy,warmup,roi,skip,cycles,llc_tag_misses,original_core_stats_and_logs_identical,all_u16le_operands_match_reference
+nopf,100000,350000,4800000,713883,93,True,True
+stride,100000,350000,4800000,713668,92,True,True
+multi,100000,350000,4800000,713668,92,True,True
+spp,100000,350000,4800000,713968,89,True,True

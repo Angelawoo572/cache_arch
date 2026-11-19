@@ -1,0 +1,14 @@
+case,policy,cohort,original_sampled_misses,nopf_positive_head_wait,arm_positive_head_wait,nopf_head_wait_p50,nopf_head_wait_p90,arm_head_wait_p50,arm_head_wait_p90
+pr_heldout_entire,stride,late,2228,13,13,0,0,0,0
+pr_heldout_entire,stride,ordinary_hit,1721,1721,1721,238,238,48,48
+pr_heldout_entire,stride,persistent_miss,66809,66599,66600,238,238,238,238
+pr_heldout_entire,stride,timely,9701,638,262,0,0,0,0
+pr_heldout_entire,multi,late,2237,20,20,0,0,0,0
+pr_heldout_entire,multi,ordinary_hit,1770,1770,1770,238,238,48,48
+pr_heldout_entire,multi,persistent_miss,66689,66481,66481,238,238,238,238
+pr_heldout_entire,multi,timely,9763,700,324,0,0,0,0
+pr_heldout_entire,spp,late,2243,18,18,0,0,0,0
+pr_heldout_entire,spp,ordinary_hit,1811,1811,1811,238,238,48,48
+pr_heldout_entire,spp,persistent_miss,66943,66411,66411,238,238,238,238
+pr_heldout_entire,spp,timely,9462,731,376,0,0,0,0
+pr_heldout_entire,temporal,persistent_miss,80459,68971,68971,238,238,238,238

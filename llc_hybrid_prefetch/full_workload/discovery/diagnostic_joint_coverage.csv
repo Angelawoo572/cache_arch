@@ -1,0 +1,8 @@
+case,all_original_timely,direct_independent_original_timely,look2_also_timely,look4_also_timely,stride_also_timely,multi_also_timely,spp_also_timely,sparse1_also_timely,sparse4_also_timely,no_timely_in_any_separate_control,all_six_persistent_or_late,all_six_and_positive_nopf_head,all_six_and_fresh_line,all_eight_persistent_or_late,all_eight_and_positive_nopf_head,all_eight_and_fresh_line
+mcf17_discovery,482,,,,,,,,,,,,,,,
+pr_heldout,5646,89,89,89,,,,,,,,,,,,
+bfs_discovery,5526,546,546,496,532,533,533,533,536,,,,,,,
+mcf17_transfer,4106,122,69,94,37,50,49,38,75,31,31,1,31,4,0,4
+bfs_transfer,5572,545,496,496,485,533,534,534,491,,,,,,,
+mcf06_discovery,2249,,,,,,,,,,,,,,,
+soplex06_heldout,2740,393,387,393,288,288,288,288,306,4,4,2,4,,,

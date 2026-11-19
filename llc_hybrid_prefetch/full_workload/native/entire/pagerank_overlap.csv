@@ -1,0 +1,6 @@
+policy,common_warmup,overlapping_retired_instructions,identical_outcome_words,different_outcome_words,first_different_source_ordinal,end_guard_instructions
+nopf,50000000,200000000,200000000,0,,4096
+stride,50000000,200000000,200000000,0,,4096
+multi,50000000,200000000,200000000,0,,4096
+spp,50000000,200000000,200000000,0,,4096
+temporal,50000000,200000000,200000000,0,,4096

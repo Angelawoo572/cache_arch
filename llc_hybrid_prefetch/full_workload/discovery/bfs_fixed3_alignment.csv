@@ -1,0 +1,5 @@
+actual_arm,reference,instructions_joined,original_misses,original_timely_kept,original_timely_gained,original_timely_lost,original_late_to_timely
+sparse3,stride,200000000,2244917,859887,115431,128270,43417
+sparse3,multi,200000000,2244917,873042,102276,343522,47423
+sparse3,spp,200000000,2244917,897684,77634,613139,51577
+sparse3,shape,200000000,2244917,840115,135203,128083,28950

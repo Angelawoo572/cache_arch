@@ -1,0 +1,3 @@
+quarter_cycle_savings,reference,anchor,target,original_offer,override_offer,reference_lifecycle,override_lifecycle,nopf_target_mask,reference_target_mask,override_target_mask,reference_target_head,override_target_head,original_timely_gained,original_timely_lost,baseline_cycles,intervention_cycles,cycles_saved
+0 7105 11660 2091,stride,100100888,100101506,3500604,3500606,"proposed,ready,accepted,dispatch,fill,timely","proposed,ready,accepted,dispatch,fill,timely",2,6,9,0,0,8709,8661,705691824,705670968,20856
+0 -7826 -81449 26035,spp,100100888,100101506,3500604,3500606,"proposed,ready,accepted,dispatch,fill,timely","proposed,ready,accepted,dispatch,fill,timely",2,6,9,0,0,21619,23293,637186290,637249530,-63240

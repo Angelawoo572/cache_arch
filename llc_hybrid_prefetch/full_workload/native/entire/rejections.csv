@@ -1,0 +1,10 @@
+case,policy,reason,rejected_proposals
+pr_heldout_entire,stride,mshr,524
+pr_heldout_entire,stride,page,200751
+pr_heldout_entire,stride,resident,166804
+pr_heldout_entire,multi,mshr,7851
+pr_heldout_entire,multi,page,268935
+pr_heldout_entire,multi,resident,311660
+pr_heldout_entire,spp,mshr,13095
+pr_heldout_entire,spp,resident,1336834
+pr_heldout_entire,spp,rq,1

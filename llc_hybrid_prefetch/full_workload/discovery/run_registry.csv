@@ -1,0 +1,101 @@
+scope,case,arm,source,skip,warmup,measured,physical_slot,geometry_cores,active_cores,measured_first_ordinal,measured_last_ordinal,independent_rule_file,command,status
+diagnostic,mcf17_discovery,nopf,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies nopf,complete
+diagnostic,mcf17_discovery,stride,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies stride,complete
+diagnostic,mcf17_discovery,multi,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies multi,complete
+diagnostic,mcf17_discovery,spp,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies spp,complete
+diagnostic,mcf17_discovery,temporal,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies temporal,complete
+diagnostic,mcf17_discovery,look2,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies look2,complete
+diagnostic,mcf17_discovery,sparse1,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies sparse1,complete
+diagnostic,mcf17_discovery,local,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases mcf17_discovery --policies local,complete
+diagnostic,mcf17_discovery,ordered,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases mcf17_discovery --policies ordered,complete
+diagnostic,mcf17_discovery,shape,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases mcf17_discovery --policies shape,complete
+diagnostic,mcf17_discovery,shadow,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies shadow,complete
+diagnostic,mcf17_discovery,look4,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies look4,complete
+diagnostic,mcf17_discovery,sparse4,mcf17_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_discovery --policies sparse4,complete
+diagnostic,pr_heldout,nopf,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies nopf,complete
+diagnostic,pr_heldout,stride,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies stride,complete
+diagnostic,pr_heldout,multi,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies multi,complete
+diagnostic,pr_heldout,spp,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies spp,complete
+diagnostic,pr_heldout,temporal,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies temporal,complete
+diagnostic,pr_heldout,look2,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies look2,complete
+diagnostic,pr_heldout,sparse1,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies sparse1,complete
+diagnostic,pr_heldout,local,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases pr_heldout --policies local,complete
+diagnostic,pr_heldout,ordered,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases pr_heldout --policies ordered,complete
+diagnostic,pr_heldout,shape,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases pr_heldout --policies shape,complete
+diagnostic,pr_heldout,shadow,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies shadow,complete
+diagnostic,pr_heldout,look4,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies look4,complete
+diagnostic,pr_heldout,sparse4,pr_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases pr_heldout --policies sparse4,complete
+diagnostic,bfs_discovery,nopf,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies nopf,complete
+diagnostic,bfs_discovery,stride,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies stride,complete
+diagnostic,bfs_discovery,multi,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies multi,complete
+diagnostic,bfs_discovery,spp,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies spp,complete
+diagnostic,bfs_discovery,temporal,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies temporal,complete
+diagnostic,bfs_discovery,look2,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies look2,complete
+diagnostic,bfs_discovery,sparse1,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies sparse1,complete
+diagnostic,bfs_discovery,local,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases bfs_discovery --policies local,complete
+diagnostic,bfs_discovery,ordered,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases bfs_discovery --policies ordered,complete
+diagnostic,bfs_discovery,shape,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases bfs_discovery --policies shape,complete
+diagnostic,bfs_discovery,shadow,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies shadow,complete
+diagnostic,bfs_discovery,look4,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies look4,complete
+diagnostic,bfs_discovery,sparse4,bfs_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_discovery --policies sparse4,complete
+diagnostic,mcf17_transfer,nopf,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies nopf,complete
+diagnostic,mcf17_transfer,stride,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies stride,complete
+diagnostic,mcf17_transfer,multi,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies multi,complete
+diagnostic,mcf17_transfer,spp,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies spp,complete
+diagnostic,mcf17_transfer,temporal,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies temporal,complete
+diagnostic,mcf17_transfer,look2,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies look2,complete
+diagnostic,mcf17_transfer,sparse1,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies sparse1,complete
+diagnostic,mcf17_transfer,local,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases mcf17_transfer --policies local,complete
+diagnostic,mcf17_transfer,ordered,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases mcf17_transfer --policies ordered,complete
+diagnostic,mcf17_transfer,shape,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases mcf17_transfer --policies shape,complete
+diagnostic,mcf17_transfer,shadow,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies shadow,complete
+diagnostic,mcf17_transfer,look4,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies look4,complete
+diagnostic,mcf17_transfer,sparse4,mcf17_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf17_transfer --policies sparse4,complete
+diagnostic,bfs_transfer,nopf,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies nopf,complete
+diagnostic,bfs_transfer,stride,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies stride,complete
+diagnostic,bfs_transfer,multi,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies multi,complete
+diagnostic,bfs_transfer,spp,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies spp,complete
+diagnostic,bfs_transfer,temporal,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies temporal,complete
+diagnostic,bfs_transfer,look2,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies look2,complete
+diagnostic,bfs_transfer,sparse1,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies sparse1,complete
+diagnostic,bfs_transfer,local,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases bfs_transfer --policies local,complete
+diagnostic,bfs_transfer,ordered,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases bfs_transfer --policies ordered,complete
+diagnostic,bfs_transfer,shape,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases bfs_transfer --policies shape,complete
+diagnostic,bfs_transfer,shadow,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies shadow,complete
+diagnostic,bfs_transfer,look4,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies look4,complete
+diagnostic,bfs_transfer,sparse4,bfs_transfer.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases bfs_transfer --policies sparse4,complete
+diagnostic,mcf06_discovery,nopf,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies nopf,complete
+diagnostic,mcf06_discovery,stride,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies stride,complete
+diagnostic,mcf06_discovery,multi,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies multi,complete
+diagnostic,mcf06_discovery,spp,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies spp,complete
+diagnostic,mcf06_discovery,temporal,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies temporal,complete
+diagnostic,mcf06_discovery,look2,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies look2,complete
+diagnostic,mcf06_discovery,sparse1,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies sparse1,complete
+diagnostic,mcf06_discovery,local,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases mcf06_discovery --policies local,complete
+diagnostic,mcf06_discovery,ordered,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases mcf06_discovery --policies ordered,complete
+diagnostic,mcf06_discovery,shape,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases mcf06_discovery --policies shape,complete
+diagnostic,mcf06_discovery,shadow,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies shadow,complete
+diagnostic,mcf06_discovery,look4,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies look4,complete
+diagnostic,mcf06_discovery,sparse4,mcf06_discovery.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases mcf06_discovery --policies sparse4,complete
+diagnostic,soplex06_heldout,nopf,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies nopf,complete
+diagnostic,soplex06_heldout,stride,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies stride,complete
+diagnostic,soplex06_heldout,multi,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies multi,complete
+diagnostic,soplex06_heldout,spp,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies spp,complete
+diagnostic,soplex06_heldout,temporal,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies temporal,complete
+diagnostic,soplex06_heldout,look2,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies look2,complete
+diagnostic,soplex06_heldout,sparse1,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies sparse1,complete
+diagnostic,soplex06_heldout,local,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,local.rules,python3 replay.py --cases soplex06_heldout --policies local,complete
+diagnostic,soplex06_heldout,ordered,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,ordered.rules,python3 replay.py --cases soplex06_heldout --policies ordered,complete
+diagnostic,soplex06_heldout,shape,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,shape.rules,python3 replay.py --cases soplex06_heldout --policies shape,complete
+diagnostic,soplex06_heldout,shadow,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies shadow,complete
+diagnostic,soplex06_heldout,look4,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies look4,complete
+diagnostic,soplex06_heldout,sparse4,soplex06_heldout.champsimtrace,2000000,1000000,500000,0,2,1,3000001,3500000,,python3 replay.py --cases soplex06_heldout --policies sparse4,complete
+full,mcf17_discovery,shape,mcf17_discovery.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py mcf17_discovery,complete
+full,pr_heldout,shape,pr_heldout.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py pr_heldout,complete
+full,bfs_discovery,shape,bfs_discovery.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py bfs_discovery,complete
+full,mcf17_transfer,shape,mcf17_transfer.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py mcf17_transfer,complete
+full,bfs_transfer,shape,bfs_transfer.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py bfs_transfer,complete
+full,mcf06_discovery,shape,mcf06_discovery.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py mcf06_discovery,complete
+full,soplex06_heldout,shape,soplex06_heldout.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,shape.rules,python3 full_replay.py soplex06_heldout,complete
+full,pr_heldout_entire,shape,pr_heldout_entire.champsimtrace,0,50000000,450000001,0,2,1,50000001,500000001,shape.rules,python3 full_replay.py pr_heldout_entire,complete
+full,bfs_discovery,sparse3,bfs_discovery.champsimtrace,0,50000000,200000000,0,2,1,50000001,250000000,,python3 full_replay.py --policy sparse3 bfs_discovery,complete

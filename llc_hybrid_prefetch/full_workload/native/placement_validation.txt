@@ -1,0 +1,14 @@
+Native SPP physical placement equivalence
+Source records skipped: 300000
+Distinct prefix VPNs: 520
+Warmup: 50000
+ROI: 200000
+Identical outputs for direct source skip and an independently seeded materialization:
+cores.csv
+stats.csv
+phases.csv
+loads.csv.gz
+candidates.csv.gz
+head.csv.gz
+pages.csv.gz
+outcomes_core0.u16le.gz

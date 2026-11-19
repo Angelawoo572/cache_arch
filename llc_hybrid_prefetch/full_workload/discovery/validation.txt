@@ -1,0 +1,6 @@
+diagnostic_native_arms 91
+diagnostic_native_examples 163
+full_native_arms 40
+full_native_examples 36
+whole_operand_joins 24
+phase_reach_rows 38

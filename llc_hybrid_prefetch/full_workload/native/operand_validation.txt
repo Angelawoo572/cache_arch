@@ -1,0 +1,10 @@
+Paired SPP, warmup 4,000 / ROI 16,000 instructions per active core.
+All eight core/operand combinations matched the complete LLC tag and prefetch-first-use CSVs.
+core 0 operand 0: 2000 tag lookups
+core 0 operand 1: 2000 tag lookups
+core 0 operand 2: 2000 tag lookups
+core 0 operand 3: 2000 tag lookups
+core 1 operand 0: 2000 tag lookups
+core 1 operand 1: 2000 tag lookups
+core 1 operand 2: 2000 tag lookups
+core 1 operand 3: 2000 tag lookups

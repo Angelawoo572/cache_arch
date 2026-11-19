@@ -1,0 +1,2 @@
+case,policy,matched_prior_result,cycles,accepted,crosspage_accepted,timely,late,dram_bytes
+region_conflict_cycle,temporal,True,876198,592,592,591,0,51264

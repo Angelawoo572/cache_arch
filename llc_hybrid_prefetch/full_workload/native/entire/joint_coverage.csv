@@ -1,0 +1,6 @@
+case,quarter,original_nopf_misses,any_timely,none_timely,none_timely_any_late,none_timely_none_late,persistent_tag_miss_all_four,timely_all_four,timely_only_stride,timely_only_multi,timely_only_spp,timely_only_temporal
+pr_heldout_entire,0,9301680,1233058,8068622,291676,7776946,7276624,0,3883,21600,81182,0
+pr_heldout_entire,1,8448281,1155556,7292725,335044,6957681,6511833,0,6863,18776,76864,0
+pr_heldout_entire,2,8480988,1170096,7310892,331338,6979554,6536671,0,6767,17411,74814,0
+pr_heldout_entire,3,9268064,1212726,8055338,291206,7764132,7262484,0,3750,21202,85139,0
+pr_heldout_entire,all,35499013,4771436,30727577,1249264,29478313,27587612,0,21263,78989,317999,0

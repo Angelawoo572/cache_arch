@@ -1,0 +1,26 @@
+case,shape_key,delta,targets
+mcf17_transfer,5 65 65 0 1 1 1,4,3
+mcf17_transfer,14 65 65 0 0 0 0,4,3
+mcf17_transfer,31 65 65 0 0 2 2,4,3
+mcf17_transfer,22 65 65 0 1 1 1,4,2
+mcf17_transfer,28 73 73 0 0 0 3,3,2
+mcf17_transfer,1 65 128 0 1 1 1,3,1
+mcf17_transfer,57 65 65 0 1 1 1,4,1
+mcf17_transfer,56 65 65 0 0 2 2,4,1
+mcf17_transfer,42 65 65 0 0 2 2,6,1
+mcf17_transfer,45 65 65 0 1 0 0,3,1
+mcf17_transfer,12 65 65 0 0 0 3,3,1
+mcf17_transfer,23 65 65 0 0 0 0,3,1
+mcf17_transfer,26 65 65 0 0 0 0,4,1
+mcf17_transfer,1 65 128 0 1 0 0,2,1
+mcf17_transfer,27 65 65 0 1 1 1,4,1
+mcf17_transfer,51 65 65 0 1 1 1,4,1
+mcf17_transfer,20 65 65 0 0 0 0,5,1
+mcf17_transfer,6 65 65 0 0 0 0,4,1
+mcf17_transfer,1 65 128 0 0 0 3,5,1
+mcf17_transfer,43 65 65 0 1 1 1,3,1
+mcf17_transfer,6 65 65 0 0 2 2,3,1
+mcf17_transfer,8 65 65 0 0 2 2,4,1
+mcf17_transfer,3 65 65 0 1 1 1,3,1
+soplex06_heldout,37 65 65 0 0 0 0,3,2
+soplex06_heldout,45 65 65 0 0 0 0,5,2

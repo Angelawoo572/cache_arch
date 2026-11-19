@@ -1,0 +1,6 @@
+case,quarter,llc_ingresses,seen_exact_line,seen_within_256_events,seen_pc_offset,bounded_resident_key,bounded_confident_candidate,bounded_evaluable,bounded_immediate_successor_hit,unbounded_resident_key,unbounded_confident_candidate,unbounded_evaluable,unbounded_immediate_successor_hit
+pr_heldout_entire,0,44357,18697,0,44099,19,0,0,0,18697,183,183,8
+pr_heldout_entire,1,44838,18928,0,44580,18,0,0,0,18928,110,110,9
+pr_heldout_entire,2,43275,18031,0,43017,16,0,0,0,18031,135,135,16
+pr_heldout_entire,3,45558,19307,0,45300,26,0,0,0,19307,300,300,32
+pr_heldout_entire,all,178028,74963,0,176996,79,0,0,0,74963,728,728,65

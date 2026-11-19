@@ -1,0 +1,3 @@
+case,retired,total_stride_ingress,exact_sampled_ingress,nopf_original_misses,matched_nopf_misses_at_stride_ingress,original_misses_without_stride_ingress,identical_fixed_cycles,identical_counters_and_per_operand_masks,identical_ordered_detail_records
+bfs_discovery,200000000,5072474,35011,2244917,2244882,35,True,True,True
+soplex06_heldout,200000000,5246784,20034,2003166,2000588,2578,True,True,True

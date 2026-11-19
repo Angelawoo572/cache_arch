@@ -1,0 +1,21 @@
+case,scope,quarter,split,mode,cue_instr,cue_op,pc,cue_line,cue_key,target_instr,target_op,target_line,decision_cycle,demand_cycle,lead,events,observed_service_reference,head,new_since_window,stride,multi,spp,training_support,action_support
+mcf17_discovery,diagnostic,1,external,sparse1,3003756,0,4206718,289186,,3003757,0,289187,575911,576158,247,1,130,238,True,miss,miss,miss,0,0
+pr_heldout,diagnostic,1,external,shape,3000632,0,94550596497408,140960,32 65 65 0 1 0 0,3000808,0,140962,395976,396235,259,3,130,29,True,late,late,late,4,3
+pr_heldout,diagnostic,1,external,anonymous_local,3002040,0,94550596497408,140976,48 65 65,3002480,0,140981,397346,397678,332,8,130,0,True,late,late,late,54,41
+pr_heldout,diagnostic,1,external,sparse1,3110896,0,94550596497408,147589,,3110984,0,147590,502085,502278,193,1,130,17,True,late,late,late,0,0
+bfs_discovery,diagnostic,1,external,shape,3033127,0,93831678903456,118097,17 65 65 0 0 0 0,3033376,0,118100,1499593,1500206,613,3,130,37,True,late,late,late,38,35
+bfs_discovery,diagnostic,1,external,anonymous_local,3033127,0,93831678903456,118097,17 65 65,3033376,0,118100,1499593,1500206,613,3,130,37,True,late,late,late,53,45
+bfs_discovery,diagnostic,1,external,local,3069762,0,93831678903456,118817,93831678903456 33 65 65,3069844,0,118818,1609796,1609985,189,1,130,54,True,late,late,late,29,29
+bfs_discovery,diagnostic,1,external,ordered,3069762,0,93831678903456,118817,93831678903456 33 65 65 93831678903456 93831678903456 93831678903456,3069844,0,118818,1609796,1609985,189,1,130,54,True,late,late,late,29,29
+bfs_discovery,diagnostic,1,external,bag,3069762,0,93831678903456,118817,93831678903456 33 65 65 93831678903456 93831678903456 93831678903456,3069844,0,118818,1609796,1609985,189,1,130,54,True,late,late,late,29,29
+bfs_discovery,diagnostic,1,external,sparse1,3069762,0,93831678903456,118817,,3069844,0,118818,1609796,1609985,189,1,130,54,True,late,late,late,0,0
+mcf17_transfer,diagnostic,1,external,anonymous_local,3000887,0,4207520,6262161,17 65 65,3001028,0,6262164,1079349,1080200,851,5,130,0,True,late,late,late,53,45
+mcf17_transfer,diagnostic,1,external,shape,3006808,0,4207520,6275748,36 65 65 0 0 0 0,3006855,0,6275750,1120610,1121408,798,2,130,478,True,miss,miss,miss,34,31
+mcf17_transfer,diagnostic,1,external,sparse1,3010585,0,4207520,6284610,,3010632,0,6284611,1147672,1147899,227,2,130,0,True,late,late,late,0,0
+bfs_transfer,diagnostic,1,external,shape,3058864,0,94193528394912,118616,24 65 65 0 0 0 0,3059034,0,118618,1578506,1578696,190,2,130,34,True,late,late,late,39,35
+bfs_transfer,diagnostic,1,external,anonymous_local,3058864,0,94193528394912,118616,24 65 65,3059034,0,118618,1578506,1578696,190,2,130,34,True,late,late,late,54,42
+bfs_transfer,diagnostic,1,external,sparse1,3075829,0,94193528394912,122992,,3075911,0,122993,1632072,1632242,170,1,130,60,True,late,late,late,0,0
+mcf06_discovery,diagnostic,1,external,sparse1,3035256,0,4199142,806806,,3036250,0,806807,475442,476915,1473,13,130,0,True,miss,miss,late,0,0
+soplex06_heldout,diagnostic,1,external,anonymous_local,3000360,0,4496369,91933,29 65 65,3000680,0,91937,729494,729901,407,4,130,0,True,late,late,late,54,44
+soplex06_heldout,diagnostic,1,external,sparse1,3005832,0,4496369,99933,,3005920,0,99934,739467,739621,154,1,130,72,True,late,late,late,0,0
+soplex06_heldout,diagnostic,1,external,shape,3009920,0,4496369,99853,13 65 65 0 0 0 0,3010080,0,99855,745818,745954,136,2,130,10,True,late,late,late,34,31

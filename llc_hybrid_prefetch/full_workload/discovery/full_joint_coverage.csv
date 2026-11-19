@@ -1,0 +1,9 @@
+case,reference_arms,instructions,original_misses,hybrid_original_timely,any_reference_original_timely,hybrid_timely_none_reference_timely,hybrid_timely_all_reference_persistent_or_late,any_reference_timely_hybrid_became_non_timely
+mcf17_discovery,stride multi spp temporal,200000000,3067839,44644,377439,5231,5231,338026
+pr_heldout,stride multi spp temporal,200000000,15678522,1881835,2115397,14608,14416,248170
+bfs_discovery,stride multi spp temporal,200000000,2244917,968198,1583930,18520,17573,634252
+mcf17_transfer,stride multi spp temporal,200000000,5009921,1664724,2375470,38242,38240,748988
+bfs_transfer,stride multi spp temporal,200000000,2452070,1022294,1765538,8566,8058,751810
+mcf06_discovery,stride multi spp temporal,200000000,4165259,181231,851979,0,0,670748
+soplex06_heldout,stride multi spp temporal,200000000,2003166,421293,738994,9237,8703,326938
+pr_heldout_entire,stride multi spp temporal,450000001,35499013,4252526,4771436,32755,32314,551665

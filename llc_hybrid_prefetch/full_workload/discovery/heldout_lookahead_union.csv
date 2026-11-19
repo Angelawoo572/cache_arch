@@ -1,0 +1,3 @@
+case,reference_arms,instructions,original_misses,hybrid_original_timely,any_reference_original_timely,hybrid_timely_none_reference_timely,hybrid_timely_all_reference_persistent_or_late,any_reference_timely_hybrid_became_non_timely
+pr_heldout,stride multi spp temporal look2,200000000,15678522,1881835,2621190,2247,2081,741602
+soplex06_heldout,stride multi spp temporal look2,200000000,2003166,421293,873477,3761,3360,455945

@@ -1,0 +1,7 @@
+case,arm,original_sampled_targets,timely,late,no_attributed_first_use,timely_arithmetic,timely_stride,timely_unlogged_producer,same_line_accepted_at_original_cue,same_line_rejected_at_original_cue,different_line_at_original_cue,native_silent_at_original_cue,no_logged_decision_at_original_cue
+mcf17_discovery_far,shared_increment,418,24,4,390,23,1,0,20,5,85,288,20
+mcf17_discovery_far,local,418,0,2,416,0,0,0,0,1,108,288,21
+mcf17_discovery,shared_increment,51,3,2,46,3,0,0,3,1,9,38,0
+mcf17_discovery,local,51,0,1,50,0,0,0,0,0,12,39,0
+mcf17_transfer,shared_increment,1,1,0,0,1,0,0,1,0,0,0,0
+mcf17_transfer,local,1,0,1,0,0,0,0,0,0,1,0,0
