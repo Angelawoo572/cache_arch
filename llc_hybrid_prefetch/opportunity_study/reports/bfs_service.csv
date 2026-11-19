@@ -1,0 +1,5 @@
+case,first_use,complete_requests,median_proposal_to_dispatch,median_dispatch_to_fill,median_proposal_to_first_demand_event,median_first_demand_event_minus_fill
+gap_bfs8,timely,23912,20.0,70.0,254.0,153.0
+gap_bfs8,late,656,20.0,190.0,140.0,-52.0
+gap_bfs8_lbm,timely,18128,20.0,190.0,284.0,108.0
+gap_bfs8_lbm,late,6440,20.0,208.0,192.0,-68.0

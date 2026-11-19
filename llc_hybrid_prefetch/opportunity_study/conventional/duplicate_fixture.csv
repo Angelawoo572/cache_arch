@@ -1,0 +1,5 @@
+core,line,cycle,result,reason
+0,67108819,533,accepted,directed_fixture
+1,67108819,533,rejected,pq
+1,67108819,554,rejected,mshr
+1,67108819,744,rejected,resident

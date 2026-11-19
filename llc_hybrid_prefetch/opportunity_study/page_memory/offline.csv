@@ -1,0 +1,6 @@
+rule,grants,choices,matched_next_qualifying_offset,matched_original_stride_miss,matched_original_stride_direct_timely,matched_original_stride_other_hit,service
+next,1460,1435,828,438,390,0,190
+repeat,1460,1040,726,336,390,0,190
+current,1460,1460,511,175,336,0,190
+page_offset_only,1460,1460,759,370,389,0,190
+page_link,1460,1460,759,370,389,0,190

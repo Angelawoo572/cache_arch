@@ -1,0 +1,9 @@
+case,cpu,source_events,distinct_trigger_pcs,top_pc_count,top_four_pc_count,within_pc_deltas,rank1_delta,rank1_delta_count,delta_plus1_count,delta_minus1_count
+gap_bfs3,0,25393,1,25393,25393,25392,1,25190,25190,0
+gap_bfs8,0,25373,1,25373,25373,25372,1,25169,25169,0
+lbm_peer,0,10693,9,4277,10611,10684,5,5776,0,0
+gap_bfs8_lbm,0,25373,1,25373,25373,25372,1,25169,25169,0
+gap_bfs8_lbm,1,10693,9,4277,10611,10684,5,5776,0,0
+mcf994_adjacent,0,90200,16,44620,90026,90184,1,1764,1764,596
+gap_bfs3_late,0,58707,8,19544,50466,58699,1,24502,24502,5
+gap_bfs8_late,0,854,6,503,852,848,1,840,840,0

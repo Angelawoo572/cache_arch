@@ -1,0 +1,4 @@
+case,policy,source,timely_dispatch_fill_demand,matched_nopf_miss_stride_miss_alternative_hit
+mcf-cactus-r1,multi,previous_delta,16986,3646
+streams_onepc_paced,spp,spp,8064,8064
+row_period2_paced,multi,previous_delta,7679,1023

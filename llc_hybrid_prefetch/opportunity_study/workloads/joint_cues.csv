@@ -1,0 +1,9 @@
+case,visible_cues,fit_trials,heldout_source_targets,heldout_all_three_at_llc,heldout_correct,learned_contexts,median_lead_after_last_cue
+xor_context_paced,no_cue,512,512,512,238,1,1170.0
+xor_context_paced,first_only,512,512,512,252,2,1170.0
+xor_context_paced,second_only,512,512,512,266,2,1170.0
+xor_context_paced,both,512,512,512,512,4,1170.0
+xor_maskfirst_paced,no_cue,512,512,512,238,1,1170.0
+xor_maskfirst_paced,first_only,512,512,512,238,1,1170.0
+xor_maskfirst_paced,second_only,512,512,512,266,2,1170.0
+xor_maskfirst_paced,both,512,512,512,266,2,1170.0

@@ -1,0 +1,3 @@
+case,fit_observed_cue_target,test_source_targets,test_observed_cue_target,highest_frequency_delta_correct,same_4k_observed,earlier_half_service_p90,heldout_median_lead,correct_with_lead_at_least_p90_plus_one
+crosspc_cue_paced,1024,1024,1024,1024,1024,70,889.0,1024
+crosspc_mask_paced,1024,1024,1024,518,1024,70,889.0,518

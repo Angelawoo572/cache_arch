@@ -1,0 +1,5 @@
+case,policy,cycles,degree,accepted,crosspage_accepted,rejected_page,timely,late,dram_bytes
+region_conflict_cycle,nopf,909448,1,0,0,0,0,0,24576
+region_conflict_cycle,stride,909448,1,0,0,0,0,0,24576
+region_conflict_cycle,temporal_sp,909448,1,0,0,1632,0,0,24576
+region_conflict_cycle,temporal,876198,1,592,592,0,591,0,51264

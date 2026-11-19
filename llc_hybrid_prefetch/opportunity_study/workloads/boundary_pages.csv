@@ -1,0 +1,9 @@
+case,stage,cross4k,source_loads,nopf_misses,nopf_hits,stride_misses,stride_hits
+row_hierarchy_paced,band_start,1,85,85,0,85,0
+row_hierarchy_paced,slab_start,1,43,43,0,43,0
+row_hierarchy_paced,subrow_start,0,160,160,0,160,0
+row_hierarchy_paced,subrow_start,1,224,224,0,224,0
+page_same_paced,pair_second_row,0,256,256,0,256,0
+page_same_paced,pair_start,1,256,256,0,256,0
+page_cross_paced,pair_second_row,1,256,256,0,256,0
+page_cross_paced,pair_start,1,256,256,0,256,0

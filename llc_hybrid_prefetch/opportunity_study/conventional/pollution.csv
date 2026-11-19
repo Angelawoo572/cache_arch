@@ -1,0 +1,11 @@
+case,cpu,last_evictor_prefetch,distinct_prefetch_evictions,same_core,other_core,last_evictor_other,no_line_change_observed,last_change_refill,mean_cycles_since_prefetch_eviction,probe_matches_canonical_cycles_and_traffic,policy,nopf_hit_policy_miss
+mcf-cactus-r1,0,529,529,529,0,1421,0,0,2856353.55,1,multi,1950
+mcf-cactus-r1,1,20,20,0,20,47,0,0,319550.9,1,multi,67
+mcf-cactus-r1,0,765,765,596,169,1524,0,0,3021788.56,1,spp,2289
+mcf-cactus-r1,1,3,3,2,1,3,0,0,582528.33,1,spp,6
+mcf-cactus-r1,0,390,390,390,0,1243,0,0,2817141.15,1,union,1633
+mcf-cactus-r1,1,9,9,0,9,46,0,0,248894.89,1,union,55
+lbm-xalan-r1,0,0,0,0,0,0,0,0,,1,multi,0
+lbm-xalan-r1,1,66,66,2,64,104,0,0,2254561.83,1,multi,170
+lbm-xalan-r1,0,0,0,0,0,0,0,0,,1,union,0
+lbm-xalan-r1,1,8,8,0,8,29,0,0,3047019.38,1,union,37

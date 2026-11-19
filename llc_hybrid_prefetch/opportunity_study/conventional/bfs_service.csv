@@ -1,0 +1,5 @@
+workload,case,cohort,matched_requests,complete_lifecycles,median_proposed_to_demand,median_proposed_to_dispatch,median_dispatch_to_fill,median_fill_to_demand
+gap_bfs8,solo,all_matched_claims,24568,24568,231.0,20.0,70.0,130.0
+gap_bfs8,with_lbm,all_matched_claims,24568,24568,259.0,20.0,190.0,52.0
+gap_bfs8,solo,timely_to_late,5820,5820,172.0,20.0,70.0,80.0
+gap_bfs8,with_lbm,timely_to_late,5820,5820,174.0,20.0,233.0,-88.0

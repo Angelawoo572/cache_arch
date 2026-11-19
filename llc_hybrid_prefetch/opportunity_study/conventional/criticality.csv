@@ -1,0 +1,3 @@
+case,group,pairs,actual_anchors,accepted_overrides,timely_intended,late_intended,timely_target_hits,baseline_mean_head,replay_mean_head,baseline_median_trigger_to_demand,replay_median_ready_to_dispatch,replay_median_dispatch_to_fill,replay_median_fill_slack,baseline_core0,replay_core0,baseline_core1,replay_core1,saved_makespan,dram_delta,accepted_delta
+mcf-cactus-r1,high,96,96,96,93,3,93,510.56,42.01,414.0,20.0,89.0,210.0,17476439,17474234,5190332,5194955,2205,320,36
+mcf-cactus-r1,zero,96,96,96,95,1,95,0.0,0.0,414.5,20.0,111.5,252.0,17476439,17474267,5190332,5198375,2172,-256,-35
