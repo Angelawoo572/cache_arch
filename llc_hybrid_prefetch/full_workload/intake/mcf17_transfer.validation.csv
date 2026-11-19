@@ -1,0 +1,2 @@
+case,compressed_bytes,materialized_start,source_records,materialized_records,branches,taken,load_instructions,load_slot_0,load_slot_1,load_slot_2,load_slot_3,store_slot_0,store_slot_1,source_reg_slot_0,source_reg_slot_1,source_reg_slot_2,source_reg_slot_3,dest_reg_slot_0,dest_reg_slot_1
+mcf17_transfer,1059607008,0,2000000000,250001024,322520579,174602803,782866186,782866186,0,0,0,325518541,0,1857784091,963508263,118240600,90004878,1818405321,394561780

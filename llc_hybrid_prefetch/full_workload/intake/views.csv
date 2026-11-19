@@ -1,0 +1,11 @@
+view,case,start,count,role
+mcf17_discovery,mcf17_discovery,0,250001024,discovery
+mcf17_transfer,mcf17_transfer,0,250001024,region_transfer
+bfs_discovery,bfs_discovery,0,250001024,discovery
+bfs_transfer,bfs_transfer,0,250001024,region_transfer
+pr_heldout,pr_heldout,0,250001024,program_holdout
+mcf06_discovery,mcf06_discovery,0,250001024,discovery
+bfs_discovery_far,bfs_discovery,250000001,250000000,far_region
+mcf17_discovery_far,mcf17_discovery,1750000000,250000000,far_region
+soplex06_heldout,soplex06_heldout,0,250001024,program_holdout
+pr_heldout_entire,pr_heldout,0,500000001,full_recording_holdout
