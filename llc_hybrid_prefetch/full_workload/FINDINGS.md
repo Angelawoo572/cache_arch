@@ -22,6 +22,8 @@
 
 [各策略的 IPC、固定周期、hit/miss rate、MPKI、准确性、及时性和交通量](native/performance.csv) · [全部动态 operand 的原始首用对齐](discovery/full_complete_load_alignment.csv)
 
+Sacramento 上独立编译的 Linux 模拟器重复执行了 PageRank 的 NoPF、Stride、Multi-delta 和 SPP。与本地 macOS 相比，四种策略的完成周期、34,813 项物理页映射、各季度计数，以及每种策略全部 200M 条指令的 operand 结局均相同。[跨平台逐项验证](verification/README.md)
+
 ![直接及时覆盖和完成时间](figures/coverage_and_cycles.svg)
 
 ## 从第一条指令一直到文件末尾：GAP PageRank-3

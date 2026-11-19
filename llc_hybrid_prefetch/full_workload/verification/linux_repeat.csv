@@ -1,0 +1,21 @@
+policy,matched_artifact,compared_count,agreement
+nopf,cores.csv,63,identical uncompressed bytes
+nopf,phases.csv,482,identical uncompressed bytes
+nopf,stats.csv,533,identical uncompressed bytes
+nopf,pages.csv.gz,34813,identical mapping rows
+nopf,outcomes_core0.u16le.gz,400000000,identical uncompressed bytes
+stride,cores.csv,63,identical uncompressed bytes
+stride,phases.csv,522,identical uncompressed bytes
+stride,stats.csv,1449,identical uncompressed bytes
+stride,pages.csv.gz,34813,identical mapping rows
+stride,outcomes_core0.u16le.gz,400000000,identical uncompressed bytes
+multi,cores.csv,63,identical uncompressed bytes
+multi,phases.csv,522,identical uncompressed bytes
+multi,stats.csv,1479,identical uncompressed bytes
+multi,pages.csv.gz,34813,identical mapping rows
+multi,outcomes_core0.u16le.gz,400000000,identical uncompressed bytes
+spp,cores.csv,63,identical uncompressed bytes
+spp,phases.csv,522,identical uncompressed bytes
+spp,stats.csv,1172,identical uncompressed bytes
+spp,pages.csv.gz,34813,identical mapping rows
+spp,outcomes_core0.u16le.gz,400000000,identical uncompressed bytes
