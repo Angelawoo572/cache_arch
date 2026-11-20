@@ -2,6 +2,8 @@
 
 Can LLC-visible history generate a useful physical address early enough to improve execution? This study compares five conventional policies, then replays a few causal rules that can generate their own addresses.
 
+The [learning opportunity study](../learning_opportunity/README.md) extends these runs with continuous histories, external recordings and data-driven prediction probes.
+
 **Start with [Findings](FINDINGS.md)** for the results, [Figures](figures/README.md) for the annotated charts, or [Data](data/README.md) to locate an exact trace or raw run. [Reproduce](REPRODUCE.md) gives the build and run commands.
 
 | Experiment | Measured work | Results |

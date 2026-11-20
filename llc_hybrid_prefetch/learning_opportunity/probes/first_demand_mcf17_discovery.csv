@@ -1,0 +1,10 @@
+source,destination,horizon,scope,window_cycles,eligible_cues,legal_offers,any_first_demand,first_demand_before_130,qualified_first_demand,qualified_outside_h8,h8_qualified_but_first_too_early,first_nopf_miss,first_original_spp_late,first_original_spp_persistent,first_original_spp_timely
+mcf17_discovery,mcf17_discovery,8,same_pc,512,6012,28,27,17,10,7,0,0,0,0,0
+mcf17_discovery,mcf17_discovery,8,same_pc,2048,6012,28,28,17,11,8,0,1,0,0,1
+mcf17_discovery,mcf17_discovery,8,same_pc,8192,6011,28,28,17,11,8,0,1,0,0,1
+mcf17_discovery,mcf17_discovery,8,local_region,512,6012,57,55,34,21,7,0,1,0,1,0
+mcf17_discovery,mcf17_discovery,8,local_region,2048,6012,57,56,34,22,8,0,1,0,1,0
+mcf17_discovery,mcf17_discovery,8,local_region,8192,6011,57,56,34,22,8,0,1,0,1,0
+mcf17_discovery,mcf17_discovery,8,global32,512,6012,11,11,6,5,2,0,0,0,0,0
+mcf17_discovery,mcf17_discovery,8,global32,2048,6012,11,11,6,5,2,0,0,0,0,0
+mcf17_discovery,mcf17_discovery,8,global32,8192,6011,11,11,6,5,2,0,0,0,0,0

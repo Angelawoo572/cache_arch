@@ -9,6 +9,7 @@ mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import TwoSlopeNorm, Normalize
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
 
 HERE = Path(__file__).resolve().parent
 STUDY = HERE.parent
@@ -153,6 +154,8 @@ def pareto(rows):
                 zorder=3,
             )
         ax.set_title(case, weight="bold", fontsize=10)
+        ax.xaxis.set_major_locator(MaxNLocator(nbins=4))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=5))
         coords = "  ".join(
             f"{abbr} {x:.1f}/{y:.1f}"
             for abbr, (x, y) in zip(("N", "S", "M", "P"), vals)
@@ -274,23 +277,45 @@ def prospective():
     fig, axes = plt.subplots(1, 3, figsize=(11.2, 2.85), layout="constrained")
     fig.suptitle(
         f"One held-out BFS forecast for physical line {int(row['predicted_line']):,}",
-        fontweight="bold", fontsize=14,
+        fontweight="bold",
+        fontsize=14,
     )
     stages = [
-        (["Dispatch", "Fill"], [int(row[k]) - origin for k in ("dispatched_at", "filled_at")],
-         "Request service", "Cycles after offer"),
-        (["Baseline arrival", "Replay arrival", "Replay tag use"],
-         [int(row["actual_eighth_lead_cycles"]), int(row["replay_eighth_lead_cycles"]),
-          int(row["first_use_at"]) - origin], "Matched demand", "Cycles after cue"),
-        (["Gained", "Displaced"], [int(row["timely_gained"]), int(row["timely_displaced"])],
-         "All original misses", "Changed timely first uses"),
+        (
+            ["Dispatch", "Fill"],
+            [int(row[k]) - origin for k in ("dispatched_at", "filled_at")],
+            "Request service",
+            "Cycles after offer",
+        ),
+        (
+            ["Baseline arrival", "Replay arrival", "Replay tag use"],
+            [
+                int(row["actual_eighth_lead_cycles"]),
+                int(row["replay_eighth_lead_cycles"]),
+                int(row["first_use_at"]) - origin,
+            ],
+            "Matched demand",
+            "Cycles after cue",
+        ),
+        (
+            ["Gained", "Displaced"],
+            [int(row["timely_gained"]), int(row["timely_displaced"])],
+            "All original misses",
+            "Changed timely first uses",
+        ),
     ]
     for ax, (labels, values, title, units) in zip(axes, stages):
         if title == "Matched demand":
             ax.scatter(values, labels, color=COLORS[1], zorder=3)
             for y, value in enumerate(values):
-                ax.annotate(f"{value:,}", (value, y), xytext=(0, 7),
-                            textcoords="offset points", ha="center", fontsize=8)
+                ax.annotate(
+                    f"{value:,}",
+                    (value, y),
+                    xytext=(0, 7),
+                    textcoords="offset points",
+                    ha="center",
+                    fontsize=8,
+                )
             ax.set_ylim(len(values) - 0.55, -0.55)
             ax.margins(x=0.3)
             ax.ticklabel_format(style="plain", useOffset=False, axis="x")
@@ -303,6 +328,60 @@ def prospective():
         ax.set_title(title, fontsize=10)
         ax.set_xlabel(units, fontsize=8)
     save(fig, "prospective_offer")
+
+
+def identified_forecast():
+    effect = read(STUDY / "trials/forecast_effect.csv")[0]
+    target_key = effect["actual_eighth_operand_key"]
+    ex = next(
+        r
+        for r in read(STUDY / "probes/spp_clock_examples.csv")
+        if r["case"] == "mcf17_transfer"
+        and r["scope"] == "global32"
+        and r["y8_key"] == target_key
+    )
+    cue = int(effect["anchor_cycle"])
+    stages = ("Proposed", "Filled", "Demand at LLC")
+    timings = (
+        (
+            "Original SPP",
+            COLORS[0],
+            [int(ex[k]) - cue for k in ("proposed", "fill", "y8_cycle")],
+        ),
+        (
+            "Forecast replay",
+            COLORS[1],
+            [
+                int(effect["offered_at"]) - cue,
+                int(effect["filled_at"]) - cue,
+                int(effect["replay_eighth_lead_cycles"]),
+            ],
+        ),
+    )
+    fig, ax = plt.subplots(figsize=(7.8, 2.9), layout="constrained")
+    for i, (label, color, times) in enumerate(timings):
+        y = np.arange(3) + (i - 0.5) * 0.29
+        ax.hlines(y, 0, times, color=color, alpha=0.48, linewidth=2)
+        ax.scatter(times, y, color=color, label=label, zorder=2)
+        for x, pos in zip(times, y):
+            ax.annotate(
+                f"{x:,}",
+                (x, pos),
+                xytext=(7, -3),
+                textcoords="offset points",
+                fontsize=8,
+            )
+    ax.set_yticks(range(3), stages)
+    ax.set_ylim(2.48, -0.5)
+    ax.set_xlim(-50, max(max(row[2]) for row in timings) * 1.16)
+    ax.set_xlabel("Cycles since the matched prediction cue")
+    ax.set_title(
+        f"MCF-1644B original miss on physical line {int(effect['predicted_line']):,}",
+        fontweight="bold",
+        fontsize=12,
+    )
+    ax.legend(loc="lower center", bbox_to_anchor=(0.5, -0.43), ncols=2, frameon=False)
+    save(fig, "mcf_forecast_replay")
 
 
 def main():
@@ -355,6 +434,7 @@ def main():
     trials()
     service()
     prospective()
+    identified_forecast()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+mcf51,stride,32,32768,32768,0,21340,20100,20100,0,0,2,5
+mcf51,stride,128,32768,32768,0,10609,41974,41974,0,1,3,6
+mcf51,stride,512,32768,32768,0,139,158857,158857,2,4,8,12

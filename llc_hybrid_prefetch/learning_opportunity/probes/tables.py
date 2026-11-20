@@ -5,7 +5,7 @@ import json
 import numpy as np
 import pandas as pd
 
-from extract import HERE, RAW
+from extract import HERE, RAW, publish_text
 
 KEY = ["source", "destination", "split", "encoding", "horizon", "scope"]
 
@@ -22,9 +22,8 @@ def collect(folder, name, keys):
 
 
 def save(name, frame):
-    frame.to_csv(
-        HERE / (name + ".csv"), index=False, float_format="%.7g", lineterminator="\n"
-    )
+    with publish_text(HERE / (name + ".csv")) as f:
+        frame.to_csv(f, index=False, float_format="%.7g", lineterminator="\n")
 
 
 def main():

@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+domain_gg_charlie,nopf,200000000,535480,939704,0,0,0,0,0,0,0
+domain_gg_charlie,nopf,200000000,535480,939704,1,535480,0,0,535480,0,0
+domain_gg_charlie,stride,200000000,535480,939784,0,651,651,0,0,0,0
+domain_gg_charlie,stride,200000000,535480,939784,1,534829,0,9731,453051,12758,59289
+domain_gg_charlie,multi,200000000,535480,939726,0,800,800,0,0,0,0
+domain_gg_charlie,multi,200000000,535480,939726,1,534680,0,12021,408768,18674,95217
+domain_gg_charlie,spp,200000000,535480,939647,0,1139,1139,0,0,0,0
+domain_gg_charlie,spp,200000000,535480,939647,1,534341,0,14386,245269,94227,180459

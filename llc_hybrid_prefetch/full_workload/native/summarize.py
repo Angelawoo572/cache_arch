@@ -2,6 +2,7 @@
 
 import argparse
 import csv
+import gzip
 import io
 import json
 import subprocess
@@ -23,6 +24,19 @@ def write(path, data):
             writer = csv.DictWriter(f, fieldnames=list(data[0]))
             writer.writeheader()
             writer.writerows(data)
+
+
+def page_map(directory):
+    mapping = {}
+    with gzip.open(directory / "pages.csv.gz", "rt", newline="") as file:
+        for row in csv.DictReader(file):
+            key = tuple(
+                int(row[field]) for field in ("cpu", "page_slot", "virtual_page")
+            )
+            if key in mapping:
+                raise ValueError(f"Duplicate source page in {directory}")
+            mapping[key] = int(row["physical_page"])
+    return mapping
 
 
 def masks(root, folder, roi, raw=RAW):
@@ -65,6 +79,7 @@ def summarize(out, only_complete, cases=None, raw=RAW, policies=POLICIES):
     )
     for case in roster:
         root = raw / "runs" / (case + "__nopf")
+        original_pages = None
         for policy in policies:
             directory = raw / "runs" / (case + "__" + policy)
             if not all((d / "complete.json").exists() for d in (root, directory)):
@@ -91,9 +106,9 @@ def summarize(out, only_complete, cases=None, raw=RAW, policies=POLICIES):
                 raise ValueError("Fixed work did not retire")
             hist = masks(root, directory, roi, raw)
             # Physical placement follows trace-order registrations and must agree for every policy.
-            if (root / "pages.csv.gz").read_bytes() != (
-                directory / "pages.csv.gz"
-            ).read_bytes():
+            if original_pages is None:
+                original_pages = page_map(root)
+            if directory != root and page_map(directory) != original_pages:
                 raise ValueError(
                     "Source page placement drifted across matched policy arms"
                 )

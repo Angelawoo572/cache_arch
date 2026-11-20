@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+bfs_transfer,stride,all_admissions,same_page,32768,0,28653,36,1005,7367,14764,28386,28311,28307,28300,28241,28112
+bfs_transfer,stride,original_miss,same_page,22957,0,21659,32,1199,7026,14727,21570,21567,21566,21565,21545,21461
+bfs_transfer,stride,original_all_three_miss_or_late,same_page,6321,0,5031,14,576,2814,7816,4944,4942,4942,4941,4933,4894
+bfs_transfer,stride,original_spp_late,same_page,1506,0,1506,25,839,4487,13606,1471,1471,1471,1471,1469,1462
+bfs_transfer,stride,original_spp_timely,same_page,15877,0,15876,46,1900,10335,14972,15875,15875,15874,15874,15864,15822
+bfs_transfer,stride,all_admissions,page_in_last64,32768,0,29354,38,1040,7900,15157,29088,29017,29014,29007,28949,28821
+bfs_transfer,stride,original_miss,page_in_last64,22957,0,21659,32,1199,7033,14952,21570,21567,21566,21565,21545,21461
+bfs_transfer,stride,original_all_three_miss_or_late,page_in_last64,6321,0,5031,14,576,2814,7816,4944,4942,4942,4941,4933,4894
+bfs_transfer,stride,original_spp_late,page_in_last64,1506,0,1506,25,839,4487,13754,1471,1471,1471,1471,1469,1462
+bfs_transfer,stride,original_spp_timely,page_in_last64,15877,0,15876,46,1900,10372,15201,15875,15875,15874,15874,15864,15822
+bfs_transfer,stride,all_admissions,any_prior_observed_page,32768,0,32523,64,5619,14360,16066,32499,32499,32499,32499,32492,32468
+bfs_transfer,stride,original_miss,any_prior_observed_page,22957,0,22728,64,5208,14484,16098,22704,22704,22704,22704,22697,22674
+bfs_transfer,stride,original_all_three_miss_or_late,any_prior_observed_page,6321,0,6092,64,2640,13872,15924,6068,6068,6068,6068,6064,6055
+bfs_transfer,stride,original_spp_late,any_prior_observed_page,1506,0,1506,64,4488,13697,15986,1495,1495,1495,1495,1494,1494
+bfs_transfer,stride,original_spp_timely,any_prior_observed_page,15877,0,15877,64,7216,14643,16146,15877,15877,15877,15877,15875,15863

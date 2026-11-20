@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+snap_stanford,stride,all_admissions,same_page,30527,127,22138,42,490,2491,4827,21698,21515,21496,21456,21316,20996
+snap_stanford,stride,original_miss,same_page,10391,45,9674,56,753,3036,5940,9570,9566,9566,9566,9533,9410
+snap_stanford,stride,original_all_three_miss_or_late,same_page,1208,19,495,4,2,490,3705,391,388,388,388,357,315
+snap_stanford,stride,original_spp_late,same_page,153,1,153,20,661,1778,4424,149,149,149,149,149,149
+snap_stanford,stride,original_spp_timely,same_page,9101,26,9099,58,1007,3098,6078,9099,9098,9098,9098,9096,9015
+snap_stanford,stride,all_admissions,page_in_last64,30527,127,25601,64,937,3106,5416,25336,25235,25221,25203,25109,24884
+snap_stanford,stride,original_miss,page_in_last64,10391,45,9723,58,778,3124,6027,9620,9619,9619,9619,9586,9466
+snap_stanford,stride,original_all_three_miss_or_late,page_in_last64,1208,19,541,6,2,930,4390,438,437,437,437,406,366
+snap_stanford,stride,original_spp_late,page_in_last64,153,1,153,20,661,1778,4542,149,149,149,149,149,149
+snap_stanford,stride,original_spp_timely,page_in_last64,9101,26,9100,61,1009,3165,6129,9100,9100,9100,9100,9098,9018
+snap_stanford,stride,all_admissions,any_prior_observed_page,30527,127,29909,64,2027,3408,6379,29816,29814,29814,29814,29781,29661
+snap_stanford,stride,original_miss,any_prior_observed_page,10391,45,9833,61,804,3161,6236,9740,9739,9739,9739,9706,9586
+snap_stanford,stride,original_all_three_miss_or_late,any_prior_observed_page,1208,19,650,64,3,3130,9545,557,556,556,556,525,485
+snap_stanford,stride,original_spp_late,any_prior_observed_page,153,1,153,22,676,1858,4934,150,150,150,150,150,150
+snap_stanford,stride,original_spp_timely,any_prior_observed_page,9101,26,9101,61,1010,3171,6188,9101,9101,9101,9101,9099,9019

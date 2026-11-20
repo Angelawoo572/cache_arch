@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+domain_ai_llama,stride,all_admissions,same_page,32768,0,32240,32,266,1217,2233,30873,30799,30787,30577,29795,29146
+domain_ai_llama,stride,original_miss,same_page,30555,0,30075,32,269,1219,2236,28811,28750,28738,28546,27812,27202
+domain_ai_llama,stride,original_all_three_miss_or_late,same_page,23426,0,22953,31,232,1190,2188,21706,21654,21648,21632,21028,20486
+domain_ai_llama,stride,original_spp_late,same_page,23891,0,23891,32,239,1202,2213,22639,22583,22573,22542,21927,21383
+domain_ai_llama,stride,original_spp_timely,same_page,6180,0,6178,33,314,1317,2302,6167,6162,6160,5999,5880,5816
+domain_ai_llama,stride,all_admissions,page_in_last64,32768,0,32245,32,272,1220,2243,30889,30819,30807,30597,29820,29175
+domain_ai_llama,stride,original_miss,page_in_last64,30555,0,30080,32,273,1222,2243,28825,28766,28754,28562,27833,27227
+domain_ai_llama,stride,original_all_three_miss_or_late,page_in_last64,23426,0,22954,32,235,1193,2194,21716,21666,21660,21644,21042,20502
+domain_ai_llama,stride,original_spp_late,page_in_last64,23891,0,23891,32,240,1204,2219,22648,22594,22584,22553,21943,21401
+domain_ai_llama,stride,original_spp_timely,page_in_last64,6180,0,6178,33,314,1319,2307,6167,6162,6160,5999,5880,5816
+domain_ai_llama,stride,all_admissions,any_prior_observed_page,32768,0,32709,64,1701,2376,3330,32531,32526,32523,32493,32372,32273
+domain_ai_llama,stride,original_miss,any_prior_observed_page,30555,0,30503,64,1695,2376,3333,30336,30331,30328,30301,30186,30091
+domain_ai_llama,stride,original_all_three_miss_or_late,any_prior_observed_page,23426,0,23374,64,1676,2362,3294,23208,23204,23201,23198,23104,23020
+domain_ai_llama,stride,original_spp_late,any_prior_observed_page,23891,0,23891,64,1662,2366,3315,23724,23720,23717,23713,23618,23534
+domain_ai_llama,stride,original_spp_timely,any_prior_observed_page,6180,0,6180,64,1701,2412,3383,6180,6179,6179,6156,6136,6125

@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+mcf17_transfer,nopf,200000000,5009921,8566382,0,0,0,0,0,0,0
+mcf17_transfer,nopf,200000000,5009921,8566382,1,5009921,0,0,5009921,0,0
+mcf17_transfer,stride,200000000,5009921,8566403,0,9,9,0,0,0,0
+mcf17_transfer,stride,200000000,5009921,8566403,1,5009912,0,1320,1799920,1550481,1658191
+mcf17_transfer,multi,200000000,5009921,8566371,0,18,18,0,0,0,0
+mcf17_transfer,multi,200000000,5009921,8566371,1,5009903,0,1284,742134,2223165,2043320
+mcf17_transfer,spp,200000000,5009921,8566358,0,11,11,0,0,0,0
+mcf17_transfer,spp,200000000,5009921,8566358,1,5009910,0,2733,685377,2518297,1803503

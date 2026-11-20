@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+cactus2421,nopf,200000000,1528611,5043762,0,0,0,0,0,0,0
+cactus2421,nopf,200000000,1528611,5043762,1,1528611,0,0,1528611,0,0
+cactus2421,stride,200000000,1528611,5043762,0,0,0,0,0,0,0
+cactus2421,stride,200000000,1528611,5043762,1,1528611,0,0,1528585,1,25
+cactus2421,multi,200000000,1528611,5043754,0,0,0,0,0,0,0
+cactus2421,multi,200000000,1528611,5043754,1,1528611,0,157,1513981,1,14472
+cactus2421,spp,200000000,1528611,4997742,0,45,45,0,0,0,0
+cactus2421,spp,200000000,1528611,4997742,1,1528566,0,875,89137,50569,1387985

@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+mcf06_discovery,stride,32,32768,32768,0,15210,36175,36175,0,1,3,6
+mcf06_discovery,stride,128,32768,32768,0,6346,76102,76102,0,2,5,7
+mcf06_discovery,stride,512,32768,32767,1,610,221495,221495,2,6,12,18

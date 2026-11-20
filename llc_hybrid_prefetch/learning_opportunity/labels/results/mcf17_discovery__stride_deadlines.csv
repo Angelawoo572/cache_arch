@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+mcf17_discovery,stride,all_admissions,same_page,32768,0,31745,46,202,1001,6756,30588,29677,29568,29425,28703,27495
+mcf17_discovery,stride,original_miss,same_page,10026,0,9590,41,209,1038,14964,9187,9012,8986,8959,8707,8149
+mcf17_discovery,stride,original_all_three_miss_or_late,same_page,5643,0,5334,34,159,709,11916,4992,4881,4862,4844,4635,4211
+mcf17_discovery,stride,original_spp_late,same_page,4759,0,4759,34,157,678,1753,4438,4353,4334,4313,4104,3751
+mcf17_discovery,stride,original_spp_timely,same_page,1084,0,1009,48,259,6215,17745,1008,1001,1000,999,994,913
+mcf17_discovery,stride,all_admissions,page_in_last64,32768,0,31826,47,203,1031,7850,30670,29767,29658,29515,28793,27642
+mcf17_discovery,stride,original_miss,page_in_last64,10026,0,9669,44,211,1070,17474,9266,9098,9072,9045,8793,8292
+mcf17_discovery,stride,original_all_three_miss_or_late,page_in_last64,5643,0,5381,36,159,728,16029,5039,4933,4914,4896,4687,4310
+mcf17_discovery,stride,original_spp_late,page_in_last64,4759,0,4759,35,157,684,2221,4438,4354,4335,4314,4105,3785
+mcf17_discovery,stride,original_spp_timely,page_in_last64,1084,0,1041,64,368,9886,19861,1040,1035,1034,1033,1028,957
+mcf17_discovery,stride,all_admissions,any_prior_observed_page,32768,0,32621,64,908,1408,12979,32294,32207,32189,32173,31968,31629
+mcf17_discovery,stride,original_miss,any_prior_observed_page,10026,0,9885,64,261,1534,18187,9564,9484,9466,9450,9247,8918
+mcf17_discovery,stride,original_all_three_miss_or_late,any_prior_observed_page,5643,0,5502,42,175,878,16642,5181,5105,5087,5071,4872,4575
+mcf17_discovery,stride,original_spp_late,any_prior_observed_page,4759,0,4759,39,164,722,4547,4449,4384,4366,4350,4151,3884
+mcf17_discovery,stride,original_spp_timely,any_prior_observed_page,1084,0,1084,64,668,13259,20166,1084,1080,1080,1080,1076,1045

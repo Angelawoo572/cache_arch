@@ -4,6 +4,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+from matplotlib.colors import SymLogNorm
 import numpy as np
 import pandas as pd
 
@@ -187,6 +188,7 @@ def transfer_summary(scores):
     for (s, d), part in scores.groupby(level=[0, 1]):
         same = part.loc[(s, d, "same_pc")]
         glob = part.loc[(s, d, "global32")]
+        region = part.loc[(s, d, "local_region")]
         if s == d:
             kind = "Chronological phase"
         elif d in env:
@@ -210,6 +212,9 @@ def transfer_summary(scores):
                 destination=d,
                 anchors=int(glob.anchors),
                 local_bits=same.mean_bits,
+                local_region_bits=region.mean_bits,
+                conditional_bits_local_region=region.conditional_mean_bits,
+                forced_legal_lead_local_region=int(region.forced_deadline),
                 global_bits=glob.mean_bits,
                 global_vocabulary_coverage=glob.expressible / glob.anchors,
                 conditional_bits_local=same.conditional_mean_bits,
@@ -280,13 +285,13 @@ def additional(rows, transfer, selected):
         right_on="destination",
     )
     if len(ext):
-        ext["bits_saved"] = ext.local_bits - ext.global_bits
+        ext["bits_saved"] = ext.local_region_bits - ext.global_bits
         ext["forced_change"] = (
-            ext.forced_legal_lead_global - ext.forced_legal_lead_local
+            ext.forced_legal_lead_global - ext.forced_legal_lead_local_region
         )
         rows.extend(
             [
-                f"The fixed BFS-3 training fit has been applied to {len(ext)} of {len(registered)} preregistered held-out expansion recordings. Each row compares local same-PC history with local, region and global-32 history. The alphabet, sampled cues, trees per fit and issue budget stay fixed.",
+                f"The fixed BFS-3 training fit has been applied to {len(ext)} of {len(registered)} preregistered held-out expansion recordings. Each row adds the ordered global window to a control already observing the same PC and the same region. The alphabet, sampled cues, trees per fit and issue budget stay fixed.",
                 "",
                 "![BFS model on new workloads](expansion_transfer.svg)",
                 "",
@@ -347,7 +352,8 @@ def additional(rows, transfer, selected):
                 left=0.17, right=0.96, top=1 - 0.83 / size, bottom=0.49 / size
             )
             bound = max(1, np.abs(values).max())
-            ax.imshow(values, aspect="auto", cmap="RdBu", vmin=-bound, vmax=bound)
+            coloring = SymLogNorm(linthresh=1, vmin=-bound, vmax=bound)
+            ax.imshow(values, aspect="auto", cmap="RdBu", norm=coloring)
             ax.set_xticks(range(3), ["Still a miss", "Late merge", "Timely first use"])
             ax.xaxis.tick_top()
             ax.set_yticks(range(len(cases)), cases)
@@ -359,11 +365,11 @@ def additional(rows, transfer, selected):
                     ax.text(
                         b,
                         a,
-                        f"{v:+,} / {total[a, b]:,}",
+                        f"{v:+,} / {total[a, b]:,}" if total[a, b] else "—",
                         ha="center",
                         va="center",
                         fontsize=9,
-                        color="white" if abs(v) > 0.55 * bound else "#102638",
+                        color="white" if abs(coloring(v) - 0.5) > 0.32 else "#102638",
                     )
             fig.suptitle(
                 "What remains after accounting for SPP?",
@@ -375,11 +381,31 @@ def additional(rows, transfer, selected):
             fig.text(
                 0.025,
                 0.04,
-                "Each cell shows net matches / original misses in that SPP class. Horizon 8. Source: conventional_outcomes.csv",
+                "Net matches / original misses in each SPP class. A dash marks zero support. Horizon 8. Source: conventional_outcomes.csv",
                 fontsize=8,
             )
             fig.savefig(HERE / "spp_complement.svg", metadata={"Date": None})
             plt.close(fig)
+    sp = native[native.destination.isin(registered.case) & (native.arm == "spp")]
+    for donor, label in (("bfs_discovery", "BFS-only"), ("pooled_three", "Pooled")):
+        part = sp[(sp.source == donor) & sp.scope.isin(["global32", "local_region"])]
+        if len(part.destination.unique()) != len(registered):
+            continue
+        table = part.pivot(
+            index=["destination", "original_miss_outcome"],
+            columns="scope",
+            values="forced_deadline",
+        )
+        diff = (table.global32 - table.local_region).groupby(level=1).sum()
+        n = (
+            part[part.scope == "global32"]
+            .groupby("original_miss_outcome")
+            .anchors.sum()
+        )
+        rows.append(
+            f"{label} training across {len(registered)} test recordings produced a net change of {int(diff['late']):+,} qualified matches among {int(n['late']):,} late SPP original misses, {int(diff['persistent']):+,} among {int(n['persistent']):,} persistent misses, and {int(diff['timely']):+,} among {int(n['timely']):,} already timely targets. Each comparison adds global history to the same-PC and region control."
+        )
+        rows.append("")
     pairs_path = HERE / "paired_targets.csv"
     if pairs_path.exists():
         paired = pd.read_csv(pairs_path)
@@ -498,7 +524,7 @@ def draw_expansion(ext):
     fig.text(
         0.015,
         0.02,
-        "Global 32 plus local and region histories versus same-PC history. Horizon 8, fixed one-proposal budget. Source: transfer_summary.csv",
+        "Global 32 plus local and region histories versus local and region histories alone. Horizon 8, fixed one-proposal budget. Source: transfer_summary.csv",
         fontsize=8,
     )
     fig.savefig(HERE / "expansion_transfer.svg", metadata={"Date": None})
@@ -580,12 +606,19 @@ def main():
     )
     if len(selection):
         more_lines = (
-            selection.forced_legal_lead_global > selection.forced_legal_lead_local
+            selection.forced_legal_lead_global
+            > selection.forced_legal_lead_local_region
         )
-        fewer_bits = selection.global_bits < selection.local_bits
-        more_and_lower = more_lines & fewer_bits
+        fewer_bits = selection.global_bits < selection.local_region_bits
+        lower_cond = (
+            selection.conditional_bits_global < selection.conditional_bits_local_region
+        )
+        ties = (
+            selection.forced_legal_lead_global
+            == selection.forced_legal_lead_local_region
+        )
         rows[2:2] = [
-            f"The frozen BFS-3 model has now been scored on {len(selection)} independent expansion recordings. Adding region and ordered global history to same-PC history reduced aggregate action log loss in {int(fewer_bits.sum())}; it also recovered more legal, exact H8 targets with ≥130 cycles of lead at the same one-proposal budget in {int(more_and_lower.sum())}. These are per-recording directions, with denominators and sizes below. The same-workload BFS-14 recording shows the clearest separation between learning an address relationship and complementing SPP: net +207 fixed-budget qualified addresses against a local-plus-region probe, of which +196 were already timely under SPP. [Transfer results](transfer_summary.csv) · [Matched conventional outcomes](paired_targets.csv)",
+            f"The frozen BFS-3 model has now been scored on {len(selection)} independent expansion recordings. Adding the ordered 32-event global window to same-PC and region history reduced aggregate action log loss in {int(fewer_bits.sum())} and conditional address loss on representable targets in {int(lower_cond.sum())}. At the same one-proposal budget, legal exact H8 matches with ≥130 cycles of lead improved in {int(more_lines.sum())}, tied in {int(ties.sum())} and fell in {int((~more_lines & ~ties).sum())}. The same-workload BFS-14 recording shows the clearest separation between learning an address relationship and complementing SPP: net +207 fixed-budget qualified addresses against a local-plus-region probe, of which +196 were already timely under SPP. [Transfer results](transfer_summary.csv) · [Matched conventional outcomes](paired_targets.csv)",
             "",
         ]
     domain_path = HERE / "domain_transfer.csv"

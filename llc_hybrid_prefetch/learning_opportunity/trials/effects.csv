@@ -1,0 +1,7 @@
+case,timing,planned,matched,accepted_exact,target_timely,timely_from_planned_offer,original_timely_gained,original_timely_lost,cycle_savings,baseline_cycles,treated_cycles,change_head_union_cycles,dram_byte_change
+mcf17_discovery,early,8,8,8,8,8,84108,84351,148219,526239475,526091256,-192391,-214976
+mcf17_discovery,near,8,8,4,0,0,84494,84074,2957,526239475,526236518,-49686,-142080
+bfs_discovery,early,6,6,6,6,6,32711,33766,106164,637186290,637080126,-99501,-18240
+bfs_discovery,near,6,6,5,0,0,17779,19559,35927,637186290,637150363,-29795,135552
+soplex06_heldout,early,4,4,4,4,4,50206,55477,-392638,538801185,539193823,409222,-719104
+soplex06_heldout,near,4,4,4,0,0,49931,52501,-142238,538801185,538943423,140098,-414336

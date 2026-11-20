@@ -1,0 +1,10 @@
+case,policy,arrivals,compared_arrays,cache_bound_mib,retained_mask_bytes
+snap_stanford,nopf,30529,19,2048,16000000
+snap_stanford,stride,30527,19,2048,16000000
+snap_stanford,multi,30527,19,2048,16000000
+snap_stanford,spp,30527,19,2048,16000000
+snap_google,nopf,70947,24,2048,16000000
+snap_google,stride,70944,24,2048,16000000
+snap_google,multi,70944,24,2048,16000000
+snap_google,spp,70943,24,2048,16000000
+bfs_discovery,stride,5072474,404,2048,1600000000

@@ -9,8 +9,8 @@ from access import IndexedStream
 from score_helpers import turnover
 
 
-def validate_prefix(folder, key, cue):
-    base = IndexedStream(BASE, "arrival")
+def validate_prefix(folder, key, cue, baseline=BASE):
+    base = IndexedStream(baseline, "arrival")
     arm = IndexedStream(folder, "arrival")
     start = 0
     for a, b in zip(base.chunks(), arm.chunks()):
@@ -46,27 +46,25 @@ def stages(directory, key):
     return matches
 
 
-def measure(r):
-    folder = RAW / r["scenario"]
+def measure(r, baseline=BASE, destination=RAW, case="bfs_discovery", policy="stride"):
+    folder = destination / r["scenario"]
     key = int(r["instr_id"]) * 4 + int(r["operand"])
     cue, pred = int(r["cue_line"]), int(r["predicted_line"])
-    rank, cycle = validate_prefix(folder, key, cue)
-    base = IndexedStream(BASE, "arrival").read(rank + 8, rank + 9)[0]
+    rank, cycle = validate_prefix(folder, key, cue, baseline)
+    base = IndexedStream(baseline, "arrival").read(rank + 8, rank + 9)[0]
     replay_eighth = IndexedStream(folder, "arrival").read(rank + 8, rank + 9)[0]
     target = int(base[0])
-    hs, now = stages(BASE, key), stages(folder, key)
+    hs, now = stages(baseline, key), stages(folder, key)
     offered = [x for x in now if x["stage"] == "proposed"]
     if len(offered) != 1 or offered[0]["line"] != pred:
         raise ValueError("Actual offer differs from published forecast")
-    gains, losses, masks = turnover(
-        "bfs_discovery", folder, {(target >> 2, target & 3)}, "stride"
-    )
+    gains, losses, masks = turnover(case, folder, {(target >> 2, target & 3)}, policy)
     original, prior, treated = masks[target >> 2, target & 3]
 
     def stats(path):
         return {r["key"]: int(r["value"]) for r in read(path / "stats.csv")}
 
-    a, b = stats(BASE), stats(folder)
+    a, b = stats(baseline), stats(folder)
 
     def cycles(directory):
         return int(next(read(directory / "cores.csv"))["cycles"])
@@ -87,13 +85,15 @@ def measure(r):
         offered_at=offered[0]["cycle"],
         dispatched_at=next((x["cycle"] for x in now if x["stage"] == "dispatch"), ""),
         filled_at=next((x["cycle"] for x in now if x["stage"] == "fill"), ""),
-        first_use_at=next((x["cycle"] for x in now if x["stage"] in ("late", "timely")), ""),
+        first_use_at=next(
+            (x["cycle"] for x in now if x["stage"] in ("late", "timely")), ""
+        ),
         baseline_offer=next((x["line"] for x in hs if x["stage"] == "proposed"), ""),
         original_stages=" ".join(x["stage"] for x in hs),
         offer_stages=" ".join(x["stage"] for x in now),
         terminal_reason=now[-1]["reason"],
         mask_nopf=original,
-        mask_stride=prior,
+        **{f"mask_{policy}": prior},
         mask_replay=treated,
         accepted=int(any(x["stage"] == "accepted" for x in now)),
         first_claimed_operand=next(
@@ -101,7 +101,7 @@ def measure(r):
         ),
         timely_gained=gains,
         timely_displaced=losses,
-        cycles_saved=cycles(BASE) - cycles(folder),
+        cycles_saved=cycles(baseline) - cycles(folder),
         fixed_work_cycles=cycles(folder),
         change_dram_bytes=sum(
             b[k] - a[k]

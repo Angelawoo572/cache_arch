@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+cc5_slot1,stride,all_admissions,same_page,32768,0,11754,3,1,131,2882,6906,5922,5774,5520,5009,4630
+cc5_slot1,stride,original_miss,same_page,2724,0,2446,56,1566,2610,4214,2405,2396,2396,2395,2388,2384
+cc5_slot1,stride,original_all_three_miss_or_late,same_page,231,0,61,2,1,43,323,28,23,23,22,15,12
+cc5_slot1,stride,original_spp_late,same_page,1,0,1,16,841,841,841,1,1,1,1,1,1
+cc5_slot1,stride,original_spp_timely,same_page,2397,0,2341,57,1676,2666,4234,2338,2338,2338,2338,2338,2337
+cc5_slot1,stride,all_admissions,page_in_last64,32768,0,12424,3,1,147,3671,7611,6628,6480,6226,5717,5339
+cc5_slot1,stride,original_miss,page_in_last64,2724,0,2467,64,1844,3014,4752,2427,2418,2418,2417,2410,2406
+cc5_slot1,stride,original_all_three_miss_or_late,page_in_last64,231,0,64,2,1,46,841,32,27,27,26,19,16
+cc5_slot1,stride,original_spp_late,page_in_last64,1,0,1,16,841,841,841,1,1,1,1,1,1
+cc5_slot1,stride,original_spp_timely,page_in_last64,2397,0,2356,64,1965,3074,4769,2353,2353,2353,2353,2353,2352
+cc5_slot1,stride,all_admissions,any_prior_observed_page,32768,0,32738,64,2001,3068,4737,32738,32738,32738,32738,32738,32738
+cc5_slot1,stride,original_miss,any_prior_observed_page,2724,0,2697,64,1992,3132,4793,2697,2697,2697,2697,2697,2697
+cc5_slot1,stride,original_all_three_miss_or_late,any_prior_observed_page,231,0,204,64,2006,3057,4754,204,204,204,204,204,204
+cc5_slot1,stride,original_spp_late,any_prior_observed_page,1,0,1,64,2972,2972,2972,1,1,1,1,1,1
+cc5_slot1,stride,original_spp_timely,any_prior_observed_page,2397,0,2397,64,1989,3125,4790,2397,2397,2397,2397,2397,2397

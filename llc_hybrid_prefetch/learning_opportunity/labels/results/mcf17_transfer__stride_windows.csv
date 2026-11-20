@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+mcf17_transfer,stride,32,32768,32768,0,18179,22545,22545,0,0,2,3
+mcf17_transfer,stride,128,32768,32768,0,13381,34458,34458,0,1,3,4
+mcf17_transfer,stride,512,32768,32768,0,2450,101193,101193,1,3,6,8

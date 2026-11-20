@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+domain_ai_llama,nopf,200000000,6178307,6615688,0,0,0,0,0,0,0
+domain_ai_llama,nopf,200000000,6178307,6615688,1,6178307,0,0,6178307,0,0
+domain_ai_llama,stride,200000000,6178307,6615688,0,55,55,0,0,0,0
+domain_ai_llama,stride,200000000,6178307,6615688,1,6178252,0,629,121423,4824601,1231599
+domain_ai_llama,multi,200000000,6178307,6615688,0,54,54,0,0,0,0
+domain_ai_llama,multi,200000000,6178307,6615688,1,6178253,0,630,104984,4838854,1233785
+domain_ai_llama,spp,200000000,6178307,6615688,0,63,63,0,0,0,0
+domain_ai_llama,spp,200000000,6178307,6615688,1,6178244,0,624,100303,4847423,1229894

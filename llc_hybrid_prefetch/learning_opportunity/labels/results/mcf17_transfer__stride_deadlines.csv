@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+mcf17_transfer,stride,all_admissions,same_page,32768,0,29257,40,1037,6335,10331,28825,28782,28780,28774,28696,28493
+mcf17_transfer,stride,original_miss,same_page,19215,0,18810,55,1742,8419,10672,18588,18579,18579,18579,18569,18510
+mcf17_transfer,stride,original_all_three_miss_or_late,same_page,10109,0,9712,53,1575,8229,10563,9491,9483,9483,9483,9473,9448
+mcf17_transfer,stride,original_spp_late,same_page,9744,0,9744,56,1743,8361,10561,9559,9552,9552,9552,9545,9516
+mcf17_transfer,stride,original_spp_timely,same_page,6873,0,6866,56,1826,8620,10798,6865,6865,6865,6865,6865,6841
+mcf17_transfer,stride,all_admissions,page_in_last64,32768,0,29440,42,1049,6532,10531,29011,28968,28966,28960,28882,28680
+mcf17_transfer,stride,original_miss,page_in_last64,19215,0,18825,55,1745,8513,10807,18603,18594,18594,18594,18584,18525
+mcf17_transfer,stride,original_all_three_miss_or_late,page_in_last64,10109,0,9724,54,1578,8299,10707,9503,9495,9495,9495,9485,9460
+mcf17_transfer,stride,original_spp_late,page_in_last64,9744,0,9744,56,1743,8448,10703,9559,9552,9552,9552,9545,9516
+mcf17_transfer,stride,original_spp_timely,page_in_last64,6873,0,6869,56,1826,8748,10926,6868,6868,6868,6868,6868,6844
+mcf17_transfer,stride,all_admissions,any_prior_observed_page,32768,0,32489,64,3103,9392,11044,32270,32262,32262,32262,32253,32194
+mcf17_transfer,stride,original_miss,any_prior_observed_page,19215,0,18937,57,1800,8612,10840,18718,18710,18710,18710,18701,18642
+mcf17_transfer,stride,original_all_three_miss_or_late,any_prior_observed_page,10109,0,9831,56,1641,8493,10787,9612,9605,9605,9605,9596,9571
+mcf17_transfer,stride,original_spp_late,any_prior_observed_page,9744,0,9744,56,1745,8449,10703,9559,9552,9552,9552,9545,9516
+mcf17_transfer,stride,original_spp_timely,any_prior_observed_page,6873,0,6873,57,1852,8760,10930,6873,6873,6873,6873,6873,6849

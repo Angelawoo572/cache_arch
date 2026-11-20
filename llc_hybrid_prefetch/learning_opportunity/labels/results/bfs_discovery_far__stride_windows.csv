@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+bfs_discovery_far,stride,32,32768,32767,1,23086,23748,23748,0,0,2,8
+bfs_discovery_far,stride,128,32768,32767,1,17486,47730,47730,0,0,5,12
+bfs_discovery_far,stride,512,32768,32767,1,1061,167859,167859,1,2,15,28

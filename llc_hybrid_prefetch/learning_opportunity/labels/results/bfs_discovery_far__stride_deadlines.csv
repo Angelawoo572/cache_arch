@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+bfs_discovery_far,stride,all_admissions,same_page,32768,0,27890,22,118,4009,14785,25531,24861,24806,24717,24400,24052
+bfs_discovery_far,stride,original_miss,same_page,18627,0,17586,30,1132,6134,15000,17436,17412,17409,17405,17387,17320
+bfs_discovery_far,stride,original_all_three_miss_or_late,same_page,5386,0,4396,14,524,3044,8322,4271,4259,4257,4255,4247,4215
+bfs_discovery_far,stride,original_spp_late,same_page,1229,0,1229,24,851,4509,12972,1177,1176,1176,1176,1174,1169
+bfs_discovery_far,stride,original_spp_timely,same_page,12606,0,12588,44,1648,9119,15421,12582,12578,12578,12577,12569,12536
+bfs_discovery_far,stride,all_admissions,page_in_last64,32768,0,28439,23,120,4240,15414,26084,25414,25359,25270,24954,24606
+bfs_discovery_far,stride,original_miss,page_in_last64,18627,0,17586,30,1137,6173,15355,17436,17412,17409,17405,17387,17320
+bfs_discovery_far,stride,original_all_three_miss_or_late,page_in_last64,5386,0,4396,14,524,3044,8322,4271,4259,4257,4255,4247,4215
+bfs_discovery_far,stride,original_spp_late,page_in_last64,1229,0,1229,24,851,4509,13028,1177,1176,1176,1176,1174,1169
+bfs_discovery_far,stride,original_spp_timely,page_in_last64,12606,0,12588,44,1704,9120,15838,12582,12578,12578,12577,12569,12536
+bfs_discovery_far,stride,all_admissions,any_prior_observed_page,32768,0,32572,64,2157,14096,16814,32551,32548,32548,32547,32540,32531
+bfs_discovery_far,stride,original_miss,any_prior_observed_page,18627,0,18439,64,3698,15071,17093,18426,18423,18423,18423,18417,18408
+bfs_discovery_far,stride,original_all_three_miss_or_late,any_prior_observed_page,5386,0,5198,64,2476,14974,17189,5185,5183,5183,5183,5181,5177
+bfs_discovery_far,stride,original_spp_late,any_prior_observed_page,1229,0,1229,64,3160,14911,17002,1222,1221,1221,1221,1220,1218
+bfs_discovery_far,stride,original_spp_timely,any_prior_observed_page,12606,0,12606,64,5768,15123,17069,12606,12606,12606,12606,12602,12597

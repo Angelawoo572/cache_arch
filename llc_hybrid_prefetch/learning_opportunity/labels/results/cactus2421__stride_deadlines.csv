@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+cactus2421,stride,all_admissions,same_page,32768,0,11829,34,1,2388,2661,7181,6873,6862,6835,6777,6700
+cactus2421,stride,original_miss,same_page,9919,0,661,2,2,45,2899,320,304,304,304,303,298
+cactus2421,stride,original_all_three_miss_or_late,same_page,913,0,369,1,2,2,2711,76,69,69,69,69,66
+cactus2421,stride,original_spp_late,same_page,345,0,345,1,2,2,2654,65,60,60,60,60,58
+cactus2421,stride,original_spp_timely,same_page,8985,0,278,46,2,2685,2967,234,225,225,225,224,222
+cactus2421,stride,all_admissions,page_in_last64,32768,0,17773,64,4,2585,4407,15193,15082,15080,15078,15049,14979
+cactus2421,stride,original_miss,page_in_last64,9919,0,1223,64,1472,2533,4268,1140,1138,1138,1138,1138,1134
+cactus2421,stride,original_all_three_miss_or_late,page_in_last64,913,0,407,64,3,1766,4146,337,335,335,335,335,333
+cactus2421,stride,original_spp_late,page_in_last64,345,0,345,64,4,1767,4153,285,285,285,285,285,283
+cactus2421,stride,original_spp_timely,page_in_last64,8985,0,801,64,1561,2627,4320,791,791,791,791,791,789
+cactus2421,stride,all_admissions,any_prior_observed_page,32768,0,32679,64,1648,2597,4403,32678,32676,32676,32676,32676,32676
+cactus2421,stride,original_miss,any_prior_observed_page,9919,0,9830,64,1555,2015,4071,9829,9827,9827,9827,9827,9827
+cactus2421,stride,original_all_three_miss_or_late,any_prior_observed_page,913,0,824,64,1537,2025,4043,823,821,821,821,821,821
+cactus2421,stride,original_spp_late,any_prior_observed_page,345,0,345,64,1508,1939,4153,345,345,345,345,345,345
+cactus2421,stride,original_spp_timely,any_prior_observed_page,8985,0,8985,64,1559,2015,4071,8985,8985,8985,8985,8985,8985

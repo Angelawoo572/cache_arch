@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+bfs_discovery_far,nopf,200000000,2409071,4276392,0,0,0,0,0,0,0
+bfs_discovery_far,nopf,200000000,2409071,4276392,1,2409071,0,0,2409071,0,0
+bfs_discovery_far,stride,200000000,2409071,4276388,0,10,10,0,0,0,0
+bfs_discovery_far,stride,200000000,2409071,4276388,1,2409061,0,13243,1321387,81375,993056
+bfs_discovery_far,multi,200000000,2409071,4276387,0,12,12,0,0,0,0
+bfs_discovery_far,multi,200000000,2409071,4276387,1,2409059,0,11595,1097967,97379,1202118
+bfs_discovery_far,spp,200000000,2409071,4276387,0,10,10,0,0,0,0
+bfs_discovery_far,spp,200000000,2409071,4276387,1,2409061,0,10074,625248,156580,1617159

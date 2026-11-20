@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+snap_google,nopf,2000000,30043,70947,0,0,0,0,0,0,0
+snap_google,nopf,2000000,30043,70947,1,30043,0,0,30043,0,0
+snap_google,stride,2000000,30043,70944,0,1,1,0,0,0,0
+snap_google,stride,2000000,30043,70944,1,30042,0,0,26674,76,3292
+snap_google,multi,2000000,30043,70944,0,1,1,0,0,0,0
+snap_google,multi,2000000,30043,70944,1,30042,0,0,26276,137,3629
+snap_google,spp,2000000,30043,70943,0,2,2,0,0,0,0
+snap_google,spp,2000000,30043,70943,1,30041,0,0,24986,284,4771

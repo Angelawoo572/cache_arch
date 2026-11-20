@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+cc5_slot1,stride,32,32768,32768,0,11153,53810,53810,0,1,4,7
+cc5_slot1,stride,128,32768,32768,0,4618,108968,108968,0,3,7,10
+cc5_slot1,stride,512,32768,32768,0,17,373850,373850,5,11,19,26

@@ -1,0 +1,12 @@
+case,policies,measured_instructions,first_source_ordinal,last_source_ordinal,exact_operand_keys_per_policy,stride_llc_admissions_verified,stride_unique_llc_operands,input_view
+astar42,1,200000000,50000001,250000000,60616580,4184546,4184546,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/astar42.champsimtrace
+bc3,1,200000000,50000001,250000000,48002963,16078811,16078811,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/bc3.champsimtrace
+cactus2421,1,200000000,50000001,250000000,57291793,5043762,5043762,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/cactus2421.champsimtrace
+cc5,1,200000000,50000001,250000000,54367595,12084704,12084704,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/cc5.champsimtrace
+gcc734,1,200000000,50000001,250000000,52931830,1891604,1891604,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/gcc734.champsimtrace
+mcf51,1,200000000,50000001,250000000,65592612,14740182,14740182,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/mcf51.champsimtrace
+omnet188,1,200000000,50000001,250000000,59784179,3823733,3823733,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/omnet188.champsimtrace
+omnet874,1,200000000,50000001,250000000,67448756,2444230,2444230,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/omnet874.champsimtrace
+pr14,1,200000000,50000001,250000000,77350943,33861976,33861976,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/pr14.champsimtrace
+soplex247,1,200000000,50000001,250000000,61529981,7032865,7032865,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/soplex247.champsimtrace
+xalan700,1,200000000,50000001,250000000,62836249,3823566,3823566,llc_hybrid_prefetch/learning_opportunity/raw/expansion/traces/xalan700.champsimtrace

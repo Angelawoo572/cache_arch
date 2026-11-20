@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+soplex06_heldout,stride,all_admissions,same_page,32768,0,27517,40,300,2680,8377,25947,25649,25622,25537,25349,25071
+soplex06_heldout,stride,original_miss,same_page,12470,0,10904,43,280,2664,8558,10051,10009,10007,9991,9943,9871
+soplex06_heldout,stride,original_all_three_miss_or_late,same_page,7593,0,6182,32,12,1903,5995,5347,5311,5309,5298,5266,5222
+soplex06_heldout,stride,original_spp_late,same_page,3279,0,3278,34,13,1732,5260,2797,2780,2778,2770,2754,2730
+soplex06_heldout,stride,original_spp_timely,same_page,3939,0,3822,54,685,4062,9706,3813,3810,3810,3806,3791,3767
+soplex06_heldout,stride,all_admissions,page_in_last64,32768,0,28466,50,353,3070,9217,27069,26825,26804,26732,26569,26315
+soplex06_heldout,stride,original_miss,page_in_last64,12470,0,11068,51,295,2907,9179,10244,10202,10200,10185,10139,10070
+soplex06_heldout,stride,original_all_three_miss_or_late,page_in_last64,7593,0,6288,37,14,2087,7160,5482,5446,5444,5434,5404,5362
+soplex06_heldout,stride,original_spp_late,page_in_last64,3279,0,3278,36,14,1846,5531,2813,2796,2794,2787,2771,2748
+soplex06_heldout,stride,original_spp_timely,page_in_last64,3939,0,3873,64,723,4353,10424,3864,3861,3861,3857,3842,3818
+soplex06_heldout,stride,all_admissions,any_prior_observed_page,32768,0,32693,64,2304,4888,12212,32627,32623,32623,32623,32618,32610
+soplex06_heldout,stride,original_miss,any_prior_observed_page,12470,0,12410,64,2277,4670,11148,12349,12346,12346,12346,12343,12337
+soplex06_heldout,stride,original_all_three_miss_or_late,any_prior_observed_page,7593,0,7533,64,2140,4290,10909,7472,7469,7469,7469,7468,7463
+soplex06_heldout,stride,original_spp_late,any_prior_observed_page,3279,0,3279,64,1785,3438,8417,3236,3234,3234,3234,3233,3230
+soplex06_heldout,stride,original_spp_timely,any_prior_observed_page,3939,0,3939,64,2719,5610,11478,3939,3939,3939,3939,3937,3936

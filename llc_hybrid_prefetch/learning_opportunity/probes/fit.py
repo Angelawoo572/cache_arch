@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import ExtraTreesClassifier
 
-from extract import PREVIOUS, RAW, STUDY
+from extract import PREVIOUS, RAW, STUDY, publish_text
 
 HORIZONS = (1, 8, 32)
 WIDTH = 64
@@ -345,7 +345,7 @@ def masks_for(case, frame):
 def write(name, rows):
     if not rows:
         return
-    with name.open("w", newline="") as f:
+    with publish_text(name) as f:
         writer = csv.DictWriter(f, fieldnames=rows[0], lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)

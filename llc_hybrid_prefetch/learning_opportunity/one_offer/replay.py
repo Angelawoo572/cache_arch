@@ -17,7 +17,7 @@ RAW = STUDY / "raw/one_offer"
 OFFERS = STUDY / "probes/prospective_offers.csv"
 
 
-def replay(row):
+def replay(row, baseline=BASE, destination=RAW):
     case = row["scenario"]
     if not case.replace("_", "").replace("-", "").isalnum():
         raise ValueError("Invalid experiment name")
@@ -26,10 +26,10 @@ def replay(row):
         raise ValueError(
             "Native single-override control requires a nonzero same-page displacement"
         )
-    folder = RAW / case
+    folder = destination / case
     folder.mkdir(exist_ok=True, parents=True)
     plan = folder / "offer.csv"
-    meta = json.loads((BASE / "complete.json").read_text())
+    meta = json.loads((baseline / "complete.json").read_text())
     config = dict(source=meta["config"], offer=row, inference_cycles=0)
     marker = folder / "complete.json"
     if marker.is_file():

@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+bfs_discovery,stride,all_admissions,same_page,32768,0,27147,16,4,1966,13906,23149,22115,22027,21857,21398,20893
+bfs_discovery,stride,original_miss,same_page,14347,0,13400,37,997,6002,14488,13216,13190,13187,13185,13154,13113
+bfs_discovery,stride,original_all_three_miss_or_late,same_page,3993,0,3119,13,392,2361,6901,2983,2966,2964,2963,2948,2925
+bfs_discovery,stride,original_spp_late,same_page,1023,0,1023,29,943,4131,12777,1010,1009,1008,1008,1007,1004
+bfs_discovery,stride,original_spp_timely,same_page,9655,0,9623,52,1670,9793,14756,9613,9609,9609,9609,9596,9583
+bfs_discovery,stride,all_admissions,page_in_last64,32768,0,27501,17,5,2108,14289,23506,22472,22384,22214,21755,21250
+bfs_discovery,stride,original_miss,page_in_last64,14347,0,13403,37,1002,6036,14712,13219,13193,13190,13188,13157,13116
+bfs_discovery,stride,original_all_three_miss_or_late,page_in_last64,3993,0,3119,13,392,2373,6901,2983,2966,2964,2963,2948,2925
+bfs_discovery,stride,original_spp_late,page_in_last64,1023,0,1023,29,948,4131,12798,1010,1009,1008,1008,1007,1004
+bfs_discovery,stride,original_spp_timely,page_in_last64,9655,0,9623,53,1800,9815,14973,9613,9609,9609,9609,9596,9583
+bfs_discovery,stride,all_admissions,any_prior_observed_page,32768,0,32595,64,1842,5944,15457,32591,32591,32591,32591,32589,32586
+bfs_discovery,stride,original_miss,any_prior_observed_page,14347,0,14177,64,3147,14028,15936,14173,14173,14173,14173,14171,14168
+bfs_discovery,stride,original_all_three_miss_or_late,any_prior_observed_page,3993,0,3823,64,2201,12542,15317,3819,3819,3819,3819,3818,3816
+bfs_discovery,stride,original_spp_late,any_prior_observed_page,1023,0,1023,64,3761,12076,15863,1022,1022,1022,1022,1022,1022
+bfs_discovery,stride,original_spp_timely,any_prior_observed_page,9655,0,9655,64,4175,14428,16079,9655,9655,9655,9655,9654,9653

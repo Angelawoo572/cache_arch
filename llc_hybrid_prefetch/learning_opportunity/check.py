@@ -72,6 +72,13 @@ def check():
     successful = rows(HERE / "probes/prospective_offers.csv")
     interventions = rows(HERE / "one_offer/effects.csv")
     assert {r["scenario"] for r in successful} == {r["scenario"] for r in interventions}
+    diagnosed = rows(HERE / "trials/forecast_effect.csv")
+    chosen = rows(HERE / "trials/forecast_selection.csv")
+    assert len(diagnosed) == len(chosen) == 1
+    effect, selection = diagnosed[0], chosen[0]
+    assert effect["actual_eighth_operand_key"] == selection["baseline_target_key"]
+    assert effect["actual_eighth_line"] == selection["predicted_line"]
+    assert (int(effect["mask_nopf"]), int(effect["mask_spp"])) == (2, 6)
     pressure = rows(HERE / "resources/at_ingress.csv")
     assert len(pressure) == 36
     assert len(rows(HERE / "resources/external_at_ingress.csv")) == 11
@@ -87,7 +94,8 @@ def check():
     links = check_links()
     print(
         f"Verified {len(actual)} history/label joins, {len(expansion)} expansion metrics, six oracle timing arms, "
-        f"{len(interventions)} prospective replay, {len(timing)} timing cohorts and {links} local document links."
+        f"{len(interventions)} prospective replay, one diagnosed forecast replay, "
+        f"{len(timing)} timing cohorts and {links} local document links."
     )
 
 

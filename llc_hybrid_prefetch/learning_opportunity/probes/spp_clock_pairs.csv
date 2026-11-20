@@ -1,0 +1,13 @@
+case,policy,claim,both,global_only,local_only,distinct_global_only_deltas,most_common_gain_delta,most_common_gain_count,distinct_gain_cue_pcs,distinct_gain_target_pcs
+bfs_transfer,one_proposal,late,144,6,3,1,5,6,3,3
+bfs_transfer,one_proposal,timely,923,207,21,6,5,135,4,4
+bfs_transfer,abstention_allowed,late,137,6,3,2,5,4,3,3
+bfs_transfer,abstention_allowed,timely,899,123,24,1,5,123,2,2
+mcf17_transfer,one_proposal,late,4,53,0,2,5,46,3,2
+mcf17_transfer,one_proposal,timely,0,24,0,2,5,22,3,1
+mcf17_transfer,abstention_allowed,late,2,0,1,0,,0,0,0
+mcf17_transfer,abstention_allowed,timely,0,0,0,0,,0,0,0
+soplex06_heldout,one_proposal,late,20,4,2,3,2,2,4,3
+soplex06_heldout,one_proposal,timely,21,4,0,2,2,3,4,4
+soplex06_heldout,abstention_allowed,late,16,0,1,0,,0,0,0
+soplex06_heldout,abstention_allowed,timely,20,0,0,0,,0,0,0

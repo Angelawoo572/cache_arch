@@ -1,0 +1,3 @@
+case,policy,payload_origin,matched_observer_rows,strictly_ordered_rows,postrun_inventory_records,shutdown_cycle,matched_uncompressed_bytes,matched_outcome_words,matched_stream_blocks,matched_fixed_work_cycles
+bc3,stride,independent simulation on both hosts,204177821,204177502,319,1158785313,6663895664,200000000,6233,1119290213
+gcc734,stride,independent simulation on both hosts,141671317,141671199,118,598070027,4118668784,200000000,4327,571164634

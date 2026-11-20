@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+xalan700,nopf,200000000,9855,3823565,0,0,0,0,0,0,0
+xalan700,nopf,200000000,9855,3823565,1,9855,0,0,9855,0,0
+xalan700,stride,200000000,9855,3823566,0,0,0,0,0,0,0
+xalan700,stride,200000000,9855,3823566,1,9855,0,115,9407,34,299
+xalan700,multi,200000000,9855,3823566,0,0,0,0,0,0,0
+xalan700,multi,200000000,9855,3823566,1,9855,0,125,9362,36,332
+xalan700,spp,200000000,9855,3823566,0,0,0,0,0,0,0
+xalan700,spp,200000000,9855,3823566,1,9855,0,1642,5870,204,2139

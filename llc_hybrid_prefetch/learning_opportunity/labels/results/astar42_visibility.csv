@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+astar42,nopf,200000000,445772,4184547,0,0,0,0,0,0,0
+astar42,nopf,200000000,445772,4184547,1,445772,0,0,445772,0,0
+astar42,stride,200000000,445772,4184546,0,0,0,0,0,0,0
+astar42,stride,200000000,445772,4184546,1,445772,0,729,439088,2,5953
+astar42,multi,200000000,445772,4184546,0,0,0,0,0,0,0
+astar42,multi,200000000,445772,4184546,1,445772,0,798,438457,2,6515
+astar42,spp,200000000,445772,4184553,0,0,0,0,0,0,0
+astar42,spp,200000000,445772,4184553,1,445772,0,3160,220185,1722,220705

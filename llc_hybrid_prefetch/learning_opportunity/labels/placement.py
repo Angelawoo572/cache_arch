@@ -4,6 +4,10 @@ import argparse
 
 import numpy as np
 
+from collections import Counter
+
+from audit import table
+from build import CACHE
 from measure import HERE, full_arrays, sample, save
 from sequence import ROOT, Sequence
 
@@ -21,6 +25,13 @@ def paired_indices(keys, query):
 def compare(case):
     left = Sequence(ROOT / (case + "__stride"))
     right = Sequence(ROOT / (case + "_slot1__stride"))
+    old_pages, new_pages = [
+        table(CACHE / seq.meta["source"] / "pages.csv.gz") for seq in (left, right)
+    ]
+    if old_pages.keys() != new_pages.keys():
+        raise ValueError("Source virtual-page sets differ across placement runs")
+    shifts = Counter(new_pages[vp] - pp for vp, pp in old_pages.items())
+    common_shift, shifted = shifts.most_common(1)[0]
     aobs, _ = full_arrays(left)
     bobs, _ = full_arrays(right)
     a = sample(left)
@@ -45,6 +56,10 @@ def compare(case):
             dict(
                 case=case,
                 horizon=k,
+                compared_virtual_pages=len(old_pages),
+                distinct_physical_page_shifts=len(shifts),
+                modal_physical_page_shift=common_shift,
+                pages_with_modal_shift=shifted,
                 sampled_placement0_anchors=len(q),
                 common_unique_anchors=len(a),
                 jointly_observed_horizon=len(aa),

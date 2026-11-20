@@ -52,13 +52,20 @@ def shutdown_inventory(folder, blocks, dictionary, statistics):
     return {"rows": count, "cycle": int(tail[0, 4])}
 
 
-def evidence(folder):
-    marker = json.loads((folder / "capture_validation.json").read_text())
+def evidence(folder, marker=None, streams=None, masks=None):
+    if marker is None:
+        marker = json.loads((folder / "capture_validation.json").read_text())
     if marker["baseline_counters_and_masks"] != "match":
         raise ValueError("Each replica needs a completed native parity audit")
     blocks = {}
     logical_bytes = 0
     for label in COLUMNS:
+        if streams is not None:
+            stream = streams[label]
+            members = [stream.checks[first] for first, _, _, _ in stream.members]
+            blocks[label] = members
+            logical_bytes += stream.rows * stream.width * 8
+            continue
         stream = IndexedStream(folder, label)
         members = []
         with stream.path.open("rb") as file:
@@ -71,10 +78,11 @@ def evidence(folder):
                 members.append((n, crc))
                 logical_bytes += raw_size
         blocks[label] = members
-    masks = []
-    with gzip.open(folder / "outcomes_core0.u16le.gz", "rb") as file:
-        while data := file.read(1 << 22):
-            masks.append((len(data), zlib.crc32(data)))
+    if masks is None:
+        masks = []
+        with gzip.open(folder / "outcomes_core0.u16le.gz", "rb") as file:
+            while data := file.read(1 << 22):
+                masks.append((len(data), zlib.crc32(data)))
     if sum(size for size, _ in masks) != 2 * marker["measured"]:
         raise ValueError("Wrong number of retirement outcomes")
     dictionary = sorted(rows(folder / "symbols.csv"), key=lambda r: r["value"])
@@ -108,11 +116,32 @@ def main():
     )
     args = parser.parse_args()
     output = args.folder / "replica_blocks.json"
-    temporary = output.with_suffix(".tmp")
-    temporary.write_text(
-        json.dumps(evidence(args.folder), separators=(",", ":")) + "\n"
+    # audit.py emits this manifest during the same pass that verifies every gzip member.
+    # Reuse it while its immutable input files and their validation are unchanged.
+    inputs = [
+        f
+        for f in args.folder.iterdir()
+        if f.name
+        in {
+            "capture_validation.json",
+            "complete.json",
+            "symbols.csv",
+            "cores.csv",
+            "phases.csv",
+            "stats.csv",
+            "outcomes_core0.u16le.gz",
+        }
+        or f.name.endswith((".u64le.gz", ".index.csv"))
+    ]
+    current = output.is_file() and output.stat().st_mtime_ns >= max(
+        f.stat().st_mtime_ns for f in inputs
     )
-    temporary.replace(output)
+    if not current or json.loads(output.read_text()).get("schema") != 2:
+        temporary = output.with_suffix(".tmp")
+        temporary.write_text(
+            json.dumps(evidence(args.folder), separators=(",", ":")) + "\n"
+        )
+        temporary.replace(output)
     if args.compare:
         a, b = (json.loads(p.read_text()) for p in (output, args.compare))
         for key in a:

@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+pr_heldout,nopf,200000000,15678522,33838912,0,0,0,0,0,0,0
+pr_heldout,nopf,200000000,15678522,33838912,1,15678522,0,0,15678522,0,0
+pr_heldout,stride,200000000,15678522,33838905,0,11,11,0,0,0,0
+pr_heldout,stride,200000000,15678522,33838905,1,15678511,0,452711,12770810,536367,1918623
+pr_heldout,multi,200000000,15678522,33838905,0,12,12,0,0,0,0
+pr_heldout,multi,200000000,15678522,33838905,1,15678510,0,465374,12701164,550255,1961717
+pr_heldout,spp,200000000,15678522,33838910,0,12,12,0,0,0,0
+pr_heldout,spp,200000000,15678522,33838910,1,15678510,0,474070,12678309,563700,1962431

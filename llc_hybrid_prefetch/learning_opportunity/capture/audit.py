@@ -6,12 +6,15 @@ import csv
 import gzip
 import io
 import json
+import os
 from pathlib import Path
+import zlib
 
 import numpy as np
 
 from access import COLUMNS, IndexedStream, source_records
 from build import FULL
+from replica import evidence
 
 CACHE = FULL.parents[1]
 
@@ -21,7 +24,7 @@ def read_csv(path):
         return list(csv.DictReader(file))
 
 
-def match(reference, capture):
+def match(reference, capture, mask_blocks=None):
     if json.loads((reference / "config.json").read_text()) != json.loads(
         (capture / "config.json").read_text()
     ):
@@ -39,14 +42,16 @@ def match(reference, capture):
         if sorted(left) != sorted(right):
             raise ValueError("Physical maps differ")
     compare_gzip(
-        reference / "outcomes_core0.u16le.gz", capture / "outcomes_core0.u16le.gz"
+        reference / "outcomes_core0.u16le.gz",
+        capture / "outcomes_core0.u16le.gz",
+        mask_blocks,
     )
     prior_arrivals = FULL / "raw/continuous/runs" / capture.name / "arrival.u64le.gz"
     if prior_arrivals.is_file():
         compare_gzip(prior_arrivals, capture / "arrival.u64le.gz")
 
 
-def compare_gzip(one, two):
+def compare_gzip(one, two, checks=None):
     # Keep small compressed references in memory. Alternating reads between two cold
     # files on the archive disk can otherwise seek once per comparison block.
     if one.stat().st_size <= 64 << 20:
@@ -60,6 +65,8 @@ def compare_gzip(one, two):
                 raise ValueError(f"Native stream differs from reference: {two}")
             if not chunk:
                 return
+            if checks is not None:
+                checks.append((len(chunk), zlib.crc32(chunk)))
 
 
 def histogram(target, codes):
@@ -67,13 +74,14 @@ def histogram(target, codes):
     target.update({int(v): int(n) for v, n in zip(values, counts)})
 
 
-def audit(folder, reference):
-    match(reference, folder)
+def audit(folder, reference, streams=None, mask_blocks=None):
+    match(reference, folder, mask_blocks)
     config = json.loads((folder / "complete.json").read_text())["config"]
     stats = {r["key"]: int(r["value"]) for r in read_csv(folder / "stats.csv")}
     phases = read_csv(folder / "phases.csv")
     symbols = {r["value"]: int(r["id"]) for r in read_csv(folder / "symbols.csv")}
-    streams = {name: IndexedStream(folder, name) for name in COLUMNS}
+    if streams is None:
+        streams = {name: IndexedStream(folder, name) for name in COLUMNS}
     for name, phase_count in (
         ("arrival", "llc_ingress"),
         ("source_load", "trace_loads"),
@@ -155,13 +163,68 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folders", nargs="+", type=Path)
     parser.add_argument("--references", type=Path, default=FULL / "raw/native/runs")
+    parser.add_argument(
+        "--full-source",
+        action="store_true",
+        help="Trace source operands even for a certified transfer",
+    )
+    parser.add_argument(
+        "--copy-authority",
+        type=Path,
+        help="Validation and certificate for an explicitly reconstructed test copy",
+    )
     args = parser.parse_args()
+    if args.copy_authority is not None and any(
+        not (args.copy_authority / name).is_file()
+        for name in ("validation.json", "certificate.json")
+    ):
+        parser.error(
+            "The explicit copy authority must contain validation.json and certificate.json"
+        )
     for folder in args.folders:
-        result = audit(folder, args.references / folder.name)
+        streams = {
+            name: IndexedStream(folder, name, record_checks=True) for name in COLUMNS
+        }
+        mask_blocks = []
+        transfer = folder.parent.parent / "transport"
+        authority = args.copy_authority
+        if authority is None and (transfer / "used" / folder.name).is_file():
+            authority = transfer / "authority" / folder.name
+        reference = args.references / folder.name
+        if (
+            not args.full_source
+            and authority is not None
+            and (authority / "certificate.json").is_file()
+        ):
+            # Exact native timing, counters, maps, masks and prior arrivals still use this host.
+            # Verify every restored row block sequentially against the source's full audit.
+            match(reference, folder, mask_blocks)
+            result = json.loads((authority / "validation.json").read_text())
+            for name, stream in streams.items():
+                total = sum(len(block) for block in stream.chunks())
+                if total != result[name + "_rows"]:
+                    raise ValueError(f"Transferred row population differs: {name}")
+            result["compressed_stream_bytes"] = sum(
+                st.path.stat().st_size for st in streams.values()
+            )
+            cert = evidence(folder, result, streams, mask_blocks)
+            if json.loads(json.dumps(cert)) != json.loads(
+                (authority / "certificate.json").read_text()
+            ):
+                raise ValueError(
+                    "Transferred native observations differ from the source certificate"
+                )
+        else:
+            result = audit(folder, reference, streams, mask_blocks)
+            cert = evidence(folder, result, streams, mask_blocks)
         path = folder / "capture_validation.json"
-        tmp = path.with_suffix(".tmp")
+        tmp = path.with_name(f".capture_validation.{os.getpid()}.tmp")
         tmp.write_text(json.dumps(result, indent=2) + "\n")
         tmp.replace(path)
+        cert_path = folder / "replica_blocks.json"
+        tmp = cert_path.with_name(f".replica_blocks.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps(cert, separators=(",", ":")) + "\n")
+        tmp.replace(cert_path)
         print(
             "verified",
             result["case"],

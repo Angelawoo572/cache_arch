@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+pr14,stride,32,32768,32768,0,30534,2399,2399,0,0,0,1
+pr14,stride,128,32768,32768,0,12223,27968,27968,0,1,2,3
+pr14,stride,512,32768,32768,0,4,120443,120443,2,4,6,8

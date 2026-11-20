@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+bc3,stride,32,32768,32768,0,10026,58237,58237,0,1,4,8
+bc3,stride,128,32768,32768,0,6079,84140,84140,0,2,6,10
+bc3,stride,512,32768,32768,0,151,249208,249208,3,7,13,18

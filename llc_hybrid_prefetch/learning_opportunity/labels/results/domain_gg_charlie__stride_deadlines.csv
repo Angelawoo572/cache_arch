@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+domain_gg_charlie,stride,all_admissions,same_page,32768,4,24526,23,239,5357,21160,23079,22609,22589,22508,22256,21908
+domain_gg_charlie,stride,original_miss,same_page,18526,1,15322,29,657,7984,22329,14801,14737,14734,14722,14686,14578
+domain_gg_charlie,stride,original_all_three_miss_or_late,same_page,10424,1,7458,22,298,5990,17737,6979,6929,6928,6920,6892,6810
+domain_gg_charlie,stride,original_spp_late,same_page,3116,0,3116,34,523,7302,16319,2943,2917,2916,2912,2905,2896
+domain_gg_charlie,stride,original_spp_timely,same_page,6278,0,6117,34,1801,10834,36505,6106,6098,6096,6094,6090,6066
+domain_gg_charlie,stride,all_admissions,page_in_last64,32768,4,24956,27,256,6401,25755,23581,23133,23114,23035,22793,22464
+domain_gg_charlie,stride,original_miss,page_in_last64,18526,1,15520,33,746,8963,25993,15035,14975,14972,14961,14927,14831
+domain_gg_charlie,stride,original_all_three_miss_or_late,page_in_last64,10424,1,7603,27,340,7361,21543,7156,7107,7106,7099,7073,7002
+domain_gg_charlie,stride,original_spp_late,page_in_last64,3116,0,3116,36,593,7788,17480,2956,2931,2930,2927,2920,2911
+domain_gg_charlie,stride,original_spp_timely,page_in_last64,6278,0,6164,37,1962,11721,37978,6155,6150,6148,6146,6142,6119
+domain_gg_charlie,stride,all_admissions,any_prior_observed_page,32768,4,31070,64,3220,16298,47577,30758,30719,30716,30708,30686,30636
+domain_gg_charlie,stride,original_miss,any_prior_observed_page,18526,1,16940,64,2101,13397,36950,16670,16642,16640,16634,16614,16577
+domain_gg_charlie,stride,original_all_three_miss_or_late,any_prior_observed_page,10424,1,8845,64,1294,14273,36476,8578,8553,8552,8546,8529,8501
+domain_gg_charlie,stride,original_spp_late,any_prior_observed_page,3116,0,3116,50,1143,10102,20500,3007,2994,2993,2991,2985,2981
+domain_gg_charlie,stride,original_spp_timely,any_prior_observed_page,6278,0,6278,53,2892,13983,45157,6277,6274,6273,6273,6270,6261

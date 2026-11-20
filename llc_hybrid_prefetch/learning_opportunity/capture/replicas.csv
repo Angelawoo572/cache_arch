@@ -1,0 +1,14 @@
+case,policy,payload_origin,matched_observer_rows,strictly_ordered_rows,postrun_inventory_records,shutdown_cycle,matched_uncompressed_bytes,matched_outcome_words,matched_stream_blocks,matched_fixed_work_cycles
+bfs_discovery,nopf,Mac with verified copy,134915404,134915404,0,,3898339736,200000000,4119,767261611
+bfs_discovery,stride,Mac with verified copy,148297331,148295642,1689,770745600,4637159880,200000000,4528,705691824
+bfs_discovery_far,multi,independent simulation on both hosts,154101538,154100240,1298,794875263,4812128664,200000000,4708,742969561
+bfs_discovery_far,nopf,independent simulation on both hosts,140216483,140216483,0,,4044842088,200000000,4282,851437656
+bfs_discovery_far,stride,independent simulation on both hosts,152305469,152304917,552,823548817,4712302256,200000000,4652,771643115
+bfs_transfer,nopf,Mac with verified copy,133808706,133808706,0,,3835371384,200000000,4086,856409664
+bfs_transfer,stride,Mac with verified copy,146003311,146002582,729,847693093,4507635016,200000000,4460,770933496
+mcf17_discovery_far,multi,independent simulation on both hosts,197809191,197806769,2422,593010775,6119510984,200000000,6041,564606598
+mcf17_discovery_far,nopf,independent simulation on both hosts,180328480,180328480,0,,5143429952,200000000,5507,608412752
+mcf17_discovery_far,stride,independent simulation on both hosts,191671309,191669631,1678,606927184,5780319744,200000000,5853,578523007
+pr_heldout,nopf,Mac with verified copy,366876953,366876953,0,,11129680304,200000000,11198,4452897603
+soplex06_heldout,multi,Mac with verified copy,166277722,166275935,1787,584474281,5178485480,200000000,5078,547236754
+soplex06_heldout,nopf,Mac with verified copy,151479347,151479347,0,,4365881856,200000000,4626,543788550

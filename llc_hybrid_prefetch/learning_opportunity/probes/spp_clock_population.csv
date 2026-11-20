@@ -1,0 +1,13 @@
+case,scope,policy,cues,other_wins,abstained,illegal,legal_issued,exact_legal,no_nopf_tag,nopf_hit,originals,correct_original_miss,correct_original_spp_no_tag,correct_original_spp_ordinary,correct_original_spp_persistent,correct_original_spp_other
+bfs_transfer,local_region,one_proposal,6001,3197,0,758,5243,1571,0,458,3942,1113,0,4,18,0
+bfs_transfer,local_region,abstention_allowed,6001,3197,3197,309,2495,1513,0,436,3942,1077,0,4,10,0
+bfs_transfer,global32,one_proposal,6001,4060,0,672,5329,1778,0,467,3942,1311,0,4,17,0
+bfs_transfer,global32,abstention_allowed,6001,4060,4060,256,1685,1605,0,436,3942,1169,0,4,0,0
+mcf17_transfer,local_region,one_proposal,6011,2593,0,834,5177,5,0,0,3434,5,0,0,1,0
+mcf17_transfer,local_region,abstention_allowed,6011,2593,2593,408,3010,4,0,0,3434,4,0,0,1,0
+mcf17_transfer,global32,one_proposal,6011,5893,0,735,5276,90,0,1,3434,89,0,0,6,0
+mcf17_transfer,global32,abstention_allowed,6011,5893,5893,3,115,3,0,0,3434,3,0,0,1,0
+soplex06_heldout,local_region,one_proposal,6030,3699,0,702,5328,759,0,700,2099,59,0,2,3,0
+soplex06_heldout,local_region,abstention_allowed,6030,3699,3699,200,2131,725,0,675,2099,50,0,2,0,0
+soplex06_heldout,global32,one_proposal,6030,5067,0,570,5460,764,0,697,2099,67,0,2,3,0
+soplex06_heldout,global32,abstention_allowed,6030,5067,5067,122,841,701,0,653,2099,48,0,2,0,0

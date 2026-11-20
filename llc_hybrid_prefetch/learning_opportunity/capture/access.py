@@ -41,7 +41,8 @@ TRACE_DTYPE = np.dtype(
 class IndexedStream:
     """A seekable table. Row bounds use zero-based, half-open indices."""
 
-    def __init__(self, folder, name):
+    def __init__(self, folder, name, record_checks=False):
+        self.checks = {} if record_checks else None
         self.width = len(COLUMNS[name])
         self.path = Path(folder) / (name + ".u64le.gz")
         with self.path.with_name(name + ".index.csv").open(newline="") as file:
@@ -77,7 +78,13 @@ class IndexedStream:
             for first, count, _, size in self.members[i:]:
                 if first >= stop:
                     break
-                data = gzip.decompress(source.read(size))
+                member = source.read(size)
+                data = gzip.decompress(member)
+                if self.checks is not None:
+                    self.checks[first] = (
+                        count,
+                        int.from_bytes(member[-8:-4], "little"),
+                    )
                 block = np.frombuffer(data, dtype="<u8").reshape(count, self.width)
                 yield block[max(0, start - first) : min(count, stop - first)]
 

@@ -255,7 +255,64 @@ def placement_table():
             )
             + " |"
         )
+    if all("distinct_physical_page_shifts" in r for r in records):
+        result.extend(
+            [
+                "",
+                "The complete source mappings show the frame displacement for each virtual page.",
+                "",
+            ]
+        )
+        for r in records:
+            if r["horizon"] == "1":
+                result.append(
+                    f"- {display_name(r['case'])} used {int(r['distinct_physical_page_shifts']):,} distinct frame {'shift' if int(r['distinct_physical_page_shifts']) == 1 else 'shifts'}. {int(r['pages_with_modal_shift']):,} of {int(r['compared_virtual_pages']):,} mapped pages moved by {int(r['modal_physical_page_shift']):+,} physical frames."
+                )
+        result.append("")
+        result.append(
+            "A uniform frame shift leaves relative deltas intact by construction. Per-page permutations test a different form of generalization."
+        )
     return result + [""]
+
+
+def domain_observations(horizon, novelty):
+    lines = ["## What changed between workloads", ""]
+
+    def number(row, field):
+        return f"{int(row[field]):,}"
+
+    field = "original_all_gap_legal_lead_ge130"
+    stricter = "eligible_distinct_line_first_future_demand"
+    mcfs = ("mcf17_discovery", "mcf17_transfer")
+    if all((c, 8) in horizon and (c, "new_line_known_page") in novelty for c in mcfs):
+        values = []
+        for c in mcfs:
+            new = novelty[c, "new_line_known_page"]
+            if stricter in new:
+                values.append(
+                    f"{number(new, stricter)} of {number(horizon[c, 8], field)}"
+                )
+        if len(values) == 2:
+            lines.append(
+                f"- **MCF17, independent recordings.** At horizon eight, {values[0]} eligible target pairs in 472B and {values[1]} in 1644B concern a new exact line on a recently observed physical page. In each count the target is the first subsequent demand for that line. This gives an address-generation probe a concrete test across recordings."
+            )
+    if ("pr_heldout", 8) in horizon:
+        r = horizon["pr_heldout", 8]
+        lines.append(
+            f"- **PageRank-3.** Median lead at horizon eight was {number(r, 'lead_p50_cycles')} cycles. Of {number(r, 'original_and_all_three_miss_or_late')} pairs missed or late in all three controls, only {number(r, field)} met the recent-page and 130-cycle tests. A different construction vocabulary could change this ceiling."
+        )
+    domains = ("domain_gg_charlie", "domain_ai_llama")
+    if all((c, 8) in horizon for c in domains):
+        google, llama = [horizon[c, 8] for c in domains]
+        lines.append(
+            f"- **Google Charlie and Llama.** In equally sized horizon-eight samples, {number(google, 'different_pc')} Google targets and {number(llama, 'different_pc')} Llama targets had a different PC from their trigger. The programs had {number(google, field)} and {number(llama, field)} eligible pairs respectively. Cross-PC targets describe a subset of the available opportunity. Whether previous PC context helps choose the address is an independent prediction test."
+        )
+    if ("xalan700", 8) in horizon:
+        r = horizon["xalan700", 8]
+        lines.append(
+            f"- **Xalancbmk 700B.** Of {number(r, 'observed')} unfiltered horizon-eight targets, {number(r, 'original_miss')} missed under NoPF and {number(r, field)} met the joint eligibility test. Large fractions of a small gap population can have little effect on total work."
+        )
+    return lines + [""] if len(lines) > 2 else []
 
 
 def main():
@@ -271,6 +328,9 @@ def main():
     window = {
         r["case"]: r for r in records("windows") if int(r["window_cycles"]) == 128
     }
+    novelty = {
+        (r["case"], r["novelty"]): r for r in records("novelty") if r["horizon"] == "8"
+    }
     summary = [
         "# Which future targets are physically reachable in time?",
         "",
@@ -278,6 +338,7 @@ def main():
         "Stride execution. Each anchor is eligible for sampling regardless of its cache outcomes. "
         "The full indexed stream can be queried at any rank. [Queries and split boundaries](README.md) · [Per-scope counts](results/)",
         "",
+        *domain_observations(horizon, novelty),
         "## Fixed horizons",
         "",
         "Each count requires the target to be an original NoPF miss and a plain miss or late first use in all three "
@@ -347,9 +408,6 @@ def main():
         "| Capture | Eligible seen line | Eligible new line on known page | Distinct line and first future demand (both groups) | Median legal alternatives on reachable new lines |",
         "|---|---:|---:|---:|---:|",
     ]
-    novelty = {
-        (r["case"], r["novelty"]): r for r in records("novelty") if r["horizon"] == "8"
-    }
     for case in cases:
         if (case, "new_line_known_page") not in novelty:
             continue

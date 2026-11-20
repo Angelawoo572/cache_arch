@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+mcf06_discovery,stride,all_admissions,same_page,32768,0,27876,41,6,2737,5868,23938,23298,23282,23214,22857,22263
+mcf06_discovery,stride,original_miss,same_page,22652,0,18237,34,2,2676,5938,14625,14145,14130,14081,13811,13294
+mcf06_discovery,stride,original_all_three_miss_or_late,same_page,14521,0,10491,20,1,1818,5597,6987,6602,6589,6561,6399,6178
+mcf06_discovery,stride,original_spp_late,same_page,9127,0,9127,11,1,871,5508,5774,5409,5399,5372,5213,5006
+mcf06_discovery,stride,original_spp_timely,same_page,3518,0,3233,46,247,4002,6974,3170,3121,3120,3108,3040,2838
+mcf06_discovery,stride,all_admissions,page_in_last64,32768,0,28513,57,10,3456,6561,25041,24528,24512,24447,24100,23572
+mcf06_discovery,stride,original_miss,page_in_last64,22652,0,18828,52,2,3943,6715,15636,15272,15257,15209,14948,14495
+mcf06_discovery,stride,original_all_three_miss_or_late,page_in_last64,14521,0,10949,35,1,3144,6594,7851,7573,7560,7533,7376,7191
+mcf06_discovery,stride,original_spp_late,page_in_last64,9127,0,9127,26,1,2191,6400,6155,5890,5880,5854,5700,5524
+mcf06_discovery,stride,original_spp_timely,page_in_last64,3518,0,3361,64,249,5279,7853,3309,3268,3267,3255,3187,3006
+mcf06_discovery,stride,all_admissions,any_prior_observed_page,32768,0,31481,64,2322,5262,6882,30297,30187,30181,30163,30056,29876
+mcf06_discovery,stride,original_miss,any_prior_observed_page,22652,0,21368,64,2044,5487,6972,20192,20082,20076,20058,19953,19775
+mcf06_discovery,stride,original_all_three_miss_or_late,any_prior_observed_page,14521,0,13241,64,197,5539,6757,12091,12001,11997,11986,11919,11856
+mcf06_discovery,stride,original_spp_late,any_prior_observed_page,9127,0,9127,64,2,5394,6770,8026,7940,7936,7926,7863,7801
+mcf06_discovery,stride,original_spp_timely,any_prior_observed_page,3518,0,3518,64,3012,5809,8381,3498,3483,3482,3476,3448,3365

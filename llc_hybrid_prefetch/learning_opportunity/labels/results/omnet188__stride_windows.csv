@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+omnet188,stride,32,32768,32768,0,21194,15114,15114,0,0,1,3
+omnet188,stride,128,32768,32768,0,16854,23971,23971,0,0,2,4
+omnet188,stride,512,32768,32768,0,2352,88684,88684,1,2,5,9

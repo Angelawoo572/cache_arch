@@ -6,7 +6,8 @@ Can machine learning exploit temporal, spatial and cross-instruction correlation
 
 | Study | What it covers |
 |---|---|
-| [Full-scale SPEC and GAP evaluation](full_workload/README.md) | Latest measured results for NoPF, Stride, Multi-delta, SPP and Temporal. Includes a complete PageRank recording and a Linux repeat. |
+| [Learning opportunities in continuous LLC histories](learning_opportunity/README.md) | Complete event sequences, future targets, held-out prediction probes and timing interventions. |
+| [Full-scale SPEC and GAP evaluation](full_workload/README.md) | Measured results for NoPF, Stride, Multi-delta, SPP and Temporal. Includes a complete PageRank recording and a Linux repeat. |
 | [Figure gallery](full_workload/figures/README.md) | Annotated performance, cache and prefetch metrics, and Pareto comparisons. |
 | [Trace and raw-data references](full_workload/data/README.md) | Source archives, exact input views and simulator output paths on the Mac and Sacramento. |
 | [DPC4 workload screening](workload_expansion/README.md) | Earlier Google, SPEC, Graph and AI/ML window comparisons and address patterns. |

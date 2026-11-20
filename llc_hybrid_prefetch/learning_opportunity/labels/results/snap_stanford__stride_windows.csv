@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+snap_stanford,stride,32,30527,30526,1,18116,19968,19968,0,0,2,4
+snap_stanford,stride,128,30527,30524,3,7054,61008,61008,0,2,4,7
+snap_stanford,stride,512,30527,30516,11,45,258781,258781,3,8,14,21

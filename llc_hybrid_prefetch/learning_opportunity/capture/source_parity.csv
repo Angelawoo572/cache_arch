@@ -1,0 +1,10 @@
+case,policies,measured_instructions,first_source_ordinal,last_source_ordinal,exact_operand_keys_per_policy,nopf_llc_admissions_verified,nopf_unique_llc_operands,input_view
+bfs_discovery,4,200000000,50000001,250000000,47703581,5072480,5072480,llc_hybrid_prefetch/full_workload/raw/traces/bfs_discovery.champsimtrace
+bfs_discovery_far,4,200000000,300000002,500000001,49251822,4276392,4276392,llc_hybrid_prefetch/full_workload/raw/traces/bfs_discovery_far.champsimtrace
+bfs_transfer,4,200000000,50000001,250000000,48479805,3510471,3510471,llc_hybrid_prefetch/full_workload/raw/traces/bfs_transfer.champsimtrace
+mcf06_discovery,4,200000000,50000001,250000000,50203799,5997947,5997947,llc_hybrid_prefetch/full_workload/raw/traces/mcf06_discovery.champsimtrace
+mcf17_discovery,4,200000000,50000001,250000000,69218463,9919914,9919914,llc_hybrid_prefetch/full_workload/raw/traces/mcf17_discovery.champsimtrace
+mcf17_discovery_far,4,200000000,1800000001,2000000000,66685180,7027404,7027404,llc_hybrid_prefetch/full_workload/raw/traces/mcf17_discovery_far.champsimtrace
+mcf17_transfer,4,200000000,50000001,250000000,83093058,8566382,8566382,llc_hybrid_prefetch/full_workload/raw/traces/mcf17_transfer.champsimtrace
+pr_heldout,4,200000000,50000001,250000000,77353335,33838912,33838912,llc_hybrid_prefetch/full_workload/raw/traces/pr_heldout.champsimtrace
+soplex06_heldout,4,200000000,50000001,250000000,56818277,5246826,5246826,llc_hybrid_prefetch/full_workload/raw/traces/soplex06_heldout.champsimtrace

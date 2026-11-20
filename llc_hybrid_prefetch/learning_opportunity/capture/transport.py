@@ -34,7 +34,7 @@ def pack(folder, target):
             for f in sorted(folder.iterdir()):
                 if (
                     f.is_file()
-                    and not f.name.endswith((".index.csv", ".u64le.gz", ".lock"))
+                    and not f.name.endswith((".index.csv", ".u64le.gz", ".lock", ".tmp"))
                     and f.name not in {"capture_validation.json", "replica_blocks.json"}
                 ):
                     tar.add(f, arcname=f.name, recursive=False)

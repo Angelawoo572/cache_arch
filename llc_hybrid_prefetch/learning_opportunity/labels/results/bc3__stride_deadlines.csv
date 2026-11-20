@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+bc3,stride,all_admissions,same_page,32768,0,13770,3,1,236,3239,9068,8067,7974,7834,7580,6691
+bc3,stride,original_miss,same_page,8098,0,3806,17,3,1270,4398,3302,3083,3076,3055,2994,2863
+bc3,stride,original_all_three_miss_or_late,same_page,5800,0,1862,3,1,300,1284,1430,1231,1224,1206,1152,1041
+bc3,stride,original_spp_late,same_page,39,0,39,28,15,1581,5056,35,34,34,34,34,32
+bc3,stride,original_spp_timely,same_page,1849,0,1749,55,2589,3718,4738,1730,1725,1725,1724,1724,1719
+bc3,stride,all_admissions,page_in_last64,32768,0,13858,3,1,239,4006,9156,8155,8062,7922,7668,6780
+bc3,stride,original_miss,page_in_last64,8098,0,3827,17,3,1338,5023,3323,3104,3097,3076,3015,2884
+bc3,stride,original_all_three_miss_or_late,page_in_last64,5800,0,1877,3,1,303,1427,1445,1246,1239,1221,1167,1056
+bc3,stride,original_spp_late,page_in_last64,39,0,39,28,15,1581,5526,35,34,34,34,34,32
+bc3,stride,original_spp_timely,page_in_last64,1849,0,1751,64,3172,4371,5318,1732,1727,1727,1726,1726,1721
+bc3,stride,all_admissions,any_prior_observed_page,32768,0,32715,64,3561,4414,5388,32707,32707,32707,32707,32707,32706
+bc3,stride,original_miss,any_prior_observed_page,8098,0,8050,64,3573,4460,5425,8042,8042,8042,8042,8042,8041
+bc3,stride,original_all_three_miss_or_late,any_prior_observed_page,5800,0,5752,64,3597,4469,5448,5744,5744,5744,5744,5744,5743
+bc3,stride,original_spp_late,any_prior_observed_page,39,0,39,64,3800,5132,6144,37,37,37,37,37,37
+bc3,stride,original_spp_timely,any_prior_observed_page,1849,0,1849,64,3521,4433,5351,1849,1849,1849,1849,1849,1849

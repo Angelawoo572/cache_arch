@@ -1,0 +1,3 @@
+case,measured,cycles,source_loads,arrivals,matched_operand_keys,matched_virtual_pages,changed_physical_pages
+mcf17_layout_original__stride,2000000,4620878,608699,22294,608699,12778,11181
+mcf17_layout_reversed__stride,2000000,4756438,608699,22290,608699,12778,11181

@@ -1,0 +1,12 @@
+workload,fastest_baseline,baseline_time_saved_pct,test_cues,expressible,legal_page_reach,local_bits,global_bits,local_qualified,global_qualified,pool_local_qualified,pool_global_qualified,timely_targets,timely_local_qualified,timely_global_qualified,pool_timely_local_qualified,pool_timely_global_qualified,late_targets,late_local_qualified,late_global_qualified,pool_late_local_qualified,pool_late_global_qualified,persistent_targets,persistent_local_qualified,persistent_global_qualified,pool_persistent_local_qualified,pool_persistent_global_qualified,net_all,net_spp_late_or_persistent,net_spp_timely,pool_net_all,pool_net_spp_timely,pool_net_spp_late_or_persistent,positive_blocks,tied_blocks,min_block_net,max_block_net
+gcc734,spp,12.1427,6004,5269,4996,2.503571,2.434621,3761,3677,72,3467,4164,2803,2737,55,2600,18,8,7,2,7,79,0,0,0,0,-84,-1,-66,3395,2545,5,0,0,-15,-4
+cc5,nopf,0.0,6012,310,568,0.9278321,0.6842414,0,3,0,2,448,0,3,0,2,0,0,0,0,0,65,0,0,0,0,3,0,3,2,2,0,1,7,0,3
+cactus2421,spp,27.4294,6005,258,6,1.399291,0.6506923,0,0,0,0,1658,0,0,0,0,58,0,0,0,0,115,0,0,0,0,0,0,0,0,0,0,0,8,0,0
+bc3,multi,2.556,6010,76,215,0.4662547,0.2720144,2,2,0,2,350,0,0,0,0,5,2,2,0,2,1076,0,0,0,0,0,0,0,2,0,2,0,8,0,0
+omnet874,spp,1.3752,6034,480,1505,0.9652816,0.8711841,30,17,3,8,601,4,5,0,1,451,17,6,1,2,2513,9,5,1,1,-13,-15,1,5,1,1,1,2,-6,2
+xalan700,spp,0.0224,6022,321,352,0.6933734,0.6449609,4,5,4,8,4,0,0,1,1,0,0,0,0,0,10,0,0,0,0,1,0,0,4,0,0,1,7,0,1
+pr14,nopf,0.0,6003,83,299,0.5419683,0.2667008,1,1,0,4,337,0,0,0,3,90,0,0,0,0,2306,1,1,0,1,0,0,0,4,3,1,0,8,0,0
+astar42,spp,4.0841,6021,58,69,0.258413,0.2568251,0,2,2,2,268,0,1,1,2,2,0,0,0,0,440,0,0,0,0,2,0,1,0,1,0,2,6,0,1
+omnet188,spp,6.3891,6021,488,1655,0.996261,0.9726266,36,33,7,11,768,8,7,2,2,849,14,10,2,2,2002,10,12,3,4,-3,-2,-1,4,0,1,3,2,-3,1
+soplex247,spp,4.1681,6011,1148,3437,1.716468,1.159557,443,457,606,594,668,16,23,42,38,483,9,10,61,47,943,0,2,23,16,14,3,7,-12,-4,-21,5,1,-1,7
+mcf51,nopf,0.0,6004,21,198,0.1966644,0.1578528,0,0,0,1,68,0,0,0,0,148,0,0,0,0,2646,0,0,0,0,0,0,0,1,0,0,0,8,0,0

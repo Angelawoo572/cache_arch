@@ -1,6 +1,7 @@
 """Read native LLC arrivals and retain reproducibly sampled anchor features and labels."""
 
 import argparse
+from contextlib import contextmanager
 import csv
 import json
 import gzip
@@ -16,6 +17,16 @@ STUDY = HERE.parent
 PREVIOUS = STUDY.parent / "full_workload"
 RAW = STUDY / "raw/probes"
 TARGET_COUNT = 30_000
+
+
+@contextmanager
+def publish_text(path):
+    """Allow readers to see either the previous complete result or the new one."""
+    with tempfile.TemporaryDirectory(dir=path.parent) as scratch:
+        pending = Path(scratch) / path.name
+        with pending.open("w", newline="") as f:
+            yield f
+        pending.replace(path)
 
 
 def locate(case, policy):

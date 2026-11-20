@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+mcf17_discovery_far,stride,all_admissions,same_page,32768,0,31553,49,247,1230,13661,30732,29960,29893,29768,29252,28269
+mcf17_discovery_far,stride,original_miss,same_page,10224,0,9638,50,330,2442,17211,9481,9327,9317,9299,9230,8813
+mcf17_discovery_far,stride,original_all_three_miss_or_late,same_page,2952,0,2544,43,247,7336,17510,2506,2452,2449,2449,2428,2200
+mcf17_discovery_far,stride,original_spp_late,same_page,1602,0,1602,46,247,1921,16786,1578,1543,1543,1540,1523,1397
+mcf17_discovery_far,stride,original_spp_timely,same_page,1571,0,1479,50,258,9471,18382,1478,1459,1459,1459,1454,1334
+mcf17_discovery_far,stride,all_admissions,page_in_last64,32768,0,31659,52,255,1280,16096,30840,30083,30016,29891,29375,28489
+mcf17_discovery_far,stride,original_miss,page_in_last64,10224,0,9744,62,409,2872,19334,9587,9448,9438,9420,9351,9031
+mcf17_discovery_far,stride,original_all_three_miss_or_late,page_in_last64,2952,0,2610,64,247,12859,20078,2572,2527,2524,2524,2503,2344
+mcf17_discovery_far,stride,original_spp_late,page_in_last64,1602,0,1602,57,318,2535,19594,1578,1551,1551,1548,1531,1454
+mcf17_discovery_far,stride,original_spp_timely,page_in_last64,1571,0,1519,64,516,14549,20728,1518,1504,1504,1504,1499,1407
+mcf17_discovery_far,stride,all_admissions,any_prior_observed_page,32768,0,32620,64,1143,1845,17543,32612,32589,32589,32588,32582,32477
+mcf17_discovery_far,stride,original_miss,any_prior_observed_page,10224,0,10083,64,1540,4583,19957,10083,10065,10065,10065,10062,9960
+mcf17_discovery_far,stride,original_all_three_miss_or_late,any_prior_observed_page,2952,0,2811,64,1740,13931,20287,2811,2801,2801,2801,2799,2746
+mcf17_discovery_far,stride,original_spp_late,any_prior_observed_page,1602,0,1602,64,1534,4324,20279,1602,1600,1600,1600,1599,1589
+mcf17_discovery_far,stride,original_spp_timely,any_prior_observed_page,1571,0,1571,64,1628,15847,20908,1571,1563,1563,1563,1562,1513

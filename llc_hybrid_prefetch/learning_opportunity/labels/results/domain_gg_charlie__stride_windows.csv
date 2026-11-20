@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+domain_gg_charlie,stride,32,32768,32768,0,24792,13367,13367,0,0,1,5
+domain_gg_charlie,stride,128,32768,32768,0,18807,29338,29338,0,0,2,8
+domain_gg_charlie,stride,512,32768,32768,0,6425,94194,94194,0,2,7,18

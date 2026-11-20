@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+snap_stanford,nopf,2000000,10391,30529,0,0,0,0,0,0,0
+snap_stanford,nopf,2000000,10391,30529,1,10391,0,0,10391,0,0
+snap_stanford,stride,2000000,10391,30527,0,0,0,0,0,0,0
+snap_stanford,stride,2000000,10391,30527,1,10391,0,0,1354,133,8904
+snap_stanford,multi,2000000,10391,30527,0,0,0,0,0,0,0
+snap_stanford,multi,2000000,10391,30527,1,10391,0,0,1153,149,9089
+snap_stanford,spp,2000000,10391,30527,0,0,0,0,0,0,0
+snap_stanford,spp,2000000,10391,30527,1,10391,0,0,1137,153,9101

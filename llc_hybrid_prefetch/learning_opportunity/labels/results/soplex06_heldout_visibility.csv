@@ -1,0 +1,9 @@
+case,policy,measured_instructions,original_llc_misses,total_arm_admissions,original_operand_present_at_arm_ingress,matched_original_operands,no_llc_tag_or_claim,ordinary_tag_hit,plain_miss,late_first_use,timely_first_use
+soplex06_heldout,nopf,200000000,2003166,5246826,0,0,0,0,0,0,0
+soplex06_heldout,nopf,200000000,2003166,5246826,1,2003166,0,0,2003166,0,0
+soplex06_heldout,stride,200000000,2003166,5246784,0,2578,2578,0,0,0,0
+soplex06_heldout,stride,200000000,2003166,5246784,1,2000588,0,34112,1264671,279363,422442
+soplex06_heldout,multi,200000000,2003166,5246769,0,2633,2633,0,0,0,0
+soplex06_heldout,multi,200000000,2003166,5246769,1,2000533,0,32093,1070982,370571,526887
+soplex06_heldout,spp,200000000,2003166,5246788,0,2886,2886,0,0,0,0
+soplex06_heldout,spp,200000000,2003166,5246788,1,2000280,0,32255,809086,527124,631815

@@ -1,0 +1,4 @@
+case,policy,window_cycles,anchors,complete,censored,empty,total_future_events,sum_distinct_lines,distinct_lines_p10,distinct_lines_p50,distinct_lines_p90,distinct_lines_p99
+snap_google,stride,32,32768,32767,1,15602,39360,39360,0,1,4,6
+snap_google,stride,128,32768,32766,2,10877,85592,85592,0,2,7,11
+snap_google,stride,512,32768,32759,9,111,281398,281398,1,7,19,28

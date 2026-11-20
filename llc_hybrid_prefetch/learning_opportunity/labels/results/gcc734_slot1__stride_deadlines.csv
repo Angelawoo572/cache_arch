@@ -1,0 +1,16 @@
+case,policy,cohort,vocabulary,sampled_targets,incomplete_history,has_legal_anchor,rank_gap_p50,lead_p10_cycles,lead_p50_cycles,lead_p90_cycles,lead_ge64,lead_ge130,lead_ge134,lead_ge146,lead_ge194,lead_ge256
+gcc734_slot1,stride,all_admissions,same_page,32768,2,31339,31,1481,8573,19073,31264,31209,31209,31196,31137,31041
+gcc734_slot1,stride,original_miss,same_page,24629,2,23848,32,1636,8731,19213,23816,23776,23776,23766,23727,23665
+gcc734_slot1,stride,original_all_three_miss_or_late,same_page,1984,0,1396,30,571,2939,8416,1368,1367,1367,1367,1345,1325
+gcc734_slot1,stride,original_spp_late,same_page,1906,0,1906,33,812,3272,8840,1885,1883,1883,1883,1861,1842
+gcc734_slot1,stride,original_spp_timely,same_page,21827,2,21690,32,1824,9516,19469,21686,21649,21649,21639,21622,21583
+gcc734_slot1,stride,all_admissions,page_in_last64,32768,2,31480,32,1498,8716,19478,31406,31351,31351,31338,31279,31183
+gcc734_slot1,stride,original_miss,page_in_last64,24629,2,23957,33,1647,8859,19619,23926,23886,23886,23876,23837,23775
+gcc734_slot1,stride,original_all_three_miss_or_late,page_in_last64,1984,0,1400,30,572,2948,8587,1373,1372,1372,1372,1350,1330
+gcc734_slot1,stride,original_spp_late,page_in_last64,1906,0,1906,33,812,3279,8847,1886,1884,1884,1884,1862,1843
+gcc734_slot1,stride,original_spp_timely,page_in_last64,21827,2,21795,33,1838,9680,19873,21791,21754,21754,21744,21727,21688
+gcc734_slot1,stride,all_admissions,any_prior_observed_page,32768,2,32620,64,6057,21404,22419,32611,32611,32611,32611,32608,32599
+gcc734_slot1,stride,original_miss,any_prior_observed_page,24629,2,24517,64,5821,21444,22399,24514,24514,24514,24514,24512,24507
+gcc734_slot1,stride,original_all_three_miss_or_late,any_prior_observed_page,1984,0,1872,64,4740,9422,21925,1869,1869,1869,1869,1868,1865
+gcc734_slot1,stride,original_spp_late,any_prior_observed_page,1906,0,1906,64,4712,6628,13572,1903,1903,1903,1903,1902,1902
+gcc734_slot1,stride,original_spp_timely,any_prior_observed_page,21827,2,21827,64,7681,21534,22430,21827,21827,21827,21827,21826,21824
