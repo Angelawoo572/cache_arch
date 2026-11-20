@@ -1,0 +1,2 @@
+case,compressed_bytes,materialized_start,source_records,materialized_records,branches,taken,load_instructions,load_slot_0,load_slot_1,load_slot_2,load_slot_3,store_slot_0,store_slot_1,source_reg_slot_0,source_reg_slot_1,source_reg_slot_2,source_reg_slot_3,dest_reg_slot_0,dest_reg_slot_1
+cactus2421,257158316,0,2000000000,250001024,2679947,1914678,576427593,576427593,0,0,0,226778497,0,1999940751,1491186563,16441211,0,1773358936,1235437

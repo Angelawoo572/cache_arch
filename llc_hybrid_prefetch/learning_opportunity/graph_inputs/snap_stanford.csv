@@ -1,0 +1,2 @@
+case,graph_url,input_edges,root,visited,examined_edges,recorded_instructions
+snap_stanford,https://snap.stanford.edu/data/web-Stanford.txt.gz,2312497,226411,69612,400000,5135810

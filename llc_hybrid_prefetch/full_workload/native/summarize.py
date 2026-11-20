@@ -25,9 +25,9 @@ def write(path, data):
             writer.writerows(data)
 
 
-def masks(root, folder, roi):
+def masks(root, folder, roi, raw=RAW):
     args = [
-        str(RAW / "join"),
+        str(raw / "join"),
         str(root / "outcomes_core0.u16le.gz"),
         str(folder / "outcomes_core0.u16le.gz"),
         str(roi),
@@ -46,7 +46,7 @@ def masks(root, folder, roi):
     return result
 
 
-def summarize(out, only_complete, cases=None):
+def summarize(out, only_complete, cases=None, raw=RAW, policies=POLICIES):
     subprocess.run(
         [
             "c++",
@@ -55,7 +55,7 @@ def summarize(out, only_complete, cases=None):
             str(HERE / "join.cc"),
             "-lz",
             "-o",
-            str(RAW / "join"),
+            str(raw / "join"),
         ],
         check=True,
     )
@@ -64,9 +64,9 @@ def summarize(out, only_complete, cases=None):
         FAR
     )
     for case in roster:
-        root = RAW / "runs" / (case + "__nopf")
-        for policy in POLICIES:
-            directory = RAW / "runs" / (case + "__" + policy)
+        root = raw / "runs" / (case + "__nopf")
+        for policy in policies:
+            directory = raw / "runs" / (case + "__" + policy)
             if not all((d / "complete.json").exists() for d in (root, directory)):
                 if only_complete:
                     continue
@@ -89,7 +89,7 @@ def summarize(out, only_complete, cases=None):
             pp = rows(directory / "cores.csv")[0]
             if int(pp["instructions"]) != roi:
                 raise ValueError("Fixed work did not retire")
-            hist = masks(root, directory, roi)
+            hist = masks(root, directory, roi, raw)
             # Physical placement follows trace-order registrations and must agree for every policy.
             if (root / "pages.csv.gz").read_bytes() != (
                 directory / "pages.csv.gz"
@@ -206,13 +206,13 @@ def summarize(out, only_complete, cases=None):
                 )
             )
         if all(
-            (RAW / "runs" / (case + "__" + p) / "complete.json").exists()
-            for p in POLICIES
+            (raw / "runs" / (case + "__" + p) / "complete.json").exists()
+            for p in policies
         ):
             quarter_misses = [
                 int(r["llc_tag_misses"]) for r in rows(root / "phases.csv")
             ]
-            joint.extend(summarize_joint(case, POLICIES, roi, quarter_misses))
+            joint.extend(summarize_joint(case, policies, roi, quarter_misses, raw))
     out.mkdir(exist_ok=True, parents=True)
     write(out / "performance.csv", summaries)
     write(out / "joint_coverage.csv", joint)

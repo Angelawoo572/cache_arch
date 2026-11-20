@@ -1,0 +1,3 @@
+case,family,source,bytes,url,prior_case
+domain_gg_charlie,gtrace_v2,charlie_0010.champsim.gz,2126614170,https://traces.rbera.com/dpc4/gtrace_v2/charlie/charlie_0010.champsim.gz,gg_charlie
+domain_ai_llama,ai-ml,llama2.c-stories15M.2.champsimtrace.gz,1181874829,https://traces.rbera.com/dpc4/ai-ml/llama2.c-stories15M.2.champsimtrace.gz,ai_llama

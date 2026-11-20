@@ -1,0 +1,2 @@
+case,compressed_bytes,materialized_start,source_records,materialized_records,branches,taken,load_instructions,load_slot_0,load_slot_1,load_slot_2,load_slot_3,store_slot_0,store_slot_1,source_reg_slot_0,source_reg_slot_1,source_reg_slot_2,source_reg_slot_3,dest_reg_slot_0,dest_reg_slot_1
+domain_ai_llama,1181874829,0,1000000000,250001024,143351375,137493936,273331415,273331415,0,0,0,4565926,0,999746297,836255934,995279,2176,994683022,142615248

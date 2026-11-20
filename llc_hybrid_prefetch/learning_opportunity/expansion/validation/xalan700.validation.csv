@@ -1,0 +1,2 @@
+case,compressed_bytes,materialized_start,source_records,materialized_records,branches,taken,load_instructions,load_slot_0,load_slot_1,load_slot_2,load_slot_3,store_slot_0,store_slot_1,source_reg_slot_0,source_reg_slot_1,source_reg_slot_2,source_reg_slot_3,dest_reg_slot_0,dest_reg_slot_1
+xalan700,160985836,0,2000000000,250001024,500375647,153472564,628091259,628091259,0,0,0,150924148,0,1988799106,1017713230,23479150,0,1945352426,398483626

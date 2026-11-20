@@ -47,9 +47,9 @@ void count_joint(const std::vector<Chunk> &chunks, unsigned bytes, std::vector<u
 }
 
 int main(int argc, char **argv) {
-    if (argc != 4 && argc != 7)
+    if (argc != 4 && argc != 6 && argc != 7)
         return 2;
-    const bool joint = argc == 7;
+    const bool joint = argc > 4;
     const auto roi = std::stoull(argv[argc - 1]);
     std::vector<gzFile> files;
     for (int i = 1; i < argc - 1; ++i) {
@@ -61,7 +61,7 @@ int main(int argc, char **argv) {
     }
     std::vector<Chunk> chunks(files.size(), Chunk(capacity));
     if (joint)
-        std::cout << "quarter,stride,multi,spp,temporal,operands\n";
+        std::cout << (argc == 7 ? "quarter,stride,multi,spp,temporal,operands\n" : "quarter,stride,multi,spp,operands\n");
     else
         std::cout << "quarter,nopf_status,arm_status,operands\n";
     for (unsigned phase = 0; phase < 4; ++phase) {
@@ -84,7 +84,7 @@ int main(int argc, char **argv) {
             if (!counts[cell])
                 continue;
             std::cout << phase;
-            const int high = joint ? 12 : 4;
+            const int high = joint ? 4 * (argc - 4) : 4;
             for (int shift = high; shift >= 0; shift -= 4)
                 std::cout << ',' << ((cell >> shift) & 15);
             std::cout << ',' << counts[cell] << '\n';

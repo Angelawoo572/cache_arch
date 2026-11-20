@@ -1,0 +1,12 @@
+case,family,source,bytes,url,purpose
+gcc734,SPEC17,602.gcc_s-734B.champsimtrace.xz,368694692,https://traces.rbera.com/dpc4/SPEC17/602.gcc_s-734B.champsimtrace.xz,compiler
+cc5,Graph,cc-5.trace.gz,555821282,https://traces.rbera.com/dpc4/Graph/GAP/cc-5.trace.gz,graph components
+cactus2421,SPEC17,607.cactuBSSN_s-2421B.champsimtrace.xz,257158316,https://traces.rbera.com/dpc4/SPEC17/607.cactuBSSN_s-2421B.champsimtrace.xz,grid
+bc3,Graph,bc-3.trace.gz,575763762,https://traces.rbera.com/dpc4/Graph/GAP/bc-3.trace.gz,graph centrality
+omnet874,SPEC17,620.omnetpp_s-874B.champsimtrace.xz,802283392,https://traces.rbera.com/dpc4/SPEC17/620.omnetpp_s-874B.champsimtrace.xz,event simulation
+xalan700,SPEC17,623.xalancbmk_s-700B.champsimtrace.xz,160985836,https://traces.rbera.com/dpc4/SPEC17/623.xalancbmk_s-700B.champsimtrace.xz,tree processing
+pr14,Graph,pr-14.trace.gz,738407135,https://traces.rbera.com/dpc4/Graph/GAP/pr-14.trace.gz,PageRank recording transfer
+astar42,SPEC06,473.astar-42B.champsimtrace.xz,1025657132,https://zenodo.org/api/records/10959705/files/473.astar-42B.champsimtrace.xz/content,path finding
+omnet188,SPEC06,471.omnetpp-188B.champsimtrace.xz,1049174484,https://zenodo.org/api/records/10959705/files/471.omnetpp-188B.champsimtrace.xz/content,older binary
+soplex247,SPEC06,450.soplex-247B.champsimtrace.xz,705979628,https://zenodo.org/api/records/10959705/files/450.soplex-247B.champsimtrace.xz/content,sparse solver recording transfer
+mcf51,SPEC06,429.mcf-51B.champsimtrace.xz,1376655480,https://zenodo.org/api/records/10959705/files/429.mcf-51B.champsimtrace.xz/content,MCF recording transfer

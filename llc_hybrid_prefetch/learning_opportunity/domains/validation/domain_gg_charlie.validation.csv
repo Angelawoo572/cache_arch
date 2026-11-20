@@ -1,0 +1,2 @@
+case,compressed_bytes,materialized_start,source_records,materialized_records,branches,taken,load_instructions,load_slot_0,load_slot_1,load_slot_2,load_slot_3,store_slot_0,store_slot_1,source_reg_slot_0,source_reg_slot_1,source_reg_slot_2,source_reg_slot_3,dest_reg_slot_0,dest_reg_slot_1
+domain_gg_charlie,2126614170,0,579604513,250001024,109080463,32158587,143685025,143685025,0,0,0,70926956,0,554702039,250458016,12069584,1024673,516440946,115619509
