@@ -1,5 +1,13 @@
 # cache_arch
 
+## LLC prefetcher study
+
+This branch studies when a shared LLC prefetcher can predict useful physical lines early enough to reduce execution time. Start with the full SPEC and GAP runs. Earlier studies cover workload screening, miss-to-hit transitions and conventional controls.
+
+[Full-scale study](llc_hybrid_prefetch/full_workload/README.md) · [Figure gallery](llc_hybrid_prefetch/full_workload/figures/README.md) · [Trace and raw-data references](llc_hybrid_prefetch/full_workload/data/README.md) · [Earlier LLC experiments](llc_hybrid_prefetch/README.md)
+
+## Earlier 602 studies
+
 - **[Read the project overview and completed results](RESULTS_INDEX.md).** Four native prefetchers versus frozen H8/H16 NN students: IPC, accuracy, coverage, timeliness and Pareto trade-offs, with evidence and limits.
 - [Current figures and CSVs](formal_study/results/602_width_templates/README.md) · [Experiment code and model contracts](formal_NN_training/experiments/) · [Layout and recovery](docs/602_width_templates/LAYOUT_AND_RECOVERY.md)
-- `main` is the shared GitHub/local reading branch. Full raw runs, traces and builds remain inside the local and Sacramento cache roots; exact paths are in the overview.
+- The earlier 602 studies use `main` as their reading branch. Their overview lists the local and Sacramento paths for full runs, traces and builds.

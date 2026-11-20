@@ -1,5 +1,7 @@
 # Full instruction recordings and evaluation windows
 
+[Exact archive and simulator input paths](../data/trace_files.csv) · [Where the data live](../data/README.md)
+
 The early roster pairs two generations of MCF with graph traversal and PageRank. It tests changes of program generation, recording, and implementation with affordable two-core simulations. Each row in [selection.csv](selection.csv) identifies a complete, downloadable compressed object, its published byte count, source URL, selection rule and evaluation role. The seven files cover five named program/suite combinations across three suites. There are no workload weights that justify estimating a whole-suite average.
 
 ## How the recordings were selected

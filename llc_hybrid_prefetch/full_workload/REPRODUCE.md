@@ -1,6 +1,6 @@
 # Reproduce the complete-recording evaluation
 
-Run from the repository root on the experimental branch. On the original Mac start with `source .runtime/project_env.sh` to place temporary files and caches under the cache project. Requirements include Git, CMake, Make, a C++17 compiler, zlib, curl, gzip, xz, Python 3.10 or later, NumPy and Matplotlib. The native scripts use the original Pythia two-core source and the project's existing conventional controls. Recordings and raw simulator products live under this study's `raw/` folder. The branch stores source, small machine-readable measurements, and reproduction instructions.
+Run from the repository root on the experimental branch. On the original Mac start with `source .runtime/project_env.sh` to place temporary files and caches under the cache project. Requirements include Git, CMake, Make, a C++17 compiler, zlib, curl, gzip, xz, Python 3.10 or later, NumPy and Matplotlib. The native scripts use the original Pythia two-core source and the project's existing conventional controls. The [data index](data/README.md) gives the exact retained recordings, simulator inputs and raw outputs. The [figure gallery](figures/README.md#regenerate) lists the plotting commands.
 
 1. Follow [intake](intake/README.md) to download and verify compressed sources and create the registered native views. Use `intake/prepare.py pr_heldout_entire` for the additional complete PageRank view. Validation must finish before using a newly materialized input.
 2. Follow [native build and validation](native/README.md) to reproduce baseline compatibility and the far-window placement control. The following commands run the main windows and the independent full-recording extension:
@@ -22,7 +22,6 @@ python3 -B "$p/interference/measure.py"
 ```sh
 python3 -B "$p/streams/address_relations.py"
 python3 -B "$p/streams/audit_first_reference.py"
-python3 -B "$p/figures/plot.py"
 ```
 
 4. For an independent platform repeat, build and run on Linux, then compare configuration, pages, quarters, native statistics and all dynamic outcome words using [the cross-host procedure](verification/README.md). Host execution time can change with CPU or job concurrency; the comparison uses simulated cycles and events.

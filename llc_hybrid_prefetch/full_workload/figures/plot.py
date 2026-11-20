@@ -34,7 +34,7 @@ def main():
     plt.rcParams.update(
         {"font.size": 10, "svg.fonttype": "none", "svg.hashsalt": "full-workload"}
     )
-    fig, axes = plt.subplots(1, 2, sharey=True, figsize=(11, 5.6), layout="constrained")
+    fig, axes = plt.subplots(1, 2, sharey=True, figsize=(12, 7.2), layout="constrained")
     for ax, field, title in zip(
         axes,
         ("timely_coverage", "time_reduction_vs_nopf"),
@@ -49,8 +49,15 @@ def main():
         ax.axvline(0, color="#686868", linewidth=0.8)
         for j, (policy, (label, color, marker)) in enumerate(STYLE.items()):
             xs = [100 * float(rows[c, policy][field]) for c in LABELS]
-            ys = [i + (j - 1.5) * 0.115 for i in range(len(xs))]
+            ys = [i + (j - 1.5) * 0.19 for i in range(len(xs))]
             ax.scatter(xs, ys, marker=marker, s=30, color=color, label=label, zorder=3)
+            for value, y in zip(xs, ys):
+                ax.annotate(
+                    f"{value:.2f}%", (value, y), xytext=(5, 0),
+                    textcoords="offset points", va="center", fontsize=7, color=color,
+                )
+        margin = 0.14
+        ax.margins(x=margin, y=0.035)
         ax.set_yticks(range(len(LABELS)), LABELS.values())
         ax.tick_params(axis="y", length=0)
         ax.set_title(title, loc="left", fontsize=11, pad=10)

@@ -2,7 +2,19 @@
 
 Can machine learning exploit temporal, spatial and cross-instruction correlations to predict useful physical cache lines that a conventional prefetcher misses or predicts too late? Can a hybrid turn those predictions into additional timely first hits and lower fixed-work execution time at a practical cost in latency, traffic, capacity and hardware?
 
-[Full-workload evaluation](full_workload/README.md) · [DPC4 workload expansion and pattern discovery](workload_expansion/README.md) · [Original miss-to-hit sequences, prediction lead and performance](transition_study/README.md) · [Original measurements and paired examples](MEASUREMENTS.md) · [Expanded workload and conventional controls](opportunity_study/README.md)
+## Start here
+
+| Study | What it covers |
+|---|---|
+| [Full-scale SPEC and GAP evaluation](full_workload/README.md) | Latest measured results for NoPF, Stride, Multi-delta, SPP and Temporal. Includes a complete PageRank recording and a Linux repeat. |
+| [Figure gallery](full_workload/figures/README.md) | Annotated performance, cache and prefetch metrics, and Pareto comparisons. |
+| [Trace and raw-data references](full_workload/data/README.md) | Source archives, exact input views and simulator output paths on the Mac and Sacramento. |
+| [DPC4 workload screening](workload_expansion/README.md) | Earlier Google, SPEC, Graph and AI/ML window comparisons and address patterns. |
+| [Miss-to-hit transition study](transition_study/README.md) | Earlier LBM, BFS and synthetic timing and replay results. |
+| [Architectural opportunity study](opportunity_study/README.md) | Earlier page-history, cross-page and conventional-control experiments. |
+| [Original baseline measurements](MEASUREMENTS.md) | Initial paired workloads, metric definitions and measured examples. |
+
+The sections below describe the original NoPF and Stride study.
 
 ## A. Research question
 

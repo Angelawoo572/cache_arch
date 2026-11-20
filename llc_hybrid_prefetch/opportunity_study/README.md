@@ -1,18 +1,17 @@
 # Architectural opportunities for a learned–conventional LLC prefetcher
 
-项目关注 ML 能否更早、更准确地生成有用的预取地址，并在有限资源下缩短执行时间。[当前研究](../transition_study/README.md) 从完整的 NoPF/Stride 对齐序列出发，比较条件模式、预测距离和跨 context 泛化。以下是已完成的一组架构实验。
+This study tests whether LLC-visible history helps a prefetcher select physical addresses early enough to improve fixed-work performance. [Full-scale follow-up](../full_workload/README.md) · [Earlier aligned-stream study](../transition_study/README.md)
 
-这组实验找到了一个真实、可检验的历史线索。在 BFS-3 的后段，一条访问回到某个物理页时，取回**上一次访问该页的行偏移**，比只看当前访问更容易提前选中目标。其中两个实际 load 的页内偏移分别走了 `50 → 51 → 55` 和 `9 → 10 → 12`。Stride、next-line、多步长表和 SPP 都 miss，16 项的页历史在同一触发点及时预取成功。CactuBSSN 暴露了另一个问题：目标有时早已可预测，但同页 Stride 无权构造它；放宽物理页范围后，一个固定偏移已能获得显著部分收益。实际重放中，回查页偏移比只看当前访问多节省 21,596 个周期，但同发出机会的 next-line 又比它多节省了 7,037 个周期。两个例子共同要求先把「地址能否构造、能否提前识别、能否及时到达、程序能否更早结束」逐一验证。
+In a late BFS-3 interval, a 16-entry page-history table used the previous line offset when a page returned. Two example offset sequences were `50 → 51 → 55` and `9 → 10 → 12`. Page history issued the two targets in time from the same trigger where Stride, next-line, Multi-delta and SPP missed. It saved 21,596 more cycles than the current-access table across the interval. With the same issue slots, next-line saved another 7,037 cycles over page history. In CactuBSSN, a same-page Stride predictor could not form certain cross-page targets. With a legal cross-page range, a fixed physical offset recovered a substantial share of the gain. [BFS replay and request examples](page_memory/README.md) · [CactuBSSN placement results](physical_replay/placement_results.csv)
 
-| Report | What to read it for |
+| Report | Contents |
 |---|---|
-| [Architectural opportunities](reports/architectural_opportunities.md) | Real cue/target examples, timing and head waits, reach ceilings, fixed-work effects, and the claims the data support |
-| [Experiment methodology](reports/experiment_methodology.md) | Baseline audit, predictor-visible state, fixed-work definitions, implementation, tests and commands |
-| [History and feature study](history/history_feature_study.md) | Ordered vs shuffled 4–64-event summaries, transfers, support, physical address vocabularies and target-level samples |
-| [Conventional baselines](conventional/conventional_baselines.md) | Strong non-neural controls, matched degree and issue budgets, duplicates, real queueing and criticality interventions |
-| [ML mechanism exploration](reports/learned_memory_mechanisms.md) | What different forms of memory could add, relevant computer architecture and ML papers, hardware implications and falsifiers |
-| [Prioritized next experiments](reports/next_experiments.md) | The evidence table and the smallest experiments that would justify learned retention or retrieval |
+| [Architectural opportunities](reports/architectural_opportunities.md) | Matched target and cue examples, lead time, head waits, address reach and fixed-work effects |
+| [Experiment methodology](reports/experiment_methodology.md) | Baseline audit, predictor-visible state, implementation, tests and commands |
+| [History and feature study](history/history_feature_study.md) | Ordered and shuffled 4–64-event histories, transfer, support and physical address vocabularies |
+| [Conventional baselines](conventional/conventional_baselines.md) | Matched degree and issue budgets, duplicate checks, queueing and criticality interventions |
+| [Learned memory mechanisms](reports/learned_memory_mechanisms.md) | Prior work, candidate mechanisms, hardware costs and falsifiable tests |
+| [Next experiments](reports/next_experiments.md) | Evidence and minimal tests for learned retention or retrieval |
+| [Workload runs](workloads/README.md) | 31 paired cases, trace sources and commands |
 
-[原生页历史重放](page_memory/README.md) · [31 paired workload cases](workloads/README.md) · [Native selective-cue results](deadlines/replay_results.csv) · [CactuBSSN physical-layout replay](physical_replay/placement_results.csv) · [Original 48-run baseline study](../MEASUREMENTS.md)
-
-The reference simulator, prior measurements and analyses remain in the parent project. This study's sources, configuration, tests and compact data products are here. Local and Sacramento raw traces and logs are under this study's own raw directory. The research branch contains the material needed to inspect and reproduce the comparisons. No neural model is part of these runs.
+The scripts, configurations and compact results are in this directory. Under both cache roots, `llc_hybrid_prefetch/opportunity_study/raw/traces` contains input views and `raw/runs`, `raw/page_memory` and `raw/physical_runs` contain simulator artifacts relative to the study. Follow the workload and individual experiment guides for provenance and exact paths. [Selective-cue results](deadlines/replay_results.csv) · [Original 48-run baseline](../MEASUREMENTS.md)

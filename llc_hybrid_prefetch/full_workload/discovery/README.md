@@ -1,5 +1,7 @@
 # Full-workload pattern discovery and replay
 
+[Replay figures](../figures/README.md#trade-offs-and-request-timing) · [Raw replay directories and inputs](../data/run_files.csv)
+
 [FINDINGS.md](FINDINGS.md) reports dynamic examples, late-to-timely conversions, displaced native offers, changes in timely usefulness, retained work and cross-phase generalization. [protocol.md](protocol.md) specifies scope, split, timing reference, legal actions, table budget and the late exploratory ablation. The native structural rule independently generates one physical-line address on eligible slots. It was frozen on two existing discovery prefixes before collection of the new results.
 
 ## Reproduction

@@ -1,5 +1,7 @@
 # Full-scale conventional LLC measurements
 
+[Figure gallery](../figures/README.md#baseline-performance-and-cache-behavior) · [Trace and raw run locations](../data/README.md)
+
 The principal endpoint is the retirement time of fixed work. For each independently registered source view, one core of the existing two-core processor warms for 50 million instructions and retires 200 million more. All five policies run the same demand-only warmup with their usual observation/training enabled where applicable. Actual prefetch issue starts in the measured interval. The inherited fast warmup enables normal cache and pipeline latencies at the synchronized measurement barrier. The early and far panels of BFS-3 and MCF-472B have separate warmups. A panel is a measured interval of its named complete source recording. Multiple intervals from one recording share program and input provenance.
 
 ## Machine and policy controls
