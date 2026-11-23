@@ -1,0 +1,26 @@
+gap_bc_kron20 +300000000, arm fast: residual targets 472074, stall 77713299 cycles
+
+relations by value-derived residual stall
+   85.9% of residual stall: address = (value << 3) + 0x82ac70, 2 micro-ops apart; reached: stepped 100%, same line 89%, fill tap 100%, any 100%; producer missed L1D 2%, producer is a same-PC delta 99%
+      value loaded at 0x4043e1: 4043e4:	lea    0x0(%r13,%rax,4),%rsi | 4043e9:	mov    (%rsi),%ecx
+      used at       0x4043ca: 4043ca:	movsd  (%rax),%xmm0 | 4043ce:	addsd  (%rcx,%r15,1),%xmm0
+    9.4% of residual stall: address = (value << 2) + 0x17e9050, 2 micro-ops apart; reached: stepped 100%, same line 53%, fill tap 98%, any 100%; producer missed L1D 7%, producer is a same-PC delta 96%
+      value loaded at 0x4043e1: 4043e4:	lea    0x0(%r13,%rax,4),%rsi | 4043e9:	mov    (%rsi),%ecx
+      used at       0x4043e9: 4043eb:	cmp    $0xffffffff,%ecx | 4043ee:	jne    404398 <_Z4PBFSRK8CSRGraphIiiLb1EEiR7pvectorIdER6BitmapRSt6vectorIPiSaIS9_EER12SlidingQueueIiE+0x168>
+    2.7% of residual stall: address = (value << 3) + 0x82ac70, 2 micro-ops apart; reached: stepped 12%, same line 90%, fill tap 100%, any 100%; producer missed L1D 0%, producer is a same-PC delta 0%
+      value loaded at 0x404411: 404414:	mov    0x0(%r13,%rax,4),%ecx | 404419:	.byte 0xe9
+      used at       0x4043ca: 4043ca:	movsd  (%rax),%xmm0 | 4043ce:	addsd  (%rcx,%r15,1),%xmm0
+    1.4% of residual stall: address = (value << 0) + 0x0, 0 micro-ops apart; reached: stepped 100%, same line 90%, fill tap 99%, any 100%; producer missed L1D 72%, producer is a same-PC delta 2%
+      value loaded at 0x40437c: 40437c:	mov    -0x8(%rcx,%rsi,1),%rbx | 404381:	lea    -0x8(%rsi),%r15
+      used at       0x4043e1: 4043e4:	lea    0x0(%r13,%rax,4),%rsi | 4043e9:	mov    (%rsi),%ecx
+    0.3% of residual stall: address = (value << 3) + 0x7fffee8e2018, 2 micro-ops apart; reached: stepped 100%, same line 82%, fill tap 99%, any 100%; producer missed L1D 13%, producer is a same-PC delta 100%
+      value loaded at 0x404369: 40436c:	add    $0x1,%rax | 404370:	rex.W
+      used at       0x404378: 40437c:	mov    -0x8(%rcx,%rsi,1),%rbx | 404381:	rex.WR
+
+class none: 0.1% of residual stall
+    0.1% at 0x4043c2: 4043c2:	or     %r14,(%rsi,%rdi,8) | 4043c6:	lea    (%rcx,%rax,8),%rax | 4043ca:	repnz | 4043cb:	.byte 0xf
+
+class same_pc_delta: 0.0% of residual stall
+    0.0% at 0x4043e1: 4043df:	je     404420 <_Z4PBFSRK8CSRGraphIiiLb1EEiR7pvectorIdER6BitmapRSt6vectorIPiSaIS9_EER12SlidingQueueIiE+0x1f0> | 4043e1:	movslq (%rbx),%rax | 4043e4:	lea    0x0(%r13,%rax,4),%rsi | 4043e9:	mov    (%rsi),%ecx
+    0.0% at 0x404378: 404370:	lea    0x0(,%rax,8),%rsi | 404378:	mov    (%rcx,%rax,8),%rbp | 40437c:	mov    -0x8(%rcx,%rsi,1),%rbx | 404381:	rex.WR
+    0.0% at 0x4043ca: 4043c2:	or     %r14,(%rsi,%rdi,8) | 4043c6:	lea    (%rcx,%rax,8),%rax | 4043ca:	movsd  (%rax),%xmm0 | 4043ce:	addsd  (%rcx,%r15,1),%xmm0

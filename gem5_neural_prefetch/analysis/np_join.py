@@ -32,6 +32,8 @@ class Arm:
         timing = self.capture.table("load_time")
         self.n = len(timing["seq"])
         self.seq = timing["seq"]
+        self.paddr = timing["paddr"]
+        self.t_fetch = timing["t_fetch"].astype(np.int64)
         self.t_issue = timing["t_issue"].astype(np.int64)
         self.t_data = timing["t_data"].astype(np.int64)
         self.t_head = timing["t_head"].astype(np.int64)
@@ -125,6 +127,26 @@ class Arm:
 
     def window_cycles(self):
         return (self.counts["finish_tick"] - self.counts["enable_tick"]) / self.period
+
+    def statistic(self, name):
+        """One number from gem5's own statistics of the measured window."""
+        text = (self.run_dir / "m5out" / "stats.txt").read_text()
+        text = text.rsplit("Begin Simulation Statistics", 1)[-1]
+        for line in text.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[0] == name:
+                return float(parts[1])
+        return None
+
+
+def aligned(a, b):
+    """V1: the two arms committed the same loads at the same addresses.
+
+    Load values are not compared. A program that reads a clock gets different
+    values in every arm, with the same addresses and control flow."""
+    return a.n == b.n and bool(np.array_equal(a.paddr, b.paddr)) and (
+        a.counts["committed_uops"] == b.counts["committed_uops"]
+    )
 
 
 def fast_outcome(fast, level):

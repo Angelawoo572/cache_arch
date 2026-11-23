@@ -15,6 +15,7 @@ Outputs go under gem5_neural_prefetch/raw/ (git-ignored):
 import argparse
 import json
 import os
+import resource
 import subprocess
 import sys
 import time
@@ -34,7 +35,17 @@ def workload(name):
     return REGISTRY[name]
 
 
-def launch(command, log_path):
+# A measured run needs about 2.3 GiB of address space: the 2 GiB simulated
+# memory and gem5 itself. The limit turns a run that grows without bound into
+# a quick failure instead of a threat to everyone else on the server.
+RUN_ADDRESS_SPACE = 4 << 30
+
+
+def limit_address_space():
+    resource.setrlimit(resource.RLIMIT_AS, (RUN_ADDRESS_SPACE, RUN_ADDRESS_SPACE))
+
+
+def launch(command, log_path, limit=False):
     """Run one gem5 process at the lowest priority from the cache root, so
     that relative paths in workload arguments resolve the same way everywhere."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -46,6 +57,7 @@ def launch(command, log_path):
             stdout=log,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
+            preexec_fn=limit_address_space if limit else None,
         )
     return code, time.time() - started
 
@@ -117,7 +129,7 @@ def run_arm(name, offset, arm, warmup, measure, with_uops, force, capture=True):
         command += ["--capture", out / "capture"]
         if not with_uops:
             command.append("--no-uops")
-    code, seconds = launch(command, out / "gem5.log")
+    code, seconds = launch(command, out / "gem5.log", limit=True)
     return label, "ok" if code == 0 and finished.exists() else f"FAILED ({code})", seconds
 
 

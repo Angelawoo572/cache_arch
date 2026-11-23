@@ -1,0 +1,28 @@
+gap_pr_urand20 +0, arm fast: residual targets 1356790, stall 37995401 cycles
+
+relations by value-derived residual stall
+   85.8% of residual stall: address = (value << 2) + 0x82bc50, 1 micro-ops apart; reached: stepped 100%, same line 89%, fill tap 99%, any 100%; producer missed L1D 1%, producer is a same-PC delta 100%
+      value loaded at 0x404438: 404438:	movslq (%rax),%rdx | 40443b:	add    $0x4,%rax
+      used at       0x40443f: 404444:	cmp    %rax,%rcx | 404447:	jne    404438 <_Z14PageRankPullGSRK8CSRGraphIiiLb1EEidb+0x168>
+    0.0% of residual stall: address = (value << 0) + 0x0, 0 micro-ops apart; reached: stepped 89%, same line 89%, fill tap 100%, any 100%; producer missed L1D 3%, producer is a same-PC delta 97%
+      value loaded at 0x404425: 404425:	mov    (%r9,%rsi,2),%rax | 404429:	pxor   %xmm0,%xmm0
+      used at       0x404438: 404438:	movslq (%rax),%rdx | 40443b:	add    $0x4,%rax
+    0.0% of residual stall: address = (value << 0) + 0x4, 1 micro-ops apart; reached: stepped 100%, same line 100%, fill tap 100%, any 100%; producer missed L1D 0%, producer is a same-PC delta 100%
+      value loaded at 0x404425: 404425:	mov    (%r9,%rsi,2),%rax | 404429:	pxor   %xmm0,%xmm0
+      used at       0x404438: 404438:	movslq (%rax),%rdx | 40443b:	add    $0x4,%rax
+    0.0% of residual stall: address = (value << 0) + 0x8, 2 micro-ops apart; reached: stepped 100%, same line 100%, fill tap 100%, any 100%; producer missed L1D 0%, producer is a same-PC delta 100%
+      value loaded at 0x404425: 404425:	mov    (%r9,%rsi,2),%rax | 404429:	pxor   %xmm0,%xmm0
+      used at       0x404438: 404438:	movslq (%rax),%rdx | 40443b:	add    $0x4,%rax
+    0.0% of residual stall: address = (value << 0) + 0x5c, 23 micro-ops apart; reached: stepped 100%, same line 100%, fill tap 100%, any 100%; producer missed L1D 0%, producer is a same-PC delta 100%
+      value loaded at 0x404425: 404425:	mov    (%r9,%rsi,2),%rax | 404429:	pxor   %xmm0,%xmm0
+      used at       0x404438: 404438:	movslq (%rax),%rdx | 40443b:	add    $0x4,%rax
+
+class none: 0.0% of residual stall
+    0.0% at 0x404420: 40441b:	nopl   0x0(%rax,%rax,1) | 404420:	mov    0x8(%r9,%rsi,2),%rcx | 404425:	mov    (%r9,%rsi,2),%rax | 404429:	data16
+    0.0% at 0x7ffff714b1b3: 
+    0.0% at 0x40437e: 404382:	cmp    %rdx,%rax | 404385:	.byte 0xf | 404386:	.byte 0x87 | 404387:	.byte 0xa2
+
+class same_pc_delta: 14.2% of residual stall
+   14.1% at 0x4043b0: 4043aa:	nopw   0x0(%rax,%rax,1) | 4043b0:	mov    0x8(%rcx,%rdx,8),%rax | 4043b5:	sub    (%rcx,%rdx,8),%rax | 4043b9:	data16
+    0.0% at 0x404438: 40443b:	add    $0x4,%rax | 40443f:	repz | 404440:	.byte 0xf | 404441:	pop    %rax
+    0.0% at 0x404420: 40441b:	nopl   0x0(%rax,%rax,1) | 404420:	mov    0x8(%r9,%rsi,2),%rcx | 404425:	mov    (%r9,%rsi,2),%rax | 404429:	data16

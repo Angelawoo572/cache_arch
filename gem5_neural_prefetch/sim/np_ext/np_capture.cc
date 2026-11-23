@@ -248,8 +248,10 @@ NpCapture::finish()
                  (unsigned long long)storeCount);
     std::fprintf(out, "  \"stores_pending_at_finish\": %llu,\n",
                  (unsigned long long)pendingStores.size());
-    std::fprintf(out, "  \"v1_load_hash\": \"%016llx\",\n",
+    std::fprintf(out, "  \"v1_address_hash\": \"%016llx\",\n",
                  (unsigned long long)v1Hash);
+    std::fprintf(out, "  \"load_value_hash\": \"%016llx\",\n",
+                 (unsigned long long)valueHash);
     std::fprintf(out, "  \"rows\": {");
     bool first = true;
     for (NpStream *s : {&sUop, &sLoad, &sStore, &sLoadTime, &sCache,
@@ -358,10 +360,13 @@ NpCapture::onCommit(const DynInstPtr &inst)
                 sLoad.append({uopCount, pc_addr, inst->effAddr, size_flags,
                               value});
             }
+            // Two hashes: which loads ran and where they pointed, and
+            // what they read. A program that reads a clock keeps the first
+            // equal across arms and not the second.
             fnv1a(v1Hash, pc_addr);
             fnv1a(v1Hash, inst->effAddr);
-            fnv1a(v1Hash, size_flags);
-            fnv1a(v1Hash, value);
+            fnv1a(v1Hash, size_flags & 0x3ff);
+            fnv1a(valueHash, value);
 
             Tick t_data = 0;
             uint64_t service = 0;
@@ -497,6 +502,10 @@ NpCapture::cacheEvent(int level, unsigned event,
     // that level's hit and miss probes fire for it like for any other.
     if (pkt->isEviction())
         code |= 1ULL << 13;
+    // A store to a line it may not yet write sends an upgrade, which gem5
+    // counts apart from its demand accesses.
+    if (pkt->isUpgrade())
+        code |= 1ULL << 14;
     code |= (uint64_t(req->requestorId()) & 0xffff) << 16;
 
     // An ordinary L1D hit says nothing a missing S6 row does not already

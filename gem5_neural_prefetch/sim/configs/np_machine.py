@@ -4,6 +4,7 @@ One x86-64 core in syscall-emulation mode, three levels of classic cache and
 one DDR4 channel. An arm chooses which conventional prefetchers are present.
 """
 
+import m5.objects
 from m5.objects import (
     AMPMPrefetcher,
     BadAddr,
@@ -53,6 +54,13 @@ ARMS = {
     "nopf": {"l1d": None, "l2": None},
     "stride": {"l1d": "stride", "l2": None},
     "fast": {"l1d": "stride", "l2": "spp"},
+    # The same machine as "fast", kept under a second name so that a run with
+    # the bounded signature-path class can sit next to an earlier run with
+    # gem5's own class and be compared with it (np_validate.py bound).
+    "fastcheck": {"l1d": "stride", "l2": "spp"},
+    # Likewise a second name for "stride", for a rerun that also records the
+    # architectural streams (np_validate.py values).
+    "stridecheck": {"l1d": "stride", "l2": None},
     "bop": {"l1d": "stride", "l2": "bop"},
     "ampm": {"l1d": "stride", "l2": "ampm"},
     "imp": {"l1d": "imp", "l2": None},
@@ -77,13 +85,22 @@ CACHES = {
 }
 
 
+# gem5's signature-path prefetcher with a bound on one lookahead walk, from
+# this study's extension directory (np_ext/np_spp_guard.hh). The stock class
+# can walk without end. A gem5 built without the extension has only the stock
+# class; every run records which one it used.
+SPP_CLASS = getattr(
+    m5.objects, "NpSignaturePathPrefetcherV2", SignaturePathPrefetcherV2
+)
+
+
 def make_prefetcher(kind):
     if kind is None:
         return NULL
     if kind == "stride":
         return StridePrefetcher()
     if kind == "spp":
-        return SignaturePathPrefetcherV2()
+        return SPP_CLASS()
     if kind == "bop":
         return BOPPrefetcher()
     if kind == "ampm":

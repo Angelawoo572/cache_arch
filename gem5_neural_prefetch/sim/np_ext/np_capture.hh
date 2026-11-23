@@ -108,6 +108,7 @@ class NpCapture : public ProbeListenerObject
     uint64_t loadCount = 0;
     uint64_t storeCount = 0;
     uint64_t v1Hash = 14695981039346656037ULL;
+    uint64_t valueHash = 14695981039346656037ULL;
     Tick enableTick = 0;
     Tick lastCommitTick = 0;
 

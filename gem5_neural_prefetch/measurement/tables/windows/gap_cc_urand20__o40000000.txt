@@ -1,0 +1,26 @@
+gap_cc_urand20 +40000000, arm fast: residual targets 77474, stall 8872341 cycles
+
+relations by value-derived residual stall
+   55.7% of residual stall: address = (value << 2) + 0x42abe0, 1 micro-ops apart; reached: stepped 100%, same line 80%, fill tap 100%, any 100%; producer missed L1D 44%, producer is a same-PC delta 5%
+      value loaded at 0x4047cb: 4047cd:	mov    %rbp,%rdx | 4047d0:	call   404150 <_Z4LinkiiR7pvectorIiE>
+      used at       0x40415d: 404163:	je     4041b0 <_Z4LinkiiR7pvectorIiE+0x60> | 404165:	mov    %eax,%ecx
+   33.8% of residual stall: address = (value << 0) + 0x4, 1 micro-ops apart; reached: stepped 100%, same line 83%, fill tap 100%, any 100%; producer missed L1D 0%, producer is a same-PC delta 100%
+      value loaded at 0x4047ac: 4047ac:	mov    -0x8(%rax,%r11,8),%rcx | 4047b1:	mov    %rdx,%rax
+      used at       0x4047cb: 4047cd:	mov    %rbp,%rdx | 4047d0:	call   404150 <_Z4LinkiiR7pvectorIiE>
+    2.5% of residual stall: address = (value << 2) + 0x42abe0, 3 micro-ops apart; reached: stepped 100%, same line 98%, fill tap 99%, any 100%; producer missed L1D 0%, producer is a same-PC delta 100%
+      value loaded at 0x404159: 404159:	mov    (%r8,%rdi,4),%edx | 40415d:	mov    (%r8,%rsi,4),%eax
+      used at       0x404175: 40417a:	jne    4041a5 <_Z4LinkiiR7pvectorIiE+0x55> | 40417c:	jmp    4041b0 <_Z4LinkiiR7pvectorIiE+0x60>
+    2.5% of residual stall: address = (value << 2) + 0x42abe0, 1 micro-ops apart; reached: stepped 72%, same line 8%, fill tap 75%, any 84%; producer missed L1D 3%, producer is a same-PC delta 100%
+      value loaded at 0x4047f8: 4047fb:	mov    %rax,%rdx | 4047fe:	mov    (%rsi,%rax,4),%eax
+      used at       0x4047fe: 404805:	jmp    40481e <_Z8AfforestRK8CSRGraphIiiLb1EEbi+0x10e> | 404807:	data16
+    1.8% of residual stall: address = (value << 2) + 0x42abe0, 5 micro-ops apart; reached: stepped 100%, same line 94%, fill tap 99%, any 100%; producer missed L1D 74%, producer is a same-PC delta 0%
+      value loaded at 0x40415d: 404163:	je     4041b0 <_Z4LinkiiR7pvectorIiE+0x60> | 404165:	mov    %eax,%ecx
+      used at       0x404175: 40417a:	jne    4041a5 <_Z4LinkiiR7pvectorIiE+0x55> | 40417c:	jmp    4041b0 <_Z4LinkiiR7pvectorIiE+0x60>
+
+class none: 0.0% of residual stall
+    0.0% at 0x4047a8: 4047a4:	lea    0x1(%rdi),%r11 | 4047a8:	mov    (%rax,%r11,8),%rdx | 4047ac:	mov    -0x8(%rax,%r11,8),%rcx | 4047b1:	rex.W
+
+class same_pc_delta: 4.5% of residual stall
+    2.8% at 0x4047f8: 4047f8:	movslq (%rcx),%rax | 4047fb:	mov    %rax,%rdx | 4047fe:	mov    (%rsi,%rax,4),%eax | 404801:	.byte 0x39
+    1.5% at 0x4047cb: 4047c9:	je     4047d9 <_Z8AfforestRK8CSRGraphIiiLb1EEbi+0xc9> | 4047cb:	mov    (%rax),%esi | 4047cd:	mov    %rbp,%rdx | 4047d0:	call   404150 <_Z4LinkiiR7pvectorIiE>
+    0.2% at 0x4047a8: 4047a4:	lea    0x1(%rdi),%r11 | 4047a8:	mov    (%rax,%r11,8),%rdx | 4047ac:	mov    -0x8(%rax,%r11,8),%rcx | 4047b1:	rex.W

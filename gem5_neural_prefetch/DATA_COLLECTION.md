@@ -2,13 +2,13 @@
 
 This file says what the gem5 capture records, when each field becomes visible to hardware, and how the capture is validated. The [design memo](README.md) explains why each stream exists.
 
-The first capture is [`sim/np_ext/np_capture.cc`](sim/np_ext/np_capture.cc). It records S1 to S4, S6 and S8 with probe listeners only and changes no gem5 source file. S5, S7, S9 and S10 are specified here and not recorded yet.
+The capture is [`sim/np_ext/np_capture.cc`](sim/np_ext/np_capture.cc). It records S1 to S4, S6 and S8 with probe listeners only and changes no gem5 source file. S5, S7, S9 and S10 are specified here and not recorded yet. The captures taken with it, their validation and what they show are in the [measurement findings](measurement/FINDINGS.md).
 
 ## Conventions
 
 - **Time.** gem5 ticks. The manifest stores the core clock period in ticks. Cycles are ticks divided by that period.
 - **Region.** Each run restores a checkpoint, warms up for a fixed number of committed instructions, then measures a fixed number. Windows are chosen before any result is seen. The capture object counts committed instructions itself and opens and closes the window on exact instruction boundaries, so every arm records the same instructions whatever its timing. gem5's own statistics are reset and dumped at the nearest cycle boundaries, which can differ by a few instructions.
-- **Arms.** `nopf` disables every prefetcher. `fast` enables the conventional prefetchers only. `oracle` and `learned` come in later stages. All arms use the same binary, input, checkpoint and region, on one thread.
+- **Arms.** `nopf` disables every prefetcher. `fast` enables an L1D stride prefetcher and an L2 signature-path prefetcher. `stride`, `bop` and `ampm` are other conventional configurations, listed in the [simulator README](sim/README.md). `oracle` and `learned` come in later stages. All arms use the same binary, input, checkpoint and region, on one thread.
 - **Keys.** `uop` is the zero-based index of a committed micro-op in the measured region. `ld` is the zero-based index among committed loads, which is the row index of S2. Both are the same in every arm. `seq` is gem5's dynamic sequence number. It also counts squashed micro-ops, so it is valid inside one arm only.
 - **Addresses.** Byte addresses, virtual and physical. A line is `address >> 6`.
 - **Files.** Each stream is `<name>.u64le.gz`: fixed-width rows of little-endian unsigned 64-bit integers in independent gzip members of 32,768 rows, with `<name>.index.csv` giving `first_row`, `rows`, `byte_offset` and `compressed_bytes` per member. The existing ChampSim captures use this layout, so their [indexed reader](../llc_hybrid_prefetch/learning_opportunity/capture/access.py) pattern applies.
@@ -43,7 +43,7 @@ Packed fields. Bit 0 is the least significant.
 | S2, S3 `size_flags` | Bits 0–7 access size in bytes. Bit 8 the access spans two lines. Bit 9 the value is truncated to its first 8 bytes. Bit 10 no data was read, as for a software prefetch. |
 | S2, S3 `value` | The bytes read or written, little-endian, zero-extended. |
 | S4 `service` | Bit 0 the data came back from the cache. Clear means a store forwarded it. The level that served a load, first use of a prefetched line and merging into a prefetch in flight are derived from S6 through `seq`. |
-| S6 `code` | Bits 0–3 level: 1 L1D, 2 L2, 3 LLC. Bits 4–7 event: 1 hit, 2 miss, 4 fill. Bit 8 a hit that is the first use of a prefetched line. Bit 9 the packet is a hardware prefetch, or for a fill, answers one. Bit 10 write. Bit 11 instruction fetch. Bit 12 software prefetch. Bit 13 an eviction or writeback announced by the level above, which fires that level's hit or miss probe like any request. Bits 16–31 gem5's requestor id. An ordinary L1D hit is not recorded: a load with no L1D row hit there. |
+| S6 `code` | Bits 0–3 level: 1 L1D, 2 L2, 3 LLC. Bits 4–7 event: 1 hit, 2 miss, 4 fill. Bit 8 a hit that is the first use of a prefetched line. Bit 9 the packet is a hardware prefetch, or for a fill, answers one. Bit 10 write. Bit 11 instruction fetch. Bit 12 software prefetch. Bit 13 an eviction or writeback announced by the level above, which fires that level's hit or miss probe like any request. Bit 14 an upgrade request from a store, which gem5 counts apart from demand accesses. Bits 16–31 gem5's requestor id. An ordinary L1D hit is not recorded: a load with no L1D row hit there. |
 | S6 `who`, `pc` | The `seq` and PC of the instruction behind the request. Zero when the request carries none, as most prefetches do. |
 | S7 `code` | Bits 0–7 unit: 1–15 conventional prefetchers in configuration order, 16 traversal unit. Bits 8–15 stage: 1 identified, 2 dropped, 3 queued, 4 issued, 5 filled, 6 first use, 7 evicted unused, 8 unresolved at the end of the region. Bits 16–23 reason. For a drop: 1 in cache, 2 in flight, 3 already queued, 4 queue full, 5 page crossing, 6 translation failed, 7 budget. For a first use: 1 timely, 2 late. |
 | S7 `line` | Line number. Bit 63 is set when it is physical. |
@@ -51,7 +51,9 @@ Packed fields. Bit 0 is the least significant.
 
 `t_issue` is the first tick at which the load left the issue queue. `t_data` is the tick at which its data returned, from the cache or from a forwarding store. `t_head` is the tick at which the load became the oldest micro-op in the reorder buffer, which is the commit tick of the micro-op before it. Stall weight is derived, not stored: `max(0, t_data − t_head)`, the time the load sat at the reorder-buffer head before its data returned. Only one micro-op is at the head at a time, so these intervals do not overlap.
 
-Each run folder also holds `complete.json` with the gem5 version and commit, build variant, hash of the configuration script, hashes of the binary and input, checkpoint identifier, warm-up and measured instruction counts, clock period, cache and prefetcher parameters, unit ids, row counts per stream and the V1 hash. `capture_validation.json` is written only after checks V1 to V5 pass for that run.
+Each run folder also holds two small files. `capture/capture_counts.json` has the row count of every stream, the committed instructions, micro-ops, loads and stores, the ticks at which the window opened and closed, and hashes of the load stream. `m5out/run_info.json` has the binary and its arguments, the checkpoint, the arm and its prefetchers, the signature-path class used, the warm-up and measured instruction counts, the clock period, and the cache and core sizes. `gem5.log` records the gem5 version and build time. Validation results are not written per run: they are the tables `measurement/tables/validation*.csv`.
+
+Captures written before the rebuild of 23 November 2026 differ in two details. They hash load addresses and values together in one field, `v1_load_hash`, where later ones have `v1_address_hash` and `load_value_hash`. And they do not set bit 14 of the S6 code. The analysis reads both.
 
 ## When each field becomes visible
 
@@ -72,7 +74,7 @@ Never an input: a record with a later visible time. The `nopf` or `fast` outcome
 
 ## gem5 hooks
 
-Identifiers below were read in the gem5 source at stable release 26.0.0.0, commit [`9d36889`](https://github.com/gem5/gem5/tree/9d368896ce119c17e1289dcbb18f33624724b843), on 22 November 2026. Nothing was compiled or run, so run-time behaviour is confirmed in Stage 0. Use 25.1 or later: the 23.0, 24.1 and 25.0 releases assign the fetch and commit ticks only in tracing builds with a debug flag set.
+Identifiers below were read in the gem5 source at stable release 26.0.0.0, commit [`9d36889`](https://github.com/gem5/gem5/tree/9d368896ce119c17e1289dcbb18f33624724b843), on 22 November 2026. The hooks for S1 to S4, S6 and S8 have since been built and run, and the traps at the end of this section include what running them showed. Use 25.1 or later: the 23.0, 24.1 and 25.0 releases assign the fetch and commit ticks only in tracing builds with a debug flag set.
 
 | Stream | Hook | Upstream today, or patch |
 |---|---|---|
@@ -89,7 +91,7 @@ Identifiers below were read in the gem5 source at stable release 26.0.0.0, commi
 
 Source files for these hooks at that commit: [`src/cpu/o3/commit.cc`](https://github.com/gem5/gem5/blob/9d368896ce119c17e1289dcbb18f33624724b843/src/cpu/o3/commit.cc) · [`src/cpu/o3/lsq_unit.cc`](https://github.com/gem5/gem5/blob/9d368896ce119c17e1289dcbb18f33624724b843/src/cpu/o3/lsq_unit.cc) · [`src/cpu/o3/dyn_inst.hh`](https://github.com/gem5/gem5/blob/9d368896ce119c17e1289dcbb18f33624724b843/src/cpu/o3/dyn_inst.hh) · [`src/mem/cache/base.cc`](https://github.com/gem5/gem5/blob/9d368896ce119c17e1289dcbb18f33624724b843/src/mem/cache/base.cc) · [`src/mem/cache/cache_probe_arg.hh`](https://github.com/gem5/gem5/blob/9d368896ce119c17e1289dcbb18f33624724b843/src/mem/cache/cache_probe_arg.hh) · [`src/mem/cache/prefetch/queued.cc`](https://github.com/gem5/gem5/blob/9d368896ce119c17e1289dcbb18f33624724b843/src/mem/cache/prefetch/queued.cc)
 
-Traps found while reading the source:
+Traps found while reading the source and while running it:
 
 - **Listener types.** A listener's argument type must equal the probe point's exactly, or gem5 stops with a "Wrong type of listener" panic.
 - **`"Data Update"` does not carry the line.** It builds its `oldData` and `newData` vectors from the first eight bytes of the block, one byte per element, so seven eighths of the line are missing. Line contents come from the `"Fill"` packet.
@@ -103,7 +105,13 @@ Traps found while reading the source:
 - **Classic caches only.** The hit, miss and fill probes fire only in the classic cache model in timing mode. The stock GAPBS, NPB and SPEC scripts use Ruby caches, so this capture needs its own configuration with classic caches and the O3 CPU.
 - **Which level served a load.** `Request::getAccessDepth()` exists, but no caller that increments it was found. `service` is therefore derived from S6.
 - **ElasticTrace is a reference, not a substitute.** It tracks producer-to-consumer register dependences at rename through the same probes, but records no values and no register identities, and it skips split requests. Its rename bookkeeping is the model for the Stage 3 dependence tag.
-- **The upstream indirect-memory prefetcher needs a check.** Read by inspection, its generation loop appears to push the same address on every iteration. Confirm its behaviour before using it as a baseline.
+- **The upstream indirect-memory prefetcher does not run.** With `prefetch_on_access=True` gem5 26.0 stops with `PrefetchInfo::get called with a request with no data` at the first index it reads. A read hit is still a request when the prefetcher is notified, the request command carries no data flag, and since this release the notification then holds no data. Read by inspection, the prefetcher's generation loop also pushes the address of the current index on every iteration instead of looking ahead. It is not a usable baseline as shipped.
+- **The upstream signature-path prefetcher can walk without end.** Its lookahead continues while a confidence stays above a threshold. Version 2 multiplies the confidence at each step by useful over issued prefetches and by a counter ratio. When both are 1 the confidence never falls, the walk never ends, the simulator stops advancing and its memory grows by tens of megabytes per second. Seen once in 16 GAP windows, during warm-up. `np_ext` adds a subclass that stops a walk after 1,024 steps.
+- **Evictions look like requests one level down.** A writeback or clean eviction from L1D fires L2's hit or miss probe. The capture marks them with bit 13.
+- **A store's permission request is not a demand access.** gem5 counts an upgrade request apart from demand hits and misses. The capture marks it with bit 14.
+- **Some packet queries assert on responses.** `Packet::needsWritable()` may only be called on a request. A fill listener sees responses.
+- **The host C library misreads gem5's processor.** gem5's x86 CPUID reports no cache sizes. The C library then computes a non-temporal threshold of zero, and its `memcpy` takes the large-copy path for small copies and reads far past the source, into unmapped memory. The workloads run with `GLIBC_TUNABLES` that state the cache sizes and the threshold.
+- **A program that reads a clock is deterministic in addresses, not in values.** GAP's kernels time their phases. Arms with different timing read different clock values, with the same loads at the same addresses. V1 therefore compares addresses, and values are reported apart.
 
 ## Labels and the streams they need
 
@@ -117,16 +125,16 @@ Definitions are in [section 4 of the memo](README.md#4-prediction-task-and-label
 | L3 edge timing | S4, S6 and S8 of the reference arm |
 | L4 plan label, L5 gate label | L1, L2, L3 |
 
-The dependence slice walks S1 backward from a consumer load's address registers. It follows register copies, immediate adds and shifts, and store-to-load pairs matched through S3 and S2, and stops at the nearest producer loads or at a window bound. Shift and base are then fitted numerically from the recorded values: for a candidate producer value *v* and consumer address *a*, the edge is affine if `a − (v << s)` is the same constant, or the same other recorded value, across instances. Because the fit uses values, the capture does not need each instruction's immediate operands.
+The dependence slice walks S1 backward from a consumer load's address registers. It follows register copies, immediate adds and shifts, and store-to-load pairs matched through S3 and S2, and stops at the nearest producer loads or at a window bound. Shift and base are then fitted numerically from the recorded values: for a candidate producer value *v* and consumer address *a*, the edge is exact if `a − (v << s)` is the same constant across instances of the same pair of PCs, for a shift *s* of 0 to 3. A load that no such form explains is tested against the word of a bit vector that holds bit *v*: `a − ((v >> k) << (k − 3))` constant, for words of 64, 32 and 8 bits. A relation needs at least 16 instances with one base, a tenth of the pair's instances, and four distinct addresses. Because the fit uses values, the capture does not need each instruction's immediate operands.
 
 ## Validation
 
 | Check | Passes when |
 |---|---|
-| V1 Architectural determinism | A hash over `pc`, `vaddr`, `size_flags` and `value` of S2 is equal in every arm and in a repeated run. |
-| V2 Non-intrusion | With the capture off and on, every gem5 statistic and the final tick are equal. |
+| V1 Architectural determinism | Every arm and every repeated run commits the same loads at the same addresses, row by row. Load values are hashed separately and reported: a program that reads a clock inside the window gets different values in different arms, with identical addresses and control flow. |
+| V2 Non-intrusion | With the capture off and on, every gem5 statistic is equal. Run on the validation microbenchmarks. |
 | V3 Known structure | On the validation microbenchmarks the extracted L2 edges equal the constructed ones, and the stride array yields none. |
-| V4 Reconciliation | Stream counts equal gem5's own statistics: committed loads and stores, demand hits and misses per level, prefetches issued, useful, unused and late. |
+| V4 Reconciliation | Stream counts equal gem5's own statistics: committed instructions, and requests that miss at each level. Hits at L2 and the LLC are compared where the capture marks upgrade requests. The statistics window is cut at cycle boundaries and runs 2,000 instructions longer than the capture window, so counts may differ by that much. Prefetch counts wait for S7. |
 | V5 Storage | Every gzip member inflates with a valid CRC, and index rows sum to the manifest counts. |
 | V6 Causal prefix | Changing any record after time T leaves every feature for triggers at or before T unchanged. Tested on a synthetic trace. |
 
@@ -145,6 +153,7 @@ Each has a working set larger than the LLC and a fixed seed. Their structure val
 ## Size and sampling
 
 - Row sizes in bytes: S1 40, S2 40, S3 40, S4 72, S5 40, S6 48, S7 48, S8 88, S9 32, S10 16.
-- S1 dominates at 2.0 GB per 50M committed micro-ops before compression. It is needed for label extraction in Stage 1 and can be dropped afterwards.
-- Start with windows of 50M committed instructions. For scale, one 200M-instruction BFS-3 window in the ChampSim study had 47,703,581 load operands and 5,072,480 LLC admissions. [Source](../llc_hybrid_prefetch/learning_opportunity/DATA.md)
-- Compression ratio, capture slowdown and wall time per window are measured in Stage 0 before the matrix is sized.
+- Windows in the measurement study: 5M committed instructions of warm-up, then 20M measured, two windows per program and input. A 20M-instruction GAP window holds 3.2M to 8.3M committed loads.
+- Measured on the 16 GAP windows: the arm that holds every stream takes 0.20 to 0.75 GB compressed per window, 5.4 GB in all for 39.6 GB of rows, a compression of 5.2 to 10.5 times. An arm without the architectural streams takes 0.13 to 0.62 GB. The dependence edges derived from S1 to S3 add 80 bytes per load, uncompressed.
+- gem5 simulated 16,000 to 42,000 instructions per second per run on the shared server (median 28,000), so a window takes 10 to 25 minutes. On the validation microbenchmarks recording cost 7% to 25% of simulation speed.
+- S1 is needed only for the dependence slice and can be dropped once the edges are extracted.

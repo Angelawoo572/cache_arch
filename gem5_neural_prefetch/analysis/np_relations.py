@@ -1,18 +1,34 @@
-"""Fit affine relations between a producer load's value and a consumer load's
-address (label L2 of the design memo).
+"""Fit relations between a producer load's value and a consumer load's address
+(label L2 of the design memo).
 
 The slicer says which earlier loads flow into each load's address. This module
-decides whether the flow is affine: address = (value << shift) + base, with a
-base that repeats for the same static pair of load PCs.
+decides whether the flow is one of two exact forms, with a base that repeats
+for the same static pair of load PCs:
+
+  element of an array    address = (value << shift) + base, shift 0 to 3
+  word of a bit vector   address = ((value >> k) << (k - 3)) + base, for words
+                         of 64, 32 and 8 bits (k = 6, 5, 3)
+
+The bit-vector forms are tried only for loads that no array form explains.
+They are reported with a negative shift code, -k.
 """
 
 import numpy as np
 
 NONE = np.uint64(0xFFFFFFFFFFFFFFFF)
 SHIFTS = (0, 1, 2, 3)
+BIT_VECTOR = (-6, -5, -3)  # the word that holds bit `value`, for 64, 32 and 8-bit words
 MIN_SUPPORT = 16  # instances that must share one base
 MIN_SHARE = 0.10  # of the static pair's instances
 MIN_DISTINCT = 4  # different addresses one relation must name
+
+
+def transform(value, code):
+    """The address offset a value contributes under one form."""
+    if code >= 0:
+        return value << np.uint64(code)
+    k = -code
+    return (value >> np.uint64(k)) << np.uint64(k - 3)
 
 
 def read_edges(path):
@@ -87,8 +103,10 @@ def fit(load, edges):
     key_columns = []  # per explained load: producer pc, consumer pc, depth, shift, base
 
     consumer = edges[:, 0].astype(np.int64)
-    # Nearest producers are tried first, so the shallowest explanation wins.
-    for slot in range(4):
+    # Array forms first, for every producer. Then bit-vector forms for what is
+    # left. Within a pass the nearest producers are tried first, so the
+    # shallowest explanation wins.
+    for forms, slot in [(SHIFTS, k) for k in range(4)] + [(BIT_VECTOR, k) for k in range(4)]:
         prod = edges[:, 2 + 2 * slot]
         info = edges[:, 3 + 2 * slot]
         valid = prod != NONE
@@ -99,8 +117,8 @@ def fit(load, edges):
         d = (info[valid] & np.uint64(0xFFFF)).astype(np.int64)
         mem = ((info[valid] >> np.uint64(16)) & np.uint64(1)) != 0
         group = _group_ids(pc[p], pc[c], d)
-        for s in SHIFTS:
-            residual = vaddr[c] - (value[p] << np.uint64(s))
+        for s in forms:
+            residual = vaddr[c] - transform(value[p], s)
             mode, mode_count, size = _modes(group, residual)
             fits = residual == mode[group]
             # A constant producer value "explains" a constant address with
@@ -144,7 +162,7 @@ def fit(load, edges):
             pc[producer[explained]],
             pc[explained],
             depth[explained].astype(np.uint64),
-            shift[explained].astype(np.uint64),
+            (shift[explained].astype(np.int64) + 16).astype(np.uint64),
             base[explained],
         )
         relation[explained] = ids

@@ -16,7 +16,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from np_join import OUTCOME_NAMES, Arm, fast_outcome  # noqa: E402
+from np_join import OUTCOME_NAMES, Arm, aligned, fast_outcome  # noqa: E402
 from np_relations import fit, read_edges  # noqa: E402
 from np_streams import EV_FILL  # noqa: E402
 
@@ -120,8 +120,9 @@ def chain_depth(relations, long_latency):
     return depth
 
 
-def held_out_bits(context, label, split):
-    """Bits per decision of a count table trained on rows before `split`."""
+def held_out_bits(context, label, train):
+    """Bits per decision of a count table fitted on the `train` rows and
+    scored on the others. Returns (with context, prior only)."""
     context = np.asarray(context)
     label = np.asarray(label, dtype=np.int64)
     k = int(label.max()) + 1
@@ -129,15 +130,103 @@ def held_out_bits(context, label, split):
     ctx = ctx.reshape(-1)
     n_ctx = int(ctx.max()) + 1
     table = np.zeros((n_ctx, k), dtype=np.float64)
-    np.add.at(table, (ctx[:split], label[:split]), 1.0)
-    prior = np.bincount(label[:split], minlength=k) + 1.0
+    np.add.at(table, (ctx[train], label[train]), 1.0)
+    prior = np.bincount(label[train], minlength=k) + 1.0
     prior /= prior.sum()
     # Back off to the prior with weight one.
     prob = (table + prior) / (table.sum(axis=1, keepdims=True) + 1.0)
-    test_ctx, test_label = ctx[split:], label[split:]
+    test_ctx, test_label = ctx[~train], label[~train]
     return float(-np.mean(np.log2(prob[test_ctx, test_label]))), float(
         -np.mean(np.log2(prior[test_label]))
     )
+
+
+def online_bits(context, label):
+    """Bits per decision of a count table that learns as it goes: every row
+    is scored with the counts of the rows before it, so warm-up and phase
+    changes are charged. Returns (with context, running prior only)."""
+    label = np.asarray(label, dtype=np.int64)
+    n = len(label)
+    k = int(label.max()) + 1
+    _, ctx = np.unique(np.asarray(context), return_inverse=True)
+    ctx = ctx.reshape(-1).astype(np.int64)
+    index = np.arange(n)
+
+    def earlier_with_same(*keys):
+        order = np.lexsort((index,) + tuple(reversed(keys)))
+        start = np.zeros(n, dtype=bool)
+        start[0] = True
+        for key in keys:
+            sorted_key = key[order]
+            start[1:] |= sorted_key[1:] != sorted_key[:-1]
+        position = index - np.maximum.accumulate(np.where(start, index, 0))
+        rank = np.empty(n, dtype=np.int64)
+        rank[order] = position
+        return rank
+
+    seen_label = earlier_with_same(label)
+    seen_context = earlier_with_same(ctx)
+    seen_both = earlier_with_same(ctx, label)
+    prior = (seen_label + 1.0) / (index + k)
+    prob = (seen_both + prior) / (seen_context + 1.0)
+    return float(-np.mean(np.log2(prob))), float(-np.mean(np.log2(prior)))
+
+
+def table_bits(context, label):
+    """Both estimates for one decision: {estimate: (with context, prior)}.
+    "interleaved" holds out alternate blocks of up to 4,096 decisions, so
+    training and test share the program phase. "online" learns as it goes."""
+    n = len(label)
+    block = max(1, min(4096, n // 8))
+    train = (np.arange(n) // block) % 2 == 0
+    return {
+        "interleaved": held_out_bits(context, label, train),
+        "online": online_bits(context, label),
+    }
+
+
+def recent_outcomes(group, outcome):
+    """For every row: the outcome of the previous row of its group, of the
+    one before (2 = there is none), and how many of the previous eight were
+    positive (9 = fewer than eight exist)."""
+    n = len(group)
+    order = np.lexsort((np.arange(n), group))
+    g, y = group[order], outcome[order]
+    start = np.ones(n, dtype=bool)
+    start[1:] = g[1:] != g[:-1]
+    position = np.arange(n) - np.maximum.accumulate(np.where(start, np.arange(n), 0))
+    before = np.cumsum(y) - y  # positives earlier in the sorted array
+    in_group = before - np.maximum.accumulate(np.where(start, before, 0))
+
+    def lagged(k):
+        value = np.full(n, 2, dtype=np.int64)
+        value[k:] = np.where(position[k:] >= k, y[:-k], 2)
+        return value
+
+    count8 = np.full(n, 9, dtype=np.int64)
+    count8[8:] = np.where(position[8:] >= 8, in_group[8:] - in_group[:-8], 9)
+    result = []
+    for sorted_values in (lagged(1), lagged(2), count8):
+        values = np.empty(n, dtype=np.int64)
+        values[order] = sorted_values
+        result.append(values)
+    return result
+
+
+def value_hash(arm):
+    """(what the hash covers, the hash). Captures written before the hashes
+    were split carry one hash over load addresses and values together."""
+    counts = arm.counts
+    if "load_value_hash" in counts:
+        return ("values", counts["load_value_hash"])
+    return ("addresses and values", counts.get("v1_load_hash"))
+
+
+def same_values(a, b):
+    """Did two address-aligned arms read the same values? None when their
+    captures hash different fields and cannot be compared."""
+    (kind_a, hash_a), (kind_b, hash_b) = value_hash(a), value_hash(b)
+    return hash_a == hash_b if kind_a == kind_b else None
 
 
 class Window:
@@ -151,15 +240,12 @@ class Window:
         if len(edges) != self.n:
             raise SystemExit(f"edges cover {len(edges)} loads, capture has {self.n}")
         self.relations = fit(self.load, edges)
-        self.long_latency = self.nopf.latency >= LONG_LATENCY
-        self.depth = chain_depth(self.relations, self.long_latency)
         self.classes = mechanism_classes(self.load, self.relations, self.nopf.miss[1])
-        self.label = cheapest(self.classes, self.depth)
 
 
 def measure(window, fast_dir):
     nopf, fast = window.nopf, Arm(fast_dir)
-    if nopf.counts["v1_load_hash"] != fast.counts["v1_load_hash"]:
+    if not aligned(nopf, fast):
         raise SystemExit("V1 failed: the two arms committed different loads")
     load, n, relations = window.load, window.n, window.relations
 
@@ -168,7 +254,7 @@ def measure(window, fast_dir):
             "instructions": nopf.info["measured_instructions"],
             "loads": int(n),
             "uops": int(nopf.counts["committed_uops"]),
-            "v1_load_hash": nopf.counts["v1_load_hash"],
+            "same_load_values_as_nopf": same_values(nopf, fast),
             "cycles_nopf": nopf.window_cycles(),
             "cycles_fast": fast.window_cycles(),
             "ipc_nopf": nopf.info["measured_instructions"] / nopf.window_cycles(),
@@ -190,6 +276,11 @@ def measure(window, fast_dir):
             chosen = original & (outcome == code)
             row[label] = int(chosen.sum())
             row[f"stall_fast_{label}"] = float(fast.stall[chosen].sum())
+        # What "other" is: the load found its line in L2, or in L1 where an
+        # earlier load or prefetch had already brought and used it.
+        other = original & (outcome == 3)
+        row["other_found_in_l2"] = int((other & fast.miss[1]).sum())
+        row["other_found_in_l1"] = int((other & ~fast.miss[1]).sum())
         m1[name] = row
     m1["stall_all_loads_nopf"] = float(nopf.stall.sum())
     m1["stall_all_loads_fast"] = float(fast.stall.sum())
@@ -201,10 +292,14 @@ def measure(window, fast_dir):
     outcome2 = fast_outcome(fast, 2)
     residual = original & ((outcome2 == 1) | (outcome2 == 2))
     weight = fast.stall
-    long_latency = window.long_latency
+    # A producer counts as a link of a serial chain only if it still waits a
+    # long time in this arm, with its conventional prefetchers running.
+    long_latency = fast.latency >= LONG_LATENCY
 
     # ---- M2: mechanism census ----------------------------------------
-    depth, classes, label = window.depth, window.classes, window.label
+    classes = window.classes
+    depth = chain_depth(relations, long_latency)
+    label = cheapest(classes, depth)
     m2 = {"targets": int(residual.sum()), "stall": float(weight[residual].sum())}
     for code, name in enumerate(CHEAPEST_NAMES):
         chosen = residual & (label == code)
@@ -219,6 +314,12 @@ def measure(window, fast_dir):
         }
         for name, flag in classes.items()
     }
+    # Of the value classes: targets named through a bit-vector index.
+    bit_vector = relations["derived"] & (relations["shift"] < 0)
+    m2["value_through_bit_vector"] = {
+        "targets": int((residual & bit_vector).sum()),
+        "stall": float(weight[residual & bit_vector].sum()),
+    }
     m2["all_original_misses"] = {
         name: int((original & (label == code)).sum())
         for code, name in enumerate(CHEAPEST_NAMES)
@@ -232,10 +333,12 @@ def measure(window, fast_dir):
     # Lead is counted from the origin: the first load that carried the value,
     # which is where a traversal could start.
     prod = relations["origin"][idx]
-    period = nopf.period
-    slack = (nopf.t_issue[idx] - nopf.t_data[prod]) / period
-    slack_nearest = (nopf.t_issue[idx] - nopf.t_data[nearest]) / period
-    latency = nopf.latency[idx]
+    # Timing is taken in the prefetching arm: that is the machine a slow
+    # path would be added to.
+    period = fast.period
+    slack = (fast.t_issue[idx] - fast.t_data[prod]) / period
+    slack_nearest = (fast.t_issue[idx] - fast.t_data[nearest]) / period
+    latency = fast.latency[idx]
     producer_long = long_latency[prod]
     producer_delta = classes["delta"][prod]
     w = weight[idx]
@@ -260,6 +363,36 @@ def measure(window, fast_dir):
         m3[f"stall_share_slack_at_least_{int(frac * 100)}pct_of_latency"] = share(
             w[slack >= frac * latency].sum(), total_w
         )
+    # Why slack exists where it does. The consumer may not have been fetched
+    # yet when the value returned (it sits behind a branch that resolved
+    # late), or the L1D cache may have had no free miss register.
+    m3["stall_share_consumer_fetched_after_value"] = share(
+        w[fast.t_fetch[idx] > fast.t_data[prod]].sum(), total_w
+    )
+    blocked = fast.statistic("board.cache_hierarchy.l1d.blockedCycles::no_mshrs")
+    m3["l1d_blocked_no_miss_register_share_of_cycles"] = (
+        None if blocked is None else blocked / fast.window_cycles()
+    )
+    # Upper bound on what one traversal hop can remove, with no compounding
+    # along a chain: a request issued when the origin's data returns saves at
+    # most the slack; if the origin's own address is delta-predictable the
+    # root can be fetched early and the whole stall is in reach.
+    reach = np.where(producer_delta, w, np.minimum(w, np.maximum(slack, 0.0)))
+    m3["stall_share_removable_by_one_hop_bound"] = share(reach.sum(), total_w)
+    m3["stall_removable_by_one_hop_bound"] = float(reach.sum())
+    # Several hops: the stall is in reach of a bounded traversal if some
+    # ancestor within D dependence hops has a delta-predictable address, so
+    # that the traversal can start ahead of the program at that root.
+    ancestor = prod.copy()
+    reachable = np.zeros(len(idx), dtype=bool)
+    alive = np.ones(len(idx), dtype=bool)
+    for hops in (1, 2, 3, 4):
+        reachable |= alive & classes["delta"][ancestor]
+        m3[f"stall_share_with_delta_root_within_{hops}_hops"] = share(
+            w[reachable].sum(), total_w
+        )
+        alive &= relations["derived"][ancestor] & ~reachable
+        ancestor = np.where(alive, relations["origin"][ancestor], ancestor)
     m3["chain_depth"] = {
         str(k): share(w[depth[idx] == k].sum(), total_w) for k in (1, 2, 3)
     }
@@ -267,28 +400,55 @@ def measure(window, fast_dir):
     out["M3"] = m3
 
     # ---- M4: decision entropy with count tables -----------------------
-    trigger = np.flatnonzero(nopf.miss[1])
+    trigger = np.flatnonzero(fast.miss[1])
     is_producer = np.zeros(n, dtype=bool)
     is_producer[prod] = True
     m4 = {"triggers": int(len(trigger))}
     if len(trigger) > 1000:
-        split = len(trigger) // 2
+        # The default trigger is a load that missed L1D. Does it start a
+        # residual target, and how much of the residual starts there at all?
         gate = is_producer[trigger].astype(np.int64)
-        bits_pc, bits_prior = held_out_bits(load["pc"][trigger], gate, split)
-        m4["gate_bits_prior"] = bits_prior
-        m4["gate_bits_given_pc"] = bits_pc
         m4["gate_positive_rate"] = float(gate.mean())
+        for estimate, (bits, bits_prior) in table_bits(load["pc"][trigger], gate).items():
+            m4[f"gate_bits_prior.{estimate}"] = bits_prior
+            m4[f"gate_bits_given_pc.{estimate}"] = bits
+        m4["residual_stall_whose_origin_missed_l1d"] = share(
+            w[fast.miss[1][prod]].sum(), total_w
+        )
+    # The gate as a relation table would face it: at every load whose address
+    # some relation names, is that load a residual target? Contexts are
+    # nested: the relation, the cache level that served the producer, and the
+    # outcomes of the relation's last instances.
+    consumers = np.flatnonzero(relations["derived"])
+    if len(consumers) > 1000:
+        rel_all = relations["relation"][consumers].astype(np.int64)
+        outcome = residual[consumers].astype(np.int64)
+        producer_all = relations["producer"][consumers]
+        level = fast.miss[1][producer_all].astype(np.int64) + fast.miss[2][producer_all]
+        m4["relation_instances"] = int(len(consumers))
+        m4["relation_instance_positive_rate"] = float(outcome.mean())
+        last1, last2, last8 = recent_outcomes(rel_all, outcome)
+        contexts = {
+            "relation": rel_all,
+            "relation_producer_level": rel_all * 3 + level,
+            "relation_last_1": rel_all * 3 + last1,
+            "relation_last_2": (rel_all * 3 + last1) * 3 + last2,
+            "relation_last_8_count": rel_all * 10 + last8,
+            "relation_producer_level_last_2": ((rel_all * 3 + level) * 3 + last1) * 3 + last2,
+        }
+        for name, context in contexts.items():
+            for estimate, (bits, bits_prior) in table_bits(context, outcome).items():
+                m4[f"instance_gate_bits_given_{name}.{estimate}"] = bits
+                m4[f"instance_gate_bits_prior.{estimate}"] = bits_prior
     if len(idx) > 1000:
         # Which static relation does a value-derived residual target use,
-        # given its own PC, and given its producer's PC.
+        # given its own PC, and given the PC of the load a traversal starts at.
         rel = relations["relation"][idx]
         _, rel_dense = np.unique(rel, return_inverse=True)
-        split = len(idx) // 2
-        bits, bits_prior = held_out_bits(load["pc"][idx], rel_dense, split)
-        m4["relation_bits_prior"] = bits_prior
-        m4["relation_bits_given_consumer_pc"] = bits
-        bits, _ = held_out_bits(load["pc"][prod], rel_dense, split)
-        m4["relation_bits_given_producer_pc"] = bits
+        for name, context in (("consumer_pc", load["pc"][idx]), ("origin_pc", load["pc"][prod])):
+            for estimate, (bits, bits_prior) in table_bits(context, rel_dense).items():
+                m4[f"relation_bits_prior.{estimate}"] = bits_prior
+                m4[f"relation_bits_given_{name}.{estimate}"] = bits
     out["M4"] = m4
 
     # ---- M5: relation reuse -------------------------------------------
@@ -322,6 +482,12 @@ def measure(window, fast_dir):
 
     # ---- M6: trigger rate and bursts ----------------------------------
     m6 = {}
+    if len(idx):
+        # Loads at the PCs where a traversal for a residual target would
+        # start. This is the rate at which a relation table is consulted.
+        starts = np.isin(load["pc"], np.unique(load["pc"][prod]))
+        m6["loads_at_origin_pcs_per_kilocycle"] = 1000.0 * int(starts.sum()) / fast.window_cycles()
+        m6["origin_pcs"] = int(len(np.unique(load["pc"][prod])))
     for name, arm in (("nopf", nopf), ("fast", fast)):
         t = np.sort(arm.t_data[arm.miss[1] & (arm.t_data > 0)])
         gaps = np.diff(t) / arm.period
@@ -339,10 +505,17 @@ def measure(window, fast_dir):
     out["M6"] = m6
 
     # ---- M7: operand age ----------------------------------------------
-    miss_rank = np.cumsum(nopf.miss[1])
+    miss_rank = np.cumsum(fast.miss[1])
     m7 = {
+        # From the origin: how long a traversal start is separated from its
+        # target. From the nearest producer: how long the value sits in the
+        # core before the consumer uses it, which sizes a table of recent
+        # producer loads.
         "loads_between_producer_and_consumer": pct(idx - prod),
         "l1d_misses_between": pct(miss_rank[idx] - miss_rank[prod]),
+        "loads_between_nearest_producer_and_consumer": pct(idx - nearest),
+        "l1d_misses_between_nearest": pct(miss_rank[idx] - miss_rank[nearest]),
+        "cycles_between_nearest_data_and_issue": pct(slack_nearest),
         "cycles_between_data_and_issue": pct(slack),
         "micro_ops_on_path": pct(relations["depth"][idx]),
         "through_memory_share": share(

@@ -12,7 +12,6 @@ import gzip
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -100,6 +99,14 @@ def build():
         t.op(0x400114, [reg(R_BASE), reg(R_IDX)], reg(R_VAL), 5, load=(val_base + 8 * index, 8))
         t.op(0x400118, [reg(R_E)], reg(R_E), e + 1)
 
+    # A bit vector in 64-bit words tested with vertex ids: word (id >> 6).
+    ids_base, bits_base = 0x70000000, 0x78000000
+    for e in range(600):
+        vertex = int(rng.integers(0, 1 << 20))
+        t.op(0x400300, [reg(R_NB), reg(R_E)], reg(R_IDX), vertex, load=(ids_base + 4 * e, 4))
+        t.op(0x400304, [reg(R_IDX)], reg(R_TMP), vertex >> 6)
+        t.op(0x400308, [reg(R_BASE), reg(R_TMP)], reg(R_VAL), 1, load=(bits_base + 8 * (vertex >> 6), 8))
+
     # A pointer spilled to the stack and reloaded before use.
     stack = 0x7FFF0000
     objects = (rng.permutation(4000)[:300].astype(np.uint64) * 64 + 0x50000000).tolist()
@@ -115,7 +122,8 @@ def build():
 
 
 def main():
-    scratch = Path(os.environ.get("TMPDIR", tempfile.gettempdir())) / "np_synthetic"
+    # Scratch files stay inside the study folder, under the git-ignored raw/.
+    scratch = Path(os.environ.get("GEM5_STUDY", HERE.parent)) / "raw" / "tmp" / "np_synthetic"
     scratch.mkdir(parents=True, exist_ok=True)
     build().write(scratch)
 
@@ -140,6 +148,7 @@ def main():
         (0x400018, 0x400010, 0, 0),  # next pointer -> key of the next node
         (0x400018, 0x400018, 0, 16),  # next pointer -> next field of that node
         (0x400110, 0x400114, 3, 0x30000000),  # index -> values[index]
+        (0x400300, 0x400308, -6, 0x78000000),  # id -> the word of a bit vector that holds its bit
         (0x400204, 0x400214, 0, 24),  # table entry -> field, through the stack
         (0x400210, 0x400214, 0, 24),  # the reload itself is also a producer
     }
@@ -161,6 +170,7 @@ def main():
     assert explained(0x400010) > 0.99 and explained(0x400018) > 0.99
     assert explained(0x400114) > 0.99 and explained(0x400214) > 0.99
     assert explained(0x400110) == 0.0, "the index array has no producer"
+    assert explained(0x400308) > 0.99, "the bit-vector word was not explained"
     field = np.flatnonzero(pc == 0x400214)
     origin_pc = pc[rel["origin"][field]]
     print("field loads whose origin is the table load: %.3f" % float((origin_pc == 0x400204).mean()))

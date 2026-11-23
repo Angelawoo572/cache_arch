@@ -86,6 +86,7 @@ info = {
     "checkpoint": str(args.checkpoint),
     "arm": args.arm,
     "prefetchers": np_machine.ARMS[args.arm],
+    "signature_path_class": np_machine.SPP_CLASS.__name__,
     "warmup_instructions": args.warmup,
     "measured_instructions": args.measure,
     "clock": np_machine.CLOCK,

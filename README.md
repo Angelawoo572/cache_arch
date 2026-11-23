@@ -1,10 +1,10 @@
 # cache_arch
 
-## gem5 neural prefetch design
+## gem5 study of dependent-access prefetching
 
-This branch starts the gem5 study of a tiny learned predictor that plans dependent accesses beside conventional prefetchers. It holds a research design memo and a capture specification. No gem5 code or gem5 result exists yet.
+This branch holds the gem5 study of a small slow path that plans dependent accesses beside conventional prefetchers: a design memo, a validated capture built on gem5 26.0, and a first measurement study on GAP. The measurements say what stride and signature-path prefetching leave, what names those addresses, and how early they can be known. No prefetcher of ours has run yet, so there is no speedup result.
 
-[Design memo](gem5_neural_prefetch/README.md) · [Data-collection specification](gem5_neural_prefetch/DATA_COLLECTION.md) · [Prompt for the next step](gem5_neural_prefetch/NEXT_STEP_PROMPT.md)
+[Measurement findings](gem5_neural_prefetch/measurement/FINDINGS.md) · [Design memo](gem5_neural_prefetch/README.md) · [Data-collection specification](gem5_neural_prefetch/DATA_COLLECTION.md) · [How to build and run](gem5_neural_prefetch/sim/README.md) · [Prompt for the next step](gem5_neural_prefetch/NEXT_STEP_PROMPT.md)
 
 ## LLC prefetcher study
 

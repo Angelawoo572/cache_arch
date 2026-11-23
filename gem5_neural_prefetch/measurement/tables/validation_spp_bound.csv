@@ -1,0 +1,17 @@
+workload,offset,class_in_fast,class_in_fastcheck,statistics_compared,statistics_differing,capture_window_equal,lookaheads_stopped_in_fastcheck,same
+gap_bc_kron20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2206,0,yes,0,pass
+gap_bc_kron20,300000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2067,0,yes,0,pass
+gap_bfs_kron20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2190,0,yes,0,pass
+gap_bfs_kron20,30000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2204,0,yes,0,pass
+gap_bfs_urand20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2184,0,yes,0,pass
+gap_bfs_urand20,30000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2151,0,yes,0,pass
+gap_cc_kron20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2028,0,yes,0,pass
+gap_cc_kron20,40000000,NpSignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2185,0,yes,0,pass
+gap_cc_urand20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2022,0,yes,0,pass
+gap_cc_urand20,40000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2209,0,yes,0,pass
+gap_pr_kron20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2187,0,yes,0,pass
+gap_pr_kron20,300000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2042,0,yes,0,pass
+gap_pr_urand20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2200,0,yes,0,pass
+gap_pr_urand20,300000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2039,0,yes,0,pass
+gap_sssp_kron20,0,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2230,0,yes,0,pass
+gap_sssp_kron20,300000000,SignaturePathPrefetcherV2,NpSignaturePathPrefetcherV2,2192,0,yes,0,pass

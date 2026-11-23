@@ -1,0 +1,20 @@
+gap_cc_kron20 +0, arm fast: residual targets 315895, stall 36129991 cycles
+
+relations by value-derived residual stall
+   65.4% of residual stall: address = (value << 2) + 0x42abe0, 1 micro-ops apart; reached: stepped 100%, same line 63%, fill tap 99%, any 100%; producer missed L1D 61%, producer is a same-PC delta 8%
+      value loaded at 0x4047cb: 4047cd:	mov    %rbp,%rdx | 4047d0:	call   404150 <_Z4LinkiiR7pvectorIiE>
+      used at       0x40415d: 404163:	je     4041b0 <_Z4LinkiiR7pvectorIiE+0x60> | 404165:	mov    %eax,%ecx
+   20.4% of residual stall: address = (value << 0) + 0x0, 1 micro-ops apart; reached: stepped 100%, same line 71%, fill tap 99%, any 100%; producer missed L1D 0%, producer is a same-PC delta 100%
+      value loaded at 0x4047ac: 4047ac:	mov    -0x8(%rax,%r11,8),%rcx | 4047b1:	mov    %rdx,%rax
+      used at       0x4047cb: 4047cd:	mov    %rbp,%rdx | 4047d0:	call   404150 <_Z4LinkiiR7pvectorIiE>
+   13.5% of residual stall: address = (value << 2) + 0x42abe0, 3 micro-ops apart; reached: stepped 23%, same line 75%, fill tap 76%, any 85%; producer missed L1D 0%, producer is a same-PC delta 44%
+      value loaded at 0x404159: 404159:	mov    (%r8,%rdi,4),%edx | 40415d:	mov    (%r8,%rsi,4),%eax
+      used at       0x404175: 40417a:	jne    4041a5 <_Z4LinkiiR7pvectorIiE+0x55> | 40417c:	jmp    4041b0 <_Z4LinkiiR7pvectorIiE+0x60>
+
+class none: 0.1% of residual stall
+    0.1% at 0x404159: 404156:	movslq %esi,%rsi | 404159:	mov    (%r8,%rdi,4),%edx | 40415d:	mov    (%r8,%rsi,4),%eax | 404161:	cmp    %eax,%edx
+
+class same_pc_delta: 0.9% of residual stall
+    0.4% at 0x4047cb: 4047c9:	je     4047d9 <_Z8AfforestRK8CSRGraphIiiLb1EEbi+0xc9> | 4047cb:	mov    (%rax),%esi | 4047cd:	mov    %rbp,%rdx | 4047d0:	call   404150 <_Z4LinkiiR7pvectorIiE>
+    0.4% at 0x4047a8: 4047a4:	lea    0x1(%rdi),%r11 | 4047a8:	mov    (%rax,%r11,8),%rdx | 4047ac:	mov    -0x8(%rax,%r11,8),%rcx | 4047b1:	rex.W
+    0.1% at 0x404159: 404156:	movslq %esi,%rsi | 404159:	mov    (%r8,%rdi,4),%edx | 40415d:	mov    (%r8,%rsi,4),%eax | 404161:	cmp    %eax,%edx

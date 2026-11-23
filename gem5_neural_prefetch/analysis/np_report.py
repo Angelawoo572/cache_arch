@@ -80,7 +80,6 @@ def main():
     arms = args.arms.split(",")
     MEASURE.mkdir(parents=True, exist_ok=True)
 
-    results = []
     for workload, offset in windows():
         if not workload.startswith(args.only):
             continue
@@ -92,15 +91,24 @@ def main():
                 continue
             out = MEASURE / f"{workload}__{offset}__{arm}.json"
             if out.exists() and not args.force:
-                results.append((workload, offset, arm, json.loads(out.read_text())))
                 continue
             if window is None:
                 window = Window(nopf_dir, edges_for(nopf_dir))
             result = measure(window, fast_dir)
             out.write_text(json.dumps(result, indent=2) + "\n")
-            results.append((workload, offset, arm, result))
             print(f"measured {workload} {offset} {arm}", flush=True)
+    write_tables()
 
+
+def write_tables():
+    """Rebuild every table from all results on disk, so that several
+    invocations over different workloads can run side by side."""
+    results = []
+    for path in sorted(MEASURE.glob("*__o*__*.json")):
+        if path.name.endswith(".walker.json"):
+            continue
+        workload, offset, arm = path.stem.rsplit("__", 2)
+        results.append((workload, offset, arm, json.loads(path.read_text())))
     sections = {key: [] for key in ("window", "M1", "M2", "M3", "M4", "M5", "M6", "M7", "M8")}
     relations = []
     for workload, offset, arm, result in results:

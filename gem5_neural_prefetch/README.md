@@ -1,19 +1,19 @@
 # Can a tiny learned predictor plan the dependent accesses that conventional prefetchers miss?
 
-**Research design memo, 22 November 2026.** It reviews what the ChampSim studies measured, proposes the gem5 study that follows, and fixes what has to be measured before a model is chosen. No source code was changed and no simulation was run to write it. It claims neither novelty nor speedup.
+**Research design memo, 22 November 2026. Updated on 23 November with the first gem5 measurements.** It reviews what the ChampSim studies measured, proposes the gem5 study that follows, and fixes what has to be measured before a model is chosen. Bring-up and the measurement study (Stages 0 and 1 of section 7) have since been run on GAP in gem5 26.0. Their results are in the [measurement findings](measurement/FINDINGS.md), and every place where they change this design is marked **Measured**. Nothing here claims novelty or speedup: no prefetcher of ours has run yet.
 
-[Exact data-collection specification](DATA_COLLECTION.md) · [Prompt for the next step](NEXT_STEP_PROMPT.md) · [Earlier shared-LLC study](../llc_hybrid_prefetch/README.md) · [LLC LSTM study](https://github.com/Angelawoo572/cache_arch/blob/cb69439/llc_lstm_research/README.md)
+[Measurement findings](measurement/FINDINGS.md) · [Exact data-collection specification](DATA_COLLECTION.md) · [How to build and run](sim/README.md) · [Prompt for the next step](NEXT_STEP_PROMPT.md) · [Earlier shared-LLC study](../llc_hybrid_prefetch/README.md) · [LLC LSTM study](https://github.com/Angelawoo572/cache_arch/blob/cb69439/llc_lstm_research/README.md)
 
 ## Short answers
 
-- **Run the learned unit in parallel with the conventional prefetchers.** Neither waits for the other or reads the other's candidates. They meet at one shared issuer.
-- **Gate on predicted value, not on a pattern name.** The unit does not need to recognise "this is a stride". It estimates whether one more request would turn a miss that the fast path leaves into a timely hit, using outcomes that have already resolved. Which future loads the fast path will cover is a training label and never an input.
-- **Copy address bits instead of predicting them.** A pointer target is unknown until the line holding the pointer arrives. The unit emits a short plan: which arriving field to read, how to shift it, which base to add, how deep and how wide to go. A bounded traversal unit executes it. Each learned choice is a few bits.
-- **Feed it one trigger and a small relation memory, not a long history.** The output is always a set of addresses: the lines the plan requests when it runs. How many slots and how much history it needs are measured in section 5, not assumed.
-- **Use gem5 for this question.** The ChampSim traces carry no load values, so the earlier studies could not observe pointer, index or tree relationships. gem5 executes the program and exposes values, register dataflow and ready times. Programs have to be built and run, and the configuration has to be written, so the plan starts with bring-up and sampled windows.
-- **Expect strong non-learned competition.** Hardware that follows index and pointer relations without software already exists at about 1 KB (IMP, the Differential-Matching Prefetcher), and pointer-following prefetchers ship in processors. A learned unit has to earn its place in what they leave open: which fields to follow, how deep and wide, and when to stay silent.
-- **Do not choose the network yet.** Our LSTM runs did not establish a benefit from recurrent state. Section 5 lists nine measurements that size the inputs, outputs, tables and latency budget. Section 6 says which mechanism each result would select.
-- **Start with a measurement study.** It needs no neural network. It decides whether the dependent-access opportunity is large enough, early enough and regular enough to pursue.
+- **Run the slow path in parallel with the conventional prefetchers.** Neither waits for the other or reads the other's candidates. They meet at one shared issuer.
+- **Reacting when the value returns is usually too late. Start early.** **Measured:** in 12 of 16 GAP windows the load that uses a loaded value issues a median 1 to 9 cycles after the value returns and then misses for a median 42 to 318. A unit that starts when the value returns is level with the core there. The slow path has to start at a root whose address can be stepped ahead, at the other fields of a line a load has just opened, or at a line arriving in L2. Those reach 86% to 100% of the value-derived residual stall within three links, as an open-loop upper bound. In the other four windows a late branch or full L1D miss registers hold the core up, and a start at the value's return has lead as well.
+- **Copy address bits instead of predicting them.** A pointer target is unknown until the line holding the pointer arrives. The unit emits a short plan: which arriving field to read, how to shift it, which base to add, how deep and how wide to go. A bounded traversal unit executes it. **Measured:** 78% to 100% of the stall that stride and signature-path prefetching leave on GAP is on addresses built exactly from a loaded value: an array element, `(value << shift) + base`, or the word of a bit vector that holds bit `value`.
+- **Which field to follow is table work on GAP, not learning.** **Measured:** one to 6 static relations cover 99% of that stall per window, at most 3 of them at one starting PC. Given the PC of the starting load, a count table needs 0.00 to 0.98 bits to say which relation names a target (median 0.03), and where that is not near zero the start feeds two or three relations at once and the plan follows all of them.
+- **Do not predict whether one instance will miss. Probe.** **Measured:** relation, the producer's cache level and recent outcomes leave 0.12 to 0.77 bits of a 0.20 to 1.00-bit question. The unit knows the target address before it issues, so the issuer can ask the cache.
+- **So the first design to build has no neural network.** An exact relation table, early starts, a bounded traversal unit and a per-relation usefulness count. On these data a learned selector has nothing to add to the choice of relation. What stays open for learning is how far ahead, how deep and how wide to go in each phase, and the stall that no exact relation reaches early.
+- **Use gem5 for this question.** The ChampSim traces carry no load values, so the earlier studies could not observe pointer, index or tree relationships. gem5 executes the program and exposes values, register dataflow and ready times. It is built on Sacramento, and its capture passes five validation checks.
+- **Expect strong non-learned competition.** Hardware that follows index and pointer relations without software already exists at about 1 KB (IMP, the Differential-Matching Prefetcher), and pointer-following prefetchers ship in processors. The table design above is close to them. A learned unit has to beat that design at equal budget, in the loop, before it earns a place.
 
 ## 1. What the measurements so far support
 
@@ -79,13 +79,15 @@ Sizes, latencies and results are as each paper states them. Where a paper was no
 
 ![Demand path on top. Conventional prefetchers and a four-stage learned slow path both send requests to one shared issuer. Labels and training exist only offline.](figures/architecture.svg)
 
-*Figure 1. Solid arrows carry signals that exist at prediction time. The dashed box exists only offline. Numbers match the list below.*
+*Figure 1. The design as proposed before any measurement. Solid arrows carry signals that exist at prediction time. The dashed box exists only offline. Numbers match the list below. **Measured since:** box 3 starts as a relation table with a usefulness count and no learned weights, and a traversal starts early, at the fill tap or at a stepped root, not at a miss.*
 
 1. **Causal taps.** At rename, a tag records which earlier load produced the base or index register of each new load. At issue the tap reports PC and address. At data return it reports the loaded value and how long the load took. Later, resolved outcomes of earlier prefetches arrive: used in time, used late, unused, and which path requested them. Every record carries the time it became visible.
 2. **Relation memory.** A few slots hold recent producer loads and their values. When a consumer's address is known, exact logic checks it against the tagged producer's value: `address = (value << s) + b` for a small set of shifts. Confirmed relations are stored with a confidence count. This part is arithmetic and uses no learned weights.
 3. **Tiny learned predictor.** A gate decides whether to act or abstain. A plan emitter then writes up to K entries. Each entry names a source operand, a field, a shift, and a depth or width bound. The outputs are selections among operands the hardware already holds.
 4. **Traversal unit.** It holds live plans. For each entry it waits until the parent line arrives at the fill level, reads the named field from the line, forms the next address, and hands it to the issuer. Depth, width and lifetime are bounded. It never uses a value before that value exists in the cache.
 5. **Shared issuer.** It translates virtual addresses, drops illegal and duplicate requests, and enforces queue capacity and bandwidth for both paths. It is the only place the two paths interact.
+
+**Measured: where a traversal starts.** Item 4 as first written started a traversal when the producer's data returned. In 12 of 16 GAP windows that is too late: the core issues the dependent load within a few cycles of the same event ([findings, section 5](measurement/FINDINGS.md#5-how-early-the-address-can-be-known-m3)). A traversal therefore starts ahead of the program, in one of three ways. It steps a root whose address continues a delta. It reads the other fields of a line that a load has just opened. Or it starts at a line that arrives in L2, whether a demand miss or a conventional prefetch brought it. The third uses fills as an observation. It does not read the fast path's candidates, and the fast path does not wait for it. A start at the value's return stays as a fourth way: it has lead in betweenness and in PageRank on the uniform graph, where a late branch or full L1D miss registers hold the core up.
 
 **Why parallel works.** The fast path keeps its own tables, triggers and timing. The slow path takes tens of cycles and sits off the demand path. A request both paths make is issued once. The fast path loses nothing when the slow path is silent, slow or wrong, apart from shared queue and memory bandwidth, which the issuer meters and section 8 measures.
 
@@ -101,7 +103,7 @@ Sizes, latencies and results are as each paper states them. Where a paper was no
 
 ### Task
 
-Order all tap records by the time they become visible. A **trigger** is a load record at the tap. The default trigger is a load that missed L1D, taken at data return. M6 measures the alternatives. At trigger *t*, the **context** is every tap record visible by then, after each tap's transport delay. The unit either abstains or emits a plan of at most K entries:
+Order all tap records by the time they become visible. A **trigger** is a load record at the tap. The default trigger was a load that missed L1D, taken at data return. **Measured:** loads that miss L1D start 0% to 64% of the value-derived residual stall on GAP (median 5%), because the producers are mostly L1D hits on arrays read in order. The trigger is now a load at a PC with a confirmed relation, or a line arriving at L2. At trigger *t*, the **context** is every tap record visible by then, after each tap's transport delay. The unit either abstains or emits a plan of at most K entries:
 
 ```text
 plan   := entry{1..K}
@@ -116,7 +118,7 @@ parent := trigger line | result of an earlier entry
 | Entry | Executes as | Typical use |
 |---|---|---|
 | `DIRECT` | Request the line of `base + delta` now. | A delta the fast path left late. A new line on a known page. The index array ahead of the current position. |
-| `DEREF` | When the parent line is present, read `width` bytes at byte offset `field`, call it *v*, and request `(v << shift) + base`. | A pointer hop. An index into another array. |
+| `DEREF` | When the parent line is present, read `width` bytes at byte offset `field`, call it *v*, and request `(v << shift) + base`. **Measured:** a second form is needed, the word of a bit vector that holds bit *v*, `((v >> k) << (k − 3)) + base`. GAP tests frontier bitmaps this way. | A pointer hop. An index into another array. A bit in a bitmap. |
 | `RANGE` | Apply a `DEREF` to `count` consecutive fields, `step` bytes apart. | An array of pointers. A CSR neighbour list. The children of a node. |
 | `REPEAT` | Use an entry's result as its own parent, up to `depth` times. | A chain. A tree descent. |
 
@@ -171,9 +173,11 @@ Each measurement comes from the capture in the [data-collection specification](D
 
 **Stop rules.** If M1 puts residual stall weight inside run-to-run variation on the chosen workloads, stop. If M2 and M3 show that value-derived targets with positive oracle lead are a small share of residual weight, drop the traversal unit and return to representations A and B. If M4 shows the gate and field choices are nearly deterministic given the relation memory, build the table-only design and report that no learned selector is warranted.
 
+**Measured on GAP** ([findings, section 8](measurement/FINDINGS.md#8-what-this-decides)). Rule 1 does not fire: the residual is 18% to 92% of run time. Rule 2 fires in 12 of 16 windows for a traversal that starts when the value returns, and in none for one that starts early, so the traversal unit stays and its trigger changes. Rule 3 fires for the choice of relation. The single-instance gate is not deterministic under any context tested, and a probe of the cache replaces it. The next design is therefore the table-only one. M9 and the contexts built from an arriving line's contents were not measured.
+
 ### Hardware budget sheet
 
-Each line is filled from a measurement. The reference column holds what this repository has measured, or what a paper in section 2 states.
+Each line is filled from a measurement. The reference column holds what this repository has measured, or what a paper in section 2 states. **Measured:** the same sheet with the GAP numbers, and what is still unknown on each line, is in the [findings, section 7](measurement/FINDINGS.md#7-sizes-m5-to-m8).
 
 | Line | Sized by | Reference point |
 |---|---|---|
@@ -199,6 +203,8 @@ Published totals, as each paper states them: Micro-Armed Bandit about 100 bytes,
 | Shared conditional generator | One small network reused for every plan entry, conditioned on context and entry index | Weights shared across K entries. K serial passes or K parallel copies | Several output entries at little weight cost | Entries that depend on each other, unless run serially | M2 shows plans need more than one learned entry |
 | Exact relation table with a learned gate | Detects relations exactly. Learns only act or abstain, depth and width | Table bits from M5. A perceptron-sized scorer | Pointer and index cases when M4 entropy is low | Applying a relation at a PC never seen | The starting point. Every richer mechanism must beat it at equal budget |
 
+**Measured:** M4 selects the last row. For the choice of relation there is no gap for a richer mechanism to close on GAP.
+
 **Recommendation.** Start from the last row. If M4 shows a gap, add hard slot selection, which is attention reduced to an associative lookup, and feed it the exact relation bits as inputs. Reuse one generator across plan entries. Add temporal state only if M4 shows information in event order. Use low-precision weights throughout and take every size from section 5. Standard recurrent or Transformer models over long address histories are not the starting point: the output here is a selection among a few operands, and our own data did not reward recurrence.
 
 **Shape of the first learned unit.** Its inputs are structural, so that it can apply at a PC it has not seen: the consumer's addressing fields, relation confidence, the producer's latency class, whether a value's upper bits match a recent address, chain depth and fan-out so far, the resolved-outcome counters and issuer pressure. Its outputs are act or abstain, and for each entry a source slot, a field position within the line, a shift, and depth and width bounds. PC identity enters only as a tag that indexes relation memory. Widths, counts and precision are left open until section 5 is measured.
@@ -207,9 +213,9 @@ Published totals, as each paper states them: Micro-Armed Bandit about 100 bytes,
 
 **Why gem5.** Four things this study needs are missing from a ChampSim trace and present in an execution-driven simulator: the value each load returns, register dataflow from a producer load to a consumer's address, the times at which operands and data become ready in an out-of-order core, and real line contents at fill, so that a traversal unit reads a pointer instead of being handed it. gem5 also carries the nearest baselines: an indirect-memory prefetcher in mainline, and public forks with [Triangel](https://github.com/SamAinsworth/gem5-triangel) and with [Pickle and a Differential-Matching Prefetcher](https://github.com/pickle-device/gem5_pickle).
 
-**What it costs.** gem5 workshop material reports about 140 thousand instructions per second for the out-of-order model, so a 50M-instruction window takes about six minutes before capture overhead. [ISCA 2025 workshop slides](https://www.gem5.org/_pages/static/events/isca_2025/01-pincpu-gem5-2025-06-21-export.pdf) No side-by-side speed comparison with ChampSim was found. Programs have to be built and run instead of downloaded as traces. The cache probes this plan relies on exist only in gem5's classic cache model in timing mode, and the stock GAPBS, NPB and SPEC scripts use Ruby caches with a simpler CPU, so the configuration has to be written. The public forks sit on gem5 23.0 and 24.1 while stable is 26.0, and the prefetcher interface changed after 23.0. The 840M-arrival ChampSim corpus does not carry over. Its discipline does: the dynamic-load join, the original-miss denominator, and gains and losses reported separately.
+**What it costs.** **Measured:** 16 to 42 thousand instructions per second per run on the shared server with the capture on, so a window of 5M plus 20M instructions takes 10 to 25 minutes. gem5 workshop material reports about 140 thousand instructions per second for the out-of-order model, so a 50M-instruction window takes about six minutes before capture overhead. [ISCA 2025 workshop slides](https://www.gem5.org/_pages/static/events/isca_2025/01-pincpu-gem5-2025-06-21-export.pdf) No side-by-side speed comparison with ChampSim was found. Programs have to be built and run instead of downloaded as traces. The cache probes this plan relies on exist only in gem5's classic cache model in timing mode, and the stock GAPBS, NPB and SPEC scripts use Ruby caches with a simpler CPU, so the configuration has to be written. The public forks sit on gem5 23.0 and 24.1 while stable is 26.0, and the prefetcher interface changed after 23.0. The 840M-arrival ChampSim corpus does not carry over. Its discipline does: the dynamic-load join, the original-miss denominator, and gains and losses reported separately.
 
-The capture has ten streams. Fields, units, gem5 hooks and validation checks are in the [data-collection specification](DATA_COLLECTION.md).
+The capture has ten streams, six of them built so far. Fields, units, gem5 hooks and validation checks are in the [data-collection specification](DATA_COLLECTION.md).
 
 - **Architectural streams, recorded once per window.** Committed micro-ops with register sources and destinations and integer results. Committed loads and stores with address and value.
 - **Timing streams, recorded per arm.** Per-load pipeline times and hit level. Wrong-path loads. Cache lookups, fills and evictions per level. Prefetch lifecycle per prefetcher. Line contents at fill. Data-TLB misses. Queue pressure.
@@ -217,9 +223,9 @@ The capture has ten streams. Fields, units, gem5 hooks and validation checks are
 
 | Stage | Build | Question | Exit test |
 |---|---|---|---|
-| 0 Bring-up | gem5 O3 core, baseline prefetchers, checkpoints, validation microbenchmarks | Are runs deterministic and joinable? | Checks V1 and V2 pass. Baseline table reproduced twice |
-| 1 Measure | Capture streams, label extractors, M1 to M9 | Is the dependent opportunity large, early and regular enough? | Stop rules. Budget sheet filled |
-| 2 Offline-trained, replayed | Train offline on captured causal inputs. Inject plans in gem5 keyed by correct-path load ordinal, after a modeled latency. The traversal unit executes them against real fills | Do causal plans become timely first uses under contention? | Net timely coverage and fixed-work time against the fast path at equal budget, on held-out windows |
+| 0 Bring-up. **Done** | gem5 O3 core, baseline prefetchers, checkpoints, validation microbenchmarks | Are runs deterministic and joinable? | Checks V1 and V2 pass. Baseline table reproduced twice |
+| 1 Measure. **Done on GAP, except M9** | Capture streams, label extractors, M1 to M9 | Is the dependent opportunity large, early and regular enough? | Stop rules. Budget sheet filled |
+| 2 Table design in the loop, then replay | **Changed by the measurements:** first the exact relation table with early starts and a bounded traversal unit as a gem5 prefetcher, with no learned part. Then, only where it leaves a gap, plans trained offline on captured causal inputs and injected by correct-path load ordinal after a modeled latency | Do exact relations with early starts become timely first uses under contention? What do they leave? | Net timely coverage and fixed-work time against the fast path at equal budget, on held-out windows |
 | 3 Online inference | Fixed-point predictor inside gem5 with latency, initiation interval and bounded buffers. Capture with the unit active, relabel, retrain | Does it survive its own latency and its own feedback? | Bit-exact agreement with the offline model. Results hold with latency charged |
 | 4 Bounded traversal hardware | Traversal unit with depth, width and lifetime bounds, translation, fill tap and issuer arbitration | What do the limits cost? | Sensitivity to D, W, TLB policy and bandwidth |
 | 5 Robustness and cost | Held-out programs and inputs, multiple cores, area, energy and timing estimates | Does it generalise, and is it small? | Section 8 |
@@ -253,15 +259,18 @@ A speedup claim needs Stage 3 or later with inference latency charged, at least 
 | Bandwidth and pollution on graph frontiers | M9. The PageRank result above | Issuer budget. Gate trained on residual value |
 | Budget creep. Traversal unit, TLB port, fill tap and rename tags are not free | Budget sheet | Account each line. Compare with published budgets |
 
+**Seen so far on GAP.** The first risk is real: in 12 of 16 windows a traversal that starts at the return of the value it follows has no lead, and an early start gives one. The second is real for the choice of relation, which a table makes without learning. The third did not materialise: the residual is large. The fourth is confirmed as a requirement, since targets are on other pages than their producers. The label risk showed up as the "none" class, at most 2% of residual stall in a window. The gem5 risk cost two defective upstream prefetchers and a tenth of the simulation speed first assumed. The others need a unit in the loop.
+
 ## 10. Priorities and open decisions
 
 1. Settle the five decisions below. Done on 22 November 2026.
-2. Stage 0: bring-up, checkpoints, determinism.
-3. Capture and validation on microbenchmarks with known structure.
-4. M1, M2 and M3 on two or three workloads. This is the first go or no-go.
-5. M4 to M9 and the budget sheet.
-6. Label extractor, the table-with-gate baseline and Stage 2 replay.
-7. A learned selector only where M4 shows a gap. Then Stages 3 to 5.
+2. Stage 0: bring-up, checkpoints, determinism. Done.
+3. Capture and validation on microbenchmarks with known structure. Done: five programs, checks V1 to V5.
+4. M1, M2 and M3. Done on 16 GAP windows. The first go or no-go is a go for the traversal unit with an early start.
+5. M4 to M8 and the budget sheet. Done. M9 and the contexts built from an arriving line's contents are open.
+6. **Next:** the table design in the loop. An exact relation table, the three early starts, a bounded traversal unit and a shared issuer as a gem5 prefetcher, measured closed-loop against the fast path. The [prompt for the next step](NEXT_STEP_PROMPT.md) states it.
+7. The same measurements on the pointer-linked validation programs and on a second suite, so that the conclusions do not rest on GAP's arrays alone.
+8. A learned component only where step 6 leaves a measured gap: traversal control, or the stall no exact relation reaches early. Then Stages 3 to 5.
 
 | Decision | Taken on 22 November 2026 | Why |
 |---|---|---|
@@ -270,3 +279,12 @@ A speedup claim needs Stage 3 or later with inference latency charged, at least 
 | Fast path to complement | L1D stride plus the L2 signature-path prefetcher. Best offset, access map and the indirect-memory prefetcher as further arms | The residual is defined against this configuration. Signature path keeps continuity with the ChampSim study |
 | Tap and fill level | Core-side taps. Requests fill L2 | Translation, PC and values live at the core. The LLC placement stays a measured alternative |
 | Compute and storage | gem5 lives only on Sacramento, in `external/gem5`, linked here as a git submodule pinned to the official v26.0.0.0 tag. No gem5 copy is kept on the Mac | Sacramento had 48 cores, 92 GiB of memory and 4.3 TB free. The Mac had about 82 GiB free. Sacramento's default gcc 8.5.0 and Python 3.6.8 are too old, so the build uses its gcc-toolset-13 and Python 3.11, with SCons in a virtual environment under the cache root |
+
+Decisions taken during bring-up, on 23 November 2026:
+
+| Decision | Taken | Why |
+|---|---|---|
+| Windows | 5M instructions of warm-up and 20M measured, two per program and input | At the measured 16 to 42 thousand instructions per second, a 50M window for five arms and 16 windows would have taken days on the shared server |
+| Signature-path lookahead | One walk is stopped after 1,024 steps, in a subclass under `sim/np_ext` | gem5 26.0's walk does not end when its confidence stops falling. One GAP window hung on it |
+| Indirect-memory arm | Not run | gem5 26.0's indirect-memory prefetcher stops the simulator at its first index read, and by inspection it does not look ahead |
+| Trigger of the slow path | A load at a PC with a confirmed relation, or a line arriving at L2. Not an L1D miss | Section 3, **Measured** |

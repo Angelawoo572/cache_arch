@@ -35,6 +35,7 @@ F_WRITE = 1 << 10
 F_INST = 1 << 11
 F_SWPF = 1 << 12
 F_EVICT = 1 << 13  # an eviction or writeback announced by the level above
+F_UPGRADE = 1 << 14  # a store asking for write permission (later captures)
 
 
 class Stream:
@@ -107,5 +108,6 @@ def cache_fields(code):
         "inst": (code & F_INST) != 0,
         "swpf": (code & F_SWPF) != 0,
         "evict": (code & F_EVICT) != 0,
+        "upgrade": (code & F_UPGRADE) != 0,
         "requestor": ((code >> 16) & 0xFFFF).astype(np.int32),
     }

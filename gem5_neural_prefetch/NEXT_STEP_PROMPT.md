@@ -1,79 +1,102 @@
 # Prompt for the next step
 
-Paste the block below into a new agent session opened at the cache root. It covers Stages 0 and 1 of the [design memo](README.md): gem5 bring-up, the capture in the [data-collection specification](DATA_COLLECTION.md), and the measurement study. It builds no neural network.
+Paste the block below into a new agent session opened at the cache root. It covers the first half of Stage 2 of the [design memo](README.md): the table design in the loop. It builds no neural network. The [measurement findings](measurement/FINDINGS.md) explain why this is the next step.
 
-Five decisions in [section 10 of the memo](README.md#10-priorities-and-open-decisions) change what gets built. Answer them in the first message, or let the agent ask.
+The earlier version of this file asked for Stages 0 and 1. Those are done, and that prompt is in the git history of this file.
 
 ```text
 You are continuing a computer-architecture research project in the `cache` repository
 (GitHub Angelawoo572/cache_arch, branch experiment/gem5-neural-prefetch). Read AGENTS.md
-first and follow it. Then read gem5_neural_prefetch/README.md (design memo) and
-gem5_neural_prefetch/DATA_COLLECTION.md (capture specification). Those two files are the
-specification for this task. Where they and this prompt disagree, ask.
+first and follow it. Then read, in this order:
+  gem5_neural_prefetch/measurement/FINDINGS.md   what was measured and what it decides
+  gem5_neural_prefetch/README.md                 the design memo, updated with "Measured" notes
+  gem5_neural_prefetch/DATA_COLLECTION.md        the capture and the gem5 traps
+  gem5_neural_prefetch/sim/README.md             build, run, and how to share the server
+Where they and this prompt disagree, ask.
 
 BACKGROUND
-- Earlier ChampSim studies at the shared LLC (llc_hybrid_prefetch/, llc_lstm_research/)
-  found that conventional prefetchers miss useful lines or request them too late; that
-  richer LLC history improves address probability mostly on loads SPP already covers; that
-  graph workloads are limited by reaching the right page, not by lead; and that an exact
-  address does not by itself shorten execution.
-- ChampSim traces carry no load values, so dependent accesses (pointer chains, trees,
-  index arrays, graph frontiers) could not be studied. gem5 executes the program, so
-  values, register dataflow and ready times are observable.
-- Proposed design: conventional prefetchers stay an independent fast path. A tiny learned
-  slow path decides whether extra prefetching adds value and emits a bounded plan. A small
-  traversal unit executes the plan by reading pointer or index fields from lines as they
-  arrive. Both paths share one issuer. No model has been chosen; the memo requires the
-  measurements below first.
+- Goal of the project: a tiny slow path beside conventional prefetchers that covers the
+  dependent accesses they leave (index arrays, pointer chains, graph frontiers), without
+  filtering their candidates, with every input causally available and every hardware
+  cost accounted for.
+- gem5 26.0.0.0 is built on Sacramento only (external/gem5, a submodule). The study's
+  code is in gem5_neural_prefetch/sim/np_ext and is compiled through EXTRAS. The capture
+  passes checks V1 to V5.
+- Measured on 16 GAP windows: after L1D stride plus L2 signature path, a large share of
+  run time is still stall on loads whose address is (loaded value << shift) + base.
+  One to a few static relations per window carry it. Given the PC of the starting load,
+  which relation to follow is nearly deterministic. Whether one instance will miss is
+  not predictable from PC, relation or recent outcomes. A traversal that starts when the
+  producer's value returns has no lead: the core issues the dependent load within a few
+  cycles. Only an early start has lead: step a root whose address continues a delta,
+  read the other fields of a line a load has opened, or start at a line a conventional
+  prefetcher brought into L2.
+- So the next design has no learned part: an exact relation table, the three early
+  starts, a bounded traversal unit, a per-relation usefulness count and a shared issuer.
+  A learned component is considered only where this design leaves a measured gap.
+- gem5 26.0's own indirect-memory prefetcher does not run, and its signature-path
+  prefetcher needs the bound in np_ext. There is no indirect-memory baseline yet.
 
 GOAL OF THIS STEP (no neural network, no training)
-1. Stage 0: build gem5, run an O3 core with NoPF and conventional-prefetcher arms on the
-   agreed workloads, and show the runs are deterministic and joinable.
-2. Stage 1a: implement and validate the capture streams in DATA_COLLECTION.md.
-3. Stage 1b: produce measurement tables M1-M9 from the memo and state go or no-go
-   against the memo's stop rules.
+1. Implement the table design as a gem5 prefetcher under sim/np_ext, with every table,
+   register and queue sized explicitly and a modeled latency per lookup and per link.
+2. Measure it closed-loop on the existing checkpoints against the fast path alone.
+3. Close the measurements Stage 1 left open: M9 (issue-budget sensitivity) and the M4
+   contexts built from the contents of an arriving line.
+4. Say, from those results, whether a learned component has a measured gap to fill.
 
 STEPS
-1. Confirm the five open decisions in memo section 10 with the user (ISA, workloads and
-   SPEC licence, fast-path configuration, tap and fill level, compute and disk budget).
-2. Build a pinned gem5 release under external/gem5 (already git-ignored): 26.0.0.0
-   unless there is a reason to differ, and not older than 25.1. On 22 November 2026
-   Sacramento had gcc 8.5.0, system Python 3.6.8, no SCons and no gem5 tree: check
-   gem5's build requirements first and install what is missing inside the cache root,
-   without changing the system. Record the version, commit, compiler and build command. Keep project code in a separate directory
-   compiled through EXTRAS; do not edit upstream gem5 files unless a hook is missing
-   (DATA_COLLECTION.md lists the small patches expected), and record each patch.
-3. Write one configuration script for the baseline machine: O3 CPU, classic caches in
-   timing mode (the cache probes do not exist in Ruby), syscall emulation. Create
-   checkpoints so that every arm measures the same instructions. Check: two identical
-   runs give identical statistics; the committed-load hash (V1) is equal across arms.
-4. Write the validation microbenchmarks (stride array, linked list, binary tree, CSR
-   indirect, hash chain) with working sets larger than the LLC. Their known structure
-   validates the extractors. It is never a training label.
-5. Implement the capture streams as probe listeners. Run checks V1-V6. Do not start the
-   capture matrix until all six pass.
-6. Run the capture matrix. Compute M1-M9 with explicit denominators. Write
-   gem5_neural_prefetch/measurement/FINDINGS.md with tables, figures and the go or
-   no-go statement. Report negative results in full.
-7. After each completed step: commit to experiment/gem5-neural-prefetch, push, and
-   rsync gem5_neural_prefetch/ to Sacramento through .runtime/sacramento-ssh. Verify
+1. Relation detection online: a small window of recent loads with their values; at each
+   new load address, test address == (value << s) + base for s in 0..3 against the
+   tagged producers; confirm with a confidence count per pair of PCs. Compare what it
+   learns with the offline relations in measurement/tables/m5_top_relations.csv.
+2. Early starts, one at a time, each behind a switch so its contribution can be
+   measured: (a) stepped root, (b) the other fields of the line a load opened,
+   (c) lines arriving at L2 from any prefetcher. The unit may observe fills. It must not
+   read a conventional prefetcher's candidate list or internal state.
+3. Traversal unit: at most 3 links, bounded width and lifetime, reads a field only from
+   a line that is present, never before the line arrives. Requests go through one
+   issuer that drops lines already present or in flight, translates through the data
+   TLB, and meters both paths.
+4. Add the capture streams the evaluation needs: S7 (prefetch lifecycle, with the unit
+   that issued each request) and S10 (queue pressure). Check V1, V2, V4 and V5 again.
+5. Arms, on every existing GAP window and on the micro programs list, tree, hash and csr:
+   nopf, fast, fast + table design with each early start alone and all together.
+   Report per window: original misses that become timely first uses and that stop being
+   timely (gained, lost, net), late share, cycles for the fixed 20M instructions,
+   requests issued, used and unused, DRAM reads. Sweep distance, depth, width and the
+   issue budget (M9). Charge the modeled latency.
+6. Write a faithful one-link indirect prefetcher as a baseline arm (the table design
+   with only start (a) and one link is that baseline), and say so in the report.
+7. M4 with arriving-line contexts, offline, from the captured fill contents (S8): for
+   each field of each line filled into L2, does it name a later residual target, and
+   how many bits does a table need to decide given the relation, the field position
+   and the line's page.
+8. After each completed step: commit to experiment/gem5-neural-prefetch, push, sync
+   gem5_neural_prefetch/ to Sacramento through .runtime/sacramento-ssh, and check that
    the three copies match. Raw captures, builds and checkpoints stay out of git.
 
 RULES
-- A predictor input must have been observable at its tap at prediction time. Future
-  addresses, future values, baseline outcomes of future loads and source-level structure
-  are labels only.
-- Conventional prefetchers' candidates are never inputs to the learned unit.
-- Never assume a pointer target is known before the line holding the pointer arrives.
-- No reinforcement learning. No claim of novelty or speedup. Every number in a report
-  links to the file that holds it.
-- Do not move, overwrite or re-index the existing ChampSim data.
+- A predictor or table input must have been observable at its tap at decision time.
+  Outcomes of loads that have not resolved are labels only.
+- Conventional prefetchers' candidates are never inputs. Their fills may be observed.
+- Never use a field before its line is present.
+- No reinforcement learning. No claim of novelty or speedup without the evidence the
+  memo's section 8 asks for. Report losses next to gains and negative results in full.
+- Every number in a report links to the file that holds it.
+- gem5 stays on Sacramento. Run simulations at the lowest priority, at most about 14 at
+  once, with the 4 GiB address-space limit in sim/np_runs.py, and check free memory
+  before starting analysis jobs: the server is shared.
+- Do not move, overwrite or re-index earlier captures. New arms get new names.
 - Ask before any run expected to exceed a few hours or tens of gigabytes.
 
 REPORT BACK
 - What was built, what passed, what failed, with paths.
-- M1-M9 per workload, and which stop rule (if any) fired.
-- The filled hardware budget sheet (memo section 5), with measured values replacing
-  every "to measure" entry that this step can resolve.
-- The smallest next experiment you recommend and why.
+- Per window: gained, lost and net timely coverage, time for fixed work, traffic, and
+  the cost of the unit as separate lines for tables, registers, queues and latency.
+- Which early start carries the gain, and what distance, depth and width it needs.
+- What the table design leaves, by mechanism, and whether any of it is a decision a
+  learned component could make from causally available inputs. If yes, name the
+  decision, its inputs, its label and the smallest experiment that would test it.
+  If no, say so.
 ```

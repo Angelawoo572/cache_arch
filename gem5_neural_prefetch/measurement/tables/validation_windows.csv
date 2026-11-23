@@ -1,0 +1,17 @@
+workload,offset,arms,committed_loads,committed_uops,load_values_equal_in_all_arms,V1_same_loads_in_all_arms,V4_worst_count_difference_percent,V4_reconciliation_all_arms,V5_storage_all_arms
+gap_bc_kron20,0,nopf stride fast bop ampm,3181596,28518618,yes,pass,0.024,pass,pass
+gap_bc_kron20,300000000,nopf stride fast bop ampm,4940253,27661487,yes,pass,0.011,pass,pass
+gap_bfs_kron20,0,nopf stride fast bop ampm,5048275,25054001,no,pass,0.014,pass,pass
+gap_bfs_kron20,30000000,nopf stride fast bop ampm,5863143,25999380,no,pass,0.010,pass,pass
+gap_bfs_urand20,0,nopf stride fast bop ampm,3458375,23927438,no,pass,0.021,pass,pass
+gap_bfs_urand20,30000000,nopf stride fast bop ampm,5744524,26635772,no,pass,0.028,pass,pass
+gap_cc_kron20,0,nopf stride fast bop ampm,4918221,26563827,yes,pass,0.014,pass,pass
+gap_cc_kron20,40000000,nopf stride fast bop ampm,4859413,26339403,yes,pass,0.011,pass,pass
+gap_cc_urand20,0,nopf stride fast bop ampm,5154253,27183346,yes,pass,0.012,pass,pass
+gap_cc_urand20,40000000,nopf stride fast bop ampm,4646978,27625659,yes,pass,0.014,pass,pass
+gap_pr_kron20,0,nopf stride fast bop ampm,6409160,31433397,yes,pass,0.026,pass,pass
+gap_pr_kron20,300000000,nopf stride fast bop ampm,7829002,32144852,yes,pass,0.012,pass,pass
+gap_pr_urand20,0,nopf stride fast bop ampm,6404044,31406021,yes,pass,0.023,pass,pass
+gap_pr_urand20,300000000,nopf stride fast bop ampm,7807285,32085651,yes,pass,0.016,pass,pass
+gap_sssp_kron20,0,nopf stride fast bop ampm,8231354,36746085,no,pass,0.016,pass,pass
+gap_sssp_kron20,300000000,nopf stride fast bop ampm,8300523,29199053,yes,pass,0.011,pass,pass

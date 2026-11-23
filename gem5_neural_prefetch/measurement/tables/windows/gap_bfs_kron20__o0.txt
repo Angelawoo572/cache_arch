@@ -1,0 +1,28 @@
+gap_bfs_kron20 +0, arm fast: residual targets 61257, stall 6032957 cycles
+
+relations by value-derived residual stall
+   63.9% of residual stall: address = (value << 0) + 0x0, 0 micro-ops apart; reached: stepped 29%, same line 27%, fill tap 98%, any 99%; producer missed L1D 1%, producer is a same-PC delta 67%
+      value loaded at 0x4042b4: 4042b9:	cmp    %rsi,%rbx | 4042bc:	je     404290 <_Z6BUStepRK8CSRGraphIiiLb1EER7pvectorIiER6BitmapS7_+0x50>
+      used at       0x4042be: 4042c1:	mov    (%rdx),%rbp | 4042c4:	add    $0x4,%rsi
+   22.2% of residual stall: address = (value << 2) + 0x42bbe0, 2 micro-ops apart; reached: stepped 100%, same line 29%, fill tap 97%, any 100%; producer missed L1D 1%, producer is a same-PC delta 100%
+      value loaded at 0x4043b9: 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax
+      used at       0x4043ca: 4043d0:	mov    %r8d,(%rax) | 4043d3:	rex.W
+    5.1% of residual stall: address = ((value >> 6) << 3) + 0xc4bc10, 2 micro-ops apart; reached: stepped 57%, same line 76%, fill tap 100%, any 100%; producer missed L1D 58%, producer is a same-PC delta 6%
+      value loaded at 0x4042be: 4042c1:	mov    (%rdx),%rbp | 4042c4:	add    $0x4,%rsi
+      used at       0x4042cf: 4042cf:	mov    0x0(%rbp,%r8,8),%r8 | 4042d4:	bt     %r10,%r8
+    1.7% of residual stall: address = ((value >> 6) << 3) + 0xc4bc10, 2 micro-ops apart; reached: stepped 99%, same line 93%, fill tap 99%, any 100%; producer missed L1D 1%, producer is a same-PC delta 100%
+      value loaded at 0x4044f8: 4044fb:	mov    %r9,%r10 | 4044fe:	add    $0x4,%rdx
+      used at       0x40450c: 40450c:	or     %r10,(%rsi,%rax,8) | 404510:	mov    0x18(%rdi),%rax
+    1.6% of residual stall: address = ((value >> 6) << 3) + 0xc4bc10, 2 micro-ops apart; reached: stepped 72%, same line 95%, fill tap 100%, any 100%; producer missed L1D 5%, producer is a same-PC delta 2%
+      value loaded at 0x4042e5: 4042e8:	add    $0x4,%rsi | 4042ec:	mov    %r8,%r10
+      used at       0x4042f3: 4042f3:	mov    0x0(%rbp,%r8,8),%r8 | 4042f8:	bt     %r10,%r8
+
+class none: 0.3% of residual stall
+    0.1% at 0x4042b0: 4042ac:	mov    0x28(%rdi),%rsi | 4042b0:	mov    (%rsi,%r11,8),%rbx | 4042b4:	mov    -0x8(%rsi,%r11,8),%rsi | 4042b9:	rex.W
+    0.0% at 0x404310: 404310:	or     %rbx,0x0(%r13,%r9,8) | 404315:	mov    %r11,%r9 | 404318:	rex.WR | 404319:	.byte 0x3b
+    0.0% at 0x7ffff7dda5ba: 
+
+class same_pc_delta: 4.7% of residual stall
+    1.3% at 0x4042be: 4042bc:	je     404290 <_Z6BUStepRK8CSRGraphIiiLb1EER7pvectorIiER6BitmapS7_+0x50> | 4042be:	movslq (%rsi),%r8 | 4042c1:	mov    (%rdx),%rbp | 4042c4:	add    $0x4,%rsi
+    1.0% at 0x4044f8: 4044f1:	nopl   0x0(%rax) | 4044f8:	movslq (%rdx),%rax | 4044fb:	mov    %r9,%r10 | 4044fe:	add    $0x4,%rdx
+    0.8% at 0x404688: 404683:	nopl   0x0(%rax,%rax,1) | 404688:	mov    0x8(%r8,%rdx,8),%rcx | 40468d:	mov    (%r8,%rdx,8),%rdi | 404691:	rex.R

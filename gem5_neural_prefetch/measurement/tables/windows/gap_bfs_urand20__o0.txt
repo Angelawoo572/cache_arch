@@ -1,0 +1,28 @@
+gap_bfs_urand20 +0, arm fast: residual targets 287170, stall 24185112 cycles
+
+relations by value-derived residual stall
+   61.0% of residual stall: address = (value << 2) + 0x42bbe0, 2 micro-ops apart; reached: stepped 100%, same line 87%, fill tap 92%, any 100%; producer missed L1D 45%, producer is a same-PC delta 86%
+      value loaded at 0x4043b9: 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax
+      used at       0x4043ca: 4043d0:	mov    %r8d,(%rax) | 4043d3:	rex.W
+   21.2% of residual stall: address = (value << 0) + 0x0, 0 micro-ops apart; reached: stepped 100%, same line 94%, fill tap 100%, any 100%; producer missed L1D 82%, producer is a same-PC delta 0%
+      value loaded at 0x40439f: 4043a4:	cmp    %rbx,%r13 | 4043a7:	jne    4043b9 <_Z6TDStepRK8CSRGraphIiiLb1EER7pvectorIiER12SlidingQueueIiE+0x89>
+      used at       0x4043b9: 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax
+    3.2% of residual stall: address = (value << 3) + 0x7fffee0aa018, 2 micro-ops apart; reached: stepped 100%, same line 88%, fill tap 99%, any 100%; producer missed L1D 4%, producer is a same-PC delta 100%
+      value loaded at 0x40438d: 404390:	mov    0x18(%rax),%rdi | 404394:	movslq %r8d,%rax
+      used at       0x40439b: 40439b:	mov    (%rdi,%rax,8),%r13 | 40439f:	mov    -0x8(%rdi,%rax,8),%rbx
+    0.1% of residual stall: address = (value << 0) + 0x2c, 11 micro-ops apart; reached: stepped 100%, same line 100%, fill tap 99%, any 100%; producer missed L1D 85%, producer is a same-PC delta 0%
+      value loaded at 0x40439f: 4043a4:	cmp    %rbx,%r13 | 4043a7:	jne    4043b9 <_Z6TDStepRK8CSRGraphIiiLb1EER7pvectorIiER12SlidingQueueIiE+0x89>
+      used at       0x4043b9: 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax
+    0.1% of residual stall: address = (value << 0) + 0x30, 12 micro-ops apart; reached: stepped 100%, same line 100%, fill tap 100%, any 100%; producer missed L1D 80%, producer is a same-PC delta 0%
+      value loaded at 0x40439f: 4043a4:	cmp    %rbx,%r13 | 4043a7:	jne    4043b9 <_Z6TDStepRK8CSRGraphIiiLb1EER7pvectorIiER12SlidingQueueIiE+0x89>
+      used at       0x4043b9: 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax
+
+class none: 0.0% of residual stall
+    0.0% at 0x7ffff7dda5ba: 
+    0.0% at 0x7ffff71b2c0f: 
+    0.0% at 0x405014: 40500f:	mov    0x18(%r12),%rax | 405014:	mov    0x8(%rax,%rbp,8),%rbx | 405019:	sub    (%rax,%rbp,8),%rbx | 40501d:	rex.W
+
+class same_pc_delta: 14.4% of residual stall
+   13.6% at 0x404688: 404683:	nopl   0x0(%rax,%rax,1) | 404688:	mov    0x8(%r8,%rdx,8),%rcx | 40468d:	mov    (%r8,%rdx,8),%rdi | 404691:	rex.R
+    0.7% at 0x4043b9: 4043b7:	je     4043f8 <_Z6TDStepRK8CSRGraphIiiLb1EER7pvectorIiER12SlidingQueueIiE+0xc8> | 4043b9:	movslq (%rbx),%rdi | 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax
+    0.0% at 0x4043bc: 4043b9:	movslq (%rbx),%rdi | 4043bc:	mov    (%r14),%rax | 4043bf:	lea    (%rax,%rdi,4),%rax | 4043c3:	mov    %rdi,%r12

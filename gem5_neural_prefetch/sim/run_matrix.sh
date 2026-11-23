@@ -17,6 +17,8 @@ python sim/np_runs.py run --arms nopf,stride,fast --warmup 500000 --measure 2000
 python sim/np_runs.py run --arms nopf --no-capture --warmup 500000 --measure 2000000 $micro -j 5
 
 # GAP kernels: 5M instructions of warm-up, 20M measured, two windows each.
+# A failed run is listed in the log and does not stop the later batches.
 python sim/np_runs.py checkpoint $gap -j 8
-python sim/np_runs.py run --arms nopf,stride,fast --warmup 5000000 --measure 20000000 $gap -j "$jobs"
-python sim/np_runs.py run --arms bop,ampm,imp --warmup 5000000 --measure 20000000 $gap -j "$jobs"
+python sim/np_runs.py run --arms nopf,stride,fast --warmup 5000000 --measure 20000000 $gap -j "$jobs" || echo "some runs failed: see the lines marked FAILED"
+# The indirect-memory arm is left out: gem5 26.0 stops with a panic in it.
+python sim/np_runs.py run --arms bop,ampm --uops-arm none --warmup 5000000 --measure 20000000 $gap -j "$jobs" || echo "some runs failed: see the lines marked FAILED"

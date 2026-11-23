@@ -12,6 +12,10 @@
         V1: equal load hashes across arms or repeats.
     python analysis/np_validate.py intrusion RUN_WITH_CAPTURE RUN_WITHOUT
         V2: every gem5 statistic equal with the capture on and off.
+    python analysis/np_validate.py values RUN_A RUN_B
+        Which loads read different values in two arms that both recorded S2.
+    python analysis/np_validate.py bound RUN_STOCK RUN_BOUNDED
+        Does the bounded signature-path class reproduce gem5's own class?
 """
 
 import argparse
@@ -119,7 +123,8 @@ def reconcile(run_dir):
     # gem5 counts by command. A prefetch issued by the level above arrives
     # as a read, so gem5's "demand" counters at L2 and L3 include it, as they
     # include instruction fetches. Evictions are not accesses.
-    request = ~fields["evict"] & ~fields["swpf"]
+    request = ~fields["evict"] & ~fields["swpf"] & ~fields["upgrade"]
+    has_upgrade_flag = "v1_address_hash" in capture.counts
     hierarchy = "board.cache_hierarchy"
     rows = []
     for level, name in ((1, "l1d"), (2, "l2"), (3, "l3")):
@@ -154,9 +159,13 @@ def reconcile(run_dir):
     print(f"{'quantity':16s} {'capture':>12s} {'gem5 stats':>12s}")
     for label, ours, theirs in rows:
         diff = abs(ours - theirs) / max(theirs, ours, 1)
-        if max(ours, theirs) > 1000:
+        # Captures taken before the upgrade flag existed count upgrade
+        # requests among the hits, so their hit rows are not comparable.
+        informational = label.endswith("hits") and not has_upgrade_flag
+        if max(ours, theirs) > 1000 and not informational:
             worst = max(worst, diff)
-        print(f"{label:16s} {ours:12d} {theirs:12d}   {100 * diff:.3f}%")
+        note = "   (includes upgrade requests)" if informational else ""
+        print(f"{label:16s} {ours:12d} {theirs:12d}   {100 * diff:.3f}%{note}")
     ok = worst < 3 * slack + 0.002
     print(f"committed loads  {capture.counts['committed_loads']:12d}")
     print("V4 PASS" if ok else "V4 FAIL")
@@ -212,15 +221,92 @@ def intrusion(with_capture, without_capture):
     return 0 if not differing else 1
 
 
+def bound(stock, bounded):
+    """Does the bounded signature-path class reproduce a run of gem5's own
+    class? Compares every statistic both runs report and the capture window."""
+    a, b = read_stats(stock), read_stats(bounded)
+    common = sorted(set(a) & set(b))
+    differing = [k for k in common if a[k] != b[k]]
+    stopped = [v for k, v in b.items() if k.endswith("lookaheadsStopped")]
+    ca = json.loads((Path(stock) / "capture" / "capture_counts.json").read_text())
+    cb = json.loads((Path(bounded) / "capture" / "capture_counts.json").read_text())
+    same_window = all(ca[k] == cb[k] for k in ("enable_tick", "finish_tick", "committed_loads"))
+    classes = [
+        json.loads((Path(d) / "m5out" / "run_info.json").read_text()).get(
+            "signature_path_class", "SignaturePathPrefetcherV2"
+        )
+        for d in (stock, bounded)
+    ]
+    print(f"classes: {classes[0]} and {classes[1]}")
+    print(f"statistics in both runs: {len(common)}; differing: {len(differing)}")
+    for key in differing[:12]:
+        print(f"  {key}: {a[key]} and {b[key]}")
+    print(f"capture window ticks and loads equal: {same_window}")
+    print(f"lookahead walks stopped at the limit: {stopped[0] if stopped else 'not reported'}")
+    ok = not differing and same_window
+    print("BOUND SAME" if ok else "BOUND DIFFERS")
+    return 0 if ok else 1
+
+
+class LoadsOnly:
+    """The part of a capture that V1 needs: load addresses and the counts.
+    Much lighter than np_join.Arm, which also reads every cache event."""
+
+    def __init__(self, run_dir):
+        capture = Capture(Path(run_dir) / "capture")
+        self.counts = capture.counts
+        self.paddr = Stream(capture.folder, "load_time").column("paddr").copy()
+        self.n = len(self.paddr)
+
+
 def same(run_dirs):
-    hashes = {}
+    """V1: equal load PCs and addresses in every run. Values are reported
+    separately: a program that reads a clock differs there and nowhere else."""
+    from np_join import aligned
+    from np_measure import value_hash
+
+    first = LoadsOnly(run_dirs[0])
+    ok = True
+    hashes = {}  # what the hash covers -> the hashes seen
     for run_dir in run_dirs:
-        counts = json.loads((Path(run_dir) / "capture" / "capture_counts.json").read_text())
-        hashes[str(run_dir)] = (counts["v1_load_hash"], counts["committed_loads"], counts["committed_uops"])
-        print(f"{counts['v1_load_hash']}  loads {counts['committed_loads']:9d}  uops {counts['committed_uops']:9d}  {Path(run_dir).name}")
-    ok = len(set(hashes.values())) == 1
+        arm = first if run_dir == run_dirs[0] else LoadsOnly(run_dir)
+        same_addresses = aligned(first, arm)
+        ok &= same_addresses
+        kind, digest = value_hash(arm)
+        hashes.setdefault(kind, set()).add(digest)
+        print(
+            f"loads {arm.n:9d}  uops {arm.counts['committed_uops']:9d}  "
+            f"addresses {'same' if same_addresses else 'DIFFER'}  "
+            f"value hash {digest}  {Path(run_dir).name}"
+        )
+    # Captures written before and after the hashes were split cannot be
+    # compared with each other, so each kind is compared within itself.
+    if any(len(seen) > 1 for seen in hashes.values()):
+        print("load values differ across these runs")
+    elif len(hashes) > 1:
+        print(f"load values equal within each of the {len(hashes)} hash formats")
+    else:
+        print("load values equal across these runs")
     print("V1 PASS" if ok else "V1 FAIL")
     return 0 if ok else 1
+
+
+def values(run_a, run_b):
+    """Where do two arms read different values? Both must hold stream S2."""
+    a = Capture(Path(run_a) / "capture").table("load")
+    b = Capture(Path(run_b) / "capture").table("load")
+    if len(a["pc"]) != len(b["pc"]):
+        print("different numbers of loads")
+        return 1
+    same_place = bool(np.array_equal(a["pc"], b["pc"]) and np.array_equal(a["vaddr"], b["vaddr"]))
+    differ = a["value"] != b["value"]
+    print(f"loads {len(differ)}; same PC and address in every row: {same_place}")
+    print(f"rows with a different value: {int(differ.sum())} ({100 * differ.mean():.5f}%)")
+    pcs, counts = np.unique(a["pc"][differ], return_counts=True)
+    print("load PCs that read different values (PC, differing rows, all rows of that PC):")
+    for pc, count in sorted(zip(pcs, counts), key=lambda x: -x[1])[:16]:
+        print(f"  {int(pc):#x}  {int(count):8d}  {int((a['pc'] == pc).sum()):8d}")
+    return 0 if same_place else 1
 
 
 def main():
@@ -234,10 +320,20 @@ def main():
         p.add_argument("run_dir")
     p = sub.add_parser("same")
     p.add_argument("run_dirs", nargs="+")
+    p = sub.add_parser("values")
+    p.add_argument("run_a")
+    p.add_argument("run_b")
     p = sub.add_parser("intrusion")
     p.add_argument("with_capture")
     p.add_argument("without_capture")
+    p = sub.add_parser("bound")
+    p.add_argument("stock")
+    p.add_argument("bounded")
     args = parser.parse_args()
+    if args.check == "bound":
+        return bound(args.stock, args.bounded)
+    if args.check == "values":
+        return values(args.run_a, args.run_b)
     if args.check == "intrusion":
         return intrusion(args.with_capture, args.without_capture)
     if args.check == "structure":

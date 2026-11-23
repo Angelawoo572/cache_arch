@@ -1,0 +1,6 @@
+program,committed_loads,committed_uops,load_value_hash,load_values_equal_in_3_arms,V1_same_loads_in_3_arms,V2_statistics_compared,V2_statistics_differing,V2_non_intrusion,V3_expected_shift_base,V3_found_shift_base,V3_loads_explained,V3_known_structure,V4_worst_count_difference_percent,V4_reconciliation_3_arms,V5_storage_3_arms
+micro_stride,500000,3000000,10329ef5a0e0bd4c,yes,pass,1589,0,pass,[],[],0.0000,pass,0.100,pass,pass
+micro_list,1000000,3000000,973b3578d2c04b32,yes,pass,1598,0,pass,"[(0, 0), (0, 16)]","[(0, 0), (0, 16)]",1.0000,pass,0.100,pass,pass
+micro_tree,559152,2873421,0b7142bdee4161c7,yes,pass,1650,0,pass,"[(0, 0), (0, 16), (0, 8)]","[(0, 0), (0, 16), (0, 8)]",0.9555,pass,0.124,pass,pass
+micro_csr,568056,2694485,91d38d67a5ecefbc,yes,pass,1662,0,pass,"[(3, 'array')]","[(2, 'array'), (3, 'array')]",0.8887,pass,0.105,pass,pass
+micro_hash,235256,5619775,65cc6903e7625560,yes,pass,1673,0,pass,"[(0, 0), (0, 16), (0, 8)]","[(0, 0), (0, 16), (0, 8)]",0.7995,pass,0.107,pass,pass

@@ -1,0 +1,28 @@
+gap_sssp_kron20 +0, arm fast: residual targets 198845, stall 17046635 cycles
+
+relations by value-derived residual stall
+   55.9% of residual stall: address = (value << 2) + 0x42bc70, 2 micro-ops apart; reached: stepped 100%, same line 44%, fill tap 98%, any 100%; producer missed L1D 1%, producer is a same-PC delta 100%
+      value loaded at 0x404958: 404958:	mov    0x0(%rbp),%r15d | 40495c:	mov    0x18(%rsp),%rsi
+      used at       0x404971: 404978:	rex.WR | 404979:	.byte 0x8b
+   37.7% of residual stall: address = (value << 2) + 0x42bc70, 2 micro-ops apart; reached: stepped 100%, same line 31%, fill tap 98%, any 100%; producer missed L1D 2%, producer is a same-PC delta 100%
+      value loaded at 0x4046d2: 4046d2:	movslq (%rbx),%rcx | 4046d5:	mov    %r15,%rdi
+      used at       0x4046fa: 4046fe:	mov    %eax,(%rdx) | 404700:	cltd
+    0.3% of residual stall: address = (value << 0) + 0x0, 0 micro-ops apart; reached: stepped 98%, same line 57%, fill tap 96%, any 99%; producer missed L1D 95%, producer is a same-PC delta 0%
+      value loaded at 0x40465b: 40465b:	mov    -0x8(%rdi,%rsi,8),%rbx | 404660:	mov    %r9,0x18(%rsp)
+      used at       0x4046d2: 4046d2:	movslq (%rbx),%rcx | 4046d5:	mov    %r15,%rdi
+    0.3% of residual stall: address = (value << 0) + 0x0, 0 micro-ops apart; reached: stepped 99%, same line 70%, fill tap 97%, any 99%; producer missed L1D 92%, producer is a same-PC delta 0%
+      value loaded at 0x4048fd: 4048fd:	mov    -0x8(%rax,%rdx,8),%rbp | 404902:	mov    %rcx,0x18(%rsp)
+      used at       0x404958: 404958:	mov    0x0(%rbp),%r15d | 40495c:	mov    0x18(%rsp),%rsi
+    0.2% of residual stall: address = (value << 3) + 0x7fffe711b018, 2 micro-ops apart; reached: stepped 99%, same line 60%, fill tap 98%, any 99%; producer missed L1D 44%, producer is a same-PC delta 99%
+      value loaded at 0x4048ea: 4048ea:	movslq (%rdi),%rcx | 4048ed:	mov    0x18(%rax),%rax
+      used at       0x4048f9: 4048fd:	mov    -0x8(%rax,%rdx,8),%rbp | 404902:	rex.W
+
+class none: 0.8% of residual stall
+    0.1% at 0x7ffff70d4d00: 
+    0.1% at 0x7ffff714843f: 
+    0.1% at 0x7ffff70d4d03: 
+
+class same_pc_delta: 1.3% of residual stall
+    0.5% at 0x404971: 404977:	cltd | 404978:	rex.WR | 404979:	.byte 0x8b | 40497a:	.byte 0xb4
+    0.3% at 0x404958: 404953:	mov    0x20(%rsp),%rax | 404958:	mov    0x0(%rbp),%r15d | 40495c:	mov    0x18(%rsp),%rsi | 404961:	rex.W
+    0.2% at 0x4046d2: 4046d2:	movslq (%rbx),%rcx | 4046d5:	mov    %r15,%rdi | 4046d8:	add    0x4(%rbx),%eax | 4046db:	rex.WR
