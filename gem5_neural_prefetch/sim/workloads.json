@@ -1,0 +1,114 @@
+{
+  "micro_stride": {
+    "binary": "gem5_neural_prefetch/raw/workloads/micro/stride",
+    "args": "8388608 8 64",
+    "offsets": [
+      0
+    ],
+    "kind": "validation"
+  },
+  "micro_list": {
+    "binary": "gem5_neural_prefetch/raw/workloads/micro/list",
+    "args": "1048576 64",
+    "offsets": [
+      0
+    ],
+    "kind": "validation"
+  },
+  "micro_tree": {
+    "binary": "gem5_neural_prefetch/raw/workloads/micro/tree",
+    "args": "1048576 4194304",
+    "offsets": [
+      0
+    ],
+    "kind": "validation"
+  },
+  "micro_csr": {
+    "binary": "gem5_neural_prefetch/raw/workloads/micro/csr",
+    "args": "4194304 4 16",
+    "offsets": [
+      0
+    ],
+    "kind": "validation"
+  },
+  "micro_hash": {
+    "binary": "gem5_neural_prefetch/raw/workloads/micro/hash",
+    "args": "2097152 1048576 8388608",
+    "offsets": [
+      0
+    ],
+    "kind": "validation"
+  },
+  "gap_bfs_kron20": {
+    "binary": "external/gapbs/bfs",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/kron20.sg -n 4",
+    "offsets": [
+      0,
+      30000000
+    ],
+    "kind": "gap"
+  },
+  "gap_bfs_urand20": {
+    "binary": "external/gapbs/bfs",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/urand20.sg -n 4",
+    "offsets": [
+      0,
+      30000000
+    ],
+    "kind": "gap"
+  },
+  "gap_pr_kron20": {
+    "binary": "external/gapbs/pr",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/kron20.sg -n 1 -i 10 -t 1e-9",
+    "offsets": [
+      0,
+      300000000
+    ],
+    "kind": "gap"
+  },
+  "gap_pr_urand20": {
+    "binary": "external/gapbs/pr",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/urand20.sg -n 1 -i 10 -t 1e-9",
+    "offsets": [
+      0,
+      300000000
+    ],
+    "kind": "gap"
+  },
+  "gap_cc_kron20": {
+    "binary": "external/gapbs/cc",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/kron20.sg -n 2",
+    "offsets": [
+      0,
+      40000000
+    ],
+    "kind": "gap"
+  },
+  "gap_cc_urand20": {
+    "binary": "external/gapbs/cc",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/urand20.sg -n 2",
+    "offsets": [
+      0,
+      40000000
+    ],
+    "kind": "gap"
+  },
+  "gap_bc_kron20": {
+    "binary": "external/gapbs/bc",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/kron20.sg -n 1 -i 2",
+    "offsets": [
+      0,
+      300000000
+    ],
+    "kind": "gap"
+  },
+  "gap_sssp_kron20": {
+    "binary": "external/gapbs/sssp",
+    "args": "-f gem5_neural_prefetch/raw/workloads/graphs/kron20.wsg -n 2 -d 2",
+    "offsets": [
+      0,
+      300000000
+    ],
+    "kind": "gap"
+  }
+}

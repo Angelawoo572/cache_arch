@@ -1,0 +1,5 @@
+Import('*')
+
+if env['CONF']['BUILD_ISA']:
+    SimObject('NpCapture.py', sim_objects=['NpCapture'])
+    Source('np_capture.cc')
