@@ -34,6 +34,7 @@ F_HWPF = 1 << 9  # the packet is a hardware prefetch
 F_WRITE = 1 << 10
 F_INST = 1 << 11
 F_SWPF = 1 << 12
+F_EVICT = 1 << 13  # an eviction or writeback announced by the level above
 
 
 class Stream:
@@ -105,5 +106,6 @@ def cache_fields(code):
         "write": (code & F_WRITE) != 0,
         "inst": (code & F_INST) != 0,
         "swpf": (code & F_SWPF) != 0,
+        "evict": (code & F_EVICT) != 0,
         "requestor": ((code >> 16) & 0xFFFF).astype(np.int32),
     }

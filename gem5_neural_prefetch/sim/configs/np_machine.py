@@ -28,11 +28,25 @@ from gem5.components.processors.simple_processor import SimpleProcessor
 from gem5.isas import ISA
 
 CLOCK = "4GHz"
-MEMORY = "8GiB"
+MEMORY = "2GiB"
 
-# The workloads execute the gem5 work-begin marker only when this is set, so the
-# same binaries also run natively.
-WORKLOAD_ENV = ["NP_GEM5=1"]
+# NP_GEM5: the workloads execute the gem5 work-begin marker only when this is
+# set, so the same binaries also run natively.
+# GLIBC_TUNABLES: gem5's x86 CPUID reports no cache sizes, so the host C
+# library computes a non-temporal threshold of zero and its memcpy takes the
+# multi-page path for small copies, reading far past the source. Stating the
+# cache sizes and the threshold avoids that. Both tunable namespaces are given
+# because the name changed between C library versions.
+_TUNABLES = ":".join(
+    f"glibc.{space}.{name}={value}"
+    for space in ("tune", "cpu")
+    for name, value in (
+        ("x86_data_cache_size", 0xC000),
+        ("x86_shared_cache_size", 0x200000),
+        ("x86_non_temporal_threshold", 0x4000000),
+    )
+)
+WORKLOAD_ENV = ["NP_GEM5=1", f"GLIBC_TUNABLES={_TUNABLES}"]
 
 # Arm name -> prefetcher at L1D and at L2. The LLC has none in any arm.
 ARMS = {

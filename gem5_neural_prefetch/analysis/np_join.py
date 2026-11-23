@@ -49,7 +49,7 @@ class Arm:
         fields = cache_fields(events["code"])
         self.events = events
         self.fields = fields
-        data = ~fields["inst"]
+        data = ~fields["inst"] & ~fields["evict"]
         demand = data & ~fields["hwpf"] & ~fields["swpf"]
 
         order = np.argsort(self.seq, kind="stable")

@@ -75,15 +75,21 @@ def take_checkpoints(name, force):
     return name, "ok" if code == 0 and done else f"FAILED ({code})", seconds
 
 
-def run_dir(name, offset, arm):
-    return STUDY / "raw" / "runs" / f"{name}__o{offset}__{arm}"
+def run_dir(name, offset, arm, capture=True):
+    suffix = "" if capture else "__nocapture"
+    return STUDY / "raw" / "runs" / f"{name}__o{offset}__{arm}{suffix}"
 
 
-def run_arm(name, offset, arm, warmup, measure, with_uops, force):
+def run_arm(name, offset, arm, warmup, measure, with_uops, force, capture=True):
     spec = workload(name)
-    out = run_dir(name, offset, arm)
+    out = run_dir(name, offset, arm, capture)
     label = out.name
-    if (out / "capture" / "capture_counts.json").exists() and not force:
+    finished = (
+        out / "capture" / "capture_counts.json"
+        if capture
+        else out / "m5out" / "run_info.json"
+    )
+    if finished.exists() and not force:
         return label, "exists", 0.0
     checkpoint = STUDY / "raw" / "checkpoints" / name / f"cpt_{offset}"
     if not checkpoint.exists():
@@ -104,16 +110,15 @@ def run_arm(name, offset, arm, warmup, measure, with_uops, force):
         warmup,
         "--measure",
         measure,
-        "--capture",
-        out / "capture",
         "--stdout",
         out / "stdout.txt",
     ]
-    if not with_uops:
-        command.append("--no-uops")
+    if capture:
+        command += ["--capture", out / "capture"]
+        if not with_uops:
+            command.append("--no-uops")
     code, seconds = launch(command, out / "gem5.log")
-    done = (out / "capture" / "capture_counts.json").exists()
-    return label, "ok" if code == 0 and done else f"FAILED ({code})", seconds
+    return label, "ok" if code == 0 and finished.exists() else f"FAILED ({code})", seconds
 
 
 def report(results):
@@ -143,6 +148,11 @@ def main():
         "--uops-arm",
         default="nopf",
         help="the one arm that also records the architectural streams",
+    )
+    p.add_argument(
+        "--no-capture",
+        action="store_true",
+        help="run without the capture object, for the non-intrusion check V2",
     )
     p.add_argument("-j", "--jobs", type=int, default=6)
     p.add_argument("--force", action="store_true")
@@ -190,6 +200,7 @@ def main():
                                 args.measure,
                                 arm == args.uops_arm,
                                 args.force,
+                                not args.no_capture,
                             )
                         )
         return 1 if report(job.result() for job in jobs) else 0

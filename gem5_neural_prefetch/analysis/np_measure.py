@@ -140,16 +140,28 @@ def held_out_bits(context, label, split):
     )
 
 
-def measure(nopf_dir, fast_dir, edges_path):
-    nopf, fast = Arm(nopf_dir), Arm(fast_dir)
+class Window:
+    """Everything about one window that does not depend on the arm."""
+
+    def __init__(self, nopf_dir, edges_path):
+        self.nopf = Arm(nopf_dir)
+        self.load = self.nopf.capture.table("load")
+        self.n = self.nopf.n
+        edges = read_edges(edges_path)
+        if len(edges) != self.n:
+            raise SystemExit(f"edges cover {len(edges)} loads, capture has {self.n}")
+        self.relations = fit(self.load, edges)
+        self.long_latency = self.nopf.latency >= LONG_LATENCY
+        self.depth = chain_depth(self.relations, self.long_latency)
+        self.classes = mechanism_classes(self.load, self.relations, self.nopf.miss[1])
+        self.label = cheapest(self.classes, self.depth)
+
+
+def measure(window, fast_dir):
+    nopf, fast = window.nopf, Arm(fast_dir)
     if nopf.counts["v1_load_hash"] != fast.counts["v1_load_hash"]:
         raise SystemExit("V1 failed: the two arms committed different loads")
-    load = nopf.capture.table("load")
-    n = nopf.n
-    edges = read_edges(edges_path)
-    if len(edges) != n:
-        raise SystemExit(f"edges cover {len(edges)} loads, capture has {n}")
-    relations = fit(load, edges)
+    load, n, relations = window.load, window.n, window.relations
 
     out = {
         "window": {
@@ -189,12 +201,10 @@ def measure(nopf_dir, fast_dir, edges_path):
     outcome2 = fast_outcome(fast, 2)
     residual = original & ((outcome2 == 1) | (outcome2 == 2))
     weight = fast.stall
-    long_latency = nopf.latency >= LONG_LATENCY
+    long_latency = window.long_latency
 
     # ---- M2: mechanism census ----------------------------------------
-    depth = chain_depth(relations, long_latency)
-    classes = mechanism_classes(load, relations, nopf.miss[1])
-    label = cheapest(classes, depth)
+    depth, classes, label = window.depth, window.classes, window.label
     m2 = {"targets": int(residual.sum()), "stall": float(weight[residual].sum())}
     for code, name in enumerate(CHEAPEST_NAMES):
         chosen = residual & (label == code)
@@ -359,7 +369,7 @@ def measure(nopf_dir, fast_dir, edges_path):
 def main():
     if len(sys.argv) != 5:
         raise SystemExit(__doc__)
-    result = measure(sys.argv[1], sys.argv[2], sys.argv[3])
+    result = measure(Window(sys.argv[1], sys.argv[3]), sys.argv[2])
     Path(sys.argv[4]).parent.mkdir(parents=True, exist_ok=True)
     Path(sys.argv[4]).write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result["window"], indent=2))

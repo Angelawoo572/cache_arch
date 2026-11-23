@@ -480,14 +480,23 @@ NpCapture::cacheEvent(int level, unsigned event,
     if (event == EvHit &&
         arg.cache.hasBeenPrefetched(addr, pkt->isSecure()))
         code |= 1ULL << 8;
-    if (pkt->cmd.isHWPrefetch())
+    // Below the cache that issued it, a hardware prefetch travels as an
+    // ordinary read and comes back as an ordinary response. Only the task
+    // id that the prefetcher put on the request still identifies it.
+    if (pkt->cmd.isHWPrefetch() ||
+        req->taskId() == context_switch_task_id::Prefetcher)
         code |= 1ULL << 9;
-    if (pkt->isWrite() || pkt->needsWritable())
+    // needsWritable() may only be asked of a request; a fill is a response.
+    if (pkt->isWrite() || (pkt->isRequest() && pkt->needsWritable()))
         code |= 1ULL << 10;
     if (req->isInstFetch())
         code |= 1ULL << 11;
     if (pkt->cmd.isSWPrefetch())
         code |= 1ULL << 12;
+    // A cache announces an eviction to the next level with a request, and
+    // that level's hit and miss probes fire for it like for any other.
+    if (pkt->isEviction())
+        code |= 1ULL << 13;
     code |= (uint64_t(req->requestorId()) & 0xffff) << 16;
 
     // An ordinary L1D hit says nothing a missing S6 row does not already

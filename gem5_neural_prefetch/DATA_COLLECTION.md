@@ -1,16 +1,18 @@
 # Exact data-collection specification
 
-This file says what the gem5 capture records, when each field becomes visible to hardware, and how the capture is validated. It is a specification. Nothing in it is implemented yet. The [design memo](README.md) explains why each stream exists.
+This file says what the gem5 capture records, when each field becomes visible to hardware, and how the capture is validated. The [design memo](README.md) explains why each stream exists.
+
+The first capture is [`sim/np_ext/np_capture.cc`](sim/np_ext/np_capture.cc). It records S1 to S4, S6 and S8 with probe listeners only and changes no gem5 source file. S5, S7, S9 and S10 are specified here and not recorded yet.
 
 ## Conventions
 
 - **Time.** gem5 ticks. The manifest stores the core clock period in ticks. Cycles are ticks divided by that period.
-- **Region.** Each run restores a checkpoint, warms up for a fixed number of committed instructions, then measures a fixed number. Windows are chosen before any result is seen.
+- **Region.** Each run restores a checkpoint, warms up for a fixed number of committed instructions, then measures a fixed number. Windows are chosen before any result is seen. The capture object counts committed instructions itself and opens and closes the window on exact instruction boundaries, so every arm records the same instructions whatever its timing. gem5's own statistics are reset and dumped at the nearest cycle boundaries, which can differ by a few instructions.
 - **Arms.** `nopf` disables every prefetcher. `fast` enables the conventional prefetchers only. `oracle` and `learned` come in later stages. All arms use the same binary, input, checkpoint and region, on one thread.
 - **Keys.** `uop` is the zero-based index of a committed micro-op in the measured region. `ld` is the zero-based index among committed loads, which is the row index of S2. Both are the same in every arm. `seq` is gem5's dynamic sequence number. It also counts squashed micro-ops, so it is valid inside one arm only.
 - **Addresses.** Byte addresses, virtual and physical. A line is `address >> 6`.
 - **Files.** Each stream is `<name>.u64le.gz`: fixed-width rows of little-endian unsigned 64-bit integers in independent gzip members of 32,768 rows, with `<name>.index.csv` giving `first_row`, `rows`, `byte_offset` and `compressed_bytes` per member. The existing ChampSim captures use this layout, so their [indexed reader](../llc_hybrid_prefetch/learning_opportunity/capture/access.py) pattern applies.
-- **Location.** `gem5_neural_prefetch/raw/capture/<workload>__<input>__<window>__<arm>/` under either cache root. `raw/` is git-ignored.
+- **Location.** `gem5_neural_prefetch/raw/runs/<workload>__o<offset>__<arm>/capture/` on Sacramento, where `offset` is the number of instructions between the workload's marker and the checkpoint. `raw/` is git-ignored.
 
 ## Streams
 
@@ -23,7 +25,7 @@ Architectural streams S1 to S3 are recorded once per window, from the `nopf` arm
 | S3 `store` | committed store | `uop`, `pc`, `vaddr`, `size_flags`, `value` |
 | S4 `load_time` | committed load, in S2 order | `seq`, `paddr`, `t_fetch`, `t_rename`, `t_issue`, `t_data`, `t_head`, `t_commit`, `service` |
 | S5 `wrong_path_load` | executed load that was later squashed | `seq`, `pc`, `vaddr`, `t_issue`, `t_squash` |
-| S6 `cache` | cache event at L1D, L2 or LLC | `tick`, `code`, `paddr_line`, `vaddr_line`, `who` |
+| S6 `cache` | cache event at L1D, L2 or LLC | `tick`, `code`, `paddr_line`, `vaddr_line`, `who`, `pc` |
 | S7 `prefetch` | prefetch lifecycle event | `tick`, `code`, `request`, `trigger_seq`, `line`, `consumer_seq` |
 | S8 `fill_content` | line filled at the fill level | `tick`, `paddr_line`, `vaddr_line`, `w0` to `w7` |
 | S9 `dtlb` | data-TLB miss | `seq`, `vaddr`, `t_start`, `t_done` |
@@ -33,16 +35,16 @@ Packed fields. Bit 0 is the least significant.
 
 | Field | Layout |
 |---|---|
-| S1 `meta` | Bits 0–7 micro-op index within its instruction. 8–15 gem5 operation class. 16 load. 17 store. 18 control. 19 indirect control. 20 call. 21 return. 22 conditional. 32–39 number of source registers. 40–47 number of destination registers. |
+| S1 `meta` | Bits 0–7 micro-op index within its instruction. 8–15 gem5 operation class. 16 load. 17 store. 18 control. 19 indirect control. 20 call. 21 return. 22 conditional. 23 `dst_value` is valid. 32–39 number of source registers. 40–47 number of destination registers. |
 | S1 `src` | Four 16-bit ids: the first four integer-class source registers. |
-| S1 `dst` | Two 16-bit ids: the first two destination registers. |
+| S1 `dst` | Two 16-bit ids: the first two integer-class destination registers. |
 | Register id | `(register class << 12) \| index`. `0xFFFF` means none. Micro-op temporaries keep their own indices. |
 | S1 `dst_value` | The 64-bit result written to the first integer destination. 0 if there is none. |
-| S2, S3 `size_flags` | Bits 0–7 access size in bytes. Bit 8 the access spans two lines. Bit 9 the value is truncated to its first 8 bytes. |
+| S2, S3 `size_flags` | Bits 0–7 access size in bytes. Bit 8 the access spans two lines. Bit 9 the value is truncated to its first 8 bytes. Bit 10 no data was read, as for a software prefetch. |
 | S2, S3 `value` | The bytes read or written, little-endian, zero-extended. |
-| S4 `service` | Bits 0–3 the level that supplied the data: 0 store forwarding, 1 L1D, 2 L2, 3 LLC, 4 memory. Bit 4 this load was the first demand use of a prefetched line. Bit 5 this load merged into a prefetch still in flight. Bits 8–11 the level of that line. Bits 12–19 the unit that requested it. |
-| S6 `code` | Bits 0–3 level: 1 L1D, 2 L2, 3 LLC. Bits 4–7 event: 1 demand hit, 2 demand miss, 3 demand merged into an in-flight request, 4 fill, 5 eviction. Bit 8 the line or in-flight request came from a prefetch. Bits 12–19 the requesting unit. |
-| S6 `who` | The `seq` of the demanding load, or the prefetch `request` id. |
+| S4 `service` | Bit 0 the data came back from the cache. Clear means a store forwarded it. The level that served a load, first use of a prefetched line and merging into a prefetch in flight are derived from S6 through `seq`. |
+| S6 `code` | Bits 0–3 level: 1 L1D, 2 L2, 3 LLC. Bits 4–7 event: 1 hit, 2 miss, 4 fill. Bit 8 a hit that is the first use of a prefetched line. Bit 9 the packet is a hardware prefetch, or for a fill, answers one. Bit 10 write. Bit 11 instruction fetch. Bit 12 software prefetch. Bit 13 an eviction or writeback announced by the level above, which fires that level's hit or miss probe like any request. Bits 16–31 gem5's requestor id. An ordinary L1D hit is not recorded: a load with no L1D row hit there. |
+| S6 `who`, `pc` | The `seq` and PC of the instruction behind the request. Zero when the request carries none, as most prefetches do. |
 | S7 `code` | Bits 0–7 unit: 1–15 conventional prefetchers in configuration order, 16 traversal unit. Bits 8–15 stage: 1 identified, 2 dropped, 3 queued, 4 issued, 5 filled, 6 first use, 7 evicted unused, 8 unresolved at the end of the region. Bits 16–23 reason. For a drop: 1 in cache, 2 in flight, 3 already queued, 4 queue full, 5 page crossing, 6 translation failed, 7 budget. For a first use: 1 timely, 2 late. |
 | S7 `line` | Line number. Bit 63 is set when it is physical. |
 | S10 `occupancy` | One byte each: L2 in-flight misses, LLC in-flight misses, L2 prefetch queue, LLC prefetch queue, LLC write buffer, memory-controller read queue. |
@@ -79,9 +81,9 @@ Identifiers below were read in the gem5 source at stable release 26.0.0.0, commi
 | S3 `store` | `"Commit"` for the key and address. The value comes from `"DataAccessComplete"`, a `ProbePointArg<std::pair<DynInstPtr, PacketPtr>>`, at the store's writeback after commit, because a store's `memData` is still null at commit | Listener only |
 | S4 `load_time` | `fetchTick`, `renameTick`, `commitTick` and `firstIssue` on the instruction, and `physEffAddr`. `t_data` is the tick of `"DataAccessComplete"`, or of `"ToCommit"` for a forwarded load, which never fires the former. `t_head` is kept by the listener. `service` is joined from S6 by `seq` | Listener only |
 | S5 `wrong_path_load` | `"Execute"`, which fires before the squash check, with `"Squash"` and `"Commit"` to settle each load's fate | Listener only. `"Squash"` covers instructions that reached the reorder buffer |
-| S6 `cache` | `"Hit"`, `"Miss"` and `"Fill"` on each classic cache, each carrying a `CacheAccessProbeArg` with the packet and a cache accessor. `"Data Update"` with empty `newData` marks an eviction. The demanding load is `pkt->req->getReqInstSeqNum()`. First use of a prefetched line is `hasBeenPrefetched(...)` on the accessor, read inside the `"Hit"` listener before the cache clears the mark | Probes are upstream, in timing mode only. A demand that merges into an in-flight request has no probe: small patch in the miss-queue path |
+| S6 `cache` | `"Hit"`, `"Miss"` and `"Fill"` on each classic cache, each carrying a `CacheAccessProbeArg` with the packet and a cache accessor. `"Data Update"` with empty `newData` marks an eviction. The demanding load is `pkt->req->getReqInstSeqNum()`. First use of a prefetched line is `hasBeenPrefetched(...)` on the accessor, read inside the `"Hit"` listener before the cache clears the mark | Listener only. The probes exist in timing mode only. A demand that merges into an in-flight request has no probe, so a late prefetch is derived from the next fill of the line |
 | S7 `prefetch` | Candidate, drop and issue events inside `prefetch::Queued` (`notify`, `insert`, `getPacket`) and the drops in `BaseCache::getNextQueueEntry`. First use comes from S6. Unused eviction is taken where the cache invalidates a block, because the `hwPrefetched` field of `"Data Update"` is not set reliably on invalidations | Small patch: new probe points. Upstream exposes these events as counters only |
-| S8 `fill_content` | `"Data Update"`, a `CacheDataUpdateProbeArg`. A fill has empty `oldData` and the new line in `newData` as 64-bit words | Listener only |
+| S8 `fill_content` | The `"Fill"` probe: the response packet carries the whole line. `"Data Update"` cannot be used, see the traps below | Listener only |
 | S9 `dtlb` | No probe was identified | Patch, or defer to Stage 4 |
 | S10 `pressure` | In-flight miss and queue occupancy are not exposed through a probe argument | Small patch |
 
@@ -90,8 +92,12 @@ Source files for these hooks at that commit: [`src/cpu/o3/commit.cc`](https://gi
 Traps found while reading the source:
 
 - **Listener types.** A listener's argument type must equal the probe point's exactly, or gem5 stops with a "Wrong type of listener" panic.
+- **`"Data Update"` does not carry the line.** It builds its `oldData` and `newData` vectors from the first eight bytes of the block, one byte per element, so seven eighths of the line are missing. Line contents come from the `"Fill"` packet.
+- **A demand that merges at a cache has no deeper event of its own.** The request that opened the miss owns the events at the next level. A late prefetch is found from the fill instead: a demand miss is late when the next fill of its line at that level answers a prefetch.
 - **`completeTick` is not data return.** On a load it marks when the access was initiated. `issueTick` is assigned only in tracing builds. This capture uses `firstIssue` and the probe ticks named above.
-- **gem5's "late" is not ours.** The statistic `pfLate` counts prefetches dropped at issue because the line was already present or in flight. In this project a late prefetch is one that a demand merges into while it is still in flight. gem5 does not count such a demand in `pfUseful` and does not mark the block as prefetched. The S6 patch is what makes late prefetches measurable.
+- **gem5's "late" is not ours.** The statistic `pfLate` counts prefetches dropped at issue because the line was already present or in flight. In this project a late prefetch is one that a demand merges into while it is still in flight. gem5 does not count such a demand in `pfUseful` and does not mark the block as prefetched. This capture finds late prefetches from the fill that follows the demand miss.
+- **A prefetch looks like a read everywhere but where it was issued.** The issuing cache holds the `HardPFReq` packet. What it sends down is a plain read on the same request, and the fill is a plain response. The capture recognises prefetch traffic by the task id `Prefetcher` that gem5 puts on the request.
+- **A prefetcher is starved when demand fills the miss registers.** A cache issues a prefetch only when it has a free miss register beyond its demand reserve. A loop that keeps every L1D miss register busy leaves its L1D prefetcher issuing nothing.
 - **Hits are hidden from prefetchers by default.** A prefetcher sees ordinary hits only with `prefetch_on_access=True` and `prefetch_on_pf_hit=False`.
 - **No data at a read miss.** `PrefetchInfo` carries data on read hits and on writes, and never on read misses. A traversal unit therefore reads lines on the fill path.
 - **Classic caches only.** The hit, miss and fill probes fire only in the classic cache model in timing mode. The stock GAPBS, NPB and SPEC scripts use Ruby caches, so this capture needs its own configuration with classic caches and the O3 CPU.
@@ -138,7 +144,7 @@ Each has a working set larger than the LLC and a fixed seed. Their structure val
 
 ## Size and sampling
 
-- Row sizes in bytes: S1 40, S2 40, S3 40, S4 72, S5 40, S6 40, S7 48, S8 88, S9 32, S10 16.
+- Row sizes in bytes: S1 40, S2 40, S3 40, S4 72, S5 40, S6 48, S7 48, S8 88, S9 32, S10 16.
 - S1 dominates at 2.0 GB per 50M committed micro-ops before compression. It is needed for label extraction in Stage 1 and can be dropped afterwards.
 - Start with windows of 50M committed instructions. For scale, one 200M-instruction BFS-3 window in the ChampSim study had 47,703,581 load operands and 5,072,480 LLC admissions. [Source](../llc_hybrid_prefetch/learning_opportunity/DATA.md)
 - Compression ratio, capture slowdown and wall time per window are measured in Stage 0 before the matrix is sized.
