@@ -36,6 +36,7 @@ ChampSim-ML/
 external/*
 !external/ChampSim/
 !external/ChampSim-ML/
+!external/gem5/
 !external/README.md
 !external/.gitkeep
 bin/

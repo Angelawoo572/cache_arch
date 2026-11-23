@@ -255,7 +255,7 @@ A speedup claim needs Stage 3 or later with inference latency charged, at least 
 
 ## 10. Priorities and open decisions
 
-1. Settle the five decisions below.
+1. Settle the five decisions below. Done on 22 November 2026.
 2. Stage 0: bring-up, checkpoints, determinism.
 3. Capture and validation on microbenchmarks with known structure.
 4. M1, M2 and M3 on two or three workloads. This is the first go or no-go.
@@ -263,10 +263,10 @@ A speedup claim needs Stage 3 or later with inference latency charged, at least 
 6. Label extractor, the table-with-gate baseline and Stage 2 replay.
 7. A learned selector only where M4 shows a gap. Then Stages 3 to 5.
 
-| Open decision | Proposed default | Why it matters |
+| Decision | Taken on 22 November 2026 | Why |
 |---|---|---|
-| Instruction set and mode | x86-64, syscall emulation, one thread, gem5 26.0 with classic caches. AArch64 if x86 dataflow extraction or model fidelity proves troublesome in Stage 0 | The earlier traces were x86 and no cross-compiler is needed. The public Triangel and Pickle forks run AArch64, so comparing against them later may need it |
-| Workloads | GAP BFS, PageRank, CC, BC and SSSP built from source on at least two graph inputs each. Open pointer-linked programs such as the Olden suite and a hash join. SPEC mcf, omnetpp and xalancbmk only if a licensed copy with inputs is available | SPEC sources are licensed, and the earlier studies used public traces, not binaries |
-| Fast path to complement | L1D stride plus one L2 prefetcher from gem5's built-ins (signature path, best offset or access map). The built-in indirect-memory prefetcher as a separate arm, after its implementation is checked | The residual is defined against this configuration |
+| Instruction set and mode | x86-64, syscall emulation, one thread, gem5 26.0.0.0 with classic caches. AArch64 only if x86 dataflow extraction or model fidelity proves troublesome | The earlier traces were x86 and no cross-compiler is needed. The public Triangel and Pickle forks run AArch64, so comparing against them later may need it |
+| Workloads | Validation microbenchmarks, then GAP BFS, PageRank, CC, BC and SSSP built from source on generated Kronecker and uniform graphs. No SPEC | No SPEC installation was found on Sacramento. SPEC sources are licensed, and the earlier studies used public traces, not binaries |
+| Fast path to complement | L1D stride plus the L2 signature-path prefetcher. Best offset, access map and the indirect-memory prefetcher as further arms | The residual is defined against this configuration. Signature path keeps continuity with the ChampSim study |
 | Tap and fill level | Core-side taps. Requests fill L2 | Translation, PC and values live at the core. The LLC placement stays a measured alternative |
-| Compute and storage | Build gem5 and run captures on Sacramento, which had 48 cores, 92 GiB of memory and 4.3 TB free on 22 November 2026. The Mac had about 82 GiB free | S1 alone is 2 GB per 50M micro-ops before compression. Sacramento had gcc 8.5.0, system Python 3.6.8, no SCons and no gem5 tree, so the build toolchain has to be set up inside the cache root first |
+| Compute and storage | gem5 lives only on Sacramento, in `external/gem5`, linked here as a git submodule pinned to the official v26.0.0.0 tag. No gem5 copy is kept on the Mac | Sacramento had 48 cores, 92 GiB of memory and 4.3 TB free. The Mac had about 82 GiB free. Sacramento's default gcc 8.5.0 and Python 3.6.8 are too old, so the build uses its gcc-toolset-13 and Python 3.11, with SCons in a virtual environment under the cache root |

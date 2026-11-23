@@ -6,3 +6,7 @@
 	path = external/ChampSim-ML
 	url = git@github.com:Quangmire/ChampSim.git
 	ignore = untracked
+[submodule "external/gem5"]
+	path = external/gem5
+	url = https://github.com/gem5/gem5.git
+	ignore = dirty
