@@ -37,8 +37,10 @@ STEPS
 1. Confirm the five open decisions in memo section 10 with the user (ISA, workloads and
    SPEC licence, fast-path configuration, tap and fill level, compute and disk budget).
 2. Build a pinned gem5 release under external/gem5 (already git-ignored): 26.0.0.0
-   unless there is a reason to differ, and not older than 25.1. Record the version,
-   commit, compiler and build command. Keep project code in a separate directory
+   unless there is a reason to differ, and not older than 25.1. On 22 November 2026
+   Sacramento had gcc 8.5.0, system Python 3.6.8, no SCons and no gem5 tree: check
+   gem5's build requirements first and install what is missing inside the cache root,
+   without changing the system. Record the version, commit, compiler and build command. Keep project code in a separate directory
    compiled through EXTRAS; do not edit upstream gem5 files unless a hook is missing
    (DATA_COLLECTION.md lists the small patches expected), and record each patch.
 3. Write one configuration script for the baseline machine: O3 CPU, classic caches in
