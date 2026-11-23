@@ -1,5 +1,11 @@
 # cache_arch
 
+## gem5 neural prefetch design
+
+This branch starts the gem5 study of a tiny learned predictor that plans dependent accesses beside conventional prefetchers. It holds a research design memo and a capture specification. No gem5 code or gem5 result exists yet.
+
+[Design memo](gem5_neural_prefetch/README.md) · [Data-collection specification](gem5_neural_prefetch/DATA_COLLECTION.md) · [Prompt for the next step](gem5_neural_prefetch/NEXT_STEP_PROMPT.md)
+
 ## LLC prefetcher study
 
 This branch studies when a shared LLC prefetcher can predict useful physical lines early enough to reduce execution time. Start with the full SPEC and GAP runs. Earlier studies cover workload screening, miss-to-hit transitions and conventional controls.
